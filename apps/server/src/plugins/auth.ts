@@ -47,7 +47,19 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorateRequest('sessionToken', null);
 
   fastify.addHook('onRequest', async (request: FastifyRequest) => {
-    const sessionToken = request.cookies.session_id;
+    let sessionToken = request.cookies.session_id;
+
+    if (!sessionToken && request.headers.authorization) {
+      const authHeader = request.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        sessionToken = authHeader.substring(7);
+      }
+    }
+
+    if (!sessionToken && (request.query as Record<string, string>)?.token) {
+      sessionToken = (request.query as Record<string, string>).token;
+    }
+
     if (sessionToken) {
       request.sessionToken = sessionToken;
       request.user = await authService.getSessionUser(sessionToken);

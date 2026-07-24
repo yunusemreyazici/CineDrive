@@ -135,7 +135,7 @@ export class GoogleDriveService {
     return this.withExponentialBackoff(async () => {
       const drive = this.createDriveClient(accessToken);
       const response = await drive.files.get(
-        { fileId, alt: 'media' },
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'text' },
       );
       return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
@@ -163,7 +163,7 @@ export class GoogleDriveService {
     }
 
     const response = await drive.files.get(
-      { fileId, alt: 'media' },
+      { fileId, alt: 'media', supportsAllDrives: true },
       {
         headers,
         responseType: 'stream',
