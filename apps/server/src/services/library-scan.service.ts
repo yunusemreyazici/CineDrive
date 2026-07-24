@@ -25,6 +25,7 @@ interface CustomFolderMetadata {
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
+  private activeScans = new Set<string>();
 
   constructor(
     private prisma: PrismaClient,
@@ -37,9 +38,13 @@ export class LibraryScanService {
   }
 
   /**
-   * Scans an entire media library starting from its rootFolderId
+   * Scans an entire media library starting from its rootFolderId with scan locking
    */
   public async scanLibrary(userId: string, libraryId: string): Promise<string> {
+    if (this.activeScans.has(libraryId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+
     const library = await this.prisma.library.findUnique({
       where: { id: libraryId },
     });
@@ -49,6 +54,9 @@ export class LibraryScanService {
     }
 
     const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
+
+    // Acquire lock
+    this.activeScans.add(libraryId);
 
     // Create LibraryScan record
     const scan = await this.prisma.libraryScan.create({
@@ -115,6 +123,9 @@ export class LibraryScanService {
       });
 
       throw err;
+    } finally {
+      // Release lock
+      this.activeScans.delete(libraryId);
     }
 
     return scan.id;

@@ -11,6 +11,49 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     request: FastifyRequest,
     reply: FastifyReply,
   ) => {
+    // Range validation against malformed, multi-range or amplification attacks
+    const rangeHeader = request.headers.range;
+    if (rangeHeader) {
+      // Reject multi-range requests (comma separated)
+      if (rangeHeader.includes(',')) {
+        return reply.status(400).send({
+          error: {
+            code: 'MULTI_RANGE_NOT_SUPPORTED',
+            message: 'Çoklu Range istekleri desteklenmemektedir.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      // Check range syntax regex (e.g. bytes=0-1000 or bytes=1000-)
+      const rangeMatch = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+      if (!rangeMatch) {
+        return reply.status(416).send({
+          error: {
+            code: 'RANGE_NOT_SATISFIABLE',
+            message: 'Geçersiz Range başlığı biçimi.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const startStr = rangeMatch[1];
+      const endStr = rangeMatch[2];
+      if (startStr && endStr) {
+        const start = parseInt(startStr, 10);
+        const end = parseInt(endStr, 10);
+        if (start > end) {
+          return reply.status(416).send({
+            error: {
+              code: 'RANGE_NOT_SATISFIABLE',
+              message: 'Başlangıç pozisyonu bitiş pozisyonundan büyük olamaz.',
+              requestId: request.id,
+            },
+          });
+        }
+      }
+    }
+
     // 1. Verify file exists in database and belongs to an active library
     const driveFile = await fastify.prisma.driveFile.findFirst({
       where: {
@@ -65,8 +108,6 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.on('error', cleanupListeners);
 
     try {
-      const rangeHeader = request.headers.range;
-
       const driveStreamRes = await fastify.driveService.createMediaStream(
         accessToken,
         driveFile.googleDriveFileId,

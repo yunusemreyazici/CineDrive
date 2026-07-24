@@ -115,6 +115,17 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (err: unknown) {
       fastify.log.error({ err, requestId: request.id }, 'Library scan failed');
       const isNotConnected = err instanceof Error && err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED';
+      const isAlreadyRunning = err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS';
+
+      if (isAlreadyRunning) {
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message: 'Bu kütüphane için eşzamanlı bir tarama zaten devam ediyor.',
+            requestId: request.id,
+          },
+        });
+      }
 
       return reply.status(isNotConnected ? 400 : 500).send({
         error: {
