@@ -1,88 +1,172 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { History, Play, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { History, Trash2, Play, Calendar, Film, Tv } from 'lucide-react';
 import { useWatchHistoryQuery, useDeleteHistoryMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { apiClient } from '../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+
+type HistoryFilterType = 'all' | 'movie' | 'series' | 'completed' | 'in_progress';
 
 export const HistoryPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { data: history, isLoading } = useWatchHistoryQuery();
-  const deleteHistory = useDeleteHistoryMutation();
+  const queryClient = useQueryClient();
+  const [activeFilter, setActiveFilter] = useState<HistoryFilterType>('all');
+  const { data: historyItems, isLoading } = useWatchHistoryQuery();
+  const deleteHistoryMutation = useDeleteHistoryMutation();
+
+  const handleClearAllHistory = async () => {
+    if (window.confirm('Tüm izleme geçmişinizi silmek istediğinize emin misiniz?')) {
+      await apiClient.delete('/api/history');
+      queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+    }
+  };
+
+  const formatFriendlyDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Bugün';
+    if (diffDays === 1) return 'Dün';
+    if (diffDays < 7) return `${diffDays} gün önce`;
+
+    return date.toLocaleDateString('tr-TR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+  };
+
+  const filteredItems = (historyItems || []).filter((item) => {
+    if (activeFilter === 'movie') return item.mediaItem.type === 'movie';
+    if (activeFilter === 'series') return item.mediaItem.type === 'series';
+    return true;
+  });
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
-        <div className="p-3 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-2xl">
-          <History className="w-6 h-6" />
+    <div className="space-y-8 max-w-6xl">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800/60">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-brand-600/20 border border-brand-500/30 text-brand-400 rounded-2xl">
+            <History className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">İzleme Geçmişi</h2>
+            <p className="text-sm text-zinc-400 mt-0.5">Daha önce izlediğiniz tüm içeriklerin kaydı</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">İzleme Geçmişi</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Son izlediğiniz film ve dizi bölümleri</p>
-        </div>
+
+        {historyItems && historyItems.length > 0 && (
+          <button
+            onClick={handleClearAllHistory}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-colors self-start sm:self-auto"
+          >
+            <Trash2 className="w-4 h-4" />
+            Tüm Geçmişi Temizle
+          </button>
+        )}
       </div>
 
+      {/* Filter Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+        {[
+          { id: 'all', label: 'Tümü', icon: History },
+          { id: 'movie', label: 'Filmler', icon: Film },
+          { id: 'series', label: 'Diziler', icon: Tv },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveFilter(tab.id as HistoryFilterType)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                activeFilter === tab.id
+                  ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/20'
+                  : 'bg-zinc-900/60 hover:bg-zinc-800 text-zinc-400 border border-zinc-800'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content Section */}
       {isLoading ? (
-        <div className="space-y-3 animate-pulse">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-20 bg-zinc-900 rounded-2xl" />
+        <div className="space-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 bg-zinc-900/40 rounded-2xl animate-pulse" />
           ))}
         </div>
-      ) : !history || history.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <EmptyState
-          icon={History}
           title="İzleme Geçmişi Boş"
-          description="İzlediğiniz filmler ve diziler tarih sırasıyla burada görünecektir."
+          description="Henüz izlediğiniz bir içerik bulunmuyor. Medya kütüphanesinden izlemeye başlayabilirsiniz."
+          actionLabel="Kütüphaneyi Keşfet"
+          onAction={() => (window.location.href = '/library')}
         />
       ) : (
-        <div className="space-y-3">
-          {history.map((item) => {
-            const media = item.mediaItem;
-            const posterUrl = media.posterDriveFileId
-              ? `/api/media/assets/${media.posterDriveFileId}`
-              : null;
-
-            return (
-              <div
-                key={item.id}
-                className="flex items-center justify-between p-4 bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/60 rounded-2xl transition-all"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 aspect-[2/3] bg-zinc-800 rounded-lg overflow-hidden flex-shrink-0">
-                    {posterUrl && <img src={posterUrl} alt={media.title} className="w-full h-full object-cover" />}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-semibold text-zinc-100 font-display">{media.title}</h4>
-                    <p className="text-xs text-zinc-500 mt-0.5">
-                      {new Date(item.watchedAt).toLocaleDateString('tr-TR', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
+        <div className="space-y-4">
+          {filteredItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between p-4 bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/60 rounded-2xl transition-all group"
+            >
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="relative w-16 h-20 bg-zinc-950 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-800">
+                  {item.mediaItem.posterDriveFileId ? (
+                    <img
+                      src={`/api/media/assets/${item.mediaItem.posterDriveFileId}`}
+                      alt={item.mediaItem.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                      <Film className="w-6 h-6" />
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => navigate(`/watch/${media.id}`)}
-                    className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-brand-500/20"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    Devam Et
-                  </button>
-                  <button
-                    onClick={() => deleteHistory.mutate(item.id)}
-                    aria-label="Geçmişten Kaldır"
-                    className="p-2 rounded-xl bg-zinc-800/60 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 border border-zinc-700/50 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-[10px] font-bold text-zinc-300 rounded uppercase">
+                      {item.mediaItem.type === 'movie' ? 'Film' : 'Dizi'}
+                    </span>
+                    <span className="text-xs text-zinc-400 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {formatFriendlyDate(item.watchedAt)}
+                    </span>
+                  </div>
+
+                  <h4 className="text-sm font-bold font-display text-white truncate">
+                    {item.mediaItem.title}
+                  </h4>
                 </div>
               </div>
-            );
-          })}
+
+              {/* Action Group */}
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/watch/${item.mediaItem.id}`}
+                  className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all"
+                  aria-label="İzlemeye Devam Et"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                </a>
+
+                <button
+                  onClick={() => deleteHistoryMutation.mutate(item.id)}
+                  disabled={deleteHistoryMutation.isPending}
+                  className="p-3 bg-zinc-800/60 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 rounded-xl transition-colors"
+                  aria-label="Sil"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -144,6 +144,7 @@ model Episode {
   duration           Float?
   subtitles          SubtitleTrack[]
   playbackProgresses PlaybackProgress[]
+  watchHistories     WatchHistory[]
 
   @@unique([seasonId, episodeNumber])
 }
@@ -180,21 +181,36 @@ model PlaybackProgress {
   durationSeconds Float
   percentage      Float
   completed       Boolean   @default(false)
+  firstStartedAt  DateTime  @default(now())
+  lastPlayedAt    DateTime  @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@unique([userId, mediaItemId, episodeId])
   @@index([userId])
+  @@index([userId, mediaItemId])
+  @@index([userId, lastPlayedAt])
 }
 
 model WatchHistory {
-  id          String    @id @default(uuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mediaItemId String
-  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
-  watchedAt   DateTime  @default(now())
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaItemId     String
+  mediaItem       MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  episodeId       String?
+  episode         Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  positionSeconds Float     @default(0)
+  durationSeconds Float     @default(0)
+  completed       Boolean   @default(false)
+  watchedAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
+  @@unique([userId, mediaItemId, episodeId])
   @@index([userId])
+  @@index([userId, watchedAt])
 }
 
 model Favorite {

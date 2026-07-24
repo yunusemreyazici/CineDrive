@@ -1,119 +1,140 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { updateProgressSchema, type UpdateProgressInput, DEFAULT_COMPLETION_THRESHOLD_PERCENT } from '@cinedrive/shared';
+import { updateProgressSchema } from '@cinedrive/shared';
 
 export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
-  // GET /api/playback/continue: Return in-progress media items
-  fastify.get('/continue', async (request, reply) => {
-    const userId = request.user!.id;
-
-    const inProgress = await fastify.prisma.playbackProgress.findMany({
-      where: {
-        userId,
-        completed: false,
-        positionSeconds: { gt: 10 }, // Only include items watched for > 10s
-      },
-      orderBy: { updatedAt: 'desc' },
-      take: 10,
-      include: {
-        mediaItem: true,
-        episode: true,
-      },
-    });
-
-    return reply.status(200).send({ items: inProgress });
-  });
-
-  // PUT /api/playback/progress: Save position & completion state
-  fastify.put<{ Body: UpdateProgressInput }>('/progress', async (request, reply) => {
-    const userId = request.user!.id;
+  // PUT /api/playback/progress: Record/update position
+  fastify.put('/progress', async (request, reply) => {
     const parseResult = updateProgressSchema.safeParse(request.body);
-
     if (!parseResult.success) {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Geçersiz oynatma ilerlemesi verisi.',
+          message: 'Geçersiz parametre değerleri.',
+          details: parseResult.error.errors,
           requestId: request.id,
-          details: parseResult.error.format(),
         },
       });
     }
 
-    const { mediaItemId, episodeId, positionSeconds, durationSeconds } = parseResult.data;
-
-    const percentage = durationSeconds > 0 ? (positionSeconds / durationSeconds) * 100 : 0;
-    const completed = percentage >= DEFAULT_COMPLETION_THRESHOLD_PERCENT;
-
-    const record = await fastify.prisma.playbackProgress.upsert({
-      where: {
-        userId_mediaItemId_episodeId: {
-          userId,
-          mediaItemId,
-          episodeId: episodeId || '',
-        },
-      },
-      create: {
-        userId,
-        mediaItemId,
-        episodeId: episodeId || '',
-        positionSeconds,
-        durationSeconds,
-        percentage,
-        completed,
-      },
-      update: {
-        positionSeconds,
-        durationSeconds,
-        percentage,
-        completed,
-      },
-    });
-
-    // Record in WatchHistory
-    await fastify.prisma.watchHistory.create({
-      data: {
-        userId,
-        mediaItemId,
-        watchedAt: new Date(),
-      },
-    });
-
-    return reply.status(200).send({ progress: record });
-  });
-
-  // GET /api/history: List watch history
-  fastify.get('/history', async (request, reply) => {
     const userId = request.user!.id;
+    const clientTimestamp = (request.body as { clientTimestamp?: number })?.clientTimestamp;
 
-    const history = await fastify.prisma.watchHistory.findMany({
-      where: { userId },
-      orderBy: { watchedAt: 'desc' },
-      take: 50,
-      include: {
-        mediaItem: {
-          include: {
-            playbackProgresses: {
-              where: { userId },
-            },
+    try {
+      const progress = await fastify.playbackService.updateProgress(userId, {
+        ...parseResult.data,
+        clientTimestamp,
+      });
+
+      return reply.status(200).send({ progress });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      if (message === 'MEDIA_NOT_FOUND') {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'İlgili medya içeriği bulunamadı.',
+            requestId: request.id,
           },
-        },
-      },
-    });
+        });
+      }
 
-    return reply.status(200).send({ history });
+      if (message === 'INVALID_EPISODE') {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_EPISODE',
+            message: 'Geçersiz bölüm ID veya medya ilişkisi uyuşmuyor.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      if (message === 'INVALID_NUMERIC_VALUES') {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_NUMERIC_VALUES',
+            message: 'Pozisyon veya süre değerleri sıfırdan küçük ya da geçersiz olamaz.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      throw err;
+    }
   });
 
-  // DELETE /api/history/:id: Delete watch history entry
-  fastify.delete<{ Params: { id: string } }>('/history/:id', async (request, reply) => {
+  // GET /api/playback/continue: "Continue Watching" list
+  fastify.get('/continue', async (request, reply) => {
+    const userId = request.user!.id;
+    const items = await fastify.playbackService.getContinueWatchingList(userId);
+    return reply.status(200).send({ items });
+  });
+
+  // GET /api/playback/:mediaItemId: Single media item progress
+  fastify.get<{ Params: { mediaItemId: string } }>('/:mediaItemId', async (request, reply) => {
+    const { mediaItemId } = request.params;
+    const userId = request.user!.id;
+    const progressList = await fastify.playbackService.getMediaProgress(userId, mediaItemId);
+    return reply.status(200).send({ progress: progressList[0] || null, all: progressList });
+  });
+
+  // DELETE /api/playback/:mediaItemId: Reset media progress
+  fastify.delete<{ Params: { mediaItemId: string } }>('/:mediaItemId', async (request, reply) => {
+    const { mediaItemId } = request.params;
+    const userId = request.user!.id;
+    await fastify.playbackService.resetProgress(userId, mediaItemId);
+    return reply.status(200).send({ message: 'Progress reset successfully' });
+  });
+};
+
+// Registered under /api/history
+export const historyRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', fastify.authenticate);
+
+  // GET /api/history: Paginated watch history
+  fastify.get<{ Querystring: { page?: string; limit?: string; type?: string } }>(
+    '/',
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const page = request.query.page ? parseInt(request.query.page, 10) : 1;
+      const limit = request.query.limit ? parseInt(request.query.limit, 10) : 20;
+      const type = request.query.type;
+
+      const result = await fastify.playbackService.getWatchHistory(userId, {
+        page,
+        limit,
+        type,
+      });
+
+      return reply.status(200).send(result);
+    },
+  );
+
+  // DELETE /api/history/:id: Delete single history item
+  fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const { id } = request.params;
     const userId = request.user!.id;
 
-    await fastify.prisma.watchHistory.deleteMany({
-      where: { id, userId },
-    });
+    try {
+      await fastify.playbackService.deleteWatchHistoryItem(userId, id);
+      return reply.status(200).send({ message: 'History item deleted successfully' });
+    } catch {
+      return reply.status(404).send({
+        error: {
+          code: 'HISTORY_NOT_FOUND',
+          message: 'Geçmiş kaydı bulunamadı veya yetkiniz yok.',
+          requestId: request.id,
+        },
+      });
+    }
+  });
 
-    return reply.status(200).send({ success: true });
+  // DELETE /api/history: Clear all watch history
+  fastify.delete('/', async (request, reply) => {
+    const userId = request.user!.id;
+    await fastify.playbackService.clearWatchHistory(userId);
+    return reply.status(200).send({ message: 'All history cleared successfully' });
   });
 };
