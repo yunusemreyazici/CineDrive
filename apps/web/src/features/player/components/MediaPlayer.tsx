@@ -239,13 +239,21 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
     }
 
-    // 92% completion check
+    // Trigger next episode overlay when 15s remaining or 94% completion
+    const remainingSeconds = videoRef.current.duration - videoRef.current.currentTime;
     const percentage = (videoRef.current.currentTime / videoRef.current.duration) * 100;
-    if (percentage >= 92 && !showNextEpisodeModal && nextEpisode) {
+    if ((remainingSeconds <= 15 || percentage >= 94) && !showNextEpisodeModal && nextEpisode) {
       saveProgress(true);
       if (autoPlayNext) {
         setShowNextEpisodeModal(true);
       }
+    }
+  };
+
+  const handleVideoEnded = () => {
+    saveProgress(true);
+    if (nextEpisode && autoPlayNext) {
+      setShowNextEpisodeModal(true);
     }
   };
 
@@ -389,6 +397,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         onPlaying={() => setIsBuffering(false)}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onEnded={handleVideoEnded}
         onError={() =>
           setErrorState({
             code: 'STREAM_FAILED',
@@ -426,7 +435,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           nextEpisodeTitle={nextEpisode.title}
           seasonNumber={nextEpisode.seasonNumber}
           episodeNumber={nextEpisode.episodeNumber}
-          onPlayNext={() => handleEpisodeChange(nextEpisode.id)}
+          stillUrl={nextEpisode.stillUrl}
+          posterUrl={media.posterUrl}
+          overview={nextEpisode.overview}
+          onPlayNext={() => {
+            setShowNextEpisodeModal(false);
+            handleEpisodeChange(nextEpisode.id);
+          }}
           onCancel={() => setShowNextEpisodeModal(false)}
         />
       )}
