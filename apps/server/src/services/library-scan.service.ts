@@ -218,6 +218,16 @@ export class LibraryScanService {
         if (driveFile.isNew) added++;
         else updated++;
 
+        // Live progress update on LibraryScan record in DB
+        await this.prisma.libraryScan.update({
+          where: { id: scanId },
+          data: {
+            addedCount: added,
+            updatedCount: updated,
+            errorCount: errors,
+          },
+        }).catch(() => {});
+
         const parsedName = parseMediaFilename(video.name);
         const title = parsedName.title;
         const normalizedTitle = title.toLowerCase();
