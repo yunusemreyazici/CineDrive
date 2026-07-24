@@ -246,6 +246,36 @@ export function useBatchDeleteMediaMutation() {
     },
   });
 }
+
+export function useAutoDownloadSubtitleMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      mediaId,
+      seasonNumber,
+      episodeNumber,
+      language = 'tr',
+    }: {
+      mediaId: string;
+      seasonNumber?: number;
+      episodeNumber?: number;
+      language?: string;
+    }) => {
+      try {
+        const res = await apiClient.post<{ message: string; subtitleTrack: unknown }>(
+          `/media/${mediaId}/auto-subtitle`,
+          { seasonNumber, episodeNumber, language },
+        );
+        return res.data;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail', variables.mediaId] });
+    },
+  });
+}
 export function useMediaListQuery(params?: Partial<MediaQueryInput>) {
   return useQuery({
     queryKey: ['media', params],

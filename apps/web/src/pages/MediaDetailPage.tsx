@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Pencil, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
-import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation } from '../hooks/useApi';
+import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Pencil, Trash2, AlertTriangle, Loader2, Download } from 'lucide-react';
+import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { EditMetadataModal } from '../components/EditMetadataModal';
 import type { SeasonType, EpisodeType } from '../types/media';
@@ -12,11 +12,25 @@ export const MediaDetailPage: React.FC = () => {
   const { data: media, isLoading } = useMediaDetailQuery(mediaId);
   const toggleFavorite = useToggleFavoriteMutation();
   const deleteMutation = useDeleteMediaItemMutation();
+  const autoSubtitleMutation = useAutoDownloadSubtitleMutation();
 
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
   const [showEditModal, setShowEditModal] = useState<boolean>(false);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
+  const [subMessage, setSubMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleAutoDownloadSubtitle = async () => {
+    if (!media) return;
+    setSubMessage(null);
+    try {
+      const res = await autoSubtitleMutation.mutateAsync({ mediaId: media.id });
+      setSubMessage({ type: 'success', text: res.message || 'Altyazı indirildi!' });
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : 'Altyazı bulunamadı.';
+      setSubMessage({ type: 'error', text: msg });
+    }
+  };
 
   const handleDeleteItem = async () => {
     if (!media) return;
@@ -190,6 +204,26 @@ export const MediaDetailPage: React.FC = () => {
               </button>
             )}
 
+            {/* Auto Subtitle Download Button */}
+            <button
+              onClick={handleAutoDownloadSubtitle}
+              disabled={autoSubtitleMutation.isPending}
+              className="flex items-center gap-2 px-4 py-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium text-sm rounded-xl border border-indigo-500/30 backdrop-blur-md transition-all hover:scale-105 disabled:opacity-50"
+              title="OpenSubtitles üzerinden Türkçe altyazı indir ve veritabanına kaydet"
+            >
+              {autoSubtitleMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                  <span>Altyazı İndiriliyor...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 text-indigo-400" />
+                  <span>Altyazı İndir</span>
+                </>
+              )}
+            </button>
+
             <button
               onClick={() =>
                 toggleFavorite.mutate({
@@ -227,6 +261,23 @@ export const MediaDetailPage: React.FC = () => {
               Sil
             </button>
           </div>
+
+          {subMessage && (
+            <div
+              className={`mt-4 p-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2 animate-in fade-in ${
+                subMessage.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+              }`}
+            >
+              {subMessage.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+              )}
+              <span>{subMessage.text}</span>
+            </div>
+          )}
         </div>
       </div>
 

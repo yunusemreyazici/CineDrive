@@ -151,4 +151,118 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
   });
+
+  // POST /api/media/:mediaId/auto-subtitle: Search, download and attach OpenSubtitles track to MediaItem
+  fastify.post<{
+    Params: { mediaId: string };
+    Body: {
+      seasonNumber?: number;
+      episodeNumber?: number;
+      language?: string;
+    };
+  }>('/:mediaId/auto-subtitle', async (request, reply) => {
+    const { mediaId } = request.params;
+    const { seasonNumber, episodeNumber, language = 'tr' } = request.body || {};
+    const userId = request.user!.id;
+
+    const [mediaItem, user, library] = await Promise.all([
+      fastify.prisma.mediaItem.findUnique({
+        where: { id: mediaId },
+      }),
+      fastify.prisma.user.findUnique({ where: { id: userId } }),
+      fastify.prisma.library.findFirst(),
+    ]);
+
+    if (!mediaItem || !library) {
+      return reply.status(404).send({
+        error: {
+          code: 'MEDIA_NOT_FOUND',
+          message: 'Medya içeriği veya kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
+    const openSubtitlesService = new OpenSubtitlesService();
+
+    const searchRes = await openSubtitlesService.searchSubtitles(
+      mediaItem.title,
+      seasonNumber,
+      episodeNumber,
+      [language],
+      user?.opensubtitlesApiKey || undefined,
+    );
+
+    if (!searchRes.results || searchRes.results.length === 0 || !searchRes.results[0]) {
+      return reply.status(404).send({
+        error: {
+          code: 'NO_SUBTITLE_FOUND',
+          message: `${language.toUpperCase()} dilinde uygun altyazı bulunamadı.`,
+          requestId: request.id,
+        },
+      });
+    }
+
+    const topSub = searchRes.results[0];
+
+    const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(
+      topSub.fileId,
+      user?.opensubtitlesApiKey || undefined,
+    );
+
+    const syntheticDriveFileId = `opensub_${topSub.fileId}`;
+
+    let driveFile = await fastify.prisma.driveFile.findFirst({
+      where: { googleDriveFileId: syntheticDriveFileId },
+    });
+
+    if (!driveFile) {
+      driveFile = await fastify.prisma.driveFile.create({
+        data: {
+          googleDriveFileId: syntheticDriveFileId,
+          libraryId: library.id,
+          name: `${topSub.filename}.vtt`,
+          mimeType: 'text/vtt',
+          size: BigInt(Buffer.byteLength(vttContent, 'utf-8')),
+          status: 'active',
+        },
+      });
+    }
+
+    let subtitleTrack = await fastify.prisma.subtitleTrack.findUnique({
+      where: { driveFileId: driveFile.id },
+    });
+
+    if (!subtitleTrack) {
+      subtitleTrack = await fastify.prisma.subtitleTrack.create({
+        data: {
+          mediaItemId: mediaItem.id,
+          driveFileId: driveFile.id,
+          language: topSub.languageCode || language,
+          label: `${topSub.languageName} (OpenSubtitles)`,
+          sourceFormat: 'vtt',
+        },
+      });
+    }
+
+    const crypto = await import('crypto');
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const CACHE_DIR = path.resolve(process.cwd(), 'data', 'subtitle_cache');
+    await fs.mkdir(CACHE_DIR, { recursive: true }).catch(() => {});
+
+    const cacheHash = crypto
+      .default.createHash('sha256')
+      .update(`${syntheticDriveFileId}_1970_nochecksum_v1`)
+      .digest('hex');
+
+    const cacheFilePath = path.default.join(CACHE_DIR, `${cacheHash}.vtt`);
+    await fs.default.writeFile(cacheFilePath, vttContent, 'utf-8').catch(() => {});
+
+    return reply.status(200).send({
+      message: 'Altyazı başarıyla indirildi ve veritabanına kaydedildi.',
+      subtitleTrack,
+    });
+  });
 };
