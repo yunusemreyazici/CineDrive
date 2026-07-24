@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Info, Heart, Sparkles } from 'lucide-react';
+import { Play, Info, Heart, Sparkles, Video } from 'lucide-react';
 import { useToggleFavoriteMutation } from '../../hooks/useApi';
+import { TrailerModal } from './TrailerModal';
 
 interface FeaturedHeroProps {
   media: {
@@ -10,6 +11,7 @@ interface FeaturedHeroProps {
     title: string;
     overview?: string;
     year?: number;
+    trailerUrl?: string | null;
     backdropDriveFileId?: string;
     posterDriveFileId?: string;
     isFavorite?: boolean;
@@ -22,6 +24,7 @@ interface FeaturedHeroProps {
 export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
+  const [showTrailerModal, setShowTrailerModal] = useState(false);
 
   const backdropUrl =
     (media as { backdropUrl?: string; posterUrl?: string }).backdropUrl ||
@@ -82,6 +85,16 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
             {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
           </button>
 
+          {media.trailerUrl && (
+            <button
+              onClick={() => setShowTrailerModal(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-white font-medium text-sm rounded-xl backdrop-blur-md transition-all hover:scale-105"
+            >
+              <Video className="w-4 h-4 text-brand-400" />
+              Fragman
+            </button>
+          )}
+
           <button
             onClick={() => navigate(`/media/${media.id}`)}
             className="flex items-center gap-2 px-5 py-3 bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-white font-medium text-sm rounded-xl backdrop-blur-md transition-all hover:scale-105"
@@ -108,6 +121,13 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
           </button>
         </div>
       </div>
+
+      <TrailerModal
+        isOpen={showTrailerModal}
+        onClose={() => setShowTrailerModal(false)}
+        title={media.title}
+        trailerUrl={media.trailerUrl}
+      />
     </div>
   );
 };

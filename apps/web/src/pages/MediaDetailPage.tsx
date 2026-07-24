@@ -4,6 +4,7 @@ import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Penci
 import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { EditMetadataModal } from '../components/EditMetadataModal';
+import { TrailerModal } from '../components/media/TrailerModal';
 import type { SeasonType, EpisodeType } from '../types/media';
 
 export const MediaDetailPage: React.FC = () => {
@@ -513,6 +514,14 @@ export const MediaDetailPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Trailer Modal */}
+      <TrailerModal
+        isOpen={showTrailerModal}
+        onClose={() => setShowTrailerModal(false)}
+        title={media.title}
+        trailerUrl={media.trailerUrl}
+      />
     </div>
   );
 };
