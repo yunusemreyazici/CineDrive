@@ -6,6 +6,10 @@ import type { UserDto } from '@cinedrive/shared';
 
 const SESSION_EXPIRATION_DAYS = 7;
 
+// Pre-computed dummy Argon2id hash to prevent timing attacks / email enumeration
+const DUMMY_ARGON2_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJBN20vVk1TQUF5cE9IQ29QZFdFZz09';
+
 export class AuthService {
   constructor(private prisma: PrismaClient) {}
 
@@ -47,14 +51,21 @@ export class AuthService {
       where: { email },
     });
 
-    if (!user || !user.passwordHash) {
+    // Timing attack mitigation: always execute argon2.verify even if user does not exist
+    const targetHash = user?.passwordHash || DUMMY_ARGON2_HASH;
+    const validPassword = await argon2.verify(targetHash, passwordPlain);
+
+    if (!user || !user.passwordHash || !validPassword) {
       throw new Error('INVALID_CREDENTIALS');
     }
 
-    const validPassword = await argon2.verify(user.passwordHash, passwordPlain);
-    if (!validPassword) {
-      throw new Error('INVALID_CREDENTIALS');
-    }
+    // Clean up any old expired sessions for this user
+    await this.prisma.session.deleteMany({
+      where: {
+        userId: user.id,
+        expiresAt: { lt: new Date() },
+      },
+    });
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + SESSION_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);

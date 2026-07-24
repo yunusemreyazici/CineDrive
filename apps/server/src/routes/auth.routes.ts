@@ -3,55 +3,66 @@ import { loginSchema, type LoginInput, type UserDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
-  // POST /api/auth/login
-  fastify.post<{ Body: LoginInput }>('/login', async (request, reply) => {
-    const parseResult = loginSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Geçersiz e-posta veya şifre formatı.',
-          requestId: request.id,
-          details: parseResult.error.format(),
+  // POST /api/auth/login (Brute-force protection: max 5 requests per minute per IP)
+  fastify.post<{ Body: LoginInput }>(
+    '/login',
+    {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: '1 minute',
         },
-      });
-    }
-
-    const { email, password } = parseResult.data;
-
-    try {
-      const { user, sessionToken } = await fastify.authService.login(
-        email,
-        password,
-        request.ip,
-        request.headers['user-agent'],
-      );
-
-      reply.setCookie('session_id', sessionToken, {
-        path: '/',
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-      });
-
-      return reply.status(200).send({
-        user,
-      });
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message === 'INVALID_CREDENTIALS') {
-        return reply.status(401).send({
+      },
+    },
+    async (request, reply) => {
+      const parseResult = loginSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
           error: {
-            code: 'INVALID_CREDENTIALS',
-            message: 'E-posta adresi veya şifre hatalı.',
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz e-posta veya şifre formatı.',
             requestId: request.id,
+            details: parseResult.error.format(),
           },
         });
       }
 
-      throw err;
-    }
-  });
+      const { email, password } = parseResult.data;
+
+      try {
+        const { user, sessionToken } = await fastify.authService.login(
+          email,
+          password,
+          request.ip,
+          request.headers['user-agent'],
+        );
+
+        reply.setCookie('session_id', sessionToken, {
+          path: '/',
+          httpOnly: true,
+          secure: env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        });
+
+        return reply.status(200).send({
+          user,
+        });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message === 'INVALID_CREDENTIALS') {
+          return reply.status(401).send({
+            error: {
+              code: 'INVALID_CREDENTIALS',
+              message: 'E-posta adresi veya şifre hatalı.',
+              requestId: request.id,
+            },
+          });
+        }
+
+        throw err;
+      }
+    },
+  );
 
   // POST /api/auth/logout
   fastify.post('/logout', async (request, reply) => {
