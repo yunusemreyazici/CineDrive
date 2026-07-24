@@ -6,6 +6,7 @@ import type {
   MediaQueryInput,
   CreateLibraryInput,
   UpdateProgressInput,
+  UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
 import type { MediaItemType, WatchHistoryType, LibraryScanType, EpisodeType } from '../types/media';
 
@@ -164,7 +165,64 @@ export function useLibraryScansQuery(libraryId?: string) {
   });
 }
 
+export function useClearLibraryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (libraryId: string) => {
+      try {
+        const res = await apiClient.delete<{ message: string }>(`/libraries/${libraryId}/clear`);
+        return res.data;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: (_, libraryId) => {
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['libraryScans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
+    },
+  });
+}
+
 // --- MEDIA HOOKS ---
+export function useUpdateMediaMetadataMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: UpdateMediaMetadataInput }) => {
+      try {
+        const res = await apiClient.patch<{ mediaItem: MediaItemType }>(`/media/${id}`, data);
+        return res.data.mediaItem;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: (updatedItem) => {
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail', updatedItem.id] });
+    },
+  });
+}
+
+export function useDeleteMediaItemMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (mediaItemId: string) => {
+      try {
+        const res = await apiClient.delete<{ message: string }>(`/media/${mediaItemId}`);
+        return res.data;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
+      queryClient.invalidateQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+  });
+}
 export function useMediaListQuery(params?: Partial<MediaQueryInput>) {
   return useQuery({
     queryKey: ['media', params],

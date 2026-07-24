@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Settings,
   ShieldCheck,
@@ -10,6 +10,8 @@ import {
   Loader2,
   Palette,
   Check,
+  Trash2,
+  Database,
 } from 'lucide-react';
 import {
   useGoogleStatusQuery,
@@ -19,6 +21,7 @@ import {
   useLibrariesQuery,
   useScanLibraryMutation,
   useLibraryScansQuery,
+  useClearLibraryMutation,
   useOpenSubtitlesSettingsQuery,
   useUpdateOpenSubtitlesSettingsMutation,
 } from '../hooks/useApi';
@@ -223,6 +226,9 @@ export const SettingsPage: React.FC = () => {
 
       {/* OpenSubtitles Integration Section */}
       <OpenSubtitlesSettingsCard />
+
+      {/* Database Management Section */}
+      <DatabaseManagementCard />
     </div>
   );
 };
@@ -443,5 +449,104 @@ const OpenSubtitlesSettingsCard: React.FC = () => {
         </form>
       )}
     </div>
+  );
+};
+
+const DatabaseManagementCard: React.FC = () => {
+  const { data: libraries } = useLibrariesQuery();
+  const activeLibrary = libraries?.[0];
+  const clearLibrary = useClearLibraryMutation();
+  const [showClearDbConfirmModal, setShowClearDbConfirmModal] = useState<boolean>(false);
+
+  return (
+    <>
+      <div className="bg-rose-500/5 border border-rose-500/20 rounded-3xl p-6 md:p-8 space-y-6">
+        <div className="flex items-center justify-between border-b border-rose-500/20 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-500/20 text-rose-400 rounded-xl">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold font-display text-white">Veritabanı Yönetimi</h3>
+              <p className="text-xs text-zinc-400">Kütüphane veritabanı sıfırlama ve temizlik işlemleri</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h4 className="text-sm font-semibold text-zinc-200">Kütüphane Veritabanını Temizle</h4>
+            <p className="text-xs text-zinc-400 leading-relaxed max-w-xl">
+              Taranan tüm film, dizi, bölüm, altyazı ve izleme geçmişi verilerini CineDrive veritabanından siler. Google Drive hesaplarınızdaki orijinal dosyalarınıza dokunulmaz.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowClearDbConfirmModal(true)}
+            disabled={!activeLibrary || clearLibrary.isPending}
+            className="flex items-center gap-2 px-5 py-2.5 bg-rose-600/90 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all disabled:opacity-40 flex-shrink-0"
+          >
+            <Trash2 className="w-4 h-4" />
+            Veritabanını Temizle
+          </button>
+        </div>
+      </div>
+
+      {showClearDbConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white font-display">Veritabanı Sıfırlama</h3>
+                <p className="text-xs text-zinc-400">Bu işlem geri alınamaz!</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-zinc-300 leading-relaxed">
+              CineDrive kütüphanesine ait tüm taranmış medya kayıtları, bölümler, altyazılar ve izleme geçmişi veritabanından silinecektir. Google Drive dosyalarınız silinmez. Devam etmek istiyor musunuz?
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowClearDbConfirmModal(false)}
+                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!activeLibrary) return;
+                  try {
+                    await clearLibrary.mutateAsync(activeLibrary.id);
+                    setShowClearDbConfirmModal(false);
+                  } catch {
+                    // Error handled in react-query
+                  }
+                }}
+                disabled={clearLibrary.isPending}
+                className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all disabled:opacity-50"
+              >
+                {clearLibrary.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Temizleniyor...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Evet, Tümünü Temizle
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

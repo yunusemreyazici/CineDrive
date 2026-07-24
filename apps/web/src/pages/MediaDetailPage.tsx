@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User } from 'lucide-react';
-import { useMediaDetailQuery, useToggleFavoriteMutation } from '../hooks/useApi';
+import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Pencil, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { EditMetadataModal } from '../components/EditMetadataModal';
 import type { SeasonType, EpisodeType } from '../types/media';
 
 export const MediaDetailPage: React.FC = () => {
@@ -10,9 +11,22 @@ export const MediaDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { data: media, isLoading } = useMediaDetailQuery(mediaId);
   const toggleFavorite = useToggleFavoriteMutation();
+  const deleteMutation = useDeleteMediaItemMutation();
 
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
+  const [showEditModal, setShowEditModal] = useState<boolean>(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
+
+  const handleDeleteItem = async () => {
+    if (!media) return;
+    try {
+      await deleteMutation.mutateAsync(media.id);
+      navigate('/library');
+    } catch {
+      // Error handled by react-query
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -185,11 +199,32 @@ export const MediaDetailPage: React.FC = () => {
               }
               className={`p-3 rounded-xl border backdrop-blur-md transition-all hover:scale-105 ${
                 media.isFavorite
-                  ? 'bg-rose-500/20 border-rose-500/40 text-rose-500'
-                  : 'bg-zinc-900/80 border-zinc-700 text-zinc-400 hover:text-white'
+                  ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                  : 'bg-zinc-800/90 border-zinc-700 text-zinc-300 hover:text-white'
               }`}
+              title={media.isFavorite ? 'Favorilerden Çıkar' : 'Favorilere Ekle'}
             >
               <Heart className={`w-5 h-5 ${media.isFavorite ? 'fill-current' : ''}`} />
+            </button>
+
+            {/* Edit Metadata Button */}
+            <button
+              onClick={() => setShowEditModal(true)}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
+              title="Metadata Düzenle"
+            >
+              <Pencil className="w-4 h-4 text-brand-400" />
+              Düzenle
+            </button>
+
+            {/* Delete Item Button */}
+            <button
+              onClick={() => setShowDeleteConfirmModal(true)}
+              className="flex items-center gap-2 px-4 py-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-sm rounded-xl border border-rose-500/30 backdrop-blur-md transition-all hover:scale-105"
+              title="Veritabanından Sil"
+            >
+              <Trash2 className="w-4 h-4" />
+              Sil
             </button>
           </div>
         </div>
@@ -361,6 +396,64 @@ export const MediaDetailPage: React.FC = () => {
                 allowFullScreen
                 className="w-full h-full border-0"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Metadata Modal */}
+      {showEditModal && (
+        <EditMetadataModal
+          media={media}
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white font-display">İçeriği Sil</h3>
+                <p className="text-xs text-zinc-400">Bu işlem CineDrive veritabanından kaldırılacaktır.</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-zinc-300 leading-relaxed">
+              <strong className="text-white">{media.title}</strong> içerikli medya kaydı veritabanından silinecektir. Google Drive dosyanız silinmez. Devam etmek istiyor musunuz?
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
+              >
+                İptal
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteItem}
+                disabled={deleteMutation.isPending}
+                className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Siliniyor...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Evet, Sil
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

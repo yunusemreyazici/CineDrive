@@ -175,4 +175,42 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(200).send({ scans });
   });
+
+  // DELETE /api/libraries/:id/clear: Wipe all scanned media & files from the database
+  fastify.delete<{ Params: { id: string } }>('/:id/clear', async (request, reply) => {
+    const { id } = request.params;
+
+    const library = await fastify.prisma.library.findUnique({ where: { id } });
+    if (!library) {
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    // Delete in sequence to clear all library media data
+    await fastify.prisma.libraryScanError.deleteMany({});
+    await fastify.prisma.libraryScan.deleteMany({ where: { libraryId: id } });
+    await fastify.prisma.subtitleTrack.deleteMany({});
+    await fastify.prisma.playbackProgress.deleteMany({});
+    await fastify.prisma.watchHistory.deleteMany({});
+    await fastify.prisma.favorite.deleteMany({});
+    await fastify.prisma.episode.deleteMany({});
+    await fastify.prisma.season.deleteMany({});
+    await fastify.prisma.series.deleteMany({});
+    await fastify.prisma.movie.deleteMany({});
+    await fastify.prisma.driveFile.deleteMany({ where: { libraryId: id } });
+
+    await fastify.prisma.library.update({
+      where: { id },
+      data: { lastScannedAt: null },
+    });
+
+    return reply.status(200).send({
+      message: 'Kütüphane veritabanı başarıyla temizlendi.',
+    });
+  });
 };

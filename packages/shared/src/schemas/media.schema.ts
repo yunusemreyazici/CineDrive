@@ -12,3 +12,16 @@ export const mediaQuerySchema = z.object({
 });
 
 export type MediaQueryInput = z.infer<typeof mediaQuerySchema>;
+
+export const updateMediaMetadataSchema = z.object({
+  title: z.string().min(1, 'Başlık boş olamaz.').optional(),
+  year: z.coerce.number().nullable().optional(),
+  overview: z.string().nullable().optional(),
+  posterUrl: z.string().nullable().optional(),
+  backdropUrl: z.string().nullable().optional(),
+  genres: z.array(z.string()).optional(),
+  voteAverage: z.coerce.number().nullable().optional(),
+  trailerUrl: z.string().nullable().optional(),
+});
+
+export type UpdateMediaMetadataInput = z.infer<typeof updateMediaMetadataSchema>;

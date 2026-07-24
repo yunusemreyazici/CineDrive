@@ -11,6 +11,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { libraryRoutes } from './routes/library.routes.js';
 import { mediaRoutes } from './routes/media.routes.js';
 import { mediaQueryRoutes } from './routes/media-query.routes.js';
+import { mediaEditRoutes } from './routes/media-edit.routes.js';
 import { playbackRoutes, historyRoutes } from './routes/playback.routes.js';
 import { favoriteRoutes } from './routes/favorite.routes.js';
 import { subtitleRoutes } from './routes/subtitle.routes.js';
@@ -61,7 +62,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     const response: ApiErrorResponse = {
       error: {
         code: error.code || 'INTERNAL_SERVER_ERROR',
-        message: statusCode === 500 ? 'Internal Server Error' : error.message,
+        message: error.message || 'Sunucu hatası oluştu.',
         requestId,
       },
     };
@@ -83,6 +84,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(libraryRoutes, { prefix: '/api/libraries' });
   await app.register(mediaRoutes, { prefix: '/api/media' });
   await app.register(mediaQueryRoutes, { prefix: '/api/media' });
+  await app.register(mediaEditRoutes, { prefix: '/api/media' });
   await app.register(playbackRoutes, { prefix: '/api/playback' });
   await app.register(historyRoutes, { prefix: '/api/history' });
   await app.register(favoriteRoutes, { prefix: '/api/favorites' });
