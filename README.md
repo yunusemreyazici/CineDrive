@@ -12,15 +12,6 @@ Google Drive arşivlerinizi yüksek performanslı, şık ve modern bir kişisel 
 ### 🍿 Medya Detay Sayfası ve Sezon/Bölüm Listesi
 ![Medya Detay](docs/screenshots/media_detail_page.png)
 
-### 🎬 Gelişmiş Video Oynatıcı ve Altyazı Seçenekleri
-![Video Oynatıcı](docs/screenshots/video_player.png)
-
-### 💬 OpenSubtitles Otomatik Altyazı Arama ve Senkronizasyon
-![OpenSubtitles Arama](docs/screenshots/subtitle_menu.png)
-
-### 🔑 Google OAuth Giriş Sayfası
-![Giriş Sayfası](docs/screenshots/login_page.png)
-
 ---
 
 ## ✨ Öne Çıkan Özellikler
