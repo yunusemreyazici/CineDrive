@@ -8,3 +8,4 @@ dist
 coverage
 build
 .agents
+apps/server/data/hls_cache/

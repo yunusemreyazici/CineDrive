@@ -8,6 +8,7 @@ import { SubtitleService } from '../services/subtitle.service.js';
 import { PlaybackService } from '../services/playback.service.js';
 import { TranscodeService } from '../services/transcode.service.js';
 import { LocalScanService } from '../services/local-scan.service.js';
+import { HlsService } from '../services/hls.service.js';
 import type { UserDto } from '@cinedrive/shared';
 
 declare module 'fastify' {
@@ -24,6 +25,7 @@ declare module 'fastify' {
     playbackService: PlaybackService;
     transcodeService: TranscodeService;
     localScanService: LocalScanService;
+    hlsService: HlsService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -37,6 +39,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const playbackService = new PlaybackService(fastify.prisma);
   const transcodeService = new TranscodeService();
   const localScanService = new LocalScanService(fastify.prisma);
+  const hlsService = new HlsService();
 
   fastify.decorate('authService', authService);
   fastify.decorate('googleOAuthService', googleOAuthService);
@@ -46,6 +49,8 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('playbackService', playbackService);
   fastify.decorate('transcodeService', transcodeService);
   fastify.decorate('localScanService', localScanService);
+  fastify.decorate('hlsService', hlsService);
+  fastify.addHook('onClose', async () => hlsService.shutdown());
 
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();

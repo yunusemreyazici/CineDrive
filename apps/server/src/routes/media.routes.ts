@@ -20,6 +20,19 @@ const boundOpenEndedRange = (rangeHeader?: string): string | undefined => {
 export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
+  const resolveActiveDriveFile = (driveFileId: string) =>
+    fastify.prisma.driveFile.findFirst({
+      where: {
+        OR: [
+          { googleDriveFileId: driveFileId },
+          { id: driveFileId },
+          { localFilePath: driveFileId },
+        ],
+        status: 'active',
+      },
+      include: { library: true },
+    });
+
   // Helper handler for GET and HEAD Range streaming requests
   const handleStreamRequest = async (
     driveFileId: string,
@@ -366,6 +379,79 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       throw err;
     }
   };
+
+  // Native Safari HLS playlist. Segments are generated once and then reused.
+  fastify.get<{ Params: { driveFileId: string } }>(
+    '/:driveFileId/hls/index.m3u8',
+    async (request, reply) => {
+      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+      if (!driveFile) {
+        return reply.status(404).send({
+          error: {
+            code: 'HLS_SOURCE_NOT_FOUND',
+            message: 'HLS kaynağı bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      try {
+        const playlistPath = await fastify.hlsService.ensureHls(
+          driveFile.id,
+          async () => {
+            if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+              return driveFile.localFilePath;
+            }
+
+            const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+              request.user!.id,
+              driveFile.library?.googleConnectionId || undefined,
+            );
+            const response = await fastify.driveService.createMediaStream(
+              accessToken,
+              driveFile.googleDriveFileId || '',
+            );
+            return response.stream;
+          },
+        );
+        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+        reply.header('Cache-Control', 'no-cache');
+        return reply.send(fs.createReadStream(playlistPath));
+      } catch (error) {
+        request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
+        return reply.status(500).send({
+          error: {
+            code: 'HLS_PREPARATION_FAILED',
+            message: 'Safari uyumlu akış hazırlanamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    },
+  );
+
+  fastify.get<{ Params: { driveFileId: string; assetName: string } }>(
+    '/:driveFileId/hls/:assetName',
+    async (request, reply) => {
+      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+      if (!driveFile) return reply.status(404).send();
+
+      try {
+        const assetPath = fastify.hlsService.resolveAsset(
+          driveFile.id,
+          request.params.assetName,
+        );
+        if (!fs.existsSync(assetPath)) return reply.status(404).send();
+
+        const isInit = request.params.assetName === 'init.mp4';
+        reply.header('Content-Type', isInit ? 'video/mp4' : 'video/iso.segment');
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+        return reply.send(fs.createReadStream(assetPath));
+      } catch {
+        return reply.status(404).send();
+      }
+    },
+  );
 
   // GET /api/media/:driveFileId/stream
   fastify.get<{ Params: { driveFileId: string } }>(

@@ -50,7 +50,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   // Always prefer the seekable/direct stream. Normal MP4 files are natively
   // supported by Safari and must not be forced through the live transcoder.
   const [useTranscode, setUseTranscode] = useState(false);
-  const [mediaSourceUrl, setMediaSourceUrl] = useState<string | null>(null);
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local Media & Playback State
@@ -282,134 +281,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         useTranscode ? `?transcode=${isSafari ? 'full' : 'audio'}` : ''
       }`
     : '';
-  const shouldUseSafariMediaSource = isSafari && useTranscode;
-  const videoSourceUrl = shouldUseSafariMediaSource
-    ? mediaSourceUrl || undefined
-    : streamUrl;
-
-  // Safari does not reliably accept an endless fragmented MP4 response as a
-  // plain <video src>. Feed the same fMP4 stream through Media Source instead.
-  React.useEffect(() => {
-    if (!shouldUseSafariMediaSource || !streamUrl) {
-      setMediaSourceUrl(null);
-      return;
-    }
-
-    const MediaSourceConstructor = window.MediaSource;
-    const mimeType = 'video/mp4; codecs="avc1.640028, mp4a.40.2"';
-    if (
-      !MediaSourceConstructor ||
-      !MediaSourceConstructor.isTypeSupported(mimeType)
-    ) {
-      setErrorState({
-        code: 'CODEC_NOT_SUPPORTED',
-        message: 'Safari Media Source video akışını desteklemiyor.',
-        isRetryable: false,
-      });
-      return;
-    }
-
-    const mediaSource = new MediaSourceConstructor();
-    const objectUrl = URL.createObjectURL(mediaSource);
-    const abortController = new AbortController();
-    let disposed = false;
-    setMediaSourceUrl(objectUrl);
-
-    const waitForUpdateEnd = (sourceBuffer: SourceBuffer) =>
-      new Promise<void>((resolve, reject) => {
-        const handleUpdateEnd = () => {
-          cleanup();
-          resolve();
-        };
-        const handleError = () => {
-          cleanup();
-          reject(new Error('SOURCE_BUFFER_ERROR'));
-        };
-        const cleanup = () => {
-          sourceBuffer.removeEventListener('updateend', handleUpdateEnd);
-          sourceBuffer.removeEventListener('error', handleError);
-        };
-        sourceBuffer.addEventListener('updateend', handleUpdateEnd, { once: true });
-        sourceBuffer.addEventListener('error', handleError, { once: true });
-      });
-
-    const startStreaming = async () => {
-      try {
-        const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-        const response = await fetch(streamUrl, {
-          credentials: 'same-origin',
-          signal: abortController.signal,
-        });
-        if (!response.ok || !response.body) {
-          throw new Error(`STREAM_HTTP_${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        while (!disposed) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value?.byteLength) continue;
-
-          sourceBuffer.appendBuffer(value);
-          await waitForUpdateEnd(sourceBuffer);
-
-          const video = videoRef.current;
-          if (
-            video &&
-            video.paused &&
-            sourceBuffer.buffered.length > 0 &&
-            sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1) -
-              video.currentTime >=
-              8
-          ) {
-            video.play().catch(() => {});
-          }
-
-          // Retain a rolling two-minute window instead of accumulating an
-          // entire movie in Safari's SourceBuffer memory.
-          if (
-            video &&
-            sourceBuffer.buffered.length > 0 &&
-            video.currentTime > 180 &&
-            !sourceBuffer.updating
-          ) {
-            const removeEnd = video.currentTime - 120;
-            if (removeEnd > sourceBuffer.buffered.start(0)) {
-              sourceBuffer.remove(sourceBuffer.buffered.start(0), removeEnd);
-              await waitForUpdateEnd(sourceBuffer);
-            }
-          }
-        }
-
-        if (!disposed && mediaSource.readyState === 'open') {
-          mediaSource.endOfStream();
-        }
-      } catch (error) {
-        if (disposed || abortController.signal.aborted) return;
-        setErrorState({
-          code: 'STREAM_FAILED',
-          message: 'Safari uyumlu video akışı hazırlanamadı.',
-          isRetryable: true,
-        });
-      }
-    };
-
-    mediaSource.addEventListener('sourceopen', startStreaming, { once: true });
-
-    return () => {
-      disposed = true;
-      abortController.abort();
-      mediaSource.removeEventListener('sourceopen', startStreaming);
-      if (mediaSource.readyState === 'open') {
-        try {
-          mediaSource.endOfStream();
-        } catch {
-          // The SourceBuffer may already be closing.
-        }
-      }
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [shouldUseSafariMediaSource, streamUrl]);
+  const shouldUseSafariHls = isSafari && useTranscode;
+  const videoSourceUrl =
+    shouldUseSafariHls && targetDriveFileId
+      ? `/api/media/${targetDriveFileId}/hls/index.m3u8`
+      : streamUrl;
 
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
@@ -426,8 +302,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setIsBuffering(false);
     const reportedDuration = videoRef.current.duration;
     setDuration(
-      !shouldUseSafariMediaSource &&
-        Number.isFinite(reportedDuration) &&
+      Number.isFinite(reportedDuration) &&
         reportedDuration > 0
         ? reportedDuration
         : 0,
@@ -449,15 +324,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const isCompleted = media.progress?.completed;
 
     if (
-      !shouldUseSafariMediaSource &&
       !isCompleted &&
       savedPos > 15 &&
       savedPos < video.duration - 30
     ) {
       video.pause();
       setShowResumeModal(true);
-    } else if (shouldUseSafariMediaSource) {
-      video.pause();
     } else {
       video.play().catch(() => {});
     }
@@ -518,10 +390,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (videoRef.current.buffered.length > 0) {
       setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
     }
-
-    // Media Source duration grows with appended fragments and is not the real
-    // episode duration. In that mode only the actual `ended` event may advance.
-    if (shouldUseSafariMediaSource) return;
 
     const reportedDuration = videoRef.current.duration;
     if (!Number.isFinite(reportedDuration) || reportedDuration <= 0) return;
@@ -705,10 +573,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             setUseTranscode(true);
             return;
           }
-
-          // Switching to Media Source briefly removes the direct URL while the
-          // object URL is being created; that transition is not a media error.
-          if (shouldUseSafariMediaSource && !mediaSourceUrl) return;
 
           setErrorState({
             code: 'STREAM_FAILED',

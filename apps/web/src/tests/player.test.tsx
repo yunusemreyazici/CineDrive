@@ -131,21 +131,6 @@ describe('Player Components Unit Tests', () => {
       .mockReturnValue(
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
       );
-    class FakeMediaSource {
-      static isTypeSupported = vi.fn().mockReturnValue(true);
-      readyState = 'closed';
-      addEventListener = vi.fn();
-      removeEventListener = vi.fn();
-    }
-    vi.stubGlobal('MediaSource', FakeMediaSource);
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: vi.fn().mockReturnValue('blob:safari-media-source'),
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: vi.fn(),
-    });
 
     const { container } = render(
       <QueryClientProvider client={queryClient}>
@@ -164,12 +149,11 @@ describe('Player Components Unit Tests', () => {
     fireEvent.error(video!);
 
     expect(video?.getAttribute('src')).toBe(
-      'blob:safari-media-source',
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8',
     );
     expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
 
     userAgentSpy.mockRestore();
-    vi.unstubAllGlobals();
   });
 
   it('does not reopen the next episode overlay after the user dismisses it', () => {
