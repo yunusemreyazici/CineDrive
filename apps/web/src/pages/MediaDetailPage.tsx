@@ -34,15 +34,18 @@ export const MediaDetailPage: React.FC = () => {
     );
   }
 
-  const backdropUrl = media.backdropDriveFileId
-    ? `/api/media/assets/${media.backdropDriveFileId}`
-    : media.posterDriveFileId
-      ? `/api/media/assets/${media.posterDriveFileId}`
-      : null;
+  const backdropUrl =
+    (media as { backdropUrl?: string; posterUrl?: string }).backdropUrl ||
+    (media as { backdropUrl?: string; posterUrl?: string }).posterUrl ||
+    (media.backdropDriveFileId
+      ? `/api/media/assets/${media.backdropDriveFileId}`
+      : media.posterDriveFileId
+        ? `/api/media/assets/${media.posterDriveFileId}`
+        : null);
 
-  const posterUrl = media.posterDriveFileId
-    ? `/api/media/assets/${media.posterDriveFileId}`
-    : null;
+  const posterUrl =
+    (media as { posterUrl?: string }).posterUrl ||
+    (media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : null);
 
   const seasons: SeasonType[] = media.series?.seasons || [];
   const currentSeason = selectedSeasonId
