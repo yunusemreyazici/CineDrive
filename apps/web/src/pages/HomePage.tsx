@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, Film, Tv, Heart, History } from 'lucide-react';
 import { FeaturedHero } from '../components/media/FeaturedHero';
 import { MediaCard } from '../components/media/MediaCard';
+import { ContinueWatchingCard } from '../components/media/ContinueWatchingCard';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import {
@@ -9,7 +10,6 @@ import {
   useContinueWatchingQuery,
   useFavoritesQuery,
 } from '../hooks/useApi';
-import type { MediaItemType } from '../types/media';
 
 export const HomePage: React.FC = () => {
   const { data: mediaData, isLoading: isMediaLoading } = useMediaListQuery({ limit: 30 });
@@ -59,22 +59,10 @@ export const HomePage: React.FC = () => {
             </div>
             <h3 className="text-xl font-bold font-display text-white">İzlemeye Devam Et</h3>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {continueWatching.map((item) => {
-              const cardMedia: MediaItemType = item.mediaItem
-                ? {
-                    ...item.mediaItem,
-                    progress: {
-                      positionSeconds: item.positionSeconds,
-                      durationSeconds: item.durationSeconds,
-                      percentage: item.percentage,
-                      completed: item.completed,
-                    },
-                  }
-                : (item as unknown as MediaItemType);
-
-              return <MediaCard key={item.id} media={cardMedia} />;
-            })}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {continueWatching.map((item) => (
+              <ContinueWatchingCard key={item.id} item={item} />
+            ))}
           </div>
         </section>
       )}
