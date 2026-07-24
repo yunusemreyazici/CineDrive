@@ -1,119 +1,90 @@
-# 🎬 CineDrive - Kişisel Google Drive Medya Sunucusu ve Oynatıcı
+# CineDrive
 
-Google Drive arşivlerinizi yüksek performanslı, şık ve modern bir kişisel medya akış (streaming) platformuna dönüştüren **production-grade monorepo** uygulaması.
+Google Drive klasörlerindeki film ve dizileri tarayarak kişisel bir medya yayın sunucusuna dönüştüren web uygulaması.
 
----
+## Ekran Görüntüleri
 
-## 📸 Ekran Görüntüleri (Screenshots)
+| Ana Sayfa | Medya Detayı |
+| --- | --- |
+| ![Ana Sayfa](docs/screenshots/home_dashboard.png) | ![Medya Detay](docs/screenshots/media_detail_page.png) |
 
-### 🏠 Ana Sayfa ve "Son Eklenenler"
-![Ana Sayfa](docs/screenshots/home_dashboard.png)
+## Özellikler
 
-### 🍿 Medya Detay Sayfası ve Sezon/Bölüm Listesi
-![Medya Detay](docs/screenshots/media_detail_page.png)
+- **Google Drive Entegrasyonu:** Salt okunur OAuth 2.0 ile Drive klasörlerini tarama ve medya akışı.
+- **Otomatik Metadata:** TVMaze API kullanarak film, dizi, sezon, bölüm bilgileri ve kapak görsellerini çekme.
+- **Gelişmiş Video Oynatıcı:**
+  - Fastify HTTP Range (206) desteği ile kesintisiz medya aktarımı.
+  - OpenSubtitles API entegrasyonu ile otomatik altyazı arama ve tek tıkla indirme.
+  - Harici `.srt` / `.vtt` altyazı dosyası yükleme.
+  - Altyazı senkronizasyonu (zaman kaydırma) ve font/stil özelleştirme.
+  - Bölüm sonlarında otomatik sonraki bölüme geçiş ve geri sayım.
+- **İzleme Takibi:** Kaldığın yerden devam etme ve izleme geçmişi.
 
----
+## Teknoloji Yığını
 
-## ✨ Öne Çıkan Özellikler
+- **Backend:** Node.js, Fastify, Prisma ORM, SQLite (WAL Modu), Zod, Pino
+- **Frontend:** React 18, Vite, Tailwind CSS, TanStack Query, Lucide Icons
+- **Mimari:** pnpm workspaces (monorepo), TypeScript
+- **Dağıtım:** Docker, Docker Compose, Nginx (Reverse Proxy)
 
-- **🔒 Google Drive OAuth 2.0 Entegrasyonu:** Salt okunur medya erişimi ile klasörlerinizi güvenle tarar.
-- **🖼️ Otomatik Metadata & Afiş Toplayıcı (TVMaze API):** Dizi, film, bölüm afişlerini, arka plan görsellerini, özeti ve süre bilgilerini otomatik bulur.
-- **🎥 Gelişmiş HTML5 Video Oynatıcı:**
-  - HTTP Range 206 akışı ile donma/geikme olmadan yüksek kaliteli oynatma.
-  - **OpenSubtitles.com v1 REST API** entegrasyonu (Tek tıkla Türkçe ve İngilizce altyazı indirme).
-  - Yerel `.srt` ve `.vtt` altyazı dosyası yükleme desteği.
-  - **Altyazı Senkronizasyon Kaydırma:** `-2s` ile `+2s` arası anlık altyazı zamanlama ayarı.
-  - **Altyazı Stil Ayarları:** Yazı boyutu ve arka plan stili (siyah kutu/şeffaf) özelleştirme.
-- **⏭️ Otomatik Sonraki Bölüm (Next Episode Countdown & Auto-play):** Dizi bölümü biterken beliren 5 saniyelik dairesel geri sayım kartı ile kesintisiz maraton izleme.
-- **📊 İzleme İlerlemesi & Geçmişi:** Kaldığınız yeri saniyesi saniyesine otomatik kaydeder, mükerrer kartları engeller.
-- **⚙️ OpenSubtitles & Sistem Ayarları:** Özelleştirilebilir API Key ve dil tercihleri yönetimi.
+## Proje Yapısı
 
----
-
-## 🛠️ Teknoloji Yığını (Tech Stack)
-
-- **Monorepo Mimarisi:** `pnpm workspace`, `tsup`, `TypeScript strict`
-- **Sunucu (Backend):** Fastify, Prisma ORM, SQLite (WAL Modu), Google Auth Library, OpenSubtitles API v1, Zod validation, Pino Logger
-- **Ön Yüz (Frontend):** React 18, Vite, Tailwind CSS, TanStack React Query, Lucide Icons
-- **Konteyner ve Dağıtım:** Docker, Docker Compose, Nginx Reverse Proxy
-
----
-
-## 📁 Çalışma Alanı Yapısı (Workspace Structure)
-
-```text
+```
 CineDrive/
 ├── apps/
-│   ├── server/       # Fastify + TypeScript + Prisma SQLite Backend
-│   └── web/          # React + Vite + TypeScript + Tailwind CSS Frontend
+│   ├── server/       # Fastify REST API & Medya Sunucusu
+│   └── web/          # React + Vite Web Arayüzü
 ├── packages/
-│   └── shared/       # Ortak TypeScript tipleri, Zod şemaları, dönüştürücüler
-├── docs/
-│   └── screenshots/  # Uygulama ekran görüntüleri
-├── nginx/            # Range akış destekli Nginx reverse proxy yapılandırması
-├── Dockerfile.server # Multi-stage backend Docker imajı
-├── Dockerfile.web    # Multi-stage frontend + Nginx Docker imajı
-├── docker-compose.yml# Production Docker Compose orkestrasyonu
-└── pnpm-workspace.yaml
+│   └── shared/       # Ortak tipler ve doğrulama şemaları
+├── nginx/            # Reverse proxy yapılandırması
+├── Dockerfile.server
+├── Dockerfile.web
+└── docker-compose.yml
 ```
 
----
+## Kurulum ve Çalıştırma
 
-## 🚀 Hızlı Başlangıç (Geliştirme Ortamı)
+### Geliştirme Ortamı
 
-1. **Bağımlılıkları Yükleyin:**
+1. **Bağımlılıkları yükleyin:**
    ```bash
    pnpm install
    ```
 
-2. **Çevre Değişkenlerini Ayarlayın:**
-   `.env.example` dosyasını `.env` olarak kopyalayın ve gerekli bilgileri doldurun:
+2. **Çevre değişkenlerini ayarlayın:**
    ```bash
    cp .env.example .env
    ```
+   `.env` dosyasını kendi Google OAuth ve OpenSubtitles API bilgilerinize göre düzenleyin.
 
-3. **Veritabanı Şemasını Senkronize Edin:**
+3. **Veritabanını hazırlayın:**
    ```bash
    DATABASE_URL="file:./data/app.db" pnpm --filter "@cinedrive/server" exec prisma db push
    ```
 
-4. **Test, Tip ve Lint Kontrollerini Çalıştırın:**
-   ```bash
-   pnpm typecheck
-   pnpm lint
-   pnpm test
-   ```
-
-5. **Geliştirme Sunucusunu Başlatın:**
+4. **Uygulamayı başlatın:**
    ```bash
    pnpm dev
    ```
-   - Frontend: [http://localhost:5173](http://localhost:5173)
-   - Backend: [http://localhost:3000](http://localhost:3000)
 
----
+   - Web Arayüzü: `http://localhost:5173`
+   - API Sunucusu: `http://localhost:3000`
 
-## 📦 Production Canlıya Alma (Docker Compose & Nginx)
+### Docker ile Dağıtım
 
-1. **Güvenlik Anahtarları Üretin:**
-   ```bash
-   openssl rand -hex 32
-   ```
+Production ortamında Docker Compose kullanarak tüm servisleri başlatabilirsiniz:
 
-2. **Docker İmajlarını Derleyin ve Çalıştırın:**
-   ```bash
-   docker compose build
-   docker compose up -d
-   ```
+```bash
+docker compose up -d --build
+```
 
-3. **Konteyner Durumlarını İnceleyin:**
-   ```bash
-   docker compose ps
-   docker compose logs -f
-   ```
+Konteyner durumlarını ve logları kontrol etmek için:
 
----
+```bash
+docker compose ps
+docker compose logs -f
+```
 
-## 🛡️ Lisans ve Katkıda Bulunma
+## Lisans
 
-Bu proje kişisel kullanım ve geliştirme amacıyla tasarlanmıştır. MIT lisansı altındadır.
+MIT
