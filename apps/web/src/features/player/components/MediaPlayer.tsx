@@ -219,11 +219,15 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     }
   };
 
-  const handleSelectOpenSubtitle = async (downloadUrl: string, label: string) => {
+  const handleSelectOpenSubtitle = async (
+    fileId: number,
+    label: string,
+    languageCode: string,
+  ) => {
     const res = await fetch('/api/media/subtitles/opensubtitles/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ downloadUrl }),
+      body: JSON.stringify({ fileId }),
     });
 
     if (!res.ok) throw new Error('Download failed');
@@ -234,7 +238,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     const openSubTrack: SubtitleTrackType = {
       id: `opensub_${Date.now()}`,
-      language: 'tr',
+      language: languageCode,
       label,
       isForced: false,
       isHearingImpaired: false,

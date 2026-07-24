@@ -205,8 +205,8 @@ export const MediaDetailPage: React.FC = () => {
               </button>
             )}
 
-            {/* Auto Subtitle Download Button */}
-            <button
+            {/* Series subtitles must be selected for a concrete episode in the player. */}
+            {media.type === 'movie' && <button
               onClick={handleAutoDownloadSubtitle}
               disabled={autoSubtitleMutation.isPending}
               className="flex items-center gap-2 px-4 py-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium text-sm rounded-xl border border-indigo-500/30 backdrop-blur-md transition-all hover:scale-105 disabled:opacity-50"
@@ -223,7 +223,7 @@ export const MediaDetailPage: React.FC = () => {
                   <span>Altyazı İndir</span>
                 </>
               )}
-            </button>
+            </button>}
 
             <button
               onClick={() =>

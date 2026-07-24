@@ -12,9 +12,10 @@ import { usePlayerStore } from '../stores/usePlayerStore';
 
 interface OpenSubResult {
   id: string;
+  fileId: number;
   filename: string;
   languageName: string;
-  downloadUrl: string;
+  languageCode: string;
 }
 
 interface SubtitleMenuProps {
@@ -25,7 +26,7 @@ interface SubtitleMenuProps {
   activeSubtitleId: string | null;
   onSelectSubtitle: (id: string | null) => void;
   onUploadCustomSubtitle?: (file: File) => void;
-  onSelectOpenSubtitle?: (downloadUrl: string, label: string) => Promise<void>;
+  onSelectOpenSubtitle?: (fileId: number, label: string, languageCode: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -43,7 +44,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
   const [activeTab, setActiveTab] = useState<'tracks' | 'search' | 'sync' | 'style'>('tracks');
   const [searchResults, setSearchResults] = useState<OpenSubResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
+  const [downloadingFileId, setDownloadingFileId] = useState<number | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const {
@@ -75,10 +76,22 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
 
       const res = await fetch(url);
       if (!res.ok) throw new Error('Arama başarısız');
-      const data = (await res.json()) as { results: OpenSubResult[] };
+      const data = (await res.json()) as {
+        results: OpenSubResult[];
+        message?: string;
+      };
       setSearchResults(data.results || []);
       if ((data.results || []).length === 0) {
-        setSearchError('Uygun altyazı bulunamadı.');
+        const errorMessages: Record<string, string> = {
+          NO_API_KEY: 'OpenSubtitles API anahtarı ayarlanmamış.',
+          INVALID_API_KEY: 'OpenSubtitles API anahtarı geçersiz.',
+          API_ERROR: 'OpenSubtitles servisi geçici olarak yanıt vermiyor.',
+          SEARCH_FAILED: 'OpenSubtitles araması zaman aşımına uğradı.',
+        };
+        setSearchError(
+          (data.message && errorMessages[data.message]) ||
+            'Uygun altyazı bulunamadı.',
+        );
       }
     } catch {
       setSearchError('OpenSubtitles altyazı araması gerçekleştirilemedi.');
@@ -89,14 +102,18 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
 
   const handleDownloadSubtitle = async (item: OpenSubResult) => {
     if (!onSelectOpenSubtitle) return;
-    setDownloadingUrl(item.downloadUrl);
+    setDownloadingFileId(item.fileId);
     try {
-      await onSelectOpenSubtitle(item.downloadUrl, `${item.languageName} (OpenSubtitles)`);
+      await onSelectOpenSubtitle(
+        item.fileId,
+        `${item.languageName} (OpenSubtitles)`,
+        item.languageCode,
+      );
       onClose();
     } catch {
       setSearchError('Altyazı indirilemedi.');
     } finally {
-      setDownloadingUrl(null);
+      setDownloadingFileId(null);
     }
   };
 
@@ -226,7 +243,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
                 <p className="text-[10px] text-zinc-400">{item.languageName}</p>
               </div>
               <button className="p-1.5 bg-brand-600/20 text-brand-400 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors">
-                {downloadingUrl === item.downloadUrl ? (
+                {downloadingFileId === item.fileId ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Download className="w-3.5 h-3.5" />

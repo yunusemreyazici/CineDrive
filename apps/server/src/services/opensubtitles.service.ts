@@ -1,5 +1,10 @@
 import { convertSrtToVtt } from '@cinedrive/shared';
 
+const API_BASE_URL = 'https://api.opensubtitles.com/api/v1';
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_SUBTITLE_SIZE_BYTES = 5 * 1024 * 1024;
+const USER_AGENT = 'CineDrive v1.0';
+
 export interface OpenSubtitlesSearchResult {
   id: string;
   fileId: number;
@@ -34,20 +39,36 @@ export class OpenSubtitlesService {
       const cleanTitle = title
         .replace(/\b(19|20)\d{2}\b/g, '')
         .replace(/[._\-]/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim();
 
-      let url = `https://api.opensubtitles.com/api/v1/subtitles?query=${encodeURIComponent(cleanTitle)}&languages=${languages.join(',')}`;
+      const normalizedLanguages = [...new Set(
+        languages
+          .map((language) => language.trim().toLowerCase())
+          .filter((language) => /^[a-z]{2,3}$/.test(language)),
+      )];
+      const params = new URLSearchParams({
+        query: cleanTitle,
+        languages: (normalizedLanguages.length ? normalizedLanguages : ['tr', 'en']).join(','),
+      });
 
-      if (seasonNumber !== undefined && episodeNumber !== undefined) {
-        url += `&season_number=${seasonNumber}&episode_number=${episodeNumber}`;
+      if (
+        Number.isInteger(seasonNumber) &&
+        Number.isInteger(episodeNumber) &&
+        seasonNumber! >= 0 &&
+        episodeNumber! > 0
+      ) {
+        params.set('season_number', String(seasonNumber));
+        params.set('episode_number', String(episodeNumber));
       }
 
-      const res = await fetch(url, {
+      const res = await fetch(`${API_BASE_URL}/subtitles?${params.toString()}`, {
         headers: {
           'Api-Key': activeApiKey,
-          'User-Agent': 'CineDrive v1.0',
+          'User-Agent': USER_AGENT,
           Accept: 'application/json',
         },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -78,9 +99,11 @@ export class OpenSubtitlesService {
 
       const results: OpenSubtitlesSearchResult[] = [];
 
+      const seenFileIds = new Set<number>();
       for (const item of data.data) {
-        const file = item.attributes?.files?.[0];
-        if (file && file.file_id) {
+        for (const file of item.attributes?.files || []) {
+          if (file.file_id > 0 && !seenFileIds.has(file.file_id)) {
+            seenFileIds.add(file.file_id);
           results.push({
             id: String(file.file_id),
             fileId: file.file_id,
@@ -90,10 +113,15 @@ export class OpenSubtitlesService {
             downloadCount: item.attributes?.download_count || 0,
             releaseName: item.attributes?.release,
           });
+          }
         }
       }
 
-      return { results: results.slice(0, 15) };
+      return {
+        results: results
+          .sort((left, right) => right.downloadCount - left.downloadCount)
+          .slice(0, 15),
+      };
     } catch {
       return { results: [], message: 'SEARCH_FAILED' };
     }
@@ -109,15 +137,21 @@ export class OpenSubtitlesService {
       throw new Error('NO_API_KEY');
     }
 
-    const res = await fetch('https://api.opensubtitles.com/api/v1/download', {
+    const numericFileId = typeof fileId === 'number' ? fileId : Number(fileId);
+    if (!Number.isSafeInteger(numericFileId) || numericFileId <= 0) {
+      throw new Error('INVALID_SUBTITLE_FILE_ID');
+    }
+
+    const res = await fetch(`${API_BASE_URL}/download`, {
       method: 'POST',
       headers: {
         'Api-Key': activeApiKey,
-        'User-Agent': 'CineDrive v1.0',
+        'User-Agent': USER_AGENT,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify({ file_id: Number(fileId) }),
+      body: JSON.stringify({ file_id: numericFileId }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (!res.ok) {
@@ -132,15 +166,24 @@ export class OpenSubtitlesService {
 
     const fileRes = await fetch(data.link, {
       headers: {
-        'User-Agent': 'CineDrive v1.0',
+        'User-Agent': USER_AGENT,
       },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (!fileRes.ok) {
       throw new Error('SUBTITLE_FILE_FETCH_FAILED');
     }
 
+    const contentLength = Number(fileRes.headers.get('content-length') || 0);
+    if (contentLength > MAX_SUBTITLE_SIZE_BYTES) {
+      throw new Error('SUBTITLE_FILE_TOO_LARGE');
+    }
+
     const srtText = await fileRes.text();
+    if (Buffer.byteLength(srtText, 'utf8') > MAX_SUBTITLE_SIZE_BYTES) {
+      throw new Error('SUBTITLE_FILE_TOO_LARGE');
+    }
     return convertSrtToVtt(srtText);
   }
 }

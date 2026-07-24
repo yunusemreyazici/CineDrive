@@ -90,10 +90,29 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const seasonNum = seasonNumber ? parseInt(seasonNumber, 10) : undefined;
-    const episodeNum = episodeNumber ? parseInt(episodeNumber, 10) : undefined;
-    const userLangs = user?.preferredLanguages ? user.preferredLanguages.split(',') : ['tr', 'en'];
-    const langList = languages ? languages.split(',') : userLangs;
+    const parseOptionalInteger = (value?: string) => {
+      if (value === undefined || !/^\d+$/.test(value)) return undefined;
+      return Number.parseInt(value, 10);
+    };
+    const seasonNum = parseOptionalInteger(seasonNumber);
+    const episodeNum = parseOptionalInteger(episodeNumber);
+    if (
+      (seasonNumber !== undefined && seasonNum === undefined) ||
+      (episodeNumber !== undefined && episodeNum === undefined)
+    ) {
+      return reply.status(400).send({
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'Sezon ve bölüm numaraları geçerli tam sayılar olmalıdır.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const userLangs = user?.preferredLanguages?.split(',') || ['tr', 'en'];
+    const langList = (languages ? languages.split(',') : userLangs)
+      .map((language) => language.trim().toLowerCase())
+      .filter((language) => /^[a-z]{2,3}$/.test(language));
 
     const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
     const openSubtitlesService = new OpenSubtitlesService();
@@ -113,18 +132,17 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
     Body: {
       fileId?: number | string;
-      downloadUrl?: string;
     };
   }>('/subtitles/opensubtitles/download', async (request, reply) => {
-    const { fileId, downloadUrl } = request.body;
+    const { fileId } = request.body;
     const userId = request.user!.id;
 
-    const targetId = fileId || downloadUrl;
-    if (!targetId) {
+    const numericFileId = typeof fileId === 'number' ? fileId : Number(fileId);
+    if (!Number.isSafeInteger(numericFileId) || numericFileId <= 0) {
       return reply.status(400).send({
         error: {
           code: 'BAD_REQUEST',
-          message: 'fileId veya downloadUrl parametresi gereklidir.',
+          message: 'Geçerli bir fileId gereklidir.',
           requestId: request.id,
         },
       });
@@ -136,7 +154,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       const openSubtitlesService = new OpenSubtitlesService();
 
       const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(
-        targetId,
+        numericFileId,
         user?.opensubtitlesApiKey || undefined,
       );
 
@@ -168,19 +186,38 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     const { seasonNumber, episodeNumber, language = 'tr' } = request.body || {};
     const userId = request.user!.id;
 
-    const [mediaItem, user, library] = await Promise.all([
+    const [mediaItem, user] = await Promise.all([
       fastify.prisma.mediaItem.findUnique({
         where: { id: mediaId },
+        include: {
+          movie: true,
+          episodes: {
+            where:
+              seasonNumber !== undefined && episodeNumber !== undefined
+                ? { seasonNumber, episodeNumber }
+                : undefined,
+            take: 1,
+            include: { driveFile: true },
+          },
+        },
       }),
       fastify.prisma.user.findUnique({ where: { id: userId } }),
-      fastify.prisma.library.findFirst(),
     ]);
 
-    if (!mediaItem || !library) {
+    const targetEpisode =
+      seasonNumber !== undefined && episodeNumber !== undefined
+        ? mediaItem?.episodes[0]
+        : undefined;
+    const sourceDriveFileId = targetEpisode?.driveFileId || mediaItem?.movie?.driveFileId;
+    const sourceDriveFile = sourceDriveFileId
+      ? await fastify.prisma.driveFile.findUnique({ where: { id: sourceDriveFileId } })
+      : null;
+
+    if (!mediaItem || !sourceDriveFile) {
       return reply.status(404).send({
         error: {
           code: 'MEDIA_NOT_FOUND',
-          message: 'Medya içeriği veya kütüphane bulunamadı.',
+          message: 'Medya içeriği, bölümü veya bağlı kütüphanesi bulunamadı.',
           requestId: request.id,
         },
       });
@@ -214,7 +251,8 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       user?.opensubtitlesApiKey || undefined,
     );
 
-    const syntheticDriveFileId = `opensub_${topSub.fileId}`;
+    const subtitleOwnerId = targetEpisode?.id || mediaItem.id;
+    const syntheticDriveFileId = `opensub_${topSub.fileId}_${subtitleOwnerId}`;
 
     let driveFile = await fastify.prisma.driveFile.findFirst({
       where: { googleDriveFileId: syntheticDriveFileId },
@@ -224,7 +262,8 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       driveFile = await fastify.prisma.driveFile.create({
         data: {
           googleDriveFileId: syntheticDriveFileId,
-          libraryId: library.id,
+          libraryId: sourceDriveFile.libraryId,
+          storageType: 'local',
           name: `${topSub.filename}.vtt`,
           mimeType: 'text/vtt',
           size: BigInt(Buffer.byteLength(vttContent, 'utf-8')),
@@ -240,7 +279,8 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     if (!subtitleTrack) {
       subtitleTrack = await fastify.prisma.subtitleTrack.create({
         data: {
-          mediaItemId: mediaItem.id,
+          mediaItemId: targetEpisode ? undefined : mediaItem.id,
+          episodeId: targetEpisode?.id,
           driveFileId: driveFile.id,
           language: topSub.languageCode || language,
           label: `${topSub.languageName} (OpenSubtitles)`,

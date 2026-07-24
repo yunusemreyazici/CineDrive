@@ -47,7 +47,7 @@ interface PlayerControlsProps {
   onSelectSpeed: (speed: number) => void;
   onSelectSubtitle: (id: string | null) => void;
   onUploadCustomSubtitle?: (file: File) => void;
-  onSelectOpenSubtitle?: (downloadUrl: string, label: string) => Promise<void>;
+  onSelectOpenSubtitle?: (fileId: number, label: string, languageCode: string) => Promise<void>;
   onTogglePiP: () => void;
   onToggleFullscreen: () => void;
   onPreviousEpisode?: () => void;

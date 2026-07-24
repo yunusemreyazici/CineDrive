@@ -508,7 +508,7 @@ const OpenSubtitlesSettingsCard: React.FC = () => {
       {
         apiKey,
         username,
-        password,
+        ...(password ? { password } : {}),
         preferredLanguages,
       },
       {

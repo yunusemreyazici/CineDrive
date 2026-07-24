@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MediaPlayer } from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
 import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOverlay';
 import { PlayerError } from '../features/player/components/PlayerError';
+import { SubtitleMenu } from '../features/player/components/SubtitleMenu';
 import type { MediaItemType } from '../types/media';
 
 describe('Player Components Unit Tests', () => {
@@ -183,5 +184,53 @@ describe('Player Components Unit Tests', () => {
 
     fireEvent.timeUpdate(video);
     expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
+  });
+
+  it('passes the OpenSubtitles fileId to the download handler', async () => {
+    const onSelectOpenSubtitle = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: '456',
+              fileId: 456,
+              filename: 'Taboo.S01E02.tr.srt',
+              languageName: 'Türkçe',
+              languageCode: 'tr',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    render(
+      <SubtitleMenu
+        mediaId="media_series_test"
+        seasonNumber={1}
+        episodeNumber={2}
+        subtitles={[]}
+        activeSubtitleId={null}
+        onSelectSubtitle={vi.fn()}
+        onSelectOpenSubtitle={onSelectOpenSubtitle}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ara' }));
+    await screen.findByText('Taboo.S01E02.tr.srt');
+    fireEvent.click(screen.getByText('Taboo.S01E02.tr.srt'));
+
+    await waitFor(() =>
+      expect(onSelectOpenSubtitle).toHaveBeenCalledWith(
+        456,
+        'Türkçe (OpenSubtitles)',
+        'tr',
+      ),
+    );
+    expect(onClose).toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });
