@@ -30,7 +30,20 @@ const parseEnv = (): EnvConfig => {
     console.error('❌ Invalid environment variables:', result.error.format());
     throw new Error('Environment variable validation failed');
   }
-  return result.data;
+
+  const parsed = result.data;
+
+  // Strict production secrets validation
+  if (parsed.NODE_ENV === 'production') {
+    if (parsed.SESSION_SECRET.includes('super-secret-session-key')) {
+      throw new Error('FATAL: Default SESSION_SECRET cannot be used in production environment!');
+    }
+    if (parsed.TOKEN_ENCRYPTION_KEY.length !== 64) {
+      throw new Error('FATAL: TOKEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)!');
+    }
+  }
+
+  return parsed;
 };
 
 export const env = parseEnv();

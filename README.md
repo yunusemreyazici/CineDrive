@@ -131,3 +131,23 @@ docker compose start server
    docker compose ps
    curl -I http://localhost/api/health
    ```
+
+---
+
+## 📋 Production Readiness Checklist
+
+- [ ] Domain DNS pointing to VPS IP
+- [ ] HTTPS Certificate installed & verified
+- [ ] Google OAuth Redirect URI configured (`https://yourdomain.com/api/auth/google/callback`)
+- [ ] Google Drive Root Folder ID configured
+- [ ] Cryptographically strong `SESSION_SECRET` generated (64-char hex)
+- [ ] Strong `TOKEN_ENCRYPTION_KEY` generated (64-char hex)
+- [ ] Admin password updated from default
+- [ ] `.env` verified NOT committed to Git repository
+- [ ] SQLite persistent Docker volume verified
+- [ ] Range HTTP 206 streaming verified (`curl -I https://yourdomain.com/api/media/FILE_ID/stream`)
+- [ ] Nginx proxy buffering disabled for video stream
+- [ ] Security headers enabled in Nginx (`X-Content-Type-Options`, `X-Frame-Options`)
+- [ ] Per-route rate limiting active
+- [ ] Pino logger sensitive credential redaction active
+- [ ] Server and Nginx containers reported `healthy`
