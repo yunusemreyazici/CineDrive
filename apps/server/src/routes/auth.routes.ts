@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { loginSchema, type LoginInput, type UserDto } from '@cinedrive/shared';
+import { loginSchema, updateProfileSchema, changePasswordSchema, type LoginInput, type UserDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
@@ -79,6 +79,87 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(200).send({ success: true });
   });
+
+  // PUT /api/auth/profile: Update user display name
+  fastify.put<{ Body: { name: string } }>(
+    '/profile',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const parseResult = updateProfileSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz profil bilgileri.',
+            requestId: request.id,
+            details: parseResult.error.format(),
+          },
+        });
+      }
+
+      const userId = request.user!.id;
+      const updatedUser = await fastify.authService.updateProfile(userId, parseResult.data.name);
+
+      return reply.status(200).send({
+        user: updatedUser,
+        message: 'Profil bilgileri başarıyla güncellendi.',
+      });
+    },
+  );
+
+  // PUT /api/auth/change-password: Change user password with Argon2id verification
+  fastify.put(
+    '/change-password',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const parseResult = changePasswordSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz şifre formatı.',
+            requestId: request.id,
+            details: parseResult.error.format(),
+          },
+        });
+      }
+
+      const userId = request.user!.id;
+      const { currentPassword, newPassword } = parseResult.data;
+
+      try {
+        const { user, sessionToken } = await fastify.authService.changePassword(
+          userId,
+          currentPassword,
+          newPassword,
+        );
+
+        reply.setCookie('session_id', sessionToken, {
+          path: '/',
+          httpOnly: true,
+          secure: env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60,
+        });
+
+        return reply.status(200).send({
+          user,
+          message: 'Şifreniz başarıyla değiştirildi.',
+        });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message === 'INVALID_CURRENT_PASSWORD') {
+          return reply.status(400).send({
+            error: {
+              code: 'INVALID_CURRENT_PASSWORD',
+              message: 'Mevcut şifreniz hatalı.',
+              requestId: request.id,
+            },
+          });
+        }
+        throw err;
+      }
+    },
+  );
 
   // GET /api/auth/session
   fastify.get<{ Reply: { authenticated: boolean; user: UserDto | null } }>(

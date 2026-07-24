@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Settings,
   ShieldCheck,
@@ -12,8 +12,14 @@ import {
   Check,
   Trash2,
   Database,
+  User,
+  Lock,
+  KeyRound,
 } from 'lucide-react';
 import {
+  useSessionQuery,
+  useUpdateProfileMutation,
+  useChangePasswordMutation,
   useGoogleStatusQuery,
   useGoogleConnectionsQuery,
   useUnlinkGoogleMutation,
@@ -61,9 +67,15 @@ export const SettingsPage: React.FC = () => {
         </div>
         <div>
           <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Sistem Ayarları</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Google Drive entegrasyonu, tema ve kütüphane tarama yönetimi</p>
+          <p className="text-sm text-zinc-400 mt-0.5">Profil yönetimi, Google Drive entegrasyonu, tema ve kütüphane ayarları</p>
         </div>
       </div>
+
+      {/* User Profile Card */}
+      <UserProfileCard />
+
+      {/* Password Change Security Card */}
+      <UserPasswordChangeCard />
 
       {/* Theme Selector Section */}
       <ThemeSettingsCard />
@@ -548,5 +560,243 @@ const DatabaseManagementCard: React.FC = () => {
         </div>
       )}
     </>
+  );
+};
+
+const UserProfileCard: React.FC = () => {
+  const { data: session } = useSessionQuery();
+  const updateProfile = useUpdateProfileMutation();
+
+  const [name, setName] = useState('');
+  const [successMessage, setSuccessMessage] = useState(false);
+
+  useEffect(() => {
+    if (session?.user?.name) {
+      setName(session.user.name);
+    }
+  }, [session]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSuccessMessage(false);
+    if (!name.trim() || name.trim().length < 2) return;
+
+    updateProfile.mutate(
+      { name: name.trim() },
+      {
+        onSuccess: () => {
+          setSuccessMessage(true);
+          setTimeout(() => setSuccessMessage(false), 4000);
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-brand-600/20 text-brand-400 rounded-xl">
+            <User className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold font-display text-white">Profil Bilgileri</h3>
+            <p className="text-xs text-zinc-400">Görüntülenen isim ve hesap detayları</p>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">Görüntülenen İsim</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Adınız Soyadınız"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">E-posta Adresi (Salt Okunur)</label>
+            <input
+              type="email"
+              value={session?.user?.email || ''}
+              disabled
+              className="w-full px-4 py-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded-xl text-zinc-500 font-mono cursor-not-allowed"
+            />
+          </div>
+        </div>
+
+        {updateProfile.error && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400">
+            {updateProfile.error.message || 'Profil güncellenirken bir hata oluştu.'}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={updateProfile.isPending || !name.trim() || name === session?.user?.name}
+            className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all disabled:opacity-40 flex items-center gap-2"
+          >
+            {updateProfile.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Güncelleniyor...</span>
+              </>
+            ) : (
+              <span>Profili Güncelle</span>
+            )}
+          </button>
+
+          {successMessage && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4" />
+              Profil bilgileriniz kaydedildi!
+            </span>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const UserPasswordChangeCard: React.FC = () => {
+  const changePassword = useChangePasswordMutation();
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(false);
+
+    if (!currentPassword) {
+      setErrorMsg('Lütfen mevcut şifrenizi giriniz.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErrorMsg('Yeni şifre en az 6 karakter olmalıdır.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMsg('Yeni şifre ile şifre tekrarı uyuşmuyor.');
+      return;
+    }
+
+    changePassword.mutate(
+      { currentPassword, newPassword },
+      {
+        onSuccess: () => {
+          setSuccessMsg(true);
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setTimeout(() => setSuccessMsg(false), 5000);
+        },
+        onError: (err: unknown) => {
+          const apiErr =
+            err && typeof err === 'object' && 'response' in err
+              ? (err as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message
+              : err instanceof Error
+                ? err.message
+                : null;
+          setErrorMsg(apiErr || 'Şifre değiştirilirken bir hata oluştu.');
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-rose-500/10 text-rose-400 rounded-xl">
+            <Lock className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold font-display text-white">Güvenlik & Şifre Değiştirme</h3>
+            <p className="text-xs text-zinc-400">Argon2id şifreleme ile hesabınızın güvenliğini sağlayın</p>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div className="space-y-1.5 max-w-md">
+          <label className="block font-semibold text-zinc-200">Mevcut Şifreniz</label>
+          <div className="relative">
+            <KeyRound className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full pl-10 pr-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">Yeni Şifre (En az 6 Karakter)</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">Yeni Şifre Tekrarı</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+          </div>
+        </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 max-w-xl">
+            {errorMsg}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={changePassword.isPending || !currentPassword || !newPassword || !confirmPassword}
+            className="px-6 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all disabled:opacity-40 flex items-center gap-2"
+          >
+            {changePassword.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Değiştiriliyor...</span>
+              </>
+            ) : (
+              <span>Şifreyi Değiştir</span>
+            )}
+          </button>
+
+          {successMsg && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4" />
+              Şifreniz başarıyla güncellendi!
+            </span>
+          )}
+        </div>
+      </form>
+    </div>
   );
 };

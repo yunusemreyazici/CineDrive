@@ -111,6 +111,67 @@ export class AuthService {
     return this.toUserDto(session.user);
   }
 
+  public async updateProfile(userId: string, name: string): Promise<UserDto> {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { name },
+    });
+    return this.toUserDto(updated);
+  }
+
+  public async changePassword(
+    userId: string,
+    currentPasswordPlain: string,
+    newPasswordPlain: string,
+  ): Promise<{ user: UserDto; sessionToken: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.passwordHash) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    const validCurrent = await argon2.verify(user.passwordHash, currentPasswordPlain);
+    if (!validCurrent) {
+      throw new Error('INVALID_CURRENT_PASSWORD');
+    }
+
+    const newPasswordHash = await argon2.hash(newPasswordPlain, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 4,
+    });
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newPasswordHash },
+    });
+
+    // Clear old sessions for security
+    await this.prisma.session.deleteMany({
+      where: { userId },
+    });
+
+    // Create fresh new session
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + SESSION_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+
+    await this.prisma.session.create({
+      data: {
+        userId,
+        token: sessionToken,
+        expiresAt,
+      },
+    });
+
+    return {
+      user: this.toUserDto(updatedUser),
+      sessionToken,
+    };
+  }
+
   public toUserDto(user: User): UserDto {
     return {
       id: user.id,

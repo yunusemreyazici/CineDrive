@@ -444,3 +444,29 @@ export function useUpdateOpenSubtitlesSettingsMutation() {
     },
   });
 }
+
+export function useUpdateProfileMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { name: string }) => {
+      const res = await apiClient.put<{ user: UserDto; message: string }>('/auth/profile', data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
+
+export function useChangePasswordMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
+      const res = await apiClient.put<{ user: UserDto; message: string }>('/auth/change-password', data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+}
