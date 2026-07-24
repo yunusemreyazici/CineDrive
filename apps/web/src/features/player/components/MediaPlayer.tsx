@@ -1,0 +1,361 @@
+import React, { useRef, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+import { PlayerControls } from './PlayerControls';
+import { ResumeOverlay } from './ResumeOverlay';
+import { NextEpisodeOverlay } from './NextEpisodeOverlay';
+import { PlayerError } from './PlayerError';
+import { usePlayerStore } from '../stores/usePlayerStore';
+import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { usePlayerControls } from '../hooks/usePlayerControls';
+import type { PlayerErrorState } from '../types/player';
+import type { MediaItemType, EpisodeType } from '../../../types/media';
+
+interface MediaPlayerProps {
+  media: MediaItemType;
+  episodeId?: string;
+}
+
+export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) => {
+  const navigate = useNavigate();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Player Store State
+  const {
+    volume,
+    isMuted,
+    playbackSpeed,
+    activeSubtitleId,
+    autoPlayNext,
+    setVolume,
+    setIsMuted,
+    setPlaybackSpeed,
+    setActiveSubtitleId,
+  } = usePlayerStore();
+
+  // Local Media & Playback State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [bufferedTime, setBufferedTime] = useState(0);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [showNextEpisodeModal, setShowNextEpisodeModal] = useState(false);
+  const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
+
+  const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
+
+  // Determine active drive file ID and episode details
+  let targetDriveFileId: string | null = null;
+  let titleDisplay = media.title;
+  let episodes: EpisodeType[] = [];
+  let currentEpisodeIndex = -1;
+
+  if (media.type === 'movie' && media.movie) {
+    targetDriveFileId = media.movie.driveFileId;
+  } else if (media.type === 'series' && media.series) {
+    episodes = media.series.seasons.flatMap((s) => s.episodes);
+    currentEpisodeIndex = episodeId
+      ? episodes.findIndex((e) => e.id === episodeId)
+      : 0;
+
+    const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
+    if (activeEp) {
+      targetDriveFileId = activeEp.driveFileId;
+      titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
+    }
+  }
+
+  const previousEpisode = currentEpisodeIndex > 0 ? episodes[currentEpisodeIndex - 1] : null;
+  const nextEpisode =
+    currentEpisodeIndex >= 0 && currentEpisodeIndex < episodes.length - 1
+      ? episodes[currentEpisodeIndex + 1]
+      : null;
+
+  // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
+  const streamUrl = targetDriveFileId ? `/api/media/${targetDriveFileId}/stream` : '';
+
+  // Playback Progress Sync Hook
+  const { saveProgress } = usePlaybackProgress({
+    mediaItemId: media.id,
+    episodeId,
+    isPlaying,
+    currentTime,
+    duration,
+  });
+
+  // Check Codec Support & Metadata Loading
+  const handleLoadedMetadata = () => {
+    if (!videoRef.current) return;
+    setIsBuffering(false);
+    setDuration(videoRef.current.duration);
+
+    // Codec support check
+    const video = videoRef.current;
+    if (video.error) {
+      setErrorState({
+        code: 'STREAM_FAILED',
+        message: 'Video akışı başlatılamadı.',
+        isRetryable: true,
+      });
+      return;
+    }
+
+    // Check if saved resume position exists (> 15s and not completed)
+    const savedPos = media.progress?.positionSeconds || 0;
+    const isCompleted = media.progress?.completed;
+
+    if (!isCompleted && savedPos > 15 && savedPos < video.duration - 30) {
+      video.pause();
+      setShowResumeModal(true);
+    } else {
+      video.play().catch(() => {});
+    }
+  };
+
+  const handleResumeClick = () => {
+    if (videoRef.current && media.progress?.positionSeconds) {
+      videoRef.current.currentTime = media.progress.positionSeconds;
+      videoRef.current.play().catch(() => {});
+    }
+    setShowResumeModal(false);
+  };
+
+  const handleRestartClick = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {});
+    }
+    setShowResumeModal(false);
+  };
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    setCurrentTime(videoRef.current.currentTime);
+
+    // Calculate buffered range
+    if (videoRef.current.buffered.length > 0) {
+      setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
+    }
+
+    // 92% completion check
+    const percentage = (videoRef.current.currentTime / videoRef.current.duration) * 100;
+    if (percentage >= 92 && !showNextEpisodeModal && nextEpisode) {
+      saveProgress(true);
+      if (autoPlayNext) {
+        setShowNextEpisodeModal(true);
+      }
+    }
+  };
+
+  const togglePlay = useCallback(() => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play().catch((err) => {
+        if (err.name === 'NotSupportedError') {
+          setErrorState({
+            code: 'CODEC_NOT_SUPPORTED',
+            message: 'Bu videonun biçimi tarayıcınız tarafından doğrudan desteklenmiyor.',
+            isRetryable: false,
+          });
+        }
+      });
+    }
+  }, [isPlaying]);
+
+  const skipBackward = useCallback(() => {
+    if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
+  }, []);
+
+  const skipForward = useCallback(() => {
+    if (videoRef.current) videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
+  }, [duration]);
+
+  const toggleMute = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
+  }, [isMuted, setIsMuted]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!videoRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      videoRef.current.requestFullscreen();
+    }
+  }, []);
+
+  const togglePiP = useCallback(() => {
+    if (!videoRef.current) return;
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture();
+    } else {
+      videoRef.current.requestPictureInPicture();
+    }
+  }, []);
+
+  // Keyboard Shortcuts Hook
+  useKeyboardShortcuts({
+    onTogglePlay: togglePlay,
+    onSkipBackward: skipBackward,
+    onSkipForward: skipForward,
+    onVolumeUp: () => {
+      const newVol = Math.min(1, volume + 0.1);
+      setVolume(newVol);
+      if (videoRef.current) videoRef.current.volume = newVol;
+    },
+    onVolumeDown: () => {
+      const newVol = Math.max(0, volume - 0.1);
+      setVolume(newVol);
+      if (videoRef.current) videoRef.current.volume = newVol;
+    },
+    onToggleMute: toggleMute,
+    onToggleFullscreen: toggleFullscreen,
+    onTogglePiP: togglePiP,
+    onToggleSubtitles: () => setActiveSubtitleId(activeSubtitleId ? null : 'sub_1'),
+    onSeekPercent: (percent) => {
+      if (videoRef.current && duration > 0) {
+        videoRef.current.currentTime = (percent / 100) * duration;
+      }
+    },
+    onCloseMenu: () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+    },
+  });
+
+  const handleEpisodeChange = (newEpId: string) => {
+    saveProgress(true);
+    navigate(`/watch/${media.id}/${newEpId}`);
+  };
+
+  const handleRetry = () => {
+    setErrorState(null);
+    if (videoRef.current) {
+      videoRef.current.load();
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
+  return (
+    <div
+      onMouseMove={resetHideTimer}
+      onTouchStart={resetHideTimer}
+      className="fixed inset-0 z-50 bg-black flex flex-col justify-between select-none overflow-hidden"
+    >
+      {/* Top Navigation Header Bar */}
+      <div
+        className={`absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center gap-4 transition-opacity duration-300 ${
+          areControlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <button
+          onClick={() => {
+            saveProgress(true);
+            navigate(`/media/${media.id}`);
+          }}
+          className="p-3 bg-zinc-900/80 hover:bg-zinc-800 text-white rounded-full backdrop-blur-md transition-colors"
+          aria-label="Geri Dön"
+        >
+          <ArrowLeft className="w-6 h-6" />
+        </button>
+        <h2 className="text-lg font-bold font-display text-white truncate">{titleDisplay}</h2>
+      </div>
+
+      {/* Buffering Center Spinner */}
+      {isBuffering && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-full backdrop-blur-md">
+            <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+          </div>
+        </div>
+      )}
+
+      {/* HTML5 Native Video Stream Element */}
+      <video
+        ref={videoRef}
+        src={streamUrl}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onWaiting={() => setIsBuffering(true)}
+        onPlaying={() => setIsBuffering(false)}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onError={() =>
+          setErrorState({
+            code: 'STREAM_FAILED',
+            message: 'Video akışı sunucudan alınırken hata oluştu.',
+            isRetryable: true,
+          })
+        }
+        onClick={togglePlay}
+        className="w-full h-full object-contain cursor-pointer"
+        playsInline
+      />
+
+      {/* Overlays */}
+      {showResumeModal && (
+        <ResumeOverlay
+          savedPositionSeconds={media.progress?.positionSeconds || 0}
+          onResume={handleResumeClick}
+          onRestart={handleRestartClick}
+        />
+      )}
+
+      {showNextEpisodeModal && nextEpisode && (
+        <NextEpisodeOverlay
+          nextEpisodeTitle={nextEpisode.title}
+          seasonNumber={nextEpisode.seasonNumber}
+          episodeNumber={nextEpisode.episodeNumber}
+          onPlayNext={() => handleEpisodeChange(nextEpisode.id)}
+          onCancel={() => setShowNextEpisodeModal(false)}
+        />
+      )}
+
+      {errorState && <PlayerError error={errorState} onRetry={handleRetry} />}
+
+      {/* Controls Overlay Bar */}
+      <div
+        className={`transition-opacity duration-300 ${
+          areControlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <PlayerControls
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          duration={duration}
+          bufferedTime={bufferedTime}
+          volume={volume}
+          isMuted={isMuted}
+          playbackSpeed={playbackSpeed}
+          activeSubtitleId={activeSubtitleId}
+          hasPreviousEpisode={!!previousEpisode}
+          hasNextEpisode={!!nextEpisode}
+          onTogglePlay={togglePlay}
+          onSkipBackward={skipBackward}
+          onSkipForward={skipForward}
+          onSeek={(time) => {
+            if (videoRef.current) videoRef.current.currentTime = time;
+          }}
+          onVolumeChange={(vol) => {
+            setVolume(vol);
+            if (videoRef.current) videoRef.current.volume = vol;
+          }}
+          onToggleMute={toggleMute}
+          onSelectSpeed={(speed) => {
+            setPlaybackSpeed(speed);
+            if (videoRef.current) videoRef.current.playbackRate = speed;
+          }}
+          onSelectSubtitle={setActiveSubtitleId}
+          onTogglePiP={togglePiP}
+          onToggleFullscreen={toggleFullscreen}
+          onPreviousEpisode={previousEpisode ? () => handleEpisodeChange(previousEpisode.id) : undefined}
+          onNextEpisode={nextEpisode ? () => handleEpisodeChange(nextEpisode.id) : undefined}
+        />
+      </div>
+    </div>
+  );
+};
