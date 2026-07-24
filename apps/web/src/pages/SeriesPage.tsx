@@ -1,12 +1,48 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Tv } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
+import { FilterPanel, type FilterState } from '../components/media/FilterPanel';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { useMediaListQuery } from '../hooks/useApi';
 
 export const SeriesPage: React.FC = () => {
-  const { data, isLoading } = useMediaListQuery({ type: 'series', limit: 30 });
+  const [filterState, setFilterState] = useState<FilterState>({
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+    minRating: undefined,
+    yearRange: 'all',
+    genre: undefined,
+  });
+
+  const queryInput = useMemo(() => {
+    let yearFrom: number | undefined;
+    let yearTo: number | undefined;
+
+    if (filterState.yearRange === '2020s') yearFrom = 2020;
+    else if (filterState.yearRange === '2010s') {
+      yearFrom = 2010;
+      yearTo = 2019;
+    } else if (filterState.yearRange === '2000s') {
+      yearFrom = 2000;
+      yearTo = 2009;
+    } else if (filterState.yearRange === 'classics') {
+      yearTo = 1999;
+    }
+
+    return {
+      type: 'series' as const,
+      genre: filterState.genre,
+      minRating: filterState.minRating,
+      yearFrom,
+      yearTo,
+      sortBy: filterState.sortBy,
+      sortOrder: filterState.sortOrder,
+      limit: 100,
+    };
+  }, [filterState]);
+
+  const { data, isLoading } = useMediaListQuery(queryInput);
 
   return (
     <div className="space-y-8">
@@ -20,6 +56,12 @@ export const SeriesPage: React.FC = () => {
         </div>
       </div>
 
+      <FilterPanel
+        filters={filterState}
+        onChange={setFilterState}
+        totalResults={data?.pagination.total}
+      />
+
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: 12 }).map((_, i) => (
@@ -30,7 +72,7 @@ export const SeriesPage: React.FC = () => {
         <EmptyState
           icon={Tv}
           title="Dizi Bulunamadı"
-          description="Kütüphanenizde henüz kayıtlı bir dizi bulunmuyor."
+          description="Seçilen filtre kriterlerine uygun dizi bulunamadı."
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

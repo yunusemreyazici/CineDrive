@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutGrid, List, Search, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, List, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
+import { FilterPanel, type FilterState } from '../components/media/FilterPanel';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { useUiStore } from '../stores/useUiStore';
@@ -13,20 +14,44 @@ export const LibraryPage: React.FC = () => {
 
   const typeParam = searchParams.get('type') as 'movie' | 'series' | null;
   const searchParam = searchParams.get('search') || '';
-  const sortParam = (searchParams.get('sort') as 'createdAt' | 'title' | 'year') || 'createdAt';
   const pageParam = parseInt(searchParams.get('page') || '1', 10);
 
-  const queryInput = useMemo(
-    () => ({
+  const [filterState, setFilterState] = useState<FilterState>({
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+    minRating: undefined,
+    yearRange: 'all',
+    genre: undefined,
+  });
+
+  const queryInput = useMemo(() => {
+    let yearFrom: number | undefined;
+    let yearTo: number | undefined;
+
+    if (filterState.yearRange === '2020s') yearFrom = 2020;
+    else if (filterState.yearRange === '2010s') {
+      yearFrom = 2010;
+      yearTo = 2019;
+    } else if (filterState.yearRange === '2000s') {
+      yearFrom = 2000;
+      yearTo = 2009;
+    } else if (filterState.yearRange === 'classics') {
+      yearTo = 1999;
+    }
+
+    return {
       type: typeParam || undefined,
       search: searchParam || undefined,
-      sortBy: sortParam,
-      sortOrder: 'desc' as const,
+      genre: filterState.genre,
+      minRating: filterState.minRating,
+      yearFrom,
+      yearTo,
+      sortBy: filterState.sortBy,
+      sortOrder: filterState.sortOrder,
       page: pageParam,
       limit: 18,
-    }),
-    [typeParam, searchParam, sortParam, pageParam],
-  );
+    };
+  }, [typeParam, searchParam, filterState, pageParam]);
 
   const { data, isLoading } = useMediaListQuery(queryInput);
 
@@ -45,13 +70,6 @@ export const LibraryPage: React.FC = () => {
       if (newType === 'all') prev.delete('type');
       else prev.set('type', newType);
       prev.set('page', '1');
-      return prev;
-    });
-  };
-
-  const handleSortChange = (newSort: string) => {
-    setSearchParams((prev) => {
-      prev.set('sort', newSort);
       return prev;
     });
   };
@@ -123,19 +141,6 @@ export const LibraryPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Sort Selector */}
-          <div className="relative">
-            <select
-              value={sortParam}
-              onChange={(e) => handleSortChange(e.target.value)}
-              className="appearance-none pl-3 pr-8 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs font-medium text-zinc-200 focus:outline-none focus:border-brand-500 cursor-pointer"
-            >
-              <option value="createdAt">Son Eklenenler</option>
-              <option value="title">Ada Göre (A-Z)</option>
-              <option value="year">Yıla Göre</option>
-            </select>
-            <SlidersHorizontal className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
-          </div>
         </div>
       </div>
 
@@ -150,6 +155,13 @@ export const LibraryPage: React.FC = () => {
           className="w-full pl-10 pr-4 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
         />
       </div>
+
+      {/* Filter Panel */}
+      <FilterPanel
+        filters={filterState}
+        onChange={setFilterState}
+        totalResults={data?.pagination.total}
+      />
 
       {/* Media Grid / List */}
       {isLoading ? (
