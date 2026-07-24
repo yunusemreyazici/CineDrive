@@ -13,6 +13,7 @@ import { FavoritesPage } from '../pages/FavoritesPage';
 import { HistoryPage } from '../pages/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { InsightsPage } from '../pages/InsightsPage';
+import { MediaHealthPage } from '../pages/MediaHealthPage';
 import { MediaManagerPage } from '../pages/MediaManagerPage';
 import { PersonPage } from '../pages/PersonPage';
 
@@ -33,6 +34,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/insights" element={<InsightsPage />} />
+          <Route path="/media-health" element={<MediaHealthPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
 

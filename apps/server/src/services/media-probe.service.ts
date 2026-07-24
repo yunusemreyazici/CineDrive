@@ -118,7 +118,7 @@ export class MediaProbeService {
     )?.[1];
 
     return {
-      mediaContainer: path.extname(inputPath).slice(1).toLowerCase(),
+      mediaContainer: this.detectContainer(inputPath),
       videoCodec: videoLine?.match(/^([^,\s]+)/)?.[1]?.toLowerCase(),
       videoProfile: videoLine?.match(/^[^,]*\(([^)]+)\)/)?.[1]?.trim(),
       videoBitDepth: bitDepth ? Number.parseInt(bitDepth, 10) : 8,
@@ -144,5 +144,12 @@ export class MediaProbeService {
     return surround
       ? Number.parseInt(surround[1]!, 10) + Number.parseInt(surround[2]!, 10)
       : undefined;
+  }
+
+  private detectContainer(inputPath: string) {
+    const knownContainer = inputPath.match(
+      /\.(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)(?:$|\s)/i,
+    )?.[1];
+    return knownContainer?.toLowerCase() || path.extname(inputPath).slice(1).toLowerCase();
   }
 }

@@ -77,6 +77,41 @@ export interface StorageInsightsDto {
   }>;
 }
 
+export interface MediaHealthDto {
+  totalVideos: number;
+  analyzedVideos: number;
+  failedVideos: number;
+  pendingVideos: number;
+  playback: {
+    safari: Record<'direct' | 'audio' | 'hls' | 'full', number>;
+    chromium: Record<'direct' | 'audio' | 'hls' | 'full', number>;
+  };
+  codecs: {
+    video: Array<{ name: string; count: number }>;
+    audio: Array<{ name: string; count: number }>;
+    containers: Array<{ name: string; count: number }>;
+  };
+  runtime: {
+    hls: {
+      activeJobs: number;
+      cacheBytes: number;
+      cacheEntries: number;
+      maxCacheBytes: number;
+      maxActiveJobs: number;
+    };
+    transcode: {
+      activeSessions: number;
+      maxActiveSessions: number;
+    };
+  };
+  failures: Array<{
+    id: string;
+    name: string;
+    libraryName: string;
+    error: string;
+  }>;
+}
+
 export interface ApiErrorResponse {
   error: {
     code: string;
@@ -104,4 +139,3 @@ export interface LibraryDto {
   createdAt: string;
   updatedAt: string;
 }
-

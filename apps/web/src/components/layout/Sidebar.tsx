@@ -1,22 +1,23 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, FolderGit2, Film, Tv, Heart, History, HardDrive, Database, Settings, X } from 'lucide-react';
+import { Home, FolderGit2, Film, Tv, Heart, History, HardDrive, Database, Settings, X, Activity } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
+
+const navItems = [
+  { to: '/', label: 'Ana Sayfa', icon: Home },
+  { to: '/library', label: 'Kütüphane', icon: FolderGit2 },
+  { to: '/movies', label: 'Filmler', icon: Film },
+  { to: '/series', label: 'Diziler', icon: Tv },
+  { to: '/favorites', label: 'Favoriler', icon: Heart },
+  { to: '/history', label: 'Geçmiş', icon: History },
+  { to: '/manage', label: 'Veri Yönetimi', icon: Database },
+  { to: '/insights', label: 'Depolama Analizi', icon: HardDrive },
+  { to: '/media-health', label: 'Medya Sağlığı', icon: Activity },
+  { to: '/settings', label: 'Ayarlar', icon: Settings },
+];
 
 export const Sidebar: React.FC = () => {
   const { sidebarOpen, setSidebarOpen } = useUiStore();
-
-  const navItems = [
-    { to: '/', label: 'Ana Sayfa', icon: Home },
-    { to: '/library', label: 'Kütüphane', icon: FolderGit2 },
-    { to: '/movies', label: 'Filmler', icon: Film },
-    { to: '/series', label: 'Diziler', icon: Tv },
-    { to: '/favorites', label: 'Favoriler', icon: Heart },
-    { to: '/history', label: 'Geçmiş', icon: History },
-    { to: '/manage', label: 'Veri Yönetimi', icon: Database },
-    { to: '/insights', label: 'Depolama Analizi', icon: HardDrive },
-    { to: '/settings', label: 'Ayarlar', icon: Settings },
-  ];
 
   return (
     <>

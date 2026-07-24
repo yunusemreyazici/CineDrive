@@ -1,7 +1,27 @@
 import type { FastifyPluginAsync } from 'fastify';
+import type { MediaHealthDto } from '@cinedrive/shared';
+import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
 
 export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
+
+  const summarizeAnalysisError = (error: string) => {
+    const normalized = error.toLowerCase();
+    if (
+      normalized.includes('ebml') ||
+      normalized.includes('invalid data found') ||
+      normalized.includes('invalid as first byte')
+    ) {
+      return 'Dosya başlığı geçersiz veya içerik bozuk.';
+    }
+    if (normalized.includes('timeout') || normalized.includes('timed out')) {
+      return 'Medya analizi zaman aşımına uğradı.';
+    }
+    if (normalized.includes('not detected')) {
+      return 'Video akışı tespit edilemedi.';
+    }
+    return 'Medya teknik bilgileri okunamadı.';
+  };
 
   // GET /api/insights/storage: Analyze Drive Storage & Quota
   fastify.get('/storage', async (request, reply) => {
@@ -142,5 +162,107 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       duplicates,
       largestFiles: topLargestFiles,
     });
+  });
+
+  fastify.get('/media-health', async (request, reply) => {
+    const userId = request.user!.id;
+    const files = await fastify.prisma.driveFile.findMany({
+      where: {
+        status: 'active',
+        OR: [
+          { mimeType: { startsWith: 'video/' } },
+          { mimeType: 'application/octet-stream' },
+          { mimeType: 'application/x-matroska' },
+        ],
+        library: {
+          OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        mediaContainer: true,
+        videoCodec: true,
+        videoProfile: true,
+        videoBitDepth: true,
+        audioCodec: true,
+        audioChannels: true,
+        mediaWidth: true,
+        mediaHeight: true,
+        mediaDuration: true,
+        mediaAnalyzedAt: true,
+        mediaAnalysisError: true,
+        library: { select: { name: true } },
+      },
+    });
+
+    const emptyModes = (): Record<PlaybackMode, number> => ({
+      direct: 0,
+      audio: 0,
+      hls: 0,
+      full: 0,
+    });
+    const playback = { safari: emptyModes(), chromium: emptyModes() };
+    const videoCodecs = new Map<string, number>();
+    const audioCodecs = new Map<string, number>();
+    const containers = new Map<string, number>();
+    const failures: MediaHealthDto['failures'] = [];
+    let analyzedVideos = 0;
+    let failedVideos = 0;
+
+    const increment = (map: Map<string, number>, value?: string | null) => {
+      const key = value?.trim().toLowerCase() || 'bilinmiyor';
+      map.set(key, (map.get(key) || 0) + 1);
+    };
+    const normalizeContainer = (value?: string | null) =>
+      value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] ||
+      value;
+
+    for (const file of files) {
+      const plan = buildPlaybackPlan(file);
+      playback.safari[plan.safari]++;
+      playback.chromium[plan.chromium]++;
+      increment(videoCodecs, file.videoCodec);
+      increment(audioCodecs, file.audioCodec);
+      increment(containers, normalizeContainer(file.mediaContainer));
+
+      if (file.mediaAnalyzedAt && !file.mediaAnalysisError) analyzedVideos++;
+      if (file.mediaAnalysisError) {
+        failedVideos++;
+        if (failures.length < 25) {
+          failures.push({
+            id: file.id,
+            name: file.name,
+            libraryName: file.library.name,
+            error: summarizeAnalysisError(file.mediaAnalysisError),
+          });
+        }
+      }
+    }
+
+    const sortedDistribution = (map: Map<string, number>) =>
+      [...map.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((left, right) => right.count - left.count);
+
+    const response: MediaHealthDto = {
+      totalVideos: files.length,
+      analyzedVideos,
+      failedVideos,
+      pendingVideos: files.filter((file) => !file.mediaAnalyzedAt).length,
+      playback,
+      codecs: {
+        video: sortedDistribution(videoCodecs),
+        audio: sortedDistribution(audioCodecs),
+        containers: sortedDistribution(containers),
+      },
+      runtime: {
+        hls: fastify.hlsService.getStats(),
+        transcode: fastify.transcodeService.getStats(),
+      },
+      failures,
+    };
+
+    return reply.status(200).send(response);
   });
 };
