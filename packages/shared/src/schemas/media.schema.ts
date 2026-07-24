@@ -25,3 +25,9 @@ export const updateMediaMetadataSchema = z.object({
 });
 
 export type UpdateMediaMetadataInput = z.infer<typeof updateMediaMetadataSchema>;
+
+export const batchDeleteMediaSchema = z.object({
+  ids: z.array(z.string()).min(1, 'En az 1 içerik seçilmelidir.'),
+});
+
+export type BatchDeleteMediaInput = z.infer<typeof batchDeleteMediaSchema>;

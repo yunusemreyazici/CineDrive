@@ -223,6 +223,29 @@ export function useDeleteMediaItemMutation() {
     },
   });
 }
+
+export function useBatchDeleteMediaMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      try {
+        const res = await apiClient.post<{ message: string; deletedCount: number }>(
+          '/media/batch-delete',
+          { ids },
+        );
+        return res.data;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
+      queryClient.invalidateQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+  });
+}
 export function useMediaListQuery(params?: Partial<MediaQueryInput>) {
   return useQuery({
     queryKey: ['media', params],

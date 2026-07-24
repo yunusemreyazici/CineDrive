@@ -1,8 +1,75 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { updateMediaMetadataSchema, type UpdateMediaMetadataInput } from '@cinedrive/shared';
+import {
+  updateMediaMetadataSchema,
+  batchDeleteMediaSchema,
+  type UpdateMediaMetadataInput,
+} from '@cinedrive/shared';
 
 export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
+
+  // POST /api/media/batch-delete: Bulk remove media items from the database
+  fastify.post<{ Body: { ids: string[] } }>('/batch-delete', async (request, reply) => {
+    const parseResult = batchDeleteMediaSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: parseResult.error.errors[0]?.message || 'En az 1 içerik seçilmelidir.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const { ids } = parseResult.data;
+
+    // Find all media items and associated driveFileIds
+    const mediaItems = await fastify.prisma.mediaItem.findMany({
+      where: { id: { in: ids } },
+      include: {
+        movie: true,
+        series: {
+          include: {
+            seasons: {
+              include: {
+                episodes: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const driveFileIdsToDelete: string[] = [];
+    for (const item of mediaItems) {
+      if (item.movie?.driveFileId) {
+        driveFileIdsToDelete.push(item.movie.driveFileId);
+      }
+      if (item.series?.seasons) {
+        for (const season of item.series.seasons) {
+          for (const ep of season.episodes) {
+            if (ep.driveFileId) driveFileIdsToDelete.push(ep.driveFileId);
+          }
+        }
+      }
+    }
+
+    // Perform cascade delete of selected MediaItems
+    const deleteResult = await fastify.prisma.mediaItem.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    if (driveFileIdsToDelete.length > 0) {
+      await fastify.prisma.driveFile.deleteMany({
+        where: { id: { in: driveFileIdsToDelete } },
+      }).catch(() => {});
+    }
+
+    return reply.status(200).send({
+      message: `${deleteResult.count} adet medya içeriği veritabanından silindi.`,
+      deletedCount: deleteResult.count,
+    });
+  });
 
   // PATCH /api/media/:id: Update media item metadata
   fastify.patch<{ Params: { id: string }; Body: UpdateMediaMetadataInput }>(
