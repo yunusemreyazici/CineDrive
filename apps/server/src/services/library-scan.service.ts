@@ -222,7 +222,7 @@ export class LibraryScanService {
         let finalYear = year;
         let voteAverage: number | undefined;
         let voteCount: number | undefined;
-        let genresStr: string | undefined = customMeta?.genres ? JSON.stringify(customMeta.genres) : undefined;
+        let genresStr: string | undefined = customMeta?.genres && Array.isArray(customMeta.genres) ? JSON.stringify(customMeta.genres) : undefined;
         let castStr: string | undefined;
         let trailerUrl: string | undefined;
         let contentRating: string | undefined;

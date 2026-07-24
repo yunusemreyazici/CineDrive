@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User } from 'lucide-react';
 import { useMediaDetailQuery, useToggleFavoriteMutation } from '../hooks/useApi';
@@ -13,6 +13,16 @@ export const MediaDetailPage: React.FC = () => {
 
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowTrailerModal(false);
+    };
+    if (showTrailerModal) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showTrailerModal]);
 
   if (isLoading) {
     return (
@@ -36,8 +46,8 @@ export const MediaDetailPage: React.FC = () => {
   }
 
   const backdropUrl =
-    (media as { backdropUrl?: string; posterUrl?: string }).backdropUrl ||
-    (media as { backdropUrl?: string; posterUrl?: string }).posterUrl ||
+    media.backdropUrl ||
+    media.posterUrl ||
     (media.backdropDriveFileId
       ? `/api/media/assets/${media.backdropDriveFileId}`
       : media.posterDriveFileId
@@ -45,7 +55,7 @@ export const MediaDetailPage: React.FC = () => {
         : null);
 
   const posterUrl =
-    (media as { posterUrl?: string }).posterUrl ||
+    media.posterUrl ||
     (media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : null);
 
   const seasons: SeasonType[] = media.series?.seasons || [];
@@ -323,8 +333,14 @@ export const MediaDetailPage: React.FC = () => {
 
       {/* Trailer YouTube Embed Modal */}
       {showTrailerModal && embedTrailerUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
+        <div
+          onClick={() => setShowTrailerModal(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
+          >
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/60">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <Video className="w-4 h-4 text-brand-400" />

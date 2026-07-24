@@ -2,6 +2,15 @@ import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@prisma/client';
 
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
@@ -61,8 +70,8 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
 
     const enrichedItems = items.map((item) => ({
       ...item,
-      genres: item.genres ? (() => { try { return JSON.parse(item.genres); } catch { return []; } })() : [],
-      cast: item.cast ? (() => { try { return JSON.parse(item.cast); } catch { return []; } })() : [],
+      genres: safeJsonParse<string[]>(item.genres, []),
+      cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(item.cast, []),
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
       posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
@@ -150,19 +159,38 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
     }));
 
-    const genresList = item.genres ? (() => { try { return JSON.parse(item.genres); } catch { return []; } })() : [];
-    const castList = item.cast ? (() => { try { return JSON.parse(item.cast); } catch { return []; } })() : [];
+    const formattedSeries = item.series
+      ? {
+          ...item.series,
+          seasons: item.series.seasons.map((season) => ({
+            ...season,
+            episodes: season.episodes.map((ep) => ({
+              ...ep,
+              subtitles: ep.subtitles.map((sub) => ({
+                id: sub.id,
+                languageCode: sub.language,
+                languageLabel: sub.label || sub.language.toUpperCase(),
+                forced: sub.isForced,
+                hearingImpaired: sub.isHearingImpaired,
+                isDefault: sub.isDefault,
+                url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
+              })),
+            })),
+          })),
+        }
+      : null;
 
     return reply.status(200).send({
       media: {
         ...item,
-        genres: genresList,
-        cast: castList,
+        genres: safeJsonParse<string[]>(item.genres, []),
+        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(item.cast, []),
         isFavorite: item.favorites.length > 0,
         progress: item.playbackProgresses[0] || null,
         posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
         backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
         subtitles: formattedSubtitles,
+        series: formattedSeries,
       },
     });
   });

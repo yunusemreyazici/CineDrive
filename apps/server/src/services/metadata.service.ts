@@ -31,7 +31,9 @@ export class MetadataService {
   private episodeCache = new Map<string, Map<string, OnlineEpisodeMetadata>>();
 
   private get tmdbApiKey(): string | undefined {
-    return process.env.TMDB_API_KEY;
+    const key = process.env.TMDB_API_KEY?.trim();
+    if (!key || key === 'your_tmdb_api_key_here') return undefined;
+    return key;
   }
 
   /**
@@ -50,7 +52,9 @@ export class MetadataService {
 
     const map = new Map<string, OnlineEpisodeMetadata>();
     try {
-      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}&embed=episodes`);
+      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}&embed=episodes`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           _embedded?: {
@@ -121,7 +125,8 @@ export class MetadataService {
     try {
       const endpoint = type === 'movie' ? 'search/movie' : 'search/tv';
       const searchRes = await fetch(
-        `https://api.themoviedb.org/3/${endpoint}?api_key=${apiKey}&query=${encodeURIComponent(cleanTitle)}&language=tr-TR`
+        `https://api.themoviedb.org/3/${endpoint}?api_key=${apiKey}&query=${encodeURIComponent(cleanTitle)}&language=tr-TR`,
+        { signal: AbortSignal.timeout(5000) }
       );
 
       if (!searchRes.ok) return null;
@@ -148,7 +153,8 @@ export class MetadataService {
       const detailEndpoint = type === 'movie' ? `movie/${match.id}` : `tv/${match.id}`;
       const appendParams = type === 'movie' ? 'videos,credits,release_dates' : 'videos,credits,content_ratings';
       const detailRes = await fetch(
-        `https://api.themoviedb.org/3/${detailEndpoint}?api_key=${apiKey}&append_to_response=${appendParams}&language=tr-TR`
+        `https://api.themoviedb.org/3/${detailEndpoint}?api_key=${apiKey}&append_to_response=${appendParams}&language=tr-TR`,
+        { signal: AbortSignal.timeout(5000) }
       );
 
       if (!detailRes.ok) return null;
@@ -252,7 +258,9 @@ export class MetadataService {
    */
   private async fetchTvMazeMetadata(cleanTitle: string): Promise<OnlineMetadataResult | null> {
     try {
-      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}`);
+      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (res.ok) {
         const data = (await res.json()) as {
           name?: string;
