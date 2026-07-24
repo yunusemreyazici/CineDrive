@@ -6,11 +6,17 @@ interface PlayerState {
   playbackSpeed: number;
   activeSubtitleId: string | null;
   autoPlayNext: boolean;
+  subtitleDelay: number;
+  subtitleFontSize: number;
+  subtitleBgColor: 'transparent' | 'black' | 'shadow';
   setVolume: (volume: number) => void;
   setIsMuted: (muted: boolean) => void;
   setPlaybackSpeed: (speed: number) => void;
   setActiveSubtitleId: (id: string | null) => void;
   setAutoPlayNext: (autoPlay: boolean) => void;
+  setSubtitleDelay: (delay: number) => void;
+  setSubtitleFontSize: (size: number) => void;
+  setSubtitleBgColor: (bgColor: 'transparent' | 'black' | 'shadow') => void;
 }
 
 export const usePlayerStore = create<PlayerState>((set) => ({
@@ -19,9 +25,15 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   playbackSpeed: 1,
   activeSubtitleId: null,
   autoPlayNext: true,
+  subtitleDelay: 0,
+  subtitleFontSize: 100,
+  subtitleBgColor: 'black',
   setVolume: (volume) => set({ volume, isMuted: volume === 0 }),
   setIsMuted: (isMuted) => set({ isMuted }),
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
   setActiveSubtitleId: (activeSubtitleId) => set({ activeSubtitleId }),
   setAutoPlayNext: (autoPlayNext) => set({ autoPlayNext }),
+  setSubtitleDelay: (subtitleDelay) => set({ subtitleDelay }),
+  setSubtitleFontSize: (subtitleFontSize) => set({ subtitleFontSize }),
+  setSubtitleBgColor: (subtitleBgColor) => set({ subtitleBgColor }),
 }));

@@ -19,6 +19,9 @@ import { PlaybackSpeedMenu } from './PlaybackSpeedMenu';
 import type { SubtitleTrackType } from '../types/player';
 
 interface PlayerControlsProps {
+  mediaId?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
   isPlaying: boolean;
   currentTime: number;
   duration: number;
@@ -39,6 +42,7 @@ interface PlayerControlsProps {
   onSelectSpeed: (speed: number) => void;
   onSelectSubtitle: (id: string | null) => void;
   onUploadCustomSubtitle?: (file: File) => void;
+  onSelectOpenSubtitle?: (downloadUrl: string, label: string) => Promise<void>;
   onTogglePiP: () => void;
   onToggleFullscreen: () => void;
   onPreviousEpisode?: () => void;
@@ -46,6 +50,9 @@ interface PlayerControlsProps {
 }
 
 export const PlayerControls: React.FC<PlayerControlsProps> = ({
+  mediaId,
+  seasonNumber,
+  episodeNumber,
   isPlaying,
   currentTime,
   duration,
@@ -66,6 +73,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   onSelectSpeed,
   onSelectSubtitle,
   onUploadCustomSubtitle,
+  onSelectOpenSubtitle,
   onTogglePiP,
   onToggleFullscreen,
   onPreviousEpisode,
@@ -89,10 +97,14 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
       {/* Subtitle & Speed Menus */}
       {subtitleMenuOpen && (
         <SubtitleMenu
+          mediaId={mediaId}
+          seasonNumber={seasonNumber}
+          episodeNumber={episodeNumber}
           subtitles={subtitles}
           activeSubtitleId={activeSubtitleId}
           onSelectSubtitle={onSelectSubtitle}
           onUploadCustomSubtitle={onUploadCustomSubtitle}
+          onSelectOpenSubtitle={onSelectOpenSubtitle}
           onClose={() => setSubtitleMenuOpen(false)}
         />
       )}

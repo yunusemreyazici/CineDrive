@@ -54,6 +54,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let episodes: EpisodeType[] = [];
   let currentEpisodeIndex = -1;
   let serverSubtitles: SubtitleTrackType[] = [];
+  let currentSeasonNum: number | undefined = undefined;
+  let currentEpisodeNum: number | undefined = undefined;
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
@@ -67,6 +69,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
     if (activeEp) {
       targetDriveFileId = activeEp.driveFileId;
+      currentSeasonNum = activeEp.seasonNumber;
+      currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
       serverSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
     }
@@ -99,6 +103,51 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       // Subtitle parse error handled silently
     }
   };
+
+  const handleSelectOpenSubtitle = async (downloadUrl: string, label: string) => {
+    const res = await fetch('/api/media/subtitles/opensubtitles/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ downloadUrl }),
+    });
+
+    if (!res.ok) throw new Error('Download failed');
+    const vttText = await res.text();
+    const blob = new Blob([vttText], { type: 'text/vtt' });
+    const objectUrl = URL.createObjectURL(blob);
+
+    const openSubTrack: SubtitleTrackType = {
+      id: `opensub_${Date.now()}`,
+      language: 'tr',
+      label,
+      isForced: false,
+      isHearingImpaired: false,
+      isDefault: true,
+      url: objectUrl,
+    };
+
+    setCustomSubtitles((prev) => [...prev, openSubTrack]);
+    setActiveSubtitleId(openSubTrack.id);
+  };
+
+  const { subtitleFontSize, subtitleBgColor } = usePlayerStore();
+  const cueStyle = `
+    ::cue {
+      font-size: ${subtitleFontSize}%;
+      background-color: ${
+        subtitleBgColor === 'black'
+          ? 'rgba(0, 0, 0, 0.85)'
+          : 'transparent'
+      };
+      text-shadow: ${
+        subtitleBgColor === 'shadow'
+          ? '2px 2px 4px rgba(0, 0, 0, 0.9), -2px -2px 4px rgba(0, 0, 0, 0.9)'
+          : 'none'
+      };
+      border-radius: 6px;
+      padding: 2px 8px;
+    }
+  `;
 
   const previousEpisode = currentEpisodeIndex > 0 ? episodes[currentEpisodeIndex - 1] : null;
   const nextEpisode =
@@ -282,6 +331,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       onTouchStart={resetHideTimer}
       className="fixed inset-0 z-50 bg-black flex flex-col justify-between select-none overflow-hidden"
     >
+      <style>{cueStyle}</style>
+
       {/* Top Navigation Header Bar */}
       <div
         className={`absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center gap-4 transition-opacity duration-300 ${
@@ -371,6 +422,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }`}
       >
         <PlayerControls
+          mediaId={media.id}
+          seasonNumber={currentSeasonNum}
+          episodeNumber={currentEpisodeNum}
           isPlaying={isPlaying}
           currentTime={currentTime}
           duration={duration}
@@ -399,6 +453,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           }}
           onSelectSubtitle={setActiveSubtitleId}
           onUploadCustomSubtitle={handleCustomSubtitleUpload}
+          onSelectOpenSubtitle={handleSelectOpenSubtitle}
           onTogglePiP={togglePiP}
           onToggleFullscreen={toggleFullscreen}
           onPreviousEpisode={previousEpisode ? () => handleEpisodeChange(previousEpisode.id) : undefined}

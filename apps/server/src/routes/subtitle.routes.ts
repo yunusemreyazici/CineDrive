@@ -49,4 +49,96 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       }
     },
   );
+
+  // GET /api/media/subtitles/opensubtitles/search
+  fastify.get<{
+    Querystring: {
+      mediaId: string;
+      seasonNumber?: string;
+      episodeNumber?: string;
+      languages?: string;
+    };
+  }>('/subtitles/opensubtitles/search', async (request, reply) => {
+    const { mediaId, seasonNumber, episodeNumber, languages } = request.query;
+
+    if (!mediaId) {
+      return reply.status(400).send({
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'mediaId parametresi zorunludur.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const mediaItem = await fastify.prisma.mediaItem.findUnique({
+      where: { id: mediaId },
+    });
+
+    if (!mediaItem) {
+      return reply.status(404).send({
+        error: {
+          code: 'MEDIA_NOT_FOUND',
+          message: 'Medya içeriği bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const seasonNum = seasonNumber ? parseInt(seasonNumber, 10) : undefined;
+    const episodeNum = episodeNumber ? parseInt(episodeNumber, 10) : undefined;
+    const langList = languages ? languages.split(',') : ['tur', 'eng'];
+
+    const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
+    const openSubtitlesService = new OpenSubtitlesService();
+
+    const results = await openSubtitlesService.searchSubtitles(
+      mediaItem.title,
+      seasonNum,
+      episodeNum,
+      langList,
+    );
+
+    return reply.status(200).send({
+      results,
+    });
+  });
+
+  // POST /api/media/subtitles/opensubtitles/download
+  fastify.post<{
+    Body: {
+      downloadUrl: string;
+    };
+  }>('/subtitles/opensubtitles/download', async (request, reply) => {
+    const { downloadUrl } = request.body;
+
+    if (!downloadUrl) {
+      return reply.status(400).send({
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'downloadUrl parametresi gereklidir.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    try {
+      const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
+      const openSubtitlesService = new OpenSubtitlesService();
+      const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(downloadUrl);
+
+      reply.status(200);
+      reply.header('Content-Type', 'text/vtt; charset=utf-8');
+      return reply.send(vttContent);
+    } catch (err: unknown) {
+      fastify.log.error({ err, requestId: request.id }, 'OpenSubtitles download failed');
+      return reply.status(500).send({
+        error: {
+          code: 'OPENSUBTITLES_DOWNLOAD_ERROR',
+          message: 'Altyazı indirilirken veya dönüştürülürken hata oluştu.',
+          requestId: request.id,
+        },
+      });
+    }
+  });
 };
