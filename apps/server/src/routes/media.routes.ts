@@ -139,7 +139,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       accessToken = await fastify.googleOAuthService.getValidAccessToken(
         userId,
-        driveFile.library.googleConnectionId || undefined,
+        driveFile.library?.googleConnectionId || undefined,
       );
     } catch {
       cleanupListeners();
