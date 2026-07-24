@@ -73,7 +73,11 @@ export const SettingsPage: React.FC = () => {
             <div className="p-4 bg-zinc-950/60 border border-zinc-800 rounded-2xl space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-zinc-500 font-medium">Bağlı E-Posta:</span>
-                <span className="text-zinc-200 font-semibold">{googleStatus.connection?.googleEmail || 'Bilinmiyor'}</span>
+                <span className="text-zinc-200 font-semibold">
+                  {(googleStatus.connection as { email?: string; googleEmail?: string })?.email ||
+                    googleStatus.connection?.googleEmail ||
+                    'Bilinmiyor'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500 font-medium">Son İzin Tarihi:</span>

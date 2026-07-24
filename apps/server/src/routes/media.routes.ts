@@ -127,10 +127,17 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       // Set HTTP status (206 Partial Content or 200 OK)
       reply.status(driveStreamRes.status);
 
-      // Passthrough Google Drive headers to browser
-      if (driveStreamRes.headers['content-type']) {
-        reply.header('Content-Type', driveStreamRes.headers['content-type']);
+      // Passthrough Google Drive headers to browser with browser-compatible MIME types
+      let contentType = driveStreamRes.headers['content-type'] || driveFile.mimeType;
+      if (
+        contentType === 'video/x-matroska' ||
+        contentType === 'video/x-msvideo' ||
+        driveFile.name.toLowerCase().endsWith('.mkv') ||
+        driveFile.name.toLowerCase().endsWith('.avi')
+      ) {
+        contentType = 'video/webm';
       }
+      reply.header('Content-Type', contentType);
       if (driveStreamRes.headers['content-length']) {
         reply.header('Content-Length', driveStreamRes.headers['content-length']);
       }

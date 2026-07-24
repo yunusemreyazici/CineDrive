@@ -11,15 +11,26 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Auto-create default library from GOOGLE_DRIVE_ROOT_FOLDER_ID if no libraries exist
-    if (libraries.length === 0 && env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
-      const defaultLib = await fastify.prisma.library.create({
-        data: {
-          name: 'Main Media Library',
-          rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID,
-        },
-      });
-      libraries = [defaultLib];
+    // Auto-create or update default library from GOOGLE_DRIVE_ROOT_FOLDER_ID
+    if (env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+      if (libraries.length === 0) {
+        const defaultLib = await fastify.prisma.library.create({
+          data: {
+            name: 'Main Media Library',
+            rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID,
+          },
+        });
+        libraries = [defaultLib];
+      } else {
+        const firstLib = libraries[0];
+        if (firstLib && firstLib.rootFolderId !== env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+          const updated = await fastify.prisma.library.update({
+            where: { id: firstLib.id },
+            data: { rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID },
+          });
+          libraries[0] = updated;
+        }
+      }
     }
 
     return reply.status(200).send({ libraries });
