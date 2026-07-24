@@ -43,6 +43,40 @@ export interface MediaItemDto {
   updatedAt: string;
 }
 
+export interface SharedDriveDto {
+  id: string;
+  name: string;
+}
+
+export interface DuplicateFileDto {
+  id: string;
+  name: string;
+  size: number;
+  libraryName: string;
+  googleDriveFileId: string;
+  reason: string;
+}
+
+export interface StorageInsightsDto {
+  totalFiles: number;
+  totalSizeBytes: number;
+  averageSizeBytes: number;
+  resolutions: {
+    k4: { count: number; sizeBytes: number };
+    p1080: { count: number; sizeBytes: number };
+    p720: { count: number; sizeBytes: number };
+    sd: { count: number; sizeBytes: number };
+  };
+  duplicates: DuplicateFileDto[];
+  largestFiles: Array<{
+    id: string;
+    name: string;
+    size: number;
+    libraryName: string;
+    googleDriveFileId: string;
+  }>;
+}
+
 export interface ApiErrorResponse {
   error: {
     code: string;
@@ -57,3 +91,4 @@ export interface HealthResponse {
   timestamp: string;
   uptime: number;
 }
+

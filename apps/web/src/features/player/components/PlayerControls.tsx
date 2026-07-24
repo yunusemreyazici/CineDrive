@@ -12,10 +12,12 @@ import {
   Gauge,
   SkipBack,
   SkipForward,
+  Sparkles,
 } from 'lucide-react';
 import { PlayerTimeline } from './PlayerTimeline';
 import { SubtitleMenu } from './SubtitleMenu';
 import { PlaybackSpeedMenu } from './PlaybackSpeedMenu';
+import { useUiStore } from '../../../stores/useUiStore';
 import type { SubtitleTrackType } from '../types/player';
 
 interface PlayerControlsProps {
@@ -81,6 +83,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 }) => {
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const { cinemaMode, toggleCinemaMode } = useUiStore();
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -234,6 +237,17 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors hidden sm:block"
           >
             <PictureInPicture2 className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={toggleCinemaMode}
+            aria-label="Sinema Modu"
+            title="Sinema Işıkları"
+            className={`p-2 rounded-xl transition-colors hidden sm:block ${
+              cinemaMode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-5 h-5" />
           </button>
 
           <button

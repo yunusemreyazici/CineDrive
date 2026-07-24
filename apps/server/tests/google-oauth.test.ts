@@ -52,6 +52,9 @@ describe('GoogleOAuthService Unit Tests', () => {
   let mockPrisma: {
     googleConnection: {
       findUnique: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+      create: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
@@ -62,6 +65,9 @@ describe('GoogleOAuthService Unit Tests', () => {
     mockPrisma = {
       googleConnection: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue({ id: 'conn-1' }),
         upsert: vi.fn(),
         update: vi.fn(),
         delete: vi.fn(),
@@ -101,11 +107,13 @@ describe('GoogleOAuthService Unit Tests', () => {
     const userId = 'user-uuid-123';
     const stateToken = googleService.generateStateToken(userId);
 
+    mockPrisma.googleConnection.findFirst.mockResolvedValue(null);
+
     const result = await googleService.handleCallback('mock-code-123', stateToken);
 
     expect(result.userId).toBe(userId);
     expect(result.googleEmail).toBe('testuser@gmail.com');
-    expect(mockPrisma.googleConnection.upsert).toHaveBeenCalled();
+    expect(mockPrisma.googleConnection.create).toHaveBeenCalled();
   });
 
   it('should deduplicate concurrent access token refresh requests', async () => {
@@ -115,7 +123,8 @@ describe('GoogleOAuthService Unit Tests', () => {
     ).cryptoService;
     const mockEncryptedRefreshToken = cryptoService.encrypt('mock-refresh-token');
 
-    mockPrisma.googleConnection.findUnique.mockResolvedValue({
+    mockPrisma.googleConnection.findFirst.mockResolvedValue({
+      id: 'conn-1',
       userId,
       googleAccountId: 'google-123',
       email: 'testuser@gmail.com',
@@ -132,7 +141,7 @@ describe('GoogleOAuthService Unit Tests', () => {
     expect(token1).toBe('new-refreshed-access-token');
     expect(token2).toBe('new-refreshed-access-token');
     // Only 1 database lookup should occur due to promise deduplication
-    expect(mockPrisma.googleConnection.findUnique).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledTimes(1);
   });
 
   it('should unlink Google account and revoke token', async () => {
@@ -142,15 +151,18 @@ describe('GoogleOAuthService Unit Tests', () => {
     ).cryptoService;
     const mockEncryptedRefreshToken = cryptoService.encrypt('mock-refresh-token');
 
-    mockPrisma.googleConnection.findUnique.mockResolvedValue({
-      userId,
-      encryptedRefreshToken: mockEncryptedRefreshToken,
-    });
+    mockPrisma.googleConnection.findMany.mockResolvedValue([
+      {
+        id: 'conn-1',
+        userId,
+        encryptedRefreshToken: mockEncryptedRefreshToken,
+      },
+    ]);
 
     await googleService.unlinkGoogleAccount(userId);
 
     expect(mockPrisma.googleConnection.delete).toHaveBeenCalledWith({
-      where: { userId },
+      where: { id: 'conn-1' },
     });
   });
 });

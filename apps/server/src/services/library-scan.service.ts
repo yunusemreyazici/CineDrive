@@ -55,7 +55,7 @@ export class LibraryScanService {
       throw new Error('LIBRARY_NOT_FOUND');
     }
 
-    const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
+    const accessToken = await this.googleOAuthService.getValidAccessToken(userId, library.googleConnectionId || undefined);
 
     // Acquire lock
     this.activeScans.add(libraryId);

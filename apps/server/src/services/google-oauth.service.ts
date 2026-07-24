@@ -113,8 +113,8 @@ export class GoogleOAuthService {
     // Retrieve refresh token: fallback to existing DB refresh token if Google didn't issue a new one
     let refreshToken = tokens.refresh_token;
     if (!refreshToken) {
-      const existingConn = await this.prisma.googleConnection.findUnique({
-        where: { userId },
+      const existingConn = await this.prisma.googleConnection.findFirst({
+        where: { userId, email: googleEmail },
       });
       if (existingConn) {
         refreshToken = this.cryptoService.decrypt(existingConn.encryptedRefreshToken);
@@ -128,26 +128,40 @@ export class GoogleOAuthService {
     const encryptedRefreshToken = this.cryptoService.encrypt(refreshToken);
     const scopes = (tokens.scope || GOOGLE_DRIVE_SCOPES.join(' ')).toString();
 
-    // Save to Database
-    await this.prisma.googleConnection.upsert({
-      where: { userId },
-      create: {
-        userId,
-        googleAccountId,
-        email: googleEmail,
-        encryptedRefreshToken,
-        scopes,
-      },
-      update: {
-        googleAccountId,
-        email: googleEmail,
-        encryptedRefreshToken,
-        scopes,
-      },
+    // Check if this connection already exists for user
+    const existing = await this.prisma.googleConnection.findFirst({
+      where: { userId, email: googleEmail },
     });
+
+    let connectionId = existing?.id;
+    if (existing) {
+      await this.prisma.googleConnection.update({
+        where: { id: existing.id },
+        data: {
+          googleAccountId,
+          encryptedRefreshToken,
+          scopes,
+        },
+      });
+    } else {
+      const created = await this.prisma.googleConnection.create({
+        data: {
+          userId,
+          googleAccountId,
+          email: googleEmail,
+          encryptedRefreshToken,
+          scopes,
+        },
+      });
+      connectionId = created.id;
+    }
 
     // Cache Access Token in memory
     const expiresAt = tokens.expiry_date || Date.now() + 3600 * 1000;
+    this.tokenCache.set(connectionId!, {
+      accessToken: tokens.access_token,
+      expiresAt,
+    });
     this.tokenCache.set(userId, {
       accessToken: tokens.access_token,
       expiresAt,
@@ -157,33 +171,32 @@ export class GoogleOAuthService {
   }
 
   /**
-   * Returns a valid access token for the given user, automatically refreshing if expired.
-   * Concurrency Safe: Merges concurrent refresh requests for the same user into a single operation.
+   * Returns a valid access token for the given user (or specific connectionId), automatically refreshing if expired.
    */
-  public async getValidAccessToken(userId: string): Promise<string> {
-    const cached = this.tokenCache.get(userId);
+  public async getValidAccessToken(userId: string, connectionId?: string): Promise<string> {
+    const key = connectionId || userId;
+    const cached = this.tokenCache.get(key);
     if (cached && cached.expiresAt - Date.now() > REFRESH_BUFFER_MS) {
       return cached.accessToken;
     }
 
-    // Deduplicate in-flight refresh requests for the same user
-    const existingPromise = this.refreshPromises.get(userId);
+    const existingPromise = this.refreshPromises.get(key);
     if (existingPromise) {
       return existingPromise;
     }
 
-    const refreshPromise = this.performTokenRefresh(userId).finally(() => {
-      this.refreshPromises.delete(userId);
+    const refreshPromise = this.performTokenRefresh(userId, connectionId).finally(() => {
+      this.refreshPromises.delete(key);
     });
 
-    this.refreshPromises.set(userId, refreshPromise);
+    this.refreshPromises.set(key, refreshPromise);
     return refreshPromise;
   }
 
-  private async performTokenRefresh(userId: string): Promise<string> {
-    const connection = await this.prisma.googleConnection.findUnique({
-      where: { userId },
-    });
+  private async performTokenRefresh(userId: string, connectionId?: string): Promise<string> {
+    const connection = connectionId
+      ? await this.prisma.googleConnection.findUnique({ where: { id: connectionId } })
+      : await this.prisma.googleConnection.findFirst({ where: { userId } });
 
     if (!connection) {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
@@ -209,6 +222,10 @@ export class GoogleOAuthService {
       const expiresAt = credentials.expiry_date || Date.now() + 3600 * 1000;
 
       // Update in-memory cache
+      this.tokenCache.set(connection.id, {
+        accessToken: credentials.access_token,
+        expiresAt,
+      });
       this.tokenCache.set(userId, {
         accessToken: credentials.access_token,
         expiresAt,
@@ -218,51 +235,51 @@ export class GoogleOAuthService {
       if (credentials.refresh_token) {
         const encryptedRefreshToken = this.cryptoService.encrypt(credentials.refresh_token);
         await this.prisma.googleConnection.update({
-          where: { userId },
+          where: { id: connection.id },
           data: { encryptedRefreshToken },
         });
       }
 
       return credentials.access_token;
     } catch {
-      // Handle revoked token or authentication failure
+      this.tokenCache.delete(connection.id);
       this.tokenCache.delete(userId);
       throw new Error('GOOGLE_REAUTHORIZATION_REQUIRED');
     }
   }
 
   /**
-   * Unlinks Google Account: revokes tokens at Google endpoint and removes database record
+   * Unlinks a specific Google Account or all connections for user
    */
-  public async unlinkGoogleAccount(userId: string): Promise<void> {
-    const connection = await this.prisma.googleConnection.findUnique({
-      where: { userId },
-    });
+  public async unlinkGoogleAccount(userId: string, connectionId?: string): Promise<void> {
+    const connections = connectionId
+      ? await this.prisma.googleConnection.findMany({ where: { id: connectionId, userId } })
+      : await this.prisma.googleConnection.findMany({ where: { userId } });
 
-    if (!connection) {
-      return;
+    for (const connection of connections) {
+      try {
+        const refreshToken = this.cryptoService.decrypt(connection.encryptedRefreshToken);
+        const oauth2Client = this.createOAuth2Client();
+        await oauth2Client.revokeToken(refreshToken);
+      } catch {
+        // Ignore revocation errors
+      }
+
+      await this.prisma.googleConnection.delete({
+        where: { id: connection.id },
+      });
+
+      this.tokenCache.delete(connection.id);
     }
-
-    try {
-      const refreshToken = this.cryptoService.decrypt(connection.encryptedRefreshToken);
-      const oauth2Client = this.createOAuth2Client();
-      await oauth2Client.revokeToken(refreshToken);
-    } catch {
-      // Ignore revocation network errors if token was already revoked
-    }
-
-    await this.prisma.googleConnection.delete({
-      where: { userId },
-    });
 
     this.tokenCache.delete(userId);
   }
 
   /**
-   * Returns current GoogleConnection info for user without exposing secrets
+   * Returns list of connected Google Accounts for user
    */
-  public async getConnectionInfo(userId: string) {
-    const conn = await this.prisma.googleConnection.findUnique({
+  public async getConnectionsInfo(userId: string) {
+    const connections = await this.prisma.googleConnection.findMany({
       where: { userId },
       select: {
         id: true,
@@ -273,14 +290,17 @@ export class GoogleOAuthService {
       },
     });
 
-    if (!conn) return null;
-
-    return {
+    return connections.map((conn) => ({
       id: conn.id,
       email: conn.email,
       googleAccountId: conn.googleAccountId,
       scopes: conn.scopes.split(' '),
       createdAt: conn.createdAt.toISOString(),
-    };
+    }));
+  }
+
+  public async getConnectionInfo(userId: string) {
+    const list = await this.getConnectionsInfo(userId);
+    return list[0] || null;
   }
 }

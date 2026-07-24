@@ -6,6 +6,7 @@ import { ResumeOverlay } from './ResumeOverlay';
 import { NextEpisodeOverlay } from './NextEpisodeOverlay';
 import { PlayerError } from './PlayerError';
 import { usePlayerStore } from '../stores/usePlayerStore';
+import { useUiStore } from '../../../stores/useUiStore';
 import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
@@ -34,6 +35,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setPlaybackSpeed,
     setActiveSubtitleId,
   } = usePlayerStore();
+  const { cinemaMode } = useUiStore();
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -406,7 +408,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           })
         }
         onClick={togglePlay}
-        className="w-full h-full object-contain cursor-pointer"
+        className={`w-full h-full object-contain cursor-pointer transition-all duration-500 ${
+          cinemaMode ? 'scale-[0.94] rounded-2xl shadow-[0_0_100px_rgba(245,158,11,0.2)] border border-amber-500/20' : ''
+        }`}
         playsInline
       >
         {availableSubtitles.map((sub) => (

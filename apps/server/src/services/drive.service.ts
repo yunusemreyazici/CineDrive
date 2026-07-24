@@ -140,10 +140,32 @@ export class GoogleDriveService {
     if (response.headers['etag']) resHeaders['etag'] = String(response.headers['etag']);
     if (response.headers['last-modified']) resHeaders['last-modified'] = String(response.headers['last-modified']);
 
-    return {
-      stream: response.data as Readable,
-      status: response.status,
-      headers: resHeaders,
-    };
+      return {
+        stream: response.data as Readable,
+        status: response.status,
+        headers: resHeaders,
+      };
+    }
+
+  /**
+   * Lists all Shared Drives (Team Drives) accessible by the user
+   */
+  public async listSharedDrives(
+    accessToken: string
+  ): Promise<Array<{ id: string; name: string }>> {
+    return this.withExponentialBackoff(async () => {
+      const drive = this.createDriveClient(accessToken);
+      const response = await drive.drives.list({
+        pageSize: 100,
+        fields: 'drives(id, name)',
+      });
+
+      return (response.data.drives || [])
+        .map((d) => ({
+          id: d.id || '',
+          name: d.name || '',
+        }))
+        .filter((d) => !!d.id);
+    });
   }
 }

@@ -140,12 +140,50 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const userId = request.user!.id;
-      const connection = await fastify.googleOAuthService.getConnectionInfo(userId);
+      const connections = await fastify.googleOAuthService.getConnectionsInfo(userId);
 
       return reply.status(200).send({
-        connected: !!connection,
-        connection,
+        connected: connections.length > 0,
+        connection: connections[0] || null,
+        connections,
       });
+    },
+  );
+
+  // GET /api/auth/google/connections: List all connected Google accounts
+  fastify.get(
+    '/google/connections',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const connections = await fastify.googleOAuthService.getConnectionsInfo(userId);
+      return reply.status(200).send({ connections });
+    },
+  );
+
+  // DELETE /api/auth/google/connections/:id: Unlink specific connection
+  fastify.delete<{ Params: { id: string } }>(
+    '/google/connections/:id',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { id } = request.params;
+      await fastify.googleOAuthService.unlinkGoogleAccount(userId, id);
+      return reply.status(200).send({ success: true });
+    },
+  );
+
+  // GET /api/auth/google/drives/:connectionId: List Shared Drives for a connection
+  fastify.get<{ Params: { connectionId: string } }>(
+    '/google/drives/:connectionId',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const { connectionId } = request.params;
+      const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId, connectionId);
+
+      const drives = await fastify.driveService.listSharedDrives(accessToken);
+      return reply.status(200).send({ drives });
     },
   );
 };
