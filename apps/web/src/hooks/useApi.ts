@@ -184,8 +184,8 @@ export function useWatchHistoryQuery() {
   return useQuery({
     queryKey: ['watchHistory'],
     queryFn: async () => {
-      const res = await apiClient.get<{ history: WatchHistoryType[] }>('/playback/history');
-      return res.data.history;
+      const res = await apiClient.get<{ history: WatchHistoryType[] }>('/history');
+      return res.data.history || [];
     },
   });
 }
@@ -194,7 +194,7 @@ export function useDeleteHistoryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (historyId: string) => {
-      await apiClient.delete(`/playback/history/${historyId}`);
+      await apiClient.delete(`/history/${historyId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });

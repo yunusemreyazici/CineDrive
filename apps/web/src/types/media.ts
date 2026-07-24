@@ -55,6 +55,8 @@ export interface MediaItemType {
   overview?: string;
   posterDriveFileId?: string;
   backdropDriveFileId?: string;
+  posterUrl?: string;
+  backdropUrl?: string;
   duration?: number;
   isFavorite?: boolean;
   movie?: MovieType;
@@ -67,6 +69,8 @@ export interface WatchHistoryType {
   id: string;
   watchedAt: string;
   mediaItem: MediaItemType;
+  episodeId?: string;
+  episode?: EpisodeType;
 }
 
 export interface LibraryScanType {

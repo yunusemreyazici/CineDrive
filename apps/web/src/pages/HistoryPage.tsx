@@ -116,7 +116,13 @@ export const HistoryPage: React.FC = () => {
             >
               <div className="flex items-center gap-4 min-w-0">
                 <div className="relative w-16 h-20 bg-zinc-950 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-800">
-                  {item.mediaItem.posterDriveFileId ? (
+                  {item.mediaItem.posterUrl ? (
+                    <img
+                      src={item.mediaItem.posterUrl}
+                      alt={item.mediaItem.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : item.mediaItem.posterDriveFileId ? (
                     <img
                       src={`/api/media/assets/${item.mediaItem.posterDriveFileId}`}
                       alt={item.mediaItem.title}
@@ -142,6 +148,13 @@ export const HistoryPage: React.FC = () => {
 
                   <h4 className="text-sm font-bold font-display text-white truncate">
                     {item.mediaItem.title}
+                    {item.episode && (
+                      <span className="text-zinc-400 font-normal ml-2 text-xs">
+                        {item.episode.seasonNumber}x
+                        {item.episode.episodeNumber < 10 ? `0${item.episode.episodeNumber}` : item.episode.episodeNumber}{' '}
+                        - {item.episode.title}
+                      </span>
+                    )}
                   </h4>
                 </div>
               </div>
@@ -149,11 +162,16 @@ export const HistoryPage: React.FC = () => {
               {/* Action Group */}
               <div className="flex items-center gap-3">
                 <a
-                  href={`/watch/${item.mediaItem.id}`}
-                  className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all"
+                  href={
+                    item.episodeId
+                      ? `/watch/${item.mediaItem.id}?episodeId=${item.episodeId}`
+                      : `/watch/${item.mediaItem.id}`
+                  }
+                  className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold"
                   aria-label="İzlemeye Devam Et"
                 >
                   <Play className="w-4 h-4 fill-current" />
+                  <span>İzle</span>
                 </a>
 
                 <button
