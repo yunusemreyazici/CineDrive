@@ -179,7 +179,18 @@ export class PlaybackService {
       },
     });
 
-    return items.map((item) => {
+    // Deduplicate by mediaItemId so each movie or series appears at most once
+    const seenMediaIds = new Set<string>();
+    const uniqueItems = [];
+
+    for (const item of items) {
+      if (!seenMediaIds.has(item.mediaItemId)) {
+        seenMediaIds.add(item.mediaItemId);
+        uniqueItems.push(item);
+      }
+    }
+
+    return uniqueItems.map((item) => {
       let continueUrl = `/watch/${item.mediaItemId}`;
       if (item.mediaItem.type === 'series') {
         const activeEpId = item.episodeId || item.mediaItem.series?.seasons[0]?.episodes[0]?.id;
