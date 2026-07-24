@@ -88,6 +88,64 @@ describe('Auth & Health API Integration Tests', () => {
     expect(sessionBody.authenticated).toBe(true);
     expect(sessionBody.user.email).toBe(env.ADMIN_EMAIL);
 
+    // Verify profile update
+    const updateProfileRes = await app.inject({
+      method: 'PUT',
+      url: '/api/auth/profile',
+      cookies: { session_id: sessionCookie!.value },
+      payload: { name: 'Yeni Admin Isim' },
+    });
+    expect(updateProfileRes.statusCode).toBe(200);
+    const updateProfileBody = JSON.parse(updateProfileRes.body);
+    expect(updateProfileBody.user.name).toBe('Yeni Admin Isim');
+
+    // Create isolated test user for password change test
+    const tempUser = await app.prisma.user.create({
+      data: {
+        email: 'temp_pwd_user@example.com',
+        name: 'Temp Pwd User',
+        passwordHash: await app.authService.hashPassword('OriginalTempPass123!'),
+        role: 'user',
+      },
+    });
+
+    const tempLoginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: 'temp_pwd_user@example.com',
+        password: 'OriginalTempPass123!',
+      },
+    });
+    const tempCookie = tempLoginRes.cookies.find((c) => c.name === 'session_id');
+
+    // Verify change password with wrong current password should return 400
+    const wrongPasswordRes = await app.inject({
+      method: 'PUT',
+      url: '/api/auth/change-password',
+      cookies: { session_id: tempCookie!.value },
+      payload: {
+        currentPassword: 'WrongPassword123!',
+        newPassword: 'NewSecureAdminPassword123!',
+      },
+    });
+    expect(wrongPasswordRes.statusCode).toBe(400);
+
+    // Verify change password with valid current password
+    const changePasswordRes = await app.inject({
+      method: 'PUT',
+      url: '/api/auth/change-password',
+      cookies: { session_id: tempCookie!.value },
+      payload: {
+        currentPassword: 'OriginalTempPass123!',
+        newPassword: 'NewSecureAdminPassword123!',
+      },
+    });
+    expect(changePasswordRes.statusCode).toBe(200);
+
+    // Cleanup temp user
+    await app.prisma.user.delete({ where: { id: tempUser.id } });
+
     // Verify logout
     const logoutResponse = await app.inject({
       method: 'POST',

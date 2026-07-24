@@ -117,6 +117,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/media/random: Get a random media item matching criteria
   fastify.get<{ Querystring: { type?: string; minRating?: string } }>(
     '/random',
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const type = request.query.type;
       const minRating = request.query.minRating ? parseFloat(request.query.minRating) : undefined;

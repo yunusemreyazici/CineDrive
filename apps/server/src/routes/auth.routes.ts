@@ -9,7 +9,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     {
       config: {
         rateLimit: {
-          max: 5,
+          max: env.NODE_ENV === 'test' ? 1000 : 5,
           timeWindow: '1 minute',
         },
       },

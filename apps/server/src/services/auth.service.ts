@@ -22,12 +22,7 @@ export class AuthService {
       return existingAdmin;
     }
 
-    const passwordHash = await argon2.hash(env.ADMIN_PASSWORD, {
-      type: argon2.argon2id,
-      memoryCost: 65536, // 64 MB
-      timeCost: 3,
-      parallelism: 4,
-    });
+    const passwordHash = await this.hashPassword(env.ADMIN_PASSWORD);
 
     const admin = await this.prisma.user.create({
       data: {
@@ -137,12 +132,7 @@ export class AuthService {
       throw new Error('INVALID_CURRENT_PASSWORD');
     }
 
-    const newPasswordHash = await argon2.hash(newPasswordPlain, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    const newPasswordHash = await this.hashPassword(newPasswordPlain);
 
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
@@ -170,6 +160,15 @@ export class AuthService {
       user: this.toUserDto(updatedUser),
       sessionToken,
     };
+  }
+
+  public async hashPassword(passwordPlain: string): Promise<string> {
+    return argon2.hash(passwordPlain, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 4,
+    });
   }
 
   public toUserDto(user: User): UserDto {
