@@ -89,6 +89,8 @@ model MediaItem {
   overview            String?
   posterDriveFileId   String?
   backdropDriveFileId String?
+  posterUrl           String?
+  backdropUrl         String?
   duration            Float?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt

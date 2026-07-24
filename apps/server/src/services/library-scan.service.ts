@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { parseMediaFilename, parseSubtitleFilename } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
+import { MetadataService } from './metadata.service.js';
 
 const VIDEO_MIME_TYPES = [
   'video/mp4',
@@ -25,6 +26,7 @@ interface CustomFolderMetadata {
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
+  private metadataService = new MetadataService();
   private activeScans = new Set<string>();
 
   constructor(
@@ -214,7 +216,22 @@ export class LibraryScanService {
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
           : undefined;
 
-        const mediaItemId = this.generateMediaItemId(type, normalizedTitle, year);
+        let onlinePosterUrl: string | null = null;
+        let onlineBackdropUrl: string | null = null;
+        let overview = customMeta?.overview || null;
+        let finalYear = year;
+
+        if (!posterFile) {
+          const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
+          if (onlineMeta) {
+            onlinePosterUrl = onlineMeta.posterUrl;
+            onlineBackdropUrl = onlineMeta.backdropUrl;
+            if (!overview) overview = onlineMeta.overview;
+            if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
+          }
+        }
+
+        const mediaItemId = this.generateMediaItemId(type, normalizedTitle, finalYear);
 
         // Upsert MediaItem
         const mediaItem = await this.prisma.mediaItem.upsert({
@@ -225,17 +242,22 @@ export class LibraryScanService {
             title,
             originalTitle: customMeta?.originalTitle,
             normalizedTitle,
-            year,
-            overview: customMeta?.overview,
+            year: finalYear,
+            overview,
             posterDriveFileId: posterFile?.id,
             backdropDriveFileId: backdropFile?.id,
+            posterUrl: onlinePosterUrl,
+            backdropUrl: onlineBackdropUrl,
             duration: durationSec,
           },
           update: {
             title,
-            year,
+            year: finalYear,
+            overview: overview || undefined,
             posterDriveFileId: posterFile?.id || undefined,
             backdropDriveFileId: backdropFile?.id || undefined,
+            posterUrl: onlinePosterUrl || undefined,
+            backdropUrl: onlineBackdropUrl || undefined,
           },
         });
 

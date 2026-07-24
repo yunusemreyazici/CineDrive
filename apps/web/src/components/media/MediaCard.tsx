@@ -22,9 +22,9 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, layout = 'grid' }) 
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
 
-  const posterUrl = media.posterDriveFileId
-    ? `/api/media/assets/${media.posterDriveFileId}`
-    : null;
+  const posterUrl =
+    (media as { posterUrl?: string }).posterUrl ||
+    (media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : null);
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.stopPropagation();

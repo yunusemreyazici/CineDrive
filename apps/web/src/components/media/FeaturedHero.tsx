@@ -23,11 +23,14 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
 
-  const backdropUrl = media.backdropDriveFileId
-    ? `/api/media/assets/${media.backdropDriveFileId}`
-    : media.posterDriveFileId
-      ? `/api/media/assets/${media.posterDriveFileId}`
-      : null;
+  const backdropUrl =
+    (media as { backdropUrl?: string; posterUrl?: string }).backdropUrl ||
+    (media as { backdropUrl?: string; posterUrl?: string }).posterUrl ||
+    (media.backdropDriveFileId
+      ? `/api/media/assets/${media.backdropDriveFileId}`
+      : media.posterDriveFileId
+        ? `/api/media/assets/${media.posterDriveFileId}`
+        : null);
 
   return (
     <div className="relative w-full rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 mb-10 shadow-2xl min-h-[380px] md:min-h-[460px] flex items-end">

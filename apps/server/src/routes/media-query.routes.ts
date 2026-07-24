@@ -63,6 +63,8 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       ...item,
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
+      posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
+      backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
       subtitles: item.subtitles.map((sub) => ({
         id: sub.id,
         languageCode: sub.language,
@@ -151,6 +153,8 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         ...item,
         isFavorite: item.favorites.length > 0,
         progress: item.playbackProgresses[0] || null,
+        posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
+        backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
         subtitles: formattedSubtitles,
       },
     });
