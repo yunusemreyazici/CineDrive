@@ -4,9 +4,15 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
   // GET /api/insights/storage: Analyze Drive Storage & Quota
-  fastify.get('/storage', async (_request, reply) => {
+  fastify.get('/storage', async (request, reply) => {
+    const userId = request.user!.id;
     const files = await fastify.prisma.driveFile.findMany({
-      where: { status: 'active' },
+      where: {
+        status: 'active',
+        library: {
+          OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
+        },
+      },
       include: {
         library: true,
       },
@@ -69,7 +75,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         id: file.id,
         name: file.name,
         size: sizeNum,
-        libraryName: file.library.name,
+        libraryName: file.library?.name || 'Bilinmeyen',
         googleDriveFileId: file.googleDriveFileId,
       });
     }
@@ -99,7 +105,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
               id: item.id,
               name: item.name,
               size: item.size ? Number(item.size) : 0,
-              libraryName: item.library.name,
+              libraryName: item.library?.name || 'Bilinmeyen',
               googleDriveFileId: item.googleDriveFileId,
               reason: `Aynı MD5 Özeti (${md5.substring(0, 8)}...)`,
             });
@@ -117,7 +123,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
               id: item.id,
               name: item.name,
               size: item.size ? Number(item.size) : 0,
-              libraryName: item.library.name,
+              libraryName: item.library?.name || 'Bilinmeyen',
               googleDriveFileId: item.googleDriveFileId,
               reason: 'Aynı Dosya Adı',
             });

@@ -195,7 +195,7 @@ export class GoogleOAuthService {
 
   private async performTokenRefresh(userId: string, connectionId?: string): Promise<string> {
     const connection = connectionId
-      ? await this.prisma.googleConnection.findUnique({ where: { id: connectionId } })
+      ? await this.prisma.googleConnection.findFirst({ where: { id: connectionId, userId } })
       : await this.prisma.googleConnection.findFirst({ where: { userId } });
 
     if (!connection) {

@@ -88,8 +88,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    // 3. Get valid Google access token
-    const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId);
+    // 3. Get valid Google access token for library connection
+    const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+      userId,
+      driveFile.library.googleConnectionId || undefined,
+    );
 
     // 4. Setup AbortController for client socket disconnect handling
     const abortController = new AbortController();

@@ -96,6 +96,20 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     };
   }, []);
 
+  // Synchronize active subtitle selection with HTML5 native textTracks
+  React.useEffect(() => {
+    if (!videoRef.current) return;
+    const tracks = Array.from(videoRef.current.textTracks);
+    tracks.forEach((track, idx) => {
+      const sub = availableSubtitles[idx];
+      if (sub && (sub.id === activeSubtitleId || (sub.isDefault && !activeSubtitleId))) {
+        track.mode = 'showing';
+      } else {
+        track.mode = 'disabled';
+      }
+    });
+  }, [activeSubtitleId, availableSubtitles]);
+
   const handleCustomSubtitleUpload = async (file: File) => {
     try {
       const text = await file.text();

@@ -400,7 +400,7 @@ const OpenSubtitlesSettingsCard: React.FC = () => {
               {updateSettings.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Kaydedildiği...</span>
+                  <span>Kaydediliyor...</span>
                 </>
               ) : (
                 <span>Ayarları Kaydet</span>
