@@ -25,7 +25,7 @@ export class GoogleDriveService {
   public async withExponentialBackoff<T>(
     fn: () => Promise<T>,
     maxRetries = 4,
-    initialDelayMs = 500,
+    initialDelayMs = process.env.NODE_ENV === 'test' ? 10 : 500,
   ): Promise<T> {
     let attempt = 0;
     while (attempt < maxRetries) {
@@ -48,6 +48,44 @@ export class GoogleDriveService {
       }
     }
     throw new Error('MAX_RETRIES_EXCEEDED');
+  }
+
+  /**
+   * Lists ALL files in the entire Google Drive account (including Shared Drives) without folder restrictions
+   */
+  public async listAccountFiles(
+    accessToken: string,
+    pageToken?: string,
+  ): Promise<{ files: DriveFileMetadata[]; nextPageToken?: string }> {
+    return this.withExponentialBackoff(async () => {
+      const drive = this.createDriveClient(accessToken);
+
+      const response = await drive.files.list({
+        q: 'trashed = false',
+        fields:
+          'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
+        pageSize: 100,
+        pageToken,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+
+      const files = (response.data.files || []).map((file) => ({
+        id: file.id || '',
+        name: file.name || '',
+        mimeType: file.mimeType || '',
+        size: file.size || undefined,
+        modifiedTime: file.modifiedTime || undefined,
+        md5Checksum: file.md5Checksum || undefined,
+        parents: file.parents || undefined,
+        videoMediaMetadata: file.videoMediaMetadata || undefined,
+      }));
+
+      return {
+        files: files.filter((f) => !!f.id),
+        nextPageToken: response.data.nextPageToken || undefined,
+      };
+    });
   }
 
   /**

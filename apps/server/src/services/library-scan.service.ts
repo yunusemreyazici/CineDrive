@@ -12,17 +12,7 @@ const VIDEO_MIME_TYPES = [
   'video/x-msvideo',
 ];
 
-interface CustomFolderMetadata {
-  type?: 'movie' | 'series';
-  title?: string;
-  originalTitle?: string;
-  year?: number;
-  overview?: string;
-  genres?: string[];
-  runtime?: number;
-  posterFile?: string;
-  backdropFile?: string;
-}
+
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
@@ -40,7 +30,7 @@ export class LibraryScanService {
   }
 
   /**
-   * Scans an entire media library starting from its rootFolderId with scan locking
+   * Scans all connected Google Drive accounts and Shared Drives without folder restrictions
    */
   public async scanLibrary(userId: string, libraryId: string): Promise<string> {
     if (this.activeScans.has(libraryId)) {
@@ -55,7 +45,10 @@ export class LibraryScanService {
       throw new Error('LIBRARY_NOT_FOUND');
     }
 
-    const accessToken = await this.googleOAuthService.getValidAccessToken(userId, library.googleConnectionId || undefined);
+    const connections = await this.googleOAuthService.getConnectionsInfo(userId);
+    if (connections.length === 0) {
+      throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+    }
 
     // Acquire lock
     this.activeScans.add(libraryId);
@@ -75,17 +68,35 @@ export class LibraryScanService {
     let errorCount = 0;
 
     try {
-      // Recursively scan root folder
-      const result = await this.scanFolderRecursive(
-        accessToken,
-        libraryId,
-        library.rootFolderId,
-        scan.id,
-      );
+      let activeConnectionsCount = 0;
+      // Scan files across ALL connected Google accounts & Shared Drives
+      for (const connection of connections) {
+        let accessToken: string;
+        try {
+          accessToken = await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+          activeConnectionsCount++;
+        } catch (authErr) {
+          if (connections.length === 1) {
+            throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+          }
+          continue;
+        }
 
-      addedCount = result.added;
-      updatedCount = result.updated;
-      errorCount = result.errors;
+        const result = await this.scanAccountFiles(
+          accessToken,
+          libraryId,
+          scan.id,
+          connection.id,
+        );
+
+        addedCount += result.added;
+        updatedCount += result.updated;
+        errorCount += result.errors;
+      }
+
+      if (activeConnectionsCount === 0) {
+        throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+      }
 
       const durationMs = Date.now() - startTime;
 
@@ -133,73 +144,61 @@ export class LibraryScanService {
     return scan.id;
   }
 
-  private async scanFolderRecursive(
+  private async scanAccountFiles(
     accessToken: string,
     libraryId: string,
-    folderId: string,
     scanId: string,
+    connectionId: string,
   ): Promise<{ added: number; updated: number; errors: number }> {
     let added = 0;
     let updated = 0;
     let errors = 0;
 
-    // 1. Fetch all files & subfolders in current folder
+    // 1. Fetch ALL files across the entire Google Drive account (including Shared Drives)
     const allFiles: DriveFileMetadata[] = [];
     let pageToken: string | undefined;
 
-    do {
-      const page = await this.driveService.listFolderContents(accessToken, folderId, pageToken);
-      allFiles.push(...page.files);
-      pageToken = page.nextPageToken;
-    } while (pageToken);
+    try {
+      do {
+        const page = await this.driveService.listAccountFiles(accessToken, pageToken);
+        allFiles.push(...page.files);
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+    } catch (err: unknown) {
+      const isAuthErr =
+        err instanceof Error &&
+        (err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED' ||
+          err.message === 'GOOGLE_REAUTHORIZATION_REQUIRED' ||
+          err.message.includes('401') ||
+          err.message.includes('invalid_grant') ||
+          err.message.includes('File not found'));
 
-    // 2. Separate into folders, videos, images, subtitles, metadata
-    const subfolders = allFiles.filter((f) => f.mimeType === 'application/vnd.google-apps.folder');
+      if (isAuthErr) {
+        throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+      }
+
+      errors++;
+      await this.prisma.libraryScanError.create({
+        data: {
+          scanId,
+          errorMessage: `Google Drive account file listing failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      });
+      return { added, updated, errors };
+    }
+
+    // 2. Separate into videos, images, subtitles, metadata
     const videos = allFiles.filter(
       (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
     );
-    const metadataFile = allFiles.find((f) => f.name.toLowerCase() === 'metadata.json');
 
-    // 3. Read metadata.json if present
-    let customMeta: CustomFolderMetadata | null = null;
-    if (metadataFile) {
-      try {
-        const text = await this.driveService.getFileTextContent(accessToken, metadataFile.id);
-        customMeta = JSON.parse(text) as CustomFolderMetadata;
-      } catch (e: unknown) {
-        errors++;
-        await this.prisma.libraryScanError.create({
-          data: {
-            scanId,
-            driveFileId: metadataFile.id,
-            errorMessage: `Failed to parse metadata.json: ${e instanceof Error ? e.message : String(e)}`,
-          },
-        });
-      }
-    }
+    // Link library to active google connection
+    await this.prisma.library.update({
+      where: { id: libraryId },
+      data: { googleConnectionId: connectionId },
+    }).catch(() => {});
 
-    // 4. Find Posters & Backdrops in current folder
-    const posterFile = allFiles.find((f) =>
-      customMeta?.posterFile
-        ? f.name.toLowerCase() === customMeta.posterFile.toLowerCase()
-        : f.name.toLowerCase().startsWith('poster.'),
-    );
-
-    const backdropFile = allFiles.find((f) =>
-      customMeta?.backdropFile
-        ? f.name.toLowerCase() === customMeta.backdropFile.toLowerCase()
-        : f.name.toLowerCase().startsWith('backdrop.') || f.name.toLowerCase().startsWith('fanart.'),
-    );
-
-    // Index Poster & Backdrop in DriveFile DB
-    if (posterFile) {
-      await this.upsertDriveFile(libraryId, posterFile);
-    }
-    if (backdropFile) {
-      await this.upsertDriveFile(libraryId, backdropFile);
-    }
-
-    // 5. Process Videos in Current Folder
+    // 3. Process Videos across account
     for (const video of videos) {
       try {
         const driveFile = await this.upsertDriveFile(libraryId, video);
@@ -207,10 +206,10 @@ export class LibraryScanService {
         else updated++;
 
         const parsedName = parseMediaFilename(video.name);
-        const title = customMeta?.title || parsedName.title;
+        const title = parsedName.title;
         const normalizedTitle = title.toLowerCase();
-        const year = customMeta?.year || parsedName.year;
-        const type = customMeta?.type || parsedName.type;
+        const year = parsedName.year;
+        const type = parsedName.type;
 
         const durationSec = video.videoMediaMetadata?.durationMillis
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
@@ -218,33 +217,31 @@ export class LibraryScanService {
 
         let onlinePosterUrl: string | null = null;
         let onlineBackdropUrl: string | null = null;
-        let overview = customMeta?.overview || null;
+        let overview: string | null = null;
         let finalYear = year;
         let voteAverage: number | undefined;
         let voteCount: number | undefined;
-        let genresStr: string | undefined = customMeta?.genres && Array.isArray(customMeta.genres) ? JSON.stringify(customMeta.genres) : undefined;
+        let genresStr: string | undefined;
         let castStr: string | undefined;
         let trailerUrl: string | undefined;
         let contentRating: string | undefined;
         let tmdbId: number | undefined;
         let imdbId: string | undefined;
 
-        if (!posterFile) {
-          const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
-          if (onlineMeta) {
-            onlinePosterUrl = onlineMeta.posterUrl;
-            onlineBackdropUrl = onlineMeta.backdropUrl;
-            if (!overview) overview = onlineMeta.overview;
-            if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
-            if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
-            if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
-            if (onlineMeta.genres && !genresStr) genresStr = JSON.stringify(onlineMeta.genres);
-            if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
-            if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
-            if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
-            if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
-            if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
-          }
+        const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
+        if (onlineMeta) {
+          onlinePosterUrl = onlineMeta.posterUrl;
+          onlineBackdropUrl = onlineMeta.backdropUrl;
+          overview = onlineMeta.overview || null;
+          if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
+          if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
+          if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
+          if (onlineMeta.genres) genresStr = JSON.stringify(onlineMeta.genres);
+          if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
+          if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
+          if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
+          if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
+          if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
         }
 
         const mediaItemId = this.generateMediaItemId(type, normalizedTitle);
@@ -256,12 +253,9 @@ export class LibraryScanService {
             id: mediaItemId,
             type,
             title,
-            originalTitle: customMeta?.originalTitle,
             normalizedTitle,
             year: finalYear,
             overview,
-            posterDriveFileId: posterFile?.id,
-            backdropDriveFileId: backdropFile?.id,
             posterUrl: onlinePosterUrl,
             backdropUrl: onlineBackdropUrl,
             duration: durationSec,
@@ -278,8 +272,6 @@ export class LibraryScanService {
             title,
             year: finalYear,
             overview: overview || undefined,
-            posterDriveFileId: posterFile?.id || undefined,
-            backdropDriveFileId: backdropFile?.id || undefined,
             posterUrl: onlinePosterUrl || undefined,
             backdropUrl: onlineBackdropUrl || undefined,
             voteAverage: voteAverage || undefined,
@@ -382,19 +374,6 @@ export class LibraryScanService {
       }
     }
 
-    // 6. Recurse into Subfolders
-    for (const folder of subfolders) {
-      const subResult = await this.scanFolderRecursive(
-        accessToken,
-        libraryId,
-        folder.id,
-        scanId,
-      );
-      added += subResult.added;
-      updated += subResult.updated;
-      errors += subResult.errors;
-    }
-
     return { added, updated, errors };
   }
 
@@ -475,7 +454,14 @@ export class LibraryScanService {
       lower.endsWith('.mp4') ||
       lower.endsWith('.mkv') ||
       lower.endsWith('.webm') ||
-      lower.endsWith('.m4v')
+      lower.endsWith('.m4v') ||
+      lower.endsWith('.avi') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.ts') ||
+      lower.endsWith('.m2ts') ||
+      lower.endsWith('.flv') ||
+      lower.endsWith('.wmv') ||
+      lower.endsWith('.3gp')
     );
   }
 }
