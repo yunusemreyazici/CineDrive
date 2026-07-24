@@ -5,7 +5,67 @@ export interface OnlineMetadataResult {
   year?: number;
 }
 
+export interface OnlineEpisodeMetadata {
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string;
+  overview: string | null;
+  stillUrl: string | null;
+}
+
 export class MetadataService {
+  private episodeCache = new Map<string, Map<string, OnlineEpisodeMetadata>>();
+
+  /**
+   * Fetches episode titles, plots and thumbnail URLs for a TV series
+   */
+  public async fetchShowEpisodes(showTitle: string): Promise<Map<string, OnlineEpisodeMetadata>> {
+    const cleanTitle = showTitle
+      .replace(/\b(19|20)\d{2}\b/g, '')
+      .replace(/[._\-]/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    if (this.episodeCache.has(cleanTitle)) {
+      return this.episodeCache.get(cleanTitle)!;
+    }
+
+    const map = new Map<string, OnlineEpisodeMetadata>();
+    try {
+      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}&embed=episodes`);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          _embedded?: {
+            episodes?: Array<{
+              season: number;
+              number: number;
+              name: string;
+              summary?: string;
+              image?: { original?: string; medium?: string };
+            }>;
+          };
+        };
+
+        const episodes = data._embedded?.episodes || [];
+        for (const ep of episodes) {
+          const key = `${ep.season}x${ep.number}`;
+          map.set(key, {
+            seasonNumber: ep.season,
+            episodeNumber: ep.number,
+            name: ep.name,
+            overview: ep.summary ? ep.summary.replace(/<[^>]*>/g, '').trim() : null,
+            stillUrl: ep.image?.original || ep.image?.medium || null,
+          });
+        }
+      }
+    } catch {
+      // Ignore network errors
+    }
+
+    this.episodeCache.set(cleanTitle, map);
+    return map;
+  }
+
   /**
    * Fetches poster image URL, backdrop URL, overview and year automatically from open APIs
    */
@@ -19,7 +79,7 @@ export class MetadataService {
       // Query TVMaze Open API (fast, free, no API key required)
       const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}`);
       if (res.ok) {
-        const data = await res.json() as {
+        const data = (await res.json()) as {
           name?: string;
           summary?: string;
           premiered?: string;

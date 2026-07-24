@@ -161,7 +161,7 @@ export const MediaDetailPage: React.FC = () => {
           </div>
 
           {/* Episode List */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {currentSeason?.episodes?.map((episode: EpisodeType) => {
               const epProgress = episode.playbackProgresses?.[0];
               const isWatched = epProgress?.completed;
@@ -170,35 +170,65 @@ export const MediaDetailPage: React.FC = () => {
                 <div
                   key={episode.id}
                   onClick={() => navigate(`/watch/${media.id}/${episode.id}`)}
-                  className="group flex items-center justify-between p-4 bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/60 hover:border-brand-500/40 rounded-2xl cursor-pointer transition-all"
+                  className="group flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/70 hover:border-brand-500/50 rounded-2xl cursor-pointer transition-all gap-4"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-zinc-800 group-hover:bg-brand-600 text-zinc-400 group-hover:text-white rounded-xl transition-colors">
-                      <Play className="w-4 h-4 fill-current" />
+                  <div className="flex items-start md:items-center gap-4 flex-1 min-w-0">
+                    {/* Episode Thumbnail */}
+                    <div className="relative w-36 md:w-44 aspect-video bg-zinc-800 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-700/40">
+                      {episode.stillUrl ? (
+                        <img
+                          src={episode.stillUrl}
+                          alt={episode.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-600 bg-zinc-900">
+                          <Tv className="w-8 h-8" />
+                        </div>
+                      )}
+
+                      {/* Play Button Overlay */}
+                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                        <div className="p-2.5 bg-brand-600 group-hover:bg-brand-500 text-white rounded-full shadow-lg shadow-brand-500/30 transform scale-95 group-hover:scale-105 transition-transform">
+                          <Play className="w-4 h-4 fill-current translate-x-0.5" />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-brand-400 font-display">
+
+                    {/* Episode Info */}
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-brand-600/20 border border-brand-500/30 text-brand-400 text-xs font-bold font-display">
                           {episode.seasonNumber}x{episode.episodeNumber < 10 ? `0${episode.episodeNumber}` : episode.episodeNumber}
                         </span>
-                        <h4 className="text-sm font-semibold text-zinc-100 group-hover:text-brand-300 transition-colors">
+                        <h4 className="text-base font-bold text-zinc-100 group-hover:text-brand-300 transition-colors truncate">
                           {episode.title}
                         </h4>
                         {isWatched && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                       </div>
-                      {episode.duration && (
-                        <p className="text-xs text-zinc-500 mt-1">
-                          {Math.round(episode.duration / 60)} dakika
+
+                      {episode.overview && (
+                        <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed font-normal">
+                          {episode.overview}
                         </p>
+                      )}
+
+                      {episode.duration && (
+                        <div className="flex items-center gap-1 text-[11px] text-zinc-500 font-medium">
+                          <Clock className="w-3 h-3" />
+                          <span>{Math.round(episode.duration / 60)} dakika</span>
+                        </div>
                       )}
                     </div>
                   </div>
 
+                  {/* Progress Indicator */}
                   {epProgress && epProgress.percentage > 0 && (
-                    <div className="w-24 hidden sm:block">
+                    <div className="w-full md:w-28 flex-shrink-0">
                       <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-brand-500"
+                          className="h-full bg-brand-500 transition-all"
                           style={{ width: `${Math.min(100, epProgress.percentage)}%` }}
                         />
                       </div>

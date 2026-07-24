@@ -144,6 +144,8 @@ model Episode {
   episodeNumber      Int
   title              String
   duration           Float?
+  overview           String?
+  stillUrl           String?
   subtitles          SubtitleTrack[]
   playbackProgresses PlaybackProgress[]
   watchHistories     WatchHistory[]

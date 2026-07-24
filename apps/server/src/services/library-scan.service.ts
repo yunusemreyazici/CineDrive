@@ -296,10 +296,17 @@ export class LibraryScanService {
             create: {
               seriesId: series.id,
               seasonNumber,
-              name: `Season ${seasonNumber}`,
+              name: `Sezon ${seasonNumber}`,
             },
             update: {},
           });
+
+          const epMetaMap = await this.metadataService.fetchShowEpisodes(title);
+          const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
+
+          const epTitle = epMeta?.name || video.name.replace(/\.[^/.]+$/, '');
+          const epOverview = epMeta?.overview || null;
+          const epStillUrl = epMeta?.stillUrl || null;
 
           const episode = await this.prisma.episode.upsert({
             where: {
@@ -315,11 +322,16 @@ export class LibraryScanService {
               driveFileId: driveFile.record.id,
               seasonNumber,
               episodeNumber,
-              title: video.name.replace(/\.[^/.]+$/, ''),
+              title: epTitle,
+              overview: epOverview,
+              stillUrl: epStillUrl,
               duration: durationSec,
             },
             update: {
               driveFileId: driveFile.record.id,
+              title: epTitle,
+              overview: epOverview || undefined,
+              stillUrl: epStillUrl || undefined,
             },
           });
 

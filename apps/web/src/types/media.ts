@@ -14,6 +14,8 @@ export interface EpisodeType {
   episodeNumber: number;
   title: string;
   duration?: number;
+  overview?: string;
+  stillUrl?: string;
   driveFileId: string;
   subtitles?: SubtitleItemType[];
   playbackProgresses?: PlaybackProgressType[];
