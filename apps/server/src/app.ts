@@ -10,6 +10,9 @@ import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { libraryRoutes } from './routes/library.routes.js';
 import { mediaRoutes } from './routes/media.routes.js';
+import { mediaQueryRoutes } from './routes/media-query.routes.js';
+import { playbackRoutes } from './routes/playback.routes.js';
+import { favoriteRoutes } from './routes/favorite.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 
 export const buildApp = async (): Promise<FastifyInstance> => {
@@ -72,10 +75,13 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     };
   });
 
-  // Register Auth, Library, and Media Streaming Routes
+  // Register All Application Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(libraryRoutes, { prefix: '/api/libraries' });
   await app.register(mediaRoutes, { prefix: '/api/media' });
+  await app.register(mediaQueryRoutes, { prefix: '/api/media' });
+  await app.register(playbackRoutes, { prefix: '/api/playback' });
+  await app.register(favoriteRoutes, { prefix: '/api/favorites' });
 
   return app;
 };
