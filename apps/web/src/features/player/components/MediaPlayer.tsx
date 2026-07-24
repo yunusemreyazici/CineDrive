@@ -9,7 +9,7 @@ import { usePlayerStore } from '../stores/usePlayerStore';
 import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
-import type { PlayerErrorState } from '../types/player';
+import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
 import type { MediaItemType, EpisodeType } from '../../../types/media';
 
 interface MediaPlayerProps {
@@ -51,9 +51,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let titleDisplay = media.title;
   let episodes: EpisodeType[] = [];
   let currentEpisodeIndex = -1;
+  let availableSubtitles: SubtitleTrackType[] = [];
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
+    availableSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
     currentEpisodeIndex = episodeId
@@ -64,6 +66,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (activeEp) {
       targetDriveFileId = activeEp.driveFileId;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
+      availableSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
     }
   }
 
@@ -216,7 +219,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     onToggleMute: toggleMute,
     onToggleFullscreen: toggleFullscreen,
     onTogglePiP: togglePiP,
-    onToggleSubtitles: () => setActiveSubtitleId(activeSubtitleId ? null : 'sub_1'),
+    onToggleSubtitles: () => {
+      const firstSub = availableSubtitles[0];
+      setActiveSubtitleId(activeSubtitleId ? null : firstSub ? firstSub.id : null);
+    },
     onSeekPercent: (percent) => {
       if (videoRef.current && duration > 0) {
         videoRef.current.currentTime = (percent / 100) * duration;
@@ -274,7 +280,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         </div>
       )}
 
-      {/* HTML5 Native Video Stream Element */}
+      {/* HTML5 Native Video Stream Element with Subtitle Tracks */}
       <video
         ref={videoRef}
         src={streamUrl}
@@ -294,7 +300,18 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         onClick={togglePlay}
         className="w-full h-full object-contain cursor-pointer"
         playsInline
-      />
+      >
+        {availableSubtitles.map((sub) => (
+          <track
+            key={sub.id}
+            src={(sub as unknown as { url?: string }).url || `/api/media/${sub.id}/subtitle`}
+            kind="subtitles"
+            srcLang={sub.language}
+            label={sub.label || sub.language.toUpperCase()}
+            default={sub.isDefault || activeSubtitleId === sub.id}
+          />
+        ))}
+      </video>
 
       {/* Overlays */}
       {showResumeModal && (
@@ -331,6 +348,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           volume={volume}
           isMuted={isMuted}
           playbackSpeed={playbackSpeed}
+          subtitles={availableSubtitles}
           activeSubtitleId={activeSubtitleId}
           hasPreviousEpisode={!!previousEpisode}
           hasNextEpisode={!!nextEpisode}

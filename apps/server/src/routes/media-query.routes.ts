@@ -39,6 +39,9 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
               },
             },
           },
+          subtitles: {
+            include: { driveFile: true },
+          },
         },
       }),
       fastify.prisma.mediaItem.count({ where }),
@@ -60,6 +63,15 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       ...item,
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
+      subtitles: item.subtitles.map((sub) => ({
+        id: sub.id,
+        languageCode: sub.language,
+        languageLabel: sub.label || sub.language.toUpperCase(),
+        forced: sub.isForced,
+        hearingImpaired: sub.isHearingImpaired,
+        isDefault: sub.isDefault,
+        url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
+      })),
     }));
 
     return reply.status(200).send({
@@ -90,7 +102,9 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                 episodes: {
                   orderBy: { episodeNumber: 'asc' },
                   include: {
-                    subtitles: true,
+                    subtitles: {
+                      include: { driveFile: true },
+                    },
                     playbackProgresses: {
                       where: { userId },
                     },
@@ -99,6 +113,9 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
               },
             },
           },
+        },
+        subtitles: {
+          include: { driveFile: true },
         },
         playbackProgresses: {
           where: { userId },
@@ -119,11 +136,22 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    const formattedSubtitles = item.subtitles.map((sub) => ({
+      id: sub.id,
+      languageCode: sub.language,
+      languageLabel: sub.label || sub.language.toUpperCase(),
+      forced: sub.isForced,
+      hearingImpaired: sub.isHearingImpaired,
+      isDefault: sub.isDefault,
+      url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
+    }));
+
     return reply.status(200).send({
       media: {
         ...item,
         isFavorite: item.favorites.length > 0,
         progress: item.playbackProgresses[0] || null,
+        subtitles: formattedSubtitles,
       },
     });
   });
@@ -137,6 +165,11 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       include: {
         episodes: {
           orderBy: { episodeNumber: 'asc' },
+          include: {
+            subtitles: {
+              include: { driveFile: true },
+            },
+          },
         },
       },
     });
@@ -151,11 +184,26 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       where: { seasonId: id },
       orderBy: { episodeNumber: 'asc' },
       include: {
-        subtitles: true,
+        subtitles: {
+          include: { driveFile: true },
+        },
       },
     });
 
-    return reply.status(200).send({ episodes });
+    const formattedEpisodes = episodes.map((ep) => ({
+      ...ep,
+      subtitles: ep.subtitles.map((sub) => ({
+        id: sub.id,
+        languageCode: sub.language,
+        languageLabel: sub.label || sub.language.toUpperCase(),
+        forced: sub.isForced,
+        hearingImpaired: sub.isHearingImpaired,
+        isDefault: sub.isDefault,
+        url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
+      })),
+    }));
+
+    return reply.status(200).send({ episodes: formattedEpisodes });
   });
 
   // GET /api/assets/:driveFileId: Serve image asset

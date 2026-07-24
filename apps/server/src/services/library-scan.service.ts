@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { parseMediaFilename } from '@cinedrive/shared';
+import { parseMediaFilename, parseSubtitleFilename } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
 
@@ -239,6 +239,9 @@ export class LibraryScanService {
               driveFileId: driveFile.record.id,
             },
           });
+
+          // Match Subtitles for this Movie
+          await this.matchSubtitles(libraryId, allFiles, video.name, { mediaItemId: mediaItem.id });
         } else {
           // Series Episode Processing
           const series = await this.prisma.series.upsert({
@@ -287,8 +290,8 @@ export class LibraryScanService {
             },
           });
 
-          // Match Subtitles for this episode
-          await this.matchSubtitles(accessToken, libraryId, allFiles, video.name, episode.id);
+          // Match Subtitles for this Episode
+          await this.matchSubtitles(libraryId, allFiles, video.name, { episodeId: episode.id });
         }
       } catch (err: unknown) {
         errors++;
@@ -348,11 +351,10 @@ export class LibraryScanService {
   }
 
   private async matchSubtitles(
-    _accessToken: string,
     libraryId: string,
     allFiles: DriveFileMetadata[],
     videoName: string,
-    episodeId: string,
+    target: { mediaItemId?: string; episodeId?: string },
   ) {
     const videoBase = videoName.replace(/\.[^/.]+$/, '').toLowerCase();
     const subtitles = allFiles.filter(
@@ -363,27 +365,28 @@ export class LibraryScanService {
 
     for (const sub of subtitles) {
       const driveFile = await this.upsertDriveFile(libraryId, sub);
-
-      const langMatch = sub.name.match(/\.(tr|en|de|fr|es|it)\.(vtt|srt)$/i);
-      const language = langMatch?.[1]?.toLowerCase() || 'tr';
-      const isForced = sub.name.toLowerCase().includes('.forced.');
-      const isHearingImpaired = sub.name.toLowerCase().includes('.hi.') || sub.name.toLowerCase().includes('.sdh.');
+      const parsedSub = parseSubtitleFilename(sub.name);
 
       await this.prisma.subtitleTrack.upsert({
-        where: { id: `sub_${episodeId}_${driveFile.record.id}` },
+        where: { driveFileId: driveFile.record.id },
         create: {
-          id: `sub_${episodeId}_${driveFile.record.id}`,
-          episodeId,
+          mediaItemId: target.mediaItemId || null,
+          episodeId: target.episodeId || null,
           driveFileId: driveFile.record.id,
-          language,
-          label: `${language.toUpperCase()}${isForced ? ' (Forced)' : ''}`,
-          isForced,
-          isHearingImpaired,
+          language: parsedSub.languageCode,
+          label: parsedSub.languageLabel,
+          isForced: parsedSub.forced,
+          isHearingImpaired: parsedSub.hearingImpaired,
+          isDefault: parsedSub.isDefault,
+          sourceFormat: parsedSub.sourceFormat,
         },
         update: {
-          language,
-          isForced,
-          isHearingImpaired,
+          language: parsedSub.languageCode,
+          label: parsedSub.languageLabel,
+          isForced: parsedSub.forced,
+          isHearingImpaired: parsedSub.hearingImpaired,
+          isDefault: parsedSub.isDefault,
+          sourceFormat: parsedSub.sourceFormat,
         },
       });
     }

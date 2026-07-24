@@ -19,6 +19,7 @@ describe('Player Components Unit Tests', () => {
     title: 'Interstellar',
     normalizedTitle: 'interstellar',
     movie: {
+      id: 'movie_10_inst',
       driveFileId: 'gdrive_interstellar_file',
     },
   };

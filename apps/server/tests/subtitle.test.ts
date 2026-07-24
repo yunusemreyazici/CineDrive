@@ -1,0 +1,120 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { buildApp } from '../src/app';
+import { env } from '../src/config/env';
+
+describe('Subtitle API Integration Tests', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    app = await buildApp();
+    await app.ready();
+
+    // Clean up old test records
+    await app.prisma.subtitleTrack.deleteMany({
+      where: { driveFileId: 'db_sub_file_1' },
+    });
+    await app.prisma.driveFile.deleteMany({
+      where: { googleDriveFileId: 'gdrive_sub_id_100' },
+    });
+    await app.prisma.library.deleteMany({
+      where: { rootFolderId: 'test_sub_root' },
+    });
+
+    const lib = await app.prisma.library.create({
+      data: {
+        name: 'Subtitle Test Library',
+        rootFolderId: 'test_sub_root',
+      },
+    });
+
+    const driveFile = await app.prisma.driveFile.create({
+      data: {
+        id: 'db_sub_file_1',
+        libraryId: lib.id,
+        googleDriveFileId: 'gdrive_sub_id_100',
+        name: 'Inception.2010.tr.srt',
+        mimeType: 'text/plain',
+        size: BigInt(512),
+        status: 'active',
+      },
+    });
+
+    await app.prisma.subtitleTrack.create({
+      data: {
+        id: 'sub_track_1',
+        driveFileId: driveFile.id,
+        language: 'tr',
+        label: 'Türkçe',
+        sourceFormat: 'srt',
+        isDefault: true,
+      },
+    });
+
+    vi.spyOn(app.googleOAuthService, 'getValidAccessToken').mockResolvedValue('mock-access-token');
+    vi.spyOn(app.subtitleService['googleOAuthService'], 'getValidAccessToken').mockResolvedValue('mock-access-token');
+    vi.spyOn(app.subtitleService['driveService'], 'getFileTextContent').mockResolvedValue(`1
+00:00:01,000 --> 00:00:04,000
+Test altyazı metni
+`);
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('GET /api/media/:subtitleDriveFileId/subtitle without auth should return 401 Unauthorized', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_sub_id_100/subtitle',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('GET /api/media/:subtitleDriveFileId/subtitle with valid auth should convert SRT to WebVTT and return 200 OK', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_sub_id_100/subtitle',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/vtt');
+    expect(response.body).toContain('WEBVTT');
+    expect(response.body).toContain('00:00:01.000 --> 00:00:04.000');
+    expect(response.body).toContain('Test altyazı metni');
+  });
+
+  it('GET /api/media/:subtitleDriveFileId/subtitle for non-existent file should return 404', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/non_existent_sub_file/subtitle',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});

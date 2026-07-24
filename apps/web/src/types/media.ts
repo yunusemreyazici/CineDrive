@@ -1,3 +1,48 @@
+export interface SubtitleItemType {
+  id: string;
+  languageCode: string;
+  languageLabel: string;
+  forced: boolean;
+  hearingImpaired: boolean;
+  isDefault: boolean;
+  url: string;
+}
+
+export interface EpisodeType {
+  id: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  title: string;
+  duration?: number;
+  driveFileId: string;
+  subtitles?: SubtitleItemType[];
+  playbackProgresses?: PlaybackProgressType[];
+}
+
+export interface SeasonType {
+  id: string;
+  seasonNumber: number;
+  name?: string;
+  episodes: EpisodeType[];
+}
+
+export interface SeriesType {
+  id: string;
+  seasons: SeasonType[];
+}
+
+export interface MovieType {
+  id: string;
+  driveFileId: string;
+}
+
+export interface PlaybackProgressType {
+  positionSeconds: number;
+  durationSeconds: number;
+  percentage: number;
+  completed: boolean;
+}
+
 export interface MediaItemType {
   id: string;
   type: 'movie' | 'series';
@@ -10,61 +55,26 @@ export interface MediaItemType {
   backdropDriveFileId?: string;
   duration?: number;
   isFavorite?: boolean;
-  progress?: {
-    positionSeconds: number;
-    durationSeconds: number;
-    percentage: number;
-    completed: boolean;
-  } | null;
-  movie?: {
-    driveFileId: string;
-  };
-  series?: {
-    seasons: SeasonType[];
-  };
-}
-
-export interface SeasonType {
-  id: string;
-  seriesId: string;
-  seasonNumber: number;
-  name?: string;
-  episodes: EpisodeType[];
-}
-
-export interface EpisodeType {
-  id: string;
-  seriesId: string;
-  seasonId: string;
-  driveFileId: string;
-  seasonNumber: number;
-  episodeNumber: number;
-  title: string;
-  duration?: number;
-  playbackProgresses?: {
-    positionSeconds: number;
-    durationSeconds: number;
-    percentage: number;
-    completed: boolean;
-  }[];
+  movie?: MovieType;
+  series?: SeriesType;
+  progress?: PlaybackProgressType | null;
+  subtitles?: SubtitleItemType[];
 }
 
 export interface WatchHistoryType {
   id: string;
-  userId: string;
-  mediaItemId: string;
   watchedAt: string;
   mediaItem: MediaItemType;
 }
 
 export interface LibraryScanType {
   id: string;
-  libraryId: string;
-  status: string;
-  startedAt: string;
-  completedAt?: string;
-  durationMs?: number;
+  status: 'running' | 'completed' | 'failed';
   addedCount: number;
   updatedCount: number;
+  deletedCount: number;
   errorCount: number;
+  durationMs?: number;
+  startedAt: string;
+  completedAt?: string;
 }

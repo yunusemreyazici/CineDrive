@@ -4,7 +4,9 @@ export interface SubtitleTrackType {
   label: string;
   isForced?: boolean;
   isHearingImpaired?: boolean;
-  src: string;
+  isDefault?: boolean;
+  url?: string;
+  src?: string;
 }
 
 export type PlayerErrorCode =

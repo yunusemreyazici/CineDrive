@@ -95,6 +95,7 @@ model MediaItem {
   movie               Movie?
   series              Series?
   episodes            Episode[]
+  subtitles           SubtitleTrack[]
   playbackProgresses  PlaybackProgress[]
   watchHistories      WatchHistory[]
   favorites           Favorite[]
@@ -148,15 +149,23 @@ model Episode {
 }
 
 model SubtitleTrack {
-  id                 String   @id @default(uuid())
+  id                 String     @id @default(uuid())
+  mediaItemId        String?
+  mediaItem          MediaItem? @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   episodeId          String?
-  episode            Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  episode            Episode?   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   driveFileId        String
-  driveFile          DriveFile @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
-  language           String   @default("tr")
+  driveFile          DriveFile  @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  language           String     @default("tr")
   label              String?
-  isForced           Boolean  @default(false)
-  isHearingImpaired  Boolean  @default(false)
+  isForced           Boolean    @default(false)
+  isHearingImpaired  Boolean    @default(false)
+  isDefault          Boolean    @default(false)
+  sourceFormat       String     @default("vtt")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@unique([driveFileId])
 }
 
 model PlaybackProgress {
