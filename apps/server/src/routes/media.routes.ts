@@ -56,7 +56,13 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       }
     };
 
+    const cleanupListeners = () => {
+      request.raw.removeListener('close', onClientClose);
+    };
+
     request.raw.on('close', onClientClose);
+    reply.raw.on('finish', cleanupListeners);
+    reply.raw.on('error', cleanupListeners);
 
     try {
       const rangeHeader = request.headers.range;
@@ -67,6 +73,15 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         rangeHeader,
         abortController.signal,
       );
+
+      // Handle mid-stream network errors on upstream Google Drive stream
+      driveStreamRes.stream.on('error', (streamErr) => {
+        cleanupListeners();
+        abortController.abort();
+        if (!reply.raw.writableEnded) {
+          reply.raw.destroy(streamErr);
+        }
+      });
 
       // Set HTTP status (206 Partial Content or 200 OK)
       reply.status(driveStreamRes.status);
@@ -94,13 +109,14 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
       if (isHeadRequest) {
+        cleanupListeners();
         return reply.send();
       }
 
       // Stream piping directly to Fastify (Native backpressure & zero RAM/disk buffering)
       return reply.send(driveStreamRes.stream);
     } catch (err: unknown) {
-      request.raw.removeListener('close', onClientClose);
+      cleanupListeners();
 
       if (abortController.signal.aborted) {
         return; // Client closed connection, ignore error silently
