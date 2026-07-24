@@ -1,4 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 
 export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -246,19 +249,16 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const crypto = await import('crypto');
-    const fs = await import('fs/promises');
-    const path = await import('path');
     const CACHE_DIR = path.resolve(process.cwd(), 'data', 'subtitle_cache');
     await fs.mkdir(CACHE_DIR, { recursive: true }).catch(() => {});
 
     const cacheHash = crypto
-      .default.createHash('sha256')
+      .createHash('sha256')
       .update(`${syntheticDriveFileId}_1970_nochecksum_v1`)
       .digest('hex');
 
-    const cacheFilePath = path.default.join(CACHE_DIR, `${cacheHash}.vtt`);
-    await fs.default.writeFile(cacheFilePath, vttContent, 'utf-8').catch(() => {});
+    const cacheFilePath = path.join(CACHE_DIR, `${cacheHash}.vtt`);
+    await fs.writeFile(cacheFilePath, vttContent, 'utf-8').catch(() => {});
 
     return reply.status(200).send({
       message: 'Altyazı başarıyla indirildi ve veritabanına kaydedildi.',
