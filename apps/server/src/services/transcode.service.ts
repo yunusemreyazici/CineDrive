@@ -13,16 +13,31 @@ export class TranscodeService {
    * Video track is copied as-is (-c:v copy) for 0% CPU video overhead.
    * Incompatible surround audio (AC3/EAC3/DTS) is converted to stereo AAC (-c:a aac -ac 2).
    */
-  public createTranscodedStream(inputStream: Readable, onAbort?: (killFn: () => void) => void): { stream: Readable; kill: () => void } {
+  public createTranscodedStream(
+    inputStream: Readable,
+    options: { transcodeVideo?: boolean } = {},
+    onAbort?: (killFn: () => void) => void,
+  ): { stream: Readable; kill: () => void } {
     const outputStream = new PassThrough();
+    const videoOptions = options.transcodeVideo
+      ? [
+          '-c:v libx264',
+          '-preset veryfast',
+          '-crf 23',
+          '-pix_fmt yuv420p',
+        ]
+      : ['-c:v copy'];
 
     const command = ffmpeg(inputStream)
       .inputOptions([
+        // A pipe source otherwise gets consumed as fast as CPU/network allow,
+        // causing hundreds of MB of unnecessary read-ahead in a few seconds.
+        '-re',
         '-probesize', '65536',
         '-analyzeduration', '0',
       ])
       .outputOptions([
-        '-c:v copy',
+        ...videoOptions,
         '-c:a aac',
         '-b:a 192k',
         '-ac 2',

@@ -1,6 +1,22 @@
 import fs from 'node:fs';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 
+// Browsers commonly request `bytes=N-`. Forwarding that request unchanged makes
+// Google Drive send the entire remainder of a multi-GB file until the browser
+// eventually closes the connection. A bounded chunk keeps prefetch/probing
+// traffic predictable while retaining normal HTML5 seek support.
+const MAX_STREAM_CHUNK_BYTES = 8 * 1024 * 1024;
+
+const boundOpenEndedRange = (rangeHeader?: string): string | undefined => {
+  if (!rangeHeader) return undefined;
+
+  const match = rangeHeader.match(/^bytes=(\d+)-$/);
+  if (!match) return rangeHeader;
+
+  const start = Number.parseInt(match[1]!, 10);
+  return `bytes=${start}-${start + MAX_STREAM_CHUNK_BYTES - 1}`;
+};
+
 export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
@@ -14,6 +30,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   ) => {
     // Range validation against malformed, multi-range or amplification attacks
     const rangeHeader = request.headers.range;
+    const upstreamRangeHeader = boundOpenEndedRange(rangeHeader);
     if (rangeHeader) {
       // Reject multi-range requests (comma separated)
       if (rangeHeader.includes(',')) {
@@ -137,7 +154,13 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.on('finish', cleanupListeners);
     reply.raw.on('error', cleanupListeners);
 
-    const isTranscode = (request.query as Record<string, string>)?.transcode === 'true' || (request.query as Record<string, string>)?.transcode === '1';
+    const transcodeMode = (request.query as Record<string, string>)?.transcode;
+    const isTranscode =
+      transcodeMode === 'true' ||
+      transcodeMode === '1' ||
+      transcodeMode === 'audio' ||
+      transcodeMode === 'full';
+    const shouldTranscodeVideo = transcodeMode === 'full';
 
     // 5. Handle Local File Streaming (Direct Disk Stream)
     if (driveFile.storageType === 'local' && driveFile.localFilePath) {
@@ -157,7 +180,10 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
         const localReadStream = fs.createReadStream(driveFile.localFilePath);
-        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(localReadStream);
+        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
+          localReadStream,
+          { transcodeVideo: shouldTranscodeVideo },
+        );
 
         request.raw.on('close', () => {
           kill();
@@ -177,7 +203,9 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
         if (match) {
           start = match[1] ? parseInt(match[1], 10) : 0;
-          end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+          end = match[2]
+            ? parseInt(match[2], 10)
+            : Math.min(start + MAX_STREAM_CHUNK_BYTES - 1, fileSize - 1);
           if (end >= fileSize) end = fileSize - 1;
           statusCode = 206;
         }
@@ -231,7 +259,10 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       const driveStreamRes = await fastify.driveService.createMediaStream(
         accessToken,
         driveFile.googleDriveFileId || '',
-        rangeHeader,
+        // FFmpeg consumes a continuous source stream. Safari may probe the
+        // output with bytes=0-1; forwarding that range would give FFmpeg only
+        // two source bytes and make transcoding fail immediately.
+        isTranscode ? undefined : upstreamRangeHeader,
         abortController.signal,
       );
 
@@ -243,6 +274,32 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           reply.raw.destroy(streamErr);
         }
       });
+
+      if (isTranscode) {
+        // A transcoded fragmented MP4 has neither the same byte length nor the
+        // same byte offsets as the source file. Passing Drive's 206/Range/
+        // Content-Length headers through makes Safari reject the response.
+        reply.status(200);
+        reply.header('Content-Type', 'video/mp4');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        if (isHeadRequest) {
+          cleanupListeners();
+          return reply.send();
+        }
+
+        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
+          driveStreamRes.stream,
+          { transcodeVideo: shouldTranscodeVideo },
+        );
+
+        request.raw.on('close', () => {
+          kill();
+          cleanupListeners();
+        });
+
+        return reply.send(transcodedStream);
+      }
 
       // Set HTTP status (206 Partial Content or 200 OK)
       reply.status(driveStreamRes.status);
@@ -277,23 +334,6 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       if (isHeadRequest) {
         cleanupListeners();
         return reply.send();
-      }
-
-      const isTranscode = (request.query as Record<string, string>)?.transcode === 'true' || (request.query as Record<string, string>)?.transcode === '1';
-      if (isTranscode) {
-        reply.header('Content-Type', 'video/mp4');
-        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-
-        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
-          driveStreamRes.stream,
-        );
-
-        request.raw.on('close', () => {
-          kill();
-          cleanupListeners();
-        });
-
-        return reply.send(transcodedStream);
       }
 
       // Stream piping directly to Fastify (Native backpressure & zero RAM/disk buffering)

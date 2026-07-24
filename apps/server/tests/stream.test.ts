@@ -138,6 +138,116 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.body).toBe('fake-video-stream-chunk-data');
   });
 
+  it('bounds open-ended browser ranges to avoid downloading the entire remaining file', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_video_id_100/stream',
+      cookies: { session_id: sessionCookie!.value },
+      headers: {
+        range: 'bytes=1048576-',
+      },
+    });
+
+    expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
+      'mock-access-token',
+      'gdrive_video_id_100',
+      'bytes=1048576-9437183',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('returns transcoded streams without source Range or Content-Length headers', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+    app.transcodeService.createTranscodedStream = vi.fn().mockReturnValue({
+      stream: Readable.from(Buffer.from('transcoded-fragment')),
+      kill: vi.fn(),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_video_id_100/stream?transcode=true',
+      cookies: { session_id: sessionCookie!.value },
+      headers: {
+        range: 'bytes=0-',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('video/mp4');
+    expect(response.headers['content-range']).toBeUndefined();
+    expect(response.headers['accept-ranges']).toBeUndefined();
+    expect(response.headers['content-length']).toBeUndefined();
+    expect(response.body).toBe('transcoded-fragment');
+    expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
+      expect.any(Readable),
+      { transcodeVideo: false },
+    );
+    expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
+      'mock-access-token',
+      'gdrive_video_id_100',
+      undefined,
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('uses full video transcoding for Safari compatibility mode', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+    app.transcodeService.createTranscodedStream = vi.fn().mockReturnValue({
+      stream: Readable.from(Buffer.from('safari-transcoded-fragment')),
+      kill: vi.fn(),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_video_id_100/stream?transcode=full',
+      cookies: { session_id: sessionCookie!.value },
+      headers: {
+        range: 'bytes=0-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
+      expect.any(Readable),
+      { transcodeVideo: true },
+    );
+    expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
+      'mock-access-token',
+      'gdrive_video_id_100',
+      undefined,
+      expect.any(AbortSignal),
+    );
+  });
+
   it('GET /api/media/:fileId/stream with invalid Range should return 416 Range Not Satisfiable', async () => {
     const loginRes = await app.inject({
       method: 'POST',

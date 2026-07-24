@@ -19,9 +19,15 @@ interface MediaPlayerProps {
   episodeId?: string;
 }
 
+const isSafariBrowser = () => {
+  if (typeof navigator === 'undefined') return false;
+  return /Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(navigator.userAgent);
+};
+
 export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) => {
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const isSafari = isSafariBrowser();
 
   // Player Store State
   const {
@@ -41,8 +47,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   } = usePlayerStore();
   const { cinemaMode } = useUiStore();
 
-  // Transcode mode state for Safari/AC-3 audio fallback (default: false for instant direct stream)
+  // Always prefer the seekable/direct stream. Normal MP4 files are natively
+  // supported by Safari and must not be forced through the live transcoder.
   const [useTranscode, setUseTranscode] = useState(false);
+  const [mediaSourceUrl, setMediaSourceUrl] = useState<string | null>(null);
+  const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -93,6 +102,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   React.useEffect(() => {
     const urlsToRevoke = createdUrlsRef.current;
     return () => {
+      if (audioCompatibilityTimerRef.current) {
+        clearTimeout(audioCompatibilityTimerRef.current);
+      }
       urlsToRevoke.forEach((url) => {
         try {
           URL.revokeObjectURL(url);
@@ -260,8 +272,127 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
   const streamUrl = targetDriveFileId
-    ? `/api/media/${targetDriveFileId}/stream${useTranscode ? '?transcode=true' : ''}`
+    ? `/api/media/${targetDriveFileId}/stream${
+        useTranscode ? `?transcode=${isSafari ? 'full' : 'audio'}` : ''
+      }`
     : '';
+  const shouldUseSafariMediaSource = isSafari && useTranscode;
+  const videoSourceUrl = shouldUseSafariMediaSource
+    ? mediaSourceUrl || undefined
+    : streamUrl;
+
+  // Safari does not reliably accept an endless fragmented MP4 response as a
+  // plain <video src>. Feed the same fMP4 stream through Media Source instead.
+  React.useEffect(() => {
+    if (!shouldUseSafariMediaSource || !streamUrl) {
+      setMediaSourceUrl(null);
+      return;
+    }
+
+    const MediaSourceConstructor = window.MediaSource;
+    const mimeType = 'video/mp4; codecs="avc1.640028, mp4a.40.2"';
+    if (
+      !MediaSourceConstructor ||
+      !MediaSourceConstructor.isTypeSupported(mimeType)
+    ) {
+      setErrorState({
+        code: 'CODEC_NOT_SUPPORTED',
+        message: 'Safari Media Source video akışını desteklemiyor.',
+        isRetryable: false,
+      });
+      return;
+    }
+
+    const mediaSource = new MediaSourceConstructor();
+    const objectUrl = URL.createObjectURL(mediaSource);
+    const abortController = new AbortController();
+    let disposed = false;
+    setMediaSourceUrl(objectUrl);
+
+    const waitForUpdateEnd = (sourceBuffer: SourceBuffer) =>
+      new Promise<void>((resolve, reject) => {
+        const handleUpdateEnd = () => {
+          cleanup();
+          resolve();
+        };
+        const handleError = () => {
+          cleanup();
+          reject(new Error('SOURCE_BUFFER_ERROR'));
+        };
+        const cleanup = () => {
+          sourceBuffer.removeEventListener('updateend', handleUpdateEnd);
+          sourceBuffer.removeEventListener('error', handleError);
+        };
+        sourceBuffer.addEventListener('updateend', handleUpdateEnd, { once: true });
+        sourceBuffer.addEventListener('error', handleError, { once: true });
+      });
+
+    const startStreaming = async () => {
+      try {
+        const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+        const response = await fetch(streamUrl, {
+          credentials: 'same-origin',
+          signal: abortController.signal,
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`STREAM_HTTP_${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        while (!disposed) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value?.byteLength) continue;
+
+          sourceBuffer.appendBuffer(value);
+          await waitForUpdateEnd(sourceBuffer);
+
+          // Retain a rolling two-minute window instead of accumulating an
+          // entire movie in Safari's SourceBuffer memory.
+          const video = videoRef.current;
+          if (
+            video &&
+            sourceBuffer.buffered.length > 0 &&
+            video.currentTime > 180 &&
+            !sourceBuffer.updating
+          ) {
+            const removeEnd = video.currentTime - 120;
+            if (removeEnd > sourceBuffer.buffered.start(0)) {
+              sourceBuffer.remove(sourceBuffer.buffered.start(0), removeEnd);
+              await waitForUpdateEnd(sourceBuffer);
+            }
+          }
+        }
+
+        if (!disposed && mediaSource.readyState === 'open') {
+          mediaSource.endOfStream();
+        }
+      } catch (error) {
+        if (disposed || abortController.signal.aborted) return;
+        setErrorState({
+          code: 'STREAM_FAILED',
+          message: 'Safari uyumlu video akışı hazırlanamadı.',
+          isRetryable: true,
+        });
+      }
+    };
+
+    mediaSource.addEventListener('sourceopen', startStreaming, { once: true });
+
+    return () => {
+      disposed = true;
+      abortController.abort();
+      mediaSource.removeEventListener('sourceopen', startStreaming);
+      if (mediaSource.readyState === 'open') {
+        try {
+          mediaSource.endOfStream();
+        } catch {
+          // The SourceBuffer may already be closing.
+        }
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [shouldUseSafariMediaSource, streamUrl]);
 
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
@@ -300,6 +431,37 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       video.play().catch(() => {});
     }
   };
+
+  const clearAudioCompatibilityCheck = useCallback(() => {
+    if (audioCompatibilityTimerRef.current) {
+      clearTimeout(audioCompatibilityTimerRef.current);
+      audioCompatibilityTimerRef.current = null;
+    }
+  }, []);
+
+  const checkForUnsupportedAudio = useCallback(() => {
+    clearAudioCompatibilityCheck();
+    if (useTranscode || isMuted || volume === 0) return;
+
+    audioCompatibilityTimerRef.current = setTimeout(() => {
+      const video = videoRef.current as
+        | (HTMLVideoElement & { webkitAudioDecodedByteCount?: number })
+        | null;
+
+      // Chromium can play the video track of AC-3/E-AC-3/DTS files without
+      // raising a media error. In that state the picture advances but no audio
+      // frames are decoded, so the normal onError fallback never runs.
+      if (
+        video &&
+        !video.paused &&
+        video.currentTime > 3 &&
+        typeof video.webkitAudioDecodedByteCount === 'number' &&
+        video.webkitAudioDecodedByteCount === 0
+      ) {
+        setUseTranscode(true);
+      }
+    }, 6000);
+  }, [clearAudioCompatibilityCheck, isMuted, useTranscode, volume]);
 
   const handleResumeClick = () => {
     if (videoRef.current && media.progress?.positionSeconds) {
@@ -477,21 +639,40 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       {/* HTML5 Native Video Stream Element with Subtitle Tracks */}
       <video
         ref={videoRef}
-        src={streamUrl}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        src={videoSourceUrl}
+        onPlay={() => {
+          setIsPlaying(true);
+          checkForUnsupportedAudio();
+        }}
+        onPause={() => {
+          setIsPlaying(false);
+          clearAudioCompatibilityCheck();
+        }}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleVideoEnded}
-        onError={() =>
+        onError={() => {
+          // Safari reports unsupported containers/codecs as a generic media
+          // error. Retry once with full H.264/AAC compatibility transcoding;
+          // if that also fails, show the actionable player error.
+          if (isSafari && !useTranscode) {
+            setErrorState(null);
+            setUseTranscode(true);
+            return;
+          }
+
+          // Switching to Media Source briefly removes the direct URL while the
+          // object URL is being created; that transition is not a media error.
+          if (shouldUseSafariMediaSource && !mediaSourceUrl) return;
+
           setErrorState({
             code: 'STREAM_FAILED',
             message: 'Video akışı sunucudan alınırken hata oluştu.',
             isRetryable: true,
-          })
-        }
+          });
+        }}
         onClick={togglePlay}
         className={`w-full h-full object-contain cursor-pointer transition-all duration-500 ${
           cinemaMode ? 'scale-[0.94] rounded-2xl shadow-[0_0_100px_rgba(245,158,11,0.2)] border border-amber-500/20' : ''

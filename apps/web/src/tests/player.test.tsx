@@ -93,4 +93,51 @@ describe('Player Components Unit Tests', () => {
 
     expect(screen.getByText('Interstellar')).toBeInTheDocument();
   });
+
+  it('keeps Safari on direct MP4 first and falls back to full transcode after a media error', () => {
+    const userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+      );
+    class FakeMediaSource {
+      static isTypeSupported = vi.fn().mockReturnValue(true);
+      readyState = 'closed';
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+    }
+    vi.stubGlobal('MediaSource', FakeMediaSource);
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn().mockReturnValue('blob:safari-media-source'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream',
+    );
+
+    fireEvent.error(video!);
+
+    expect(video?.getAttribute('src')).toBe(
+      'blob:safari-media-source',
+    );
+    expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
+
+    userAgentSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
 });
