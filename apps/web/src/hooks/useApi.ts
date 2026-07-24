@@ -157,11 +157,24 @@ export function useMediaDetailQuery(mediaId?: string) {
 }
 
 // --- PLAYBACK & HISTORY HOOKS ---
+export interface ContinueWatchingItemType {
+  id: string;
+  mediaItemId: string;
+  episodeId?: string;
+  mediaItem?: MediaItemType;
+  episode?: EpisodeType;
+  positionSeconds: number;
+  durationSeconds: number;
+  percentage: number;
+  completed: boolean;
+  continueUrl: string;
+}
+
 export function useContinueWatchingQuery() {
   return useQuery({
     queryKey: ['continueWatching'],
     queryFn: async () => {
-      const res = await apiClient.get<{ items: { id: string; mediaItem?: MediaItemType; episode?: EpisodeType }[] }>('/playback/continue');
+      const res = await apiClient.get<{ items: ContinueWatchingItemType[] }>('/playback/continue');
       return res.data.items;
     },
   });

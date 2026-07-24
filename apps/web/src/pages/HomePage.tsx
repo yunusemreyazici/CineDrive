@@ -60,9 +60,21 @@ export const HomePage: React.FC = () => {
             <h3 className="text-xl font-bold font-display text-white">İzlemeye Devam Et</h3>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {continueWatching.map((item) => (
-              <MediaCard key={item.id} media={(item.mediaItem || item) as MediaItemType} />
-            ))}
+            {continueWatching.map((item) => {
+              const cardMedia: MediaItemType = item.mediaItem
+                ? {
+                    ...item.mediaItem,
+                    progress: {
+                      positionSeconds: item.positionSeconds,
+                      durationSeconds: item.durationSeconds,
+                      percentage: item.percentage,
+                      completed: item.completed,
+                    },
+                  }
+                : (item as unknown as MediaItemType);
+
+              return <MediaCard key={item.id} media={cardMedia} />;
+            })}
           </div>
         </section>
       )}
