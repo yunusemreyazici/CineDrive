@@ -38,6 +38,7 @@ interface PlayerControlsProps {
   onToggleMute: () => void;
   onSelectSpeed: (speed: number) => void;
   onSelectSubtitle: (id: string | null) => void;
+  onUploadCustomSubtitle?: (file: File) => void;
   onTogglePiP: () => void;
   onToggleFullscreen: () => void;
   onPreviousEpisode?: () => void;
@@ -64,6 +65,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   onToggleMute,
   onSelectSpeed,
   onSelectSubtitle,
+  onUploadCustomSubtitle,
   onTogglePiP,
   onToggleFullscreen,
   onPreviousEpisode,
@@ -90,6 +92,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           subtitles={subtitles}
           activeSubtitleId={activeSubtitleId}
           onSelectSubtitle={onSelectSubtitle}
+          onUploadCustomSubtitle={onUploadCustomSubtitle}
           onClose={() => setSubtitleMenuOpen(false)}
         />
       )}
@@ -189,20 +192,18 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 
         {/* Right Settings Controls */}
         <div className="flex items-center gap-2">
-          {subtitles.length > 0 && (
-            <button
-              onClick={() => {
-                setSubtitleMenuOpen(!subtitleMenuOpen);
-                setSpeedMenuOpen(false);
-              }}
-              aria-label="Altyazı Menüsü"
-              className={`p-2 rounded-xl transition-colors ${
-                activeSubtitleId ? 'text-brand-400 bg-brand-600/20' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Subtitles className="w-5 h-5" />
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setSubtitleMenuOpen(!subtitleMenuOpen);
+              setSpeedMenuOpen(false);
+            }}
+            aria-label="Altyazı Menüsü"
+            className={`p-2 rounded-xl transition-colors ${
+              activeSubtitleId ? 'text-brand-400 bg-brand-600/20' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Subtitles className="w-5 h-5" />
+          </button>
 
           <button
             onClick={() => {

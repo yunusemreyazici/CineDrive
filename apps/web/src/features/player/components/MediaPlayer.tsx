@@ -9,6 +9,7 @@ import { usePlayerStore } from '../stores/usePlayerStore';
 import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
+import { convertSrtToVtt } from '@cinedrive/shared';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
 import type { MediaItemType, EpisodeType } from '../../../types/media';
 
@@ -43,6 +44,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [showNextEpisodeModal, setShowNextEpisodeModal] = useState(false);
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
+  const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
 
   const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
 
@@ -51,11 +53,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let titleDisplay = media.title;
   let episodes: EpisodeType[] = [];
   let currentEpisodeIndex = -1;
-  let availableSubtitles: SubtitleTrackType[] = [];
+  let serverSubtitles: SubtitleTrackType[] = [];
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
-    availableSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
+    serverSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
     currentEpisodeIndex = episodeId
@@ -66,9 +68,37 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (activeEp) {
       targetDriveFileId = activeEp.driveFileId;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
-      availableSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
+      serverSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
     }
   }
+
+  const availableSubtitles = [...serverSubtitles, ...customSubtitles];
+
+  const handleCustomSubtitleUpload = async (file: File) => {
+    try {
+      const text = await file.text();
+      const isSrt = file.name.toLowerCase().endsWith('.srt');
+      const vttText = isSrt ? convertSrtToVtt(text) : text;
+
+      const blob = new Blob([vttText], { type: 'text/vtt' });
+      const objectUrl = URL.createObjectURL(blob);
+
+      const customTrack: SubtitleTrackType = {
+        id: `custom_${Date.now()}`,
+        language: 'tr',
+        label: `${file.name.replace(/\.[^/.]+$/, '')} (Yerel)`,
+        isForced: false,
+        isHearingImpaired: false,
+        isDefault: true,
+        url: objectUrl,
+      };
+
+      setCustomSubtitles((prev) => [...prev, customTrack]);
+      setActiveSubtitleId(customTrack.id);
+    } catch {
+      // Subtitle parse error handled silently
+    }
+  };
 
   const previousEpisode = currentEpisodeIndex > 0 ? episodes[currentEpisodeIndex - 1] : null;
   const nextEpisode =
@@ -368,6 +398,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             if (videoRef.current) videoRef.current.playbackRate = speed;
           }}
           onSelectSubtitle={setActiveSubtitleId}
+          onUploadCustomSubtitle={handleCustomSubtitleUpload}
           onTogglePiP={togglePiP}
           onToggleFullscreen={toggleFullscreen}
           onPreviousEpisode={previousEpisode ? () => handleEpisodeChange(previousEpisode.id) : undefined}
