@@ -1,8 +1,54 @@
-# CineDrive - Personal Google Drive Media Player
+# 🎬 CineDrive - Kişisel Google Drive Medya Sunucusu ve Oynatıcı
 
-Production-grade monorepo media streaming server and client for personal Google Drive archives.
+Google Drive arşivlerinizi yüksek performanslı, şık ve modern bir kişisel medya akış (streaming) platformuna dönüştüren **production-grade monorepo** uygulaması.
 
-## 📁 Workspace Structure
+---
+
+## 📸 Ekran Görüntüleri (Screenshots)
+
+### 🏠 Ana Sayfa ve "Son Eklenenler"
+![Ana Sayfa](docs/screenshots/home_dashboard.png)
+
+### 🍿 Medya Detay Sayfası ve Sezon/Bölüm Listesi
+![Medya Detay](docs/screenshots/media_detail_page.png)
+
+### 🎬 Gelişmiş Video Oynatıcı ve Altyazı Seçenekleri
+![Video Oynatıcı](docs/screenshots/video_player.png)
+
+### 💬 OpenSubtitles Otomatik Altyazı Arama ve Senkronizasyon
+![OpenSubtitles Arama](docs/screenshots/subtitle_menu.png)
+
+### 🔑 Google OAuth Giriş Sayfası
+![Giriş Sayfası](docs/screenshots/login_page.png)
+
+---
+
+## ✨ Öne Çıkan Özellikler
+
+- **🔒 Google Drive OAuth 2.0 Entegrasyonu:** Salt okunur medya erişimi ile klasörlerinizi güvenle tarar.
+- **🖼️ Otomatik Metadata & Afiş Toplayıcı (TVMaze API):** Dizi, film, bölüm afişlerini, arka plan görsellerini, özeti ve süre bilgilerini otomatik bulur.
+- **🎥 Gelişmiş HTML5 Video Oynatıcı:**
+  - HTTP Range 206 akışı ile donma/geikme olmadan yüksek kaliteli oynatma.
+  - **OpenSubtitles.com v1 REST API** entegrasyonu (Tek tıkla Türkçe ve İngilizce altyazı indirme).
+  - Yerel `.srt` ve `.vtt` altyazı dosyası yükleme desteği.
+  - **Altyazı Senkronizasyon Kaydırma:** `-2s` ile `+2s` arası anlık altyazı zamanlama ayarı.
+  - **Altyazı Stil Ayarları:** Yazı boyutu ve arka plan stili (siyah kutu/şeffaf) özelleştirme.
+- **⏭️ Otomatik Sonraki Bölüm (Next Episode Countdown & Auto-play):** Dizi bölümü biterken beliren 5 saniyelik dairesel geri sayım kartı ile kesintisiz maraton izleme.
+- **📊 İzleme İlerlemesi & Geçmişi:** Kaldığınız yeri saniyesi saniyesine otomatik kaydeder, mükerrer kartları engeller.
+- **⚙️ OpenSubtitles & Sistem Ayarları:** Özelleştirilebilir API Key ve dil tercihleri yönetimi.
+
+---
+
+## 🛠️ Teknoloji Yığını (Tech Stack)
+
+- **Monorepo Mimarisi:** `pnpm workspace`, `tsup`, `TypeScript strict`
+- **Sunucu (Backend):** Fastify, Prisma ORM, SQLite (WAL Modu), Google Auth Library, OpenSubtitles API v1, Zod validation, Pino Logger
+- **Ön Yüz (Frontend):** React 18, Vite, Tailwind CSS, TanStack React Query, Lucide Icons
+- **Konteyner ve Dağıtım:** Docker, Docker Compose, Nginx Reverse Proxy
+
+---
+
+## 📁 Çalışma Alanı Yapısı (Workspace Structure)
 
 ```text
 CineDrive/
@@ -10,144 +56,73 @@ CineDrive/
 │   ├── server/       # Fastify + TypeScript + Prisma SQLite Backend
 │   └── web/          # React + Vite + TypeScript + Tailwind CSS Frontend
 ├── packages/
-│   └── shared/       # Shared TypeScript types, Zod schemas, constants
-├── nginx/            # Reverse proxy configuration with Range streaming support
-├── Dockerfile.server # Multi-stage backend Docker image
-├── Dockerfile.web    # Multi-stage frontend + Nginx Docker image
-├── docker-compose.yml# Production Docker Compose orchestration
+│   └── shared/       # Ortak TypeScript tipleri, Zod şemaları, dönüştürücüler
+├── docs/
+│   └── screenshots/  # Uygulama ekran görüntüleri
+├── nginx/            # Range akış destekli Nginx reverse proxy yapılandırması
+├── Dockerfile.server # Multi-stage backend Docker imajı
+├── Dockerfile.web    # Multi-stage frontend + Nginx Docker imajı
+├── docker-compose.yml# Production Docker Compose orkestrasyonu
 └── pnpm-workspace.yaml
 ```
 
 ---
 
-## 🛠️ Quick Start (Local Development)
+## 🚀 Hızlı Başlangıç (Geliştirme Ortamı)
 
-1. **Install Dependencies:**
+1. **Bağımlılıkları Yükleyin:**
    ```bash
    pnpm install
    ```
 
-2. **Setup Environment:**
-   Copy `.env.example` to `.env` and fill in required OAuth & secret variables.
-
-3. **Database Migration & Client Generation:**
+2. **Çevre Değişkenlerini Ayarlayın:**
+   `.env.example` dosyasını `.env` olarak kopyalayın ve gerekli bilgileri doldurun:
    ```bash
-   pnpm --filter "@cinedrive/server" exec prisma db push
+   cp .env.example .env
    ```
 
-4. **Run Tests, Typecheck & Lint:**
+3. **Veritabanı Şemasını Senkronize Edin:**
+   ```bash
+   DATABASE_URL="file:./data/app.db" pnpm --filter "@cinedrive/server" exec prisma db push
+   ```
+
+4. **Test, Tip ve Lint Kontrollerini Çalıştırın:**
    ```bash
    pnpm typecheck
    pnpm lint
    pnpm test
    ```
 
-5. **Start Development Server:**
+5. **Geliştirme Sunucusunu Başlatın:**
    ```bash
    pnpm dev
    ```
+   - Frontend: [http://localhost:5173](http://localhost:5173)
+   - Backend: [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## 🚀 Production Deployment (Docker Compose & Nginx)
+## 📦 Production Canlıya Alma (Docker Compose & Nginx)
 
-### 1. Generate Secure Keys
-Generate strong 32-byte hexadecimal secrets for session and encryption:
-```bash
-openssl rand -hex 32
-```
-
-### 2. Configure Environment
-Create `.env` file on your production server:
-```bash
-cp .env.example .env
-nano .env
-```
-
-### 3. Build & Launch Docker Containers
-```bash
-docker compose build
-docker compose up -d
-```
-
-### 4. Monitor Logs & Container Health
-```bash
-docker compose ps
-docker compose logs -f server
-docker compose logs -f nginx
-```
-
----
-
-## 🔐 HTTPS & Certbot SSL Configuration
-
-In production, terminate SSL using Certbot on the host system or Caddy:
-
-```bash
-sudo apt update && sudo apt install certbot python3-certbot-nginx -y
-sudo certbot --nginx -d yourdomain.com
-```
-
-Nginx configuration automatically proxies `/api/media/.+/stream` Range requests with `proxy_buffering off;` and `add_header X-Accel-Buffering no always;` for zero-lag video streaming.
-
----
-
-## 💾 SQLite Backup & Restore Strategy (WAL Mode Safe)
-
-SQLite database file is stored safely inside named volume `cinedrive_app_data` (`/app/data/app.db`).
-
-### Backup Database
-To create a safe online backup without corrupting active WAL transactions:
-```bash
-docker compose exec server npx prisma db execute --stdin <<EOF
-PRISMA_BACKUP;
-EOF
-docker compose exec server sh -c "cp /app/data/app.db /app/data/app.db.bak"
-```
-
-### Restore Database
-```bash
-docker compose stop server
-docker compose run --rm server sh -c "cp /app/data/app.db.bak /app/data/app.db"
-docker compose start server
-```
-
----
-
-## 🔄 Safe Update Workflow
-
-1. Backup SQLite database:
+1. **Güvenlik Anahtarları Üretin:**
    ```bash
-   docker compose exec server sh -c "cp /app/data/app.db /app/data/app.db.bak"
+   openssl rand -hex 32
    ```
-2. Pull latest code & rebuild containers:
+
+2. **Docker İmajlarını Derleyin ve Çalıştırın:**
    ```bash
-   git pull origin main
    docker compose build
    docker compose up -d
    ```
-3. Verify container health:
+
+3. **Konteyner Durumlarını İnceleyin:**
    ```bash
    docker compose ps
-   curl -I http://localhost/api/health
+   docker compose logs -f
    ```
 
 ---
 
-## 📋 Production Readiness Checklist
+## 🛡️ Lisans ve Katkıda Bulunma
 
-- [ ] Domain DNS pointing to VPS IP
-- [ ] HTTPS Certificate installed & verified
-- [ ] Google OAuth Redirect URI configured (`https://yourdomain.com/api/auth/google/callback`)
-- [ ] Google Drive Root Folder ID configured
-- [ ] Cryptographically strong `SESSION_SECRET` generated (64-char hex)
-- [ ] Strong `TOKEN_ENCRYPTION_KEY` generated (64-char hex)
-- [ ] Admin password updated from default
-- [ ] `.env` verified NOT committed to Git repository
-- [ ] SQLite persistent Docker volume verified
-- [ ] Range HTTP 206 streaming verified (`curl -I https://yourdomain.com/api/media/FILE_ID/stream`)
-- [ ] Nginx proxy buffering disabled for video stream
-- [ ] Security headers enabled in Nginx (`X-Content-Type-Options`, `X-Frame-Options`)
-- [ ] Per-route rate limiting active
-- [ ] Pino logger sensitive credential redaction active
-- [ ] Server and Nginx containers reported `healthy`
+Bu proje kişisel kullanım ve geliştirme amacıyla tasarlanmıştır. MIT lisansı altındadır.
