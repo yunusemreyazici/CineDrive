@@ -63,7 +63,34 @@ export function usePlaybackProgress({
     }
   }, [isPlaying, saveProgress, currentTime]);
 
-  // Save progress when component unmounts or episode changes
+  // Save progress on page unload (tab close / refresh) with fetch keepalive
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (mediaItemId && duration > 0 && lastSavedPositionRef.current > 0) {
+        const pos = Math.floor(lastSavedPositionRef.current);
+        const dur = Math.floor(duration);
+        const payload = JSON.stringify({
+          mediaItemId,
+          episodeId: episodeId || undefined,
+          positionSeconds: pos,
+          durationSeconds: dur,
+        });
+
+        fetch('/api/playback/progress', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+          credentials: 'include',
+        }).catch(() => {});
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [mediaItemId, episodeId, duration]);
+
+  // Save progress when component unmounts
   useEffect(() => {
     return () => {
       if (lastSavedPositionRef.current > 0) {
