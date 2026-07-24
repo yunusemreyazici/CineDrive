@@ -114,6 +114,79 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     });
   });
 
+  // GET /api/media/random: Get a random media item matching criteria
+  fastify.get<{ Querystring: { type?: string; minRating?: string } }>(
+    '/random',
+    async (request, reply) => {
+      const type = request.query.type;
+      const minRating = request.query.minRating ? parseFloat(request.query.minRating) : undefined;
+
+      const where: Prisma.MediaItemWhereInput = {};
+      if (type && (type === 'movie' || type === 'series')) where.type = type;
+      if (minRating) where.voteAverage = { gte: minRating };
+
+      const totalCount = await fastify.prisma.mediaItem.count({ where });
+      if (totalCount === 0) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'Kriterlere uygun medya bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const randomIndex = Math.floor(Math.random() * totalCount);
+      const items = await fastify.prisma.mediaItem.findMany({
+        where,
+        skip: randomIndex,
+        take: 1,
+        include: {
+          movie: true,
+          series: {
+            include: {
+              seasons: {
+                include: { episodes: true },
+              },
+            },
+          },
+        },
+      });
+
+      const media = items[0];
+      if (!media) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'Medya bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const userId = request.user!.id;
+      const isFavorite = await fastify.prisma.favorite.findUnique({
+        where: { userId_mediaItemId: { userId, mediaItemId: media.id } },
+      });
+
+      const progress = await fastify.prisma.playbackProgress.findFirst({
+        where: { userId, mediaItemId: media.id },
+      });
+
+      const enrichedMedia = {
+        ...media,
+        genres: safeJsonParse<string[]>(media.genres, []),
+        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(media.cast, []),
+        isFavorite: !!isFavorite,
+        progress: progress || null,
+        posterUrl: media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : media.posterUrl || null,
+        backdropUrl: media.backdropDriveFileId ? `/api/media/assets/${media.backdropDriveFileId}` : media.backdropUrl || null,
+      };
+
+      return reply.status(200).send({ media: enrichedMedia });
+    },
+  );
+
   // GET /api/media/:id: Detail View
   fastify.get<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const { id } = request.params;

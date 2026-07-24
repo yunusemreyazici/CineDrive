@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Menu, Search, Film, User, LogOut, Settings } from 'lucide-react';
+import { Menu, Search, Film, User, LogOut, Settings, Dices } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
 import { useSessionQuery, useLogoutMutation } from '../../hooks/useApi';
+import { RandomPickerModal } from '../media/RandomPickerModal';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ export const Navbar: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [showRandomModal, setShowRandomModal] = useState(false);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,44 +64,60 @@ export const Navbar: React.FC = () => {
         </div>
       </form>
 
-      {/* Right section: User profile & Menu */}
-      <div className="relative">
+      {/* Right section: Ne Izlesem button & User profile & Menu */}
+      <div className="flex items-center gap-3">
         <button
-          onClick={() => setUserMenuOpen(!userMenuOpen)}
-          aria-label="Kullanıcı Menüsü"
-          className="flex items-center gap-2.5 p-1.5 rounded-full hover:bg-zinc-900 text-zinc-300 transition-colors focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          onClick={() => setShowRandomModal(true)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-brand-600/20 border border-brand-500/30 hover:bg-brand-600/30 text-brand-400 hover:text-white text-xs font-semibold rounded-xl transition-all shadow-sm"
+          title="Rastgele İçerik Önerisi Al"
         >
-          <div className="w-9 h-9 rounded-full bg-brand-600/20 border border-brand-500/30 text-brand-400 flex items-center justify-center font-bold text-sm">
-            {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
-          </div>
+          <Dices className="w-4 h-4 text-brand-400" />
+          <span className="hidden md:inline">Ne İzlesem?</span>
         </button>
 
-        {userMenuOpen && (
-          <div className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-            <div className="px-3 py-2 border-b border-zinc-800 mb-1">
-              <p className="text-sm font-semibold text-zinc-100 truncate">{session?.user?.name || 'Kullanıcı'}</p>
-              <p className="text-xs text-zinc-500 truncate">{session?.user?.email}</p>
+        <div className="relative">
+          <button
+            onClick={() => setUserMenuOpen(!userMenuOpen)}
+            aria-label="Kullanıcı Menüsü"
+            className="flex items-center gap-2.5 p-1.5 rounded-full hover:bg-zinc-900 text-zinc-300 transition-colors focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          >
+            <div className="w-9 h-9 rounded-full bg-brand-600/20 border border-brand-500/30 text-brand-400 flex items-center justify-center font-bold text-sm">
+              {session?.user?.name ? session.user.name.charAt(0).toUpperCase() : <User className="w-4 h-4" />}
             </div>
-            <button
-              onClick={() => {
-                setUserMenuOpen(false);
-                navigate('/settings');
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-xl transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-              Ayarlar
-            </button>
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors mt-1"
-            >
-              <LogOut className="w-4 h-4" />
-              Çıkış Yap
-            </button>
-          </div>
-        )}
+          </button>
+
+          {userMenuOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="px-3 py-2 border-b border-zinc-800 mb-1">
+                <p className="text-sm font-semibold text-zinc-100 truncate">{session?.user?.name || 'Kullanıcı'}</p>
+                <p className="text-xs text-zinc-500 truncate">{session?.user?.email}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  navigate('/settings');
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-xl transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Ayarlar
+              </button>
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-xl transition-colors mt-1"
+              >
+                <LogOut className="w-4 h-4" />
+                Çıkış Yap
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      <RandomPickerModal
+        isOpen={showRandomModal}
+        onClose={() => setShowRandomModal(false)}
+      />
     </header>
   );
 };
