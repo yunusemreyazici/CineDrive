@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { FastifyInstance } from 'fastify';
 import { GoogleOAuthService } from '../src/services/google-oauth.service';
+import { buildApp } from '../src/app';
+import { env } from '../src/config/env';
 
 // Mock googleapis
 vi.mock('googleapis', () => {
@@ -64,7 +67,9 @@ describe('GoogleOAuthService Unit Tests', () => {
         delete: vi.fn(),
       },
     };
-    googleService = new GoogleOAuthService(mockPrisma as unknown as import('@prisma/client').PrismaClient);
+    googleService = new GoogleOAuthService(
+      mockPrisma as unknown as import('@prisma/client').PrismaClient,
+    );
   });
 
   it('should generate and verify valid state token', () => {
@@ -105,7 +110,9 @@ describe('GoogleOAuthService Unit Tests', () => {
 
   it('should deduplicate concurrent access token refresh requests', async () => {
     const userId = 'user-uuid-123';
-    const cryptoService = (googleService as unknown as { cryptoService: { encrypt: (s: string) => string } }).cryptoService;
+    const cryptoService = (
+      googleService as unknown as { cryptoService: { encrypt: (s: string) => string } }
+    ).cryptoService;
     const mockEncryptedRefreshToken = cryptoService.encrypt('mock-refresh-token');
 
     mockPrisma.googleConnection.findUnique.mockResolvedValue({
@@ -130,7 +137,9 @@ describe('GoogleOAuthService Unit Tests', () => {
 
   it('should unlink Google account and revoke token', async () => {
     const userId = 'user-uuid-123';
-    const cryptoService = (googleService as unknown as { cryptoService: { encrypt: (s: string) => string } }).cryptoService;
+    const cryptoService = (
+      googleService as unknown as { cryptoService: { encrypt: (s: string) => string } }
+    ).cryptoService;
     const mockEncryptedRefreshToken = cryptoService.encrypt('mock-refresh-token');
 
     mockPrisma.googleConnection.findUnique.mockResolvedValue({
@@ -143,5 +152,76 @@ describe('GoogleOAuthService Unit Tests', () => {
     expect(mockPrisma.googleConnection.delete).toHaveBeenCalledWith({
       where: { userId },
     });
+  });
+});
+
+describe('Google OAuth Routes Integration Tests', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('GET /api/auth/google without login should return 401 Unauthorized', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('GET /api/auth/google with valid login should redirect to Google Auth URL', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google',
+      cookies: {
+        session_id: sessionCookie!.value,
+      },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toContain('https://accounts.google.com');
+  });
+
+  it('GET /api/auth/google/status with valid login should return connection status', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google/status',
+      cookies: {
+        session_id: sessionCookie!.value,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.connected).toBeDefined();
   });
 });
