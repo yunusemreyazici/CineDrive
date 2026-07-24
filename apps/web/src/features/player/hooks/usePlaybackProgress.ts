@@ -16,34 +16,37 @@ export function usePlaybackProgress({
   currentTime,
   duration,
 }: UsePlaybackProgressOptions) {
-  const updateProgressMutation = useUpdateProgressMutation();
+  const { mutate } = useUpdateProgressMutation();
+
+  const optionsRef = useRef({ mediaItemId, episodeId, currentTime, duration, mutate });
+  useEffect(() => {
+    optionsRef.current = { mediaItemId, episodeId, currentTime, duration, mutate };
+  });
+
   const lastSavedPositionRef = useRef<number>(-1);
-  const lastSavedTimeRef = useRef<number>(0);
+  const prevIsPlayingRef = useRef<boolean>(isPlaying);
 
-  const saveProgress = useCallback(
-    (force = false) => {
-      if (!mediaItemId || duration <= 0) return;
+  const saveProgress = useCallback((force = false) => {
+    const { mediaItemId, episodeId, currentTime, duration, mutate } = optionsRef.current;
+    if (!mediaItemId || duration <= 0) return;
 
-      const pos = Math.floor(currentTime);
-      const dur = Math.floor(duration);
+    const pos = Math.floor(currentTime);
+    const dur = Math.floor(duration);
 
-      // Avoid redundant progress updates if position hasn't meaningfully changed
-      if (!force && Math.abs(pos - lastSavedPositionRef.current) < 2) {
-        return;
-      }
+    // Avoid redundant progress updates if position hasn't meaningfully changed
+    if (!force && Math.abs(pos - lastSavedPositionRef.current) < 2) {
+      return;
+    }
 
-      lastSavedPositionRef.current = pos;
-      lastSavedTimeRef.current = Date.now();
+    lastSavedPositionRef.current = pos;
 
-      updateProgressMutation.mutate({
-        mediaItemId,
-        episodeId: episodeId || undefined,
-        positionSeconds: pos,
-        durationSeconds: dur,
-      });
-    },
-    [mediaItemId, episodeId, currentTime, duration, updateProgressMutation],
-  );
+    mutate({
+      mediaItemId,
+      episodeId: episodeId || undefined,
+      positionSeconds: pos,
+      durationSeconds: dur,
+    });
+  }, []);
 
   // Periodic progress saving every 15 seconds during active playback
   useEffect(() => {
@@ -56,16 +59,18 @@ export function usePlaybackProgress({
     return () => clearInterval(interval);
   }, [isPlaying, saveProgress]);
 
-  // Save progress when user pauses
+  // Save progress ONCE when user pauses (transition from playing -> paused)
   useEffect(() => {
-    if (!isPlaying && currentTime > 0) {
+    if (prevIsPlayingRef.current && !isPlaying && optionsRef.current.currentTime > 0) {
       saveProgress(true);
     }
-  }, [isPlaying, saveProgress, currentTime]);
+    prevIsPlayingRef.current = isPlaying;
+  }, [isPlaying, saveProgress]);
 
   // Save progress on page unload (tab close / refresh) with fetch keepalive
   useEffect(() => {
     const handleBeforeUnload = () => {
+      const { mediaItemId, episodeId, duration } = optionsRef.current;
       if (mediaItemId && duration > 0 && lastSavedPositionRef.current > 0) {
         const pos = Math.floor(lastSavedPositionRef.current);
         const dur = Math.floor(duration);
@@ -88,7 +93,7 @@ export function usePlaybackProgress({
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [mediaItemId, episodeId, duration]);
+  }, []);
 
   // Save progress when component unmounts
   useEffect(() => {

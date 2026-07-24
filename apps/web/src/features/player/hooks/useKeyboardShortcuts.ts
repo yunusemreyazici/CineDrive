@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface KeyboardShortcutHandlers {
   onTogglePlay: () => void;
@@ -15,6 +15,11 @@ interface KeyboardShortcutHandlers {
 }
 
 export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers, enabled = true) {
+  const handlersRef = useRef(handlers);
+  useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -26,58 +31,60 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers, enabled
         return;
       }
 
+      const h = handlersRef.current;
+
       switch (e.key) {
         case ' ':
         case 'k':
         case 'K':
           e.preventDefault();
-          handlers.onTogglePlay();
+          h.onTogglePlay();
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          handlers.onSkipBackward();
+          h.onSkipBackward();
           break;
         case 'ArrowRight':
           e.preventDefault();
-          handlers.onSkipForward();
+          h.onSkipForward();
           break;
         case 'ArrowUp':
           e.preventDefault();
-          handlers.onVolumeUp();
+          h.onVolumeUp();
           break;
         case 'ArrowDown':
           e.preventDefault();
-          handlers.onVolumeDown();
+          h.onVolumeDown();
           break;
         case 'm':
         case 'M':
           e.preventDefault();
-          handlers.onToggleMute();
+          h.onToggleMute();
           break;
         case 'f':
         case 'F':
           e.preventDefault();
-          handlers.onToggleFullscreen();
+          h.onToggleFullscreen();
           break;
         case 'p':
         case 'P':
           e.preventDefault();
-          handlers.onTogglePiP();
+          h.onTogglePiP();
           break;
         case 'c':
         case 'C':
           e.preventDefault();
-          handlers.onToggleSubtitles();
+          h.onToggleSubtitles();
           break;
         case 'Escape':
           e.preventDefault();
-          handlers.onCloseMenu();
+          h.onCloseMenu();
           break;
         default:
           if (e.key >= '0' && e.key <= '9') {
             e.preventDefault();
             const percent = parseInt(e.key, 10) * 10;
-            handlers.onSeekPercent(percent);
+            h.onSeekPercent(percent);
           }
           break;
       }
@@ -85,5 +92,5 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers, enabled
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlers, enabled]);
+  }, [enabled]);
 }
