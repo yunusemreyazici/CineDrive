@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
 import { AuthService } from '../services/auth.service.js';
+import { GoogleOAuthService } from '../services/google-oauth.service.js';
 import type { UserDto } from '@cinedrive/shared';
 
 declare module 'fastify' {
@@ -10,13 +11,17 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     authService: AuthService;
+    googleOAuthService: GoogleOAuthService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
 export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance) => {
   const authService = new AuthService(fastify.prisma);
+  const googleOAuthService = new GoogleOAuthService(fastify.prisma);
+
   fastify.decorate('authService', authService);
+  fastify.decorate('googleOAuthService', googleOAuthService);
 
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();

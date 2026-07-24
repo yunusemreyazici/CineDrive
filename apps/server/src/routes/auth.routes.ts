@@ -97,4 +97,55 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
     },
   );
+
+  // --- GOOGLE OAUTH 2.0 ROUTES ---
+
+  // GET /api/auth/google: Redirects to Google consent screen
+  fastify.get('/google', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const userId = request.user!.id;
+    const authUrl = fastify.googleOAuthService.generateAuthUrl(userId);
+    return reply.redirect(authUrl);
+  });
+
+  // GET /api/auth/google/callback: Handles Google OAuth redirect
+  fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    '/google/callback',
+    async (request, reply) => {
+      const { code, state, error } = request.query;
+
+      if (error || !code || !state) {
+        return reply.redirect(`${env.APP_URL}/settings?error=oauth_rejected`);
+      }
+
+      try {
+        await fastify.googleOAuthService.handleCallback(code, state);
+        return reply.redirect(`${env.APP_URL}/settings?google_connected=true`);
+      } catch (err: unknown) {
+        fastify.log.error({ err, requestId: request.id }, 'Google OAuth callback error');
+        return reply.redirect(`${env.APP_URL}/settings?error=oauth_failed`);
+      }
+    },
+  );
+
+  // DELETE /api/auth/google: Unlinks Google account
+  fastify.delete('/google', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const userId = request.user!.id;
+    await fastify.googleOAuthService.unlinkGoogleAccount(userId);
+    return reply.status(200).send({ success: true });
+  });
+
+  // GET /api/auth/google/status: Check Google Connection Status
+  fastify.get(
+    '/google/status',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const connection = await fastify.googleOAuthService.getConnectionInfo(userId);
+
+      return reply.status(200).send({
+        connected: !!connection,
+        connection,
+      });
+    },
+  );
 };
