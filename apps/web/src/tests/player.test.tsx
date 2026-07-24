@@ -79,7 +79,7 @@ describe('Player Components Unit Tests', () => {
     );
 
     expect(screen.getByText(/video biçimi desteklenmiyor/i)).toBeInTheDocument();
-    expect(screen.getByText(/H.264\/AAC içeren MP4 biçimine dönüştürmeniz gerekebilir/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ses\/Safari Uyum Modunu/i)).toBeInTheDocument();
   });
 
   it('renders MediaPlayer container with video stream URL', () => {

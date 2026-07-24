@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 
 export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
@@ -57,7 +58,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     // 1. Verify file exists in database and belongs to an active library
     let driveFile = await fastify.prisma.driveFile.findFirst({
       where: {
-        OR: [{ googleDriveFileId: driveFileId }, { id: driveFileId }],
+        OR: [{ googleDriveFileId: driveFileId }, { id: driveFileId }, { localFilePath: driveFileId }],
         status: 'active',
       },
       include: { library: true },
@@ -68,7 +69,8 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       const movieItem = await fastify.prisma.movie.findFirst({
         where: { mediaItemId: driveFileId },
       });
-      if (movieItem?.driveFileId) {
+
+      if (movieItem && movieItem.driveFileId) {
         driveFile = await fastify.prisma.driveFile.findFirst({
           where: { id: movieItem.driveFileId, status: 'active' },
           include: { library: true },
@@ -77,11 +79,12 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     if (!driveFile) {
-      // Fallback 2: Is driveFileId an Episode ID?
+      // Fallback 2: Is driveFileId an Episode ID (for TV series episodes)?
       const episodeItem = await fastify.prisma.episode.findFirst({
         where: { id: driveFileId },
       });
-      if (episodeItem?.driveFileId) {
+
+      if (episodeItem && episodeItem.driveFileId) {
         driveFile = await fastify.prisma.driveFile.findFirst({
           where: { id: episodeItem.driveFileId, status: 'active' },
           include: { library: true },
@@ -134,6 +137,78 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.on('finish', cleanupListeners);
     reply.raw.on('error', cleanupListeners);
 
+    const isTranscode = (request.query as Record<string, string>)?.transcode === 'true' || (request.query as Record<string, string>)?.transcode === '1';
+
+    // 5. Handle Local File Streaming (Direct Disk Stream)
+    if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+      if (!fs.existsSync(driveFile.localFilePath)) {
+        cleanupListeners();
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Yerel dosya diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      if (isTranscode) {
+        reply.header('Content-Type', 'video/mp4');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        const localReadStream = fs.createReadStream(driveFile.localFilePath);
+        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(localReadStream);
+
+        request.raw.on('close', () => {
+          kill();
+          cleanupListeners();
+        });
+
+        return reply.send(transcodedStream);
+      }
+
+      const stat = fs.statSync(driveFile.localFilePath);
+      const fileSize = stat.size;
+      let start = 0;
+      let end = fileSize - 1;
+      let statusCode = 200;
+
+      if (rangeHeader) {
+        const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+        if (match) {
+          start = match[1] ? parseInt(match[1], 10) : 0;
+          end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+          if (end >= fileSize) end = fileSize - 1;
+          statusCode = 206;
+        }
+      }
+
+      const chunkSize = end - start + 1;
+      let contentType = driveFile.mimeType;
+      if (!contentType || contentType === 'application/octet-stream') {
+        const nameLower = driveFile.name.toLowerCase();
+        if (nameLower.endsWith('.webm')) contentType = 'video/webm';
+        else if (nameLower.endsWith('.mkv')) contentType = 'video/x-matroska';
+        else contentType = 'video/mp4';
+      }
+
+      reply.status(statusCode);
+      reply.header('Content-Type', contentType);
+      reply.header('Content-Length', chunkSize);
+      reply.header('Accept-Ranges', 'bytes');
+      if (statusCode === 206) {
+        reply.header('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+      }
+
+      if (isHeadRequest) {
+        cleanupListeners();
+        return reply.send();
+      }
+
+      const fileStream = fs.createReadStream(driveFile.localFilePath, { start, end });
+      return reply.send(fileStream);
+    }
+
     // 3. Get valid Google access token for library connection
     let accessToken: string;
     try {
@@ -155,7 +230,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const driveStreamRes = await fastify.driveService.createMediaStream(
         accessToken,
-        driveFile.googleDriveFileId,
+        driveFile.googleDriveFileId || '',
         rangeHeader,
         abortController.signal,
       );
@@ -202,6 +277,23 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       if (isHeadRequest) {
         cleanupListeners();
         return reply.send();
+      }
+
+      const isTranscode = (request.query as Record<string, string>)?.transcode === 'true' || (request.query as Record<string, string>)?.transcode === '1';
+      if (isTranscode) {
+        reply.header('Content-Type', 'video/mp4');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+        const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
+          driveStreamRes.stream,
+        );
+
+        request.raw.on('close', () => {
+          kill();
+          cleanupListeners();
+        });
+
+        return reply.send(transcodedStream);
       }
 
       // Stream piping directly to Fastify (Native backpressure & zero RAM/disk buffering)

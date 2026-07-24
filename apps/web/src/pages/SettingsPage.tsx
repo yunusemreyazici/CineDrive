@@ -15,6 +15,9 @@ import {
   User,
   Lock,
   KeyRound,
+  HardDrive,
+  FolderPlus,
+  Folder,
 } from 'lucide-react';
 import {
   useSessionQuery,
@@ -25,6 +28,7 @@ import {
   useUnlinkGoogleMutation,
   useUnlinkGoogleConnectionMutation,
   useLibrariesQuery,
+  useCreateLibraryMutation,
   useScanLibraryMutation,
   useLibraryScansQuery,
   useClearLibraryMutation,
@@ -236,6 +240,9 @@ export const SettingsPage: React.FC = () => {
         )}
       </div>
 
+      {/* Local Disk Library Section */}
+      <LocalLibrarySettingsCard />
+
       {/* OpenSubtitles Integration Section */}
       <OpenSubtitlesSettingsCard />
 
@@ -316,6 +323,162 @@ const ThemeSettingsCard: React.FC = () => {
           );
         })}
       </div>
+    </div>
+  );
+};
+
+const LocalLibrarySettingsCard: React.FC = () => {
+  const { data: libraries } = useLibrariesQuery();
+  const createLibrary = useCreateLibraryMutation();
+  const scanLibrary = useScanLibraryMutation();
+
+  const [name, setName] = useState('');
+  const [localFolderPath, setLocalFolderPath] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const localLibraries = libraries?.filter((l) => (l as unknown as { storageType?: string }).storageType === 'local') || [];
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!name.trim()) {
+      setErrorMsg('Lütfen kütüphane adı giriniz.');
+      return;
+    }
+    if (!localFolderPath.trim()) {
+      setErrorMsg('Lütfen yerel klasör yolu giriniz.');
+      return;
+    }
+
+    try {
+      const newLib = await createLibrary.mutateAsync({
+        name: name.trim(),
+        storageType: 'local',
+        rootFolderId: '',
+        localFolderPath: localFolderPath.trim(),
+      });
+
+      setSuccessMsg(`"${name}" kütüphanesi oluşturuldu. Tarama başlatılıyor...`);
+      setName('');
+      setLocalFolderPath('');
+
+      // Auto trigger scan
+      scanLibrary.mutate(newLib.id);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Kütüphane oluşturulurken hata oluştu.');
+    }
+  };
+
+  return (
+    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl">
+            <HardDrive className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold font-display text-white">Yerel Disk / Klasör Kütüphanesi</h3>
+            <p className="text-xs text-zinc-400">Sunucunuzdaki veya bilgisayarınızdaki film/dizi klasörlerini tarayın</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Existing Local Libraries List */}
+      {localLibraries.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="text-xs font-bold text-zinc-300">Kayıtlı Yerel Kütüphaneler</h4>
+          <div className="grid grid-cols-1 gap-3">
+            {localLibraries.map((lib) => {
+              const localPath = (lib as unknown as { localFolderPath?: string }).localFolderPath;
+              return (
+                <div key={lib.id} className="p-4 bg-zinc-950/60 border border-zinc-800 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Folder className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate">{lib.name}</p>
+                      <p className="text-[11px] font-mono text-zinc-400 truncate">{localPath}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => scanLibrary.mutate(lib.id)}
+                    disabled={scanLibrary.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white text-xs font-semibold rounded-xl transition-all"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${scanLibrary.isPending ? 'animate-spin' : ''}`} />
+                    <span>Klasörü Tara</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* New Local Library Form */}
+      <form onSubmit={handleCreate} className="space-y-4 text-xs">
+        <h4 className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+          <FolderPlus className="w-4 h-4 text-brand-400" />
+          Yeni Yerel Kütüphane Ekle
+        </h4>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">Kütüphane İsmi</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Örn: Yerel Filmlerim"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">Klasör Yolu (Absolute Path)</label>
+            <input
+              type="text"
+              value={localFolderPath}
+              onChange={(e) => setLocalFolderPath(e.target.value)}
+              placeholder="Örn: /Users/username/Movies veya D:\Filmler"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors font-mono"
+            />
+          </div>
+        </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400">
+            {errorMsg}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={createLibrary.isPending || !name.trim() || !localFolderPath.trim()}
+          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-40 flex items-center gap-2"
+        >
+          {createLibrary.isPending ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Oluşturuluyor...</span>
+            </>
+          ) : (
+            <>
+              <FolderPlus className="w-4 h-4" />
+              <span>Yerel Kütüphaneyi Oluştur ve Tara</span>
+            </>
+          )}
+        </button>
+      </form>
     </div>
   );
 };

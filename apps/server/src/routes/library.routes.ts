@@ -50,13 +50,30 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { name, rootFolderId } = parseResult.data;
+    const { name, storageType, rootFolderId, localFolderPath, googleConnectionId } = parseResult.data;
 
-    const library = await fastify.prisma.library.create({
-      data: { name, rootFolderId },
-    });
+    try {
+      const library = await fastify.prisma.library.create({
+        data: {
+          name,
+          storageType: storageType || 'gdrive',
+          rootFolderId: rootFolderId || '',
+          localFolderPath: localFolderPath || null,
+          googleConnectionId: googleConnectionId || null,
+        },
+      });
 
-    return reply.status(201).send({ library });
+      return reply.status(201).send({ library });
+    } catch (err: unknown) {
+      fastify.log.error({ err, requestId: request.id }, 'Library create failed');
+      return reply.status(500).send({
+        error: {
+          code: 'LIBRARY_CREATE_FAILED',
+          message: err instanceof Error ? err.message : 'Kütüphane oluşturulurken bir hata oluştu.',
+          requestId: request.id,
+        },
+      });
+    }
   });
 
   // PATCH /api/libraries/:id: Update library
@@ -110,6 +127,31 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
+    }
+
+    if (library.storageType === 'local') {
+      try {
+        const scanResult = await fastify.localScanService.scanLocalLibrary(id);
+        const lastScan = await fastify.prisma.libraryScan.findFirst({
+          where: { libraryId: id },
+          orderBy: { startedAt: 'desc' },
+          include: { errors: true },
+        });
+
+        return reply.status(200).send({
+          message: 'Yerel kütüphane taraması tamamlandı.',
+          scan: lastScan,
+          filesScanned: scanResult.filesScanned,
+        });
+      } catch (err: unknown) {
+        return reply.status(500).send({
+          error: {
+            code: 'LOCAL_SCAN_FAILED',
+            message: err instanceof Error ? err.message : 'Yerel kütüphane taraması başarısız oldu.',
+            requestId: request.id,
+          },
+        });
+      }
     }
 
     try {

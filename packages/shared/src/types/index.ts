@@ -92,3 +92,16 @@ export interface HealthResponse {
   uptime: number;
 }
 
+export interface LibraryDto {
+  id: string;
+  name: string;
+  storageType: 'gdrive' | 'local';
+  rootFolderId?: string;
+  localFolderPath?: string;
+  googleConnectionId?: string | null;
+  driveId?: string | null;
+  lastScannedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+

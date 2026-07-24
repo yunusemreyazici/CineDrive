@@ -57,7 +57,9 @@ model GoogleConnection {
 model Library {
   id                 String            @id @default(uuid())
   name               String
-  rootFolderId       String
+  storageType        String            @default("gdrive")
+  rootFolderId       String            @default("")
+  localFolderPath    String?
   googleConnectionId String?
   googleConnection   GoogleConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
   driveId            String?
@@ -72,7 +74,9 @@ model DriveFile {
   id                 String          @id @default(uuid())
   libraryId          String
   library            Library         @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  googleDriveFileId  String          @unique
+  storageType        String          @default("gdrive")
+  localFilePath      String?         @unique
+  googleDriveFileId  String?         @unique
   parentDriveFileId  String?
   name               String
   mimeType           String
@@ -87,6 +91,7 @@ model DriveFile {
 
   @@index([libraryId])
   @@index([parentDriveFileId])
+  @@index([localFilePath])
 }
 
 model MediaItem {

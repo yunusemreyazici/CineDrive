@@ -69,12 +69,16 @@ export class SubtitleService {
       // Cache miss or read error, proceed to fetch & convert
     }
 
-    // 5. Fetch raw text content from Google Drive
-    const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
-    const rawContent = await this.driveService.getFileTextContent(
-      accessToken,
-      track.driveFile.googleDriveFileId,
-    );
+    let rawContent: string;
+    if (track.driveFile.storageType === 'local' && track.driveFile.localFilePath) {
+      rawContent = await fs.readFile(track.driveFile.localFilePath, 'utf-8');
+    } else {
+      const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
+      rawContent = await this.driveService.getFileTextContent(
+        accessToken,
+        track.driveFile.googleDriveFileId || '',
+      );
+    }
 
     // 6. Convert SRT to WebVTT if source format is SRT
     const isSrt =

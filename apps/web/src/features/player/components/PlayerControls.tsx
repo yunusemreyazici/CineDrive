@@ -13,6 +13,7 @@ import {
   SkipBack,
   SkipForward,
   Sparkles,
+  Radio,
 } from 'lucide-react';
 import { PlayerTimeline } from './PlayerTimeline';
 import { SubtitleMenu } from './SubtitleMenu';
@@ -35,6 +36,8 @@ interface PlayerControlsProps {
   activeSubtitleId: string | null;
   hasPreviousEpisode?: boolean;
   hasNextEpisode?: boolean;
+  useTranscode?: boolean;
+  onToggleTranscode?: () => void;
   onTogglePlay: () => void;
   onSkipBackward: () => void;
   onSkipForward: () => void;
@@ -66,6 +69,8 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   activeSubtitleId,
   hasPreviousEpisode,
   hasNextEpisode,
+  useTranscode = false,
+  onToggleTranscode,
   onTogglePlay,
   onSkipBackward,
   onSkipForward,
@@ -219,6 +224,19 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           >
             <Subtitles className="w-5 h-5" />
           </button>
+
+          {onToggleTranscode && (
+            <button
+              onClick={onToggleTranscode}
+              aria-label="Ses / Safari Uyum Modu"
+              title={useTranscode ? 'Ses Uyum Modu (AAC Transcode) Aktif' : 'Ses / Safari Uyum Modunu Etkinleştir (AAC)'}
+              className={`p-2 rounded-xl transition-colors ${
+                useTranscode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Radio className="w-5 h-5" />
+            </button>
+          )}
 
           <button
             onClick={() => {

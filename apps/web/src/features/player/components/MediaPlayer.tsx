@@ -41,6 +41,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   } = usePlayerStore();
   const { cinemaMode } = useUiStore();
 
+  // Transcode mode state for Safari/AC-3 audio fallback (default: false for instant direct stream)
+  const [useTranscode, setUseTranscode] = useState(false);
+
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -256,7 +259,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       : null;
 
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
-  const streamUrl = targetDriveFileId ? `/api/media/${targetDriveFileId}/stream` : '';
+  const streamUrl = targetDriveFileId
+    ? `/api/media/${targetDriveFileId}/stream${useTranscode ? '?transcode=true' : ''}`
+    : '';
 
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
@@ -538,7 +543,16 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         />
       )}
 
-      {errorState && <PlayerError error={errorState} onRetry={handleRetry} />}
+      {errorState && (
+        <PlayerError
+          error={errorState}
+          onRetry={handleRetry}
+          onEnableTranscode={() => {
+            setUseTranscode(true);
+            handleRetry();
+          }}
+        />
+      )}
 
       {/* Controls Overlay Bar */}
       <div
@@ -561,6 +575,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           activeSubtitleId={activeSubtitleId}
           hasPreviousEpisode={!!previousEpisode}
           hasNextEpisode={!!nextEpisode}
+          useTranscode={useTranscode}
+          onToggleTranscode={() => setUseTranscode(!useTranscode)}
           onTogglePlay={togglePlay}
           onSkipBackward={skipBackward}
           onSkipForward={skipForward}

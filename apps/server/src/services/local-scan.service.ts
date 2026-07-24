@@ -1,0 +1,399 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import type { PrismaClient } from '@prisma/client';
+import { parseMediaFilename } from '@cinedrive/shared';
+import { MetadataService } from './metadata.service.js';
+
+export class LocalScanService {
+  private metadataService = new MetadataService();
+
+  constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Scans a local filesystem folder recursively and indexes movies, TV shows, and subtitles.
+   * Enriches MediaItems with TMDB metadata (poster, backdrop, overview, cast, etc.)
+   */
+  public async scanLocalLibrary(libraryId: string): Promise<{ success: boolean; filesScanned: number }> {
+    const library = await this.prisma.library.findUnique({
+      where: { id: libraryId },
+    });
+
+    if (!library || library.storageType !== 'local' || !library.localFolderPath) {
+      throw new Error('Yerel kütüphane bulunamadı veya geçerli bir yerel klasör yolu yok.');
+    }
+
+    // Create a new scan record
+    const scan = await this.prisma.libraryScan.create({
+      data: {
+        libraryId,
+        status: 'running',
+        startedAt: new Date(),
+      },
+    });
+
+    let filesScannedCount = 0;
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    try {
+      const allFiles = await this.readdirRecursive(library.localFolderPath);
+
+      const videoExtensions = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.m2ts', '.flv', '.wmv', '.3gp'];
+      const subtitleExtensions = ['.srt', '.vtt'];
+
+      const videoFiles = allFiles.filter((f) =>
+        videoExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
+      );
+      const subtitleFiles = allFiles.filter((f) =>
+        subtitleExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
+      );
+
+      // Process each video file
+      for (const file of videoFiles) {
+        try {
+          filesScannedCount++;
+          const stat = await fs.stat(file.fullPath);
+          const mimeType = this.getMimeType(file.name);
+
+          const existingDriveFile = await this.prisma.driveFile.findUnique({
+            where: { localFilePath: file.fullPath },
+          });
+
+          if (existingDriveFile) {
+            updatedCount++;
+          } else {
+            addedCount++;
+          }
+
+          const driveFile = await this.prisma.driveFile.upsert({
+            where: { localFilePath: file.fullPath },
+            update: {
+              name: file.name,
+              size: BigInt(stat.size),
+              modifiedTime: stat.mtime,
+              mimeType,
+              status: 'active',
+            },
+            create: {
+              libraryId,
+              storageType: 'local',
+              localFilePath: file.fullPath,
+              name: file.name,
+              size: BigInt(stat.size),
+              modifiedTime: stat.mtime,
+              mimeType,
+              status: 'active',
+            },
+          });
+
+          // Use shared parseMediaFilename for better title parsing (same as GDrive scan)
+          const parsedName = parseMediaFilename(file.name);
+          const title = parsedName.title;
+          const normalizedTitle = title.toLowerCase();
+          const year = parsedName.year;
+          const type = parsedName.type; // 'movie' | 'series'
+          const seasonNumber = parsedName.seasonNumber || 1;
+          const episodeNumber = parsedName.episodeNumber || 1;
+
+          // ── TMDB Metadata Enrichment ─────────────────────────────────────────
+          let onlinePosterUrl: string | null = null;
+          let onlineBackdropUrl: string | null = null;
+          let overview: string | null = null;
+          let finalYear = year;
+          let voteAverage: number | undefined;
+          let voteCount: number | undefined;
+          let genresStr: string | undefined;
+          let castStr: string | undefined;
+          let trailerUrl: string | undefined;
+          let contentRating: string | undefined;
+          let tmdbId: number | undefined;
+          let imdbId: string | undefined;
+
+          const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
+          if (onlineMeta) {
+            onlinePosterUrl = onlineMeta.posterUrl;
+            onlineBackdropUrl = onlineMeta.backdropUrl;
+            overview = onlineMeta.overview || null;
+            if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
+            if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
+            if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
+            if (onlineMeta.genres) genresStr = JSON.stringify(onlineMeta.genres);
+            if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
+            if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
+            if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
+            if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
+            if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
+          }
+          // ────────────────────────────────────────────────────────────────────
+
+          // Deterministic ID (same algorithm as LibraryScanService)
+          const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+          const mediaItemId = `media_${type}_${safeTitle}`;
+
+          // Upsert MediaItem with full TMDB data
+          const mediaItem = await this.prisma.mediaItem.upsert({
+            where: { id: mediaItemId },
+            create: {
+              id: mediaItemId,
+              type,
+              title,
+              normalizedTitle,
+              year: finalYear,
+              overview,
+              posterUrl: onlinePosterUrl,
+              backdropUrl: onlineBackdropUrl,
+              voteAverage,
+              voteCount,
+              genres: genresStr,
+              cast: castStr,
+              trailerUrl,
+              contentRating,
+              tmdbId,
+              imdbId,
+            },
+            update: {
+              title,
+              year: finalYear ?? undefined,
+              overview: overview ?? undefined,
+              posterUrl: onlinePosterUrl ?? undefined,
+              backdropUrl: onlineBackdropUrl ?? undefined,
+              voteAverage: voteAverage ?? undefined,
+              voteCount: voteCount ?? undefined,
+              genres: genresStr ?? undefined,
+              cast: castStr ?? undefined,
+              trailerUrl: trailerUrl ?? undefined,
+              contentRating: contentRating ?? undefined,
+              tmdbId: tmdbId ?? undefined,
+              imdbId: imdbId ?? undefined,
+            },
+          });
+
+          if (type === 'movie') {
+            await this.prisma.movie.upsert({
+              where: { mediaItemId: mediaItem.id },
+              create: {
+                mediaItemId: mediaItem.id,
+                driveFileId: driveFile.id,
+              },
+              update: {
+                driveFileId: driveFile.id,
+              },
+            });
+          } else {
+            // TV Series
+            const series = await this.prisma.series.upsert({
+              where: { mediaItemId: mediaItem.id },
+              create: { mediaItemId: mediaItem.id },
+              update: {},
+            });
+
+            const season = await this.prisma.season.upsert({
+              where: {
+                seriesId_seasonNumber: {
+                  seriesId: series.id,
+                  seasonNumber,
+                },
+              },
+              create: {
+                seriesId: series.id,
+                seasonNumber,
+                name: `Sezon ${seasonNumber}`,
+              },
+              update: {},
+            });
+
+            // Fetch per-episode TMDB metadata
+            const epMetaMap = await this.metadataService.fetchShowEpisodes(title);
+            const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
+            const epTitle = epMeta?.name || file.name.replace(/\.[^/.]+$/, '');
+            const epOverview = epMeta?.overview || null;
+            const epStillUrl = epMeta?.stillUrl || null;
+
+            await this.prisma.episode.upsert({
+              where: {
+                seasonId_episodeNumber: {
+                  seasonId: season.id,
+                  episodeNumber,
+                },
+              },
+              create: {
+                seriesId: series.id,
+                seasonId: season.id,
+                mediaItemId: mediaItem.id,
+                driveFileId: driveFile.id,
+                episodeNumber,
+                seasonNumber,
+                title: epTitle,
+                overview: epOverview,
+                stillUrl: epStillUrl,
+              },
+              update: {
+                driveFileId: driveFile.id,
+                title: epTitle,
+                overview: epOverview ?? undefined,
+                stillUrl: epStillUrl ?? undefined,
+              },
+            });
+          }
+
+          // Live progress update
+          await this.prisma.libraryScan.update({
+            where: { id: scan.id },
+            data: {
+              addedCount,
+              updatedCount,
+            },
+          }).catch(() => {});
+
+        } catch (fileErr: unknown) {
+          // Log individual file errors but continue scanning
+          console.error(`[LocalScan] Dosya işlenirken hata: ${file.fullPath}`, fileErr);
+        }
+      }
+
+      // Process local subtitle files - each gets its own DriveFile entry
+      for (const subFile of subtitleFiles) {
+        try {
+          const matchingVideo = videoFiles.find(
+            (v) => path.parse(v.name).name.toLowerCase() === path.parse(subFile.name).name.toLowerCase(),
+          );
+
+          if (matchingVideo) {
+            const lang = this.detectSubtitleLanguage(subFile.name);
+
+            // Upsert subtitle file as its own DriveFile
+            const subDriveFile = await this.prisma.driveFile.upsert({
+              where: { localFilePath: subFile.fullPath },
+              update: { name: subFile.name },
+              create: {
+                libraryId,
+                storageType: 'local',
+                localFilePath: subFile.fullPath,
+                name: subFile.name,
+                mimeType: subFile.name.endsWith('.vtt') ? 'text/vtt' : 'application/x-subrip',
+                status: 'active',
+              },
+            });
+
+            // Upsert subtitle track linked to subtitle DriveFile
+            await this.prisma.subtitleTrack.upsert({
+              where: { driveFileId: subDriveFile.id },
+              update: {
+                language: lang,
+                label: `Yerel (${lang.toUpperCase()})`,
+              },
+              create: {
+                driveFileId: subDriveFile.id,
+                language: lang,
+                label: `Yerel (${lang.toUpperCase()})`,
+                isDefault: lang === 'tr',
+              },
+            });
+          }
+        } catch (subErr: unknown) {
+          console.error(`[LocalScan] Altyazı işlenirken hata: ${subFile.fullPath}`, subErr);
+        }
+      }
+
+      // Mark scan completed
+      await this.prisma.libraryScan.update({
+        where: { id: scan.id },
+        data: {
+          status: 'completed',
+          addedCount,
+          updatedCount,
+          completedAt: new Date(),
+        },
+      });
+
+      await this.prisma.library.update({
+        where: { id: libraryId },
+        data: { lastScannedAt: new Date() },
+      });
+
+      return { success: true, filesScanned: filesScannedCount };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Yerel kütüphane taranırken hata oluştu.';
+
+      await this.prisma.libraryScan.update({
+        where: { id: scan.id },
+        data: {
+          status: 'failed',
+          completedAt: new Date(),
+          errors: {
+            create: {
+              errorMessage,
+            },
+          },
+        },
+      });
+
+      throw err;
+    }
+  }
+
+  private detectSubtitleLanguage(filename: string): string {
+    const lower = filename.toLowerCase();
+    if (lower.includes('.en.') || lower.includes('_en.') || lower.includes('.eng.') || lower.endsWith('.en.srt') || lower.endsWith('.en.vtt')) return 'en';
+    if (lower.includes('.de.') || lower.includes('_de.') || lower.includes('.ger.')) return 'de';
+    if (lower.includes('.fr.') || lower.includes('_fr.') || lower.includes('.fre.')) return 'fr';
+    if (lower.includes('.es.') || lower.includes('_es.') || lower.includes('.spa.')) return 'es';
+    if (lower.includes('.it.') || lower.includes('_it.') || lower.includes('.ita.')) return 'it';
+    return 'tr'; // Default to Turkish
+  }
+
+  private async readdirRecursive(dir: string): Promise<Array<{ name: string; fullPath: string }>> {
+    const results: Array<{ name: string; fullPath: string }> = [];
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          // Skip hidden dirs and common non-media dirs
+          if (!entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== '__pycache__') {
+            const subDirFiles = await this.readdirRecursive(fullPath);
+            results.push(...subDirFiles);
+          }
+        } else if (entry.isFile()) {
+          if (!entry.name.startsWith('.')) {
+            results.push({ name: entry.name, fullPath });
+          }
+        }
+      }
+    } catch {
+      // Ignore unreadable subdirectories
+    }
+
+    return results;
+  }
+
+  private getMimeType(filename: string): string {
+    const ext = path.extname(filename).toLowerCase();
+    switch (ext) {
+      case '.mp4':
+      case '.m4v':
+        return 'video/mp4';
+      case '.webm':
+        return 'video/webm';
+      case '.mkv':
+        return 'video/x-matroska';
+      case '.avi':
+        return 'video/x-msvideo';
+      case '.mov':
+        return 'video/quicktime';
+      case '.m2ts':
+        return 'video/mp2t';
+      case '.flv':
+        return 'video/x-flv';
+      case '.wmv':
+        return 'video/x-ms-wmv';
+      case '.3gp':
+        return 'video/3gpp';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+}

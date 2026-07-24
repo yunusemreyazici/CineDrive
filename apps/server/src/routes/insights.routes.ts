@@ -76,7 +76,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         name: file.name,
         size: sizeNum,
         libraryName: file.library?.name || 'Bilinmeyen',
-        googleDriveFileId: file.googleDriveFileId,
+        googleDriveFileId: file.googleDriveFileId || '',
       });
     }
 
@@ -106,7 +106,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
               name: item.name,
               size: item.size ? Number(item.size) : 0,
               libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId,
+              googleDriveFileId: item.googleDriveFileId || '',
               reason: `Aynı MD5 Özeti (${md5.substring(0, 8)}...)`,
             });
           }
@@ -124,7 +124,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
               name: item.name,
               size: item.size ? Number(item.size) : 0,
               libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId,
+              googleDriveFileId: item.googleDriveFileId || '',
               reason: 'Aynı Dosya Adı',
             });
           }
