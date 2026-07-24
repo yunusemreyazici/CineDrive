@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Clock } from 'lucide-react';
 import { PlayerControls } from './PlayerControls';
 import { ResumeOverlay } from './ResumeOverlay';
 import { NextEpisodeOverlay } from './NextEpisodeOverlay';
@@ -30,10 +30,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     playbackSpeed,
     activeSubtitleId,
     autoPlayNext,
+    subtitleDelay,
+    subtitleFontSize,
+    subtitleBgColor,
     setVolume,
     setIsMuted,
     setPlaybackSpeed,
     setActiveSubtitleId,
+    setSubtitleDelay,
   } = usePlayerStore();
   const { cinemaMode } = useUiStore();
 
@@ -110,6 +114,58 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     });
   }, [activeSubtitleId, availableSubtitles]);
 
+  // Live real-time subtitle cue timing offset shift
+  const prevDelayRef = React.useRef(0);
+  const [delayToast, setDelayToast] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!videoRef.current) return;
+    const delta = subtitleDelay - prevDelayRef.current;
+    if (delta === 0) return;
+
+    const tracks = Array.from(videoRef.current.textTracks);
+    tracks.forEach((track) => {
+      if (track.cues) {
+        Array.from(track.cues).forEach((cue) => {
+          cue.startTime += delta;
+          cue.endTime += delta;
+        });
+      }
+    });
+
+    prevDelayRef.current = subtitleDelay;
+  }, [subtitleDelay]);
+
+  // Z & X Keyboard Hotkeys for live subtitle delay adjustment
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.key === 'z' || e.key === 'Z') {
+        const next = parseFloat((subtitleDelay - 0.1).toFixed(1));
+        setSubtitleDelay(next);
+        setDelayToast(`Altyazı Zamanlaması: ${next > 0 ? `+${next}s` : `${next}s`}`);
+      } else if (e.key === 'x' || e.key === 'X') {
+        const next = parseFloat((subtitleDelay + 0.1).toFixed(1));
+        setSubtitleDelay(next);
+        setDelayToast(`Altyazı Zamanlaması: ${next > 0 ? `+${next}s` : `${next}s`}`);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [subtitleDelay, setSubtitleDelay]);
+
+  // Auto-hide delay toast after 2.5 seconds
+  React.useEffect(() => {
+    if (!delayToast) return;
+    const timer = setTimeout(() => setDelayToast(null), 2500);
+    return () => clearTimeout(timer);
+  }, [delayToast]);
+
   // Handle missing video drive file ID gracefully
   React.useEffect(() => {
     if (!targetDriveFileId) {
@@ -175,7 +231,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setActiveSubtitleId(openSubTrack.id);
   };
 
-  const { subtitleFontSize, subtitleBgColor } = usePlayerStore();
   const cueStyle = `
     ::cue {
       font-size: ${subtitleFontSize}%;
@@ -449,6 +504,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           />
         ))}
       </video>
+
+      {/* Subtitle Delay Live Toast Notification Overlay */}
+      {delayToast && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-zinc-950/90 backdrop-blur-md border border-brand-500/40 rounded-2xl text-xs font-bold text-white shadow-2xl animate-fade-in flex items-center gap-2">
+          <Clock className="w-4 h-4 text-brand-400" />
+          <span>{delayToast}</span>
+        </div>
+      )}
 
       {/* Overlays */}
       {showResumeModal && (

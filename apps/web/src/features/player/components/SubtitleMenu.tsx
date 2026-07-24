@@ -250,24 +250,47 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-1.5">
-            {[-2.0, -0.5, 0.5, 2.0].map((step) => (
+          <div className="grid grid-cols-6 gap-1">
+            {[-1.0, -0.5, -0.1, 0.1, 0.5, 1.0].map((step) => (
               <button
                 key={step}
                 onClick={() => setSubtitleDelay(parseFloat((subtitleDelay + step).toFixed(1)))}
-                className="py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl transition-colors"
+                className="py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-semibold rounded-lg transition-colors"
               >
                 {step > 0 ? `+${step}s` : `${step}s`}
               </button>
             ))}
           </div>
 
-          <button
-            onClick={() => setSubtitleDelay(0)}
-            className="w-full py-1.5 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs rounded-xl transition-colors font-medium"
-          >
-            Sıfırla (0.0s)
-          </button>
+          <div className="flex items-center gap-2 pt-1">
+            <label className="text-[11px] text-zinc-400 font-medium">Özel Değer (sn):</label>
+            <input
+              type="number"
+              step="0.1"
+              value={subtitleDelay}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val)) setSubtitleDelay(val);
+              }}
+              className="w-20 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-center text-zinc-100 focus:outline-none focus:border-brand-500"
+            />
+            <button
+              onClick={() => setSubtitleDelay(0)}
+              className="flex-1 py-1.5 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs rounded-lg transition-colors font-medium"
+            >
+              Sıfırla (0.0s)
+            </button>
+          </div>
+
+          <div className="p-2 bg-zinc-900/60 border border-zinc-800/60 rounded-xl text-[10px] text-zinc-400 flex items-center justify-between">
+            <span>Klavye Kısayolları:</span>
+            <div className="flex items-center gap-1 font-mono text-zinc-300">
+              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px]">Z</kbd>
+              <span>(-0.1s)</span>
+              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] ml-1">X</kbd>
+              <span>(+0.1s)</span>
+            </div>
+          </div>
         </div>
       )}
 
