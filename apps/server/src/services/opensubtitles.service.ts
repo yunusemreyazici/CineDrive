@@ -2,100 +2,145 @@ import { convertSrtToVtt } from '@cinedrive/shared';
 
 export interface OpenSubtitlesSearchResult {
   id: string;
+  fileId: number;
   filename: string;
   languageName: string;
   languageCode: string;
-  downloadUrl: string;
-  format: string;
-  score: number;
+  downloadCount: number;
   releaseName?: string;
 }
 
 export class OpenSubtitlesService {
   /**
-   * Searches OpenSubtitles for subtitles matching title, season, and episode
+   * Searches OpenSubtitles v1 API for subtitles matching title, season, and episode
    */
   public async searchSubtitles(
     title: string,
     seasonNumber?: number,
     episodeNumber?: number,
-    languages: string[] = ['tur', 'eng'],
-  ): Promise<OpenSubtitlesSearchResult[]> {
+    languages: string[] = ['tr', 'en'],
+    apiKey?: string,
+  ): Promise<{ results: OpenSubtitlesSearchResult[]; message?: string }> {
     try {
+      const activeApiKey = apiKey || process.env.OPENSUBTITLES_API_KEY;
+
+      if (!activeApiKey) {
+        return {
+          results: [],
+          message: 'NO_API_KEY',
+        };
+      }
+
       const cleanTitle = title
         .replace(/\b(19|20)\d{2}\b/g, '')
         .replace(/[._\-]/g, ' ')
         .trim();
 
-      let queryStr = cleanTitle;
-      if (seasonNumber !== undefined && episodeNumber !== undefined) {
-        const s = seasonNumber < 10 ? `0${seasonNumber}` : `${seasonNumber}`;
-        const e = episodeNumber < 10 ? `0${episodeNumber}` : `${episodeNumber}`;
-        queryStr += ` S${s}E${e}`;
-      }
+      let url = `https://api.opensubtitles.com/api/v1/subtitles?query=${encodeURIComponent(cleanTitle)}&languages=${languages.join(',')}`;
 
-      const langPath = languages.join(',');
-      const url = `https://rest.opensubtitles.org/user-agent/temporary/search/query-${encodeURIComponent(queryStr)}/sublanguageid-${langPath}`;
+      if (seasonNumber !== undefined && episodeNumber !== undefined) {
+        url += `&season_number=${seasonNumber}&episode_number=${episodeNumber}`;
+      }
 
       const res = await fetch(url, {
         headers: {
-          'User-Agent': 'TemporaryUserAgent',
+          'Api-Key': activeApiKey,
+          'User-Agent': 'CineDrive v1.0',
           Accept: 'application/json',
         },
       });
 
       if (!res.ok) {
-        return [];
+        if (res.status === 401 || res.status === 403) {
+          return { results: [], message: 'INVALID_API_KEY' };
+        }
+        return { results: [], message: 'API_ERROR' };
       }
 
-      const data = (await res.json()) as Array<{
-        IDSubtitleFile?: string;
-        SubFileName?: string;
-        LanguageName?: string;
-        ISO639?: string;
-        SubDownloadLink?: string;
-        SubFormat?: string;
-        Score?: string | number;
-        MovieReleaseName?: string;
-      }>;
+      const data = (await res.json()) as {
+        data?: Array<{
+          id: string;
+          attributes?: {
+            language?: string;
+            release?: string;
+            download_count?: number;
+            files?: Array<{
+              file_id: number;
+              file_name: string;
+            }>;
+          };
+        }>;
+      };
 
-      if (!Array.isArray(data)) {
-        return [];
+      if (!data.data || !Array.isArray(data.data)) {
+        return { results: [] };
       }
 
-      return data
-        .filter((item) => !!item.SubDownloadLink)
-        .slice(0, 15)
-        .map((item) => ({
-          id: item.IDSubtitleFile || item.SubDownloadLink || Math.random().toString(),
-          filename: item.SubFileName || item.MovieReleaseName || 'Altyazı',
-          languageName: item.LanguageName || 'Türkçe',
-          languageCode: item.ISO639 || 'tr',
-          downloadUrl: item.SubDownloadLink || '',
-          format: item.SubFormat || 'srt',
-          score: item.Score ? Number(item.Score) : 0,
-          releaseName: item.MovieReleaseName,
-        }));
+      const results: OpenSubtitlesSearchResult[] = [];
+
+      for (const item of data.data) {
+        const file = item.attributes?.files?.[0];
+        if (file && file.file_id) {
+          results.push({
+            id: String(file.file_id),
+            fileId: file.file_id,
+            filename: file.file_name || item.attributes?.release || 'Altyazı',
+            languageName: item.attributes?.language === 'tr' ? 'Türkçe' : item.attributes?.language === 'en' ? 'İngilizce' : (item.attributes?.language || 'Türkçe'),
+            languageCode: item.attributes?.language || 'tr',
+            downloadCount: item.attributes?.download_count || 0,
+            releaseName: item.attributes?.release,
+          });
+        }
+      }
+
+      return { results: results.slice(0, 15) };
     } catch {
-      return [];
+      return { results: [], message: 'SEARCH_FAILED' };
     }
   }
 
   /**
-   * Downloads .srt file from OpenSubtitles and converts to WebVTT format
+   * Downloads subtitle file from OpenSubtitles v1 API by fileId and converts to WebVTT format
    */
-  public async downloadAndConvertSubtitle(downloadUrl: string): Promise<string> {
-    const res = await fetch(downloadUrl, {
+  public async downloadAndConvertSubtitle(fileId: number | string, apiKey?: string): Promise<string> {
+    const activeApiKey = apiKey || process.env.OPENSUBTITLES_API_KEY;
+
+    if (!activeApiKey) {
+      throw new Error('NO_API_KEY');
+    }
+
+    const res = await fetch('https://api.opensubtitles.com/api/v1/download', {
+      method: 'POST',
       headers: {
-        'User-Agent': 'TemporaryUserAgent',
+        'Api-Key': activeApiKey,
+        'User-Agent': 'CineDrive v1.0',
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
+      body: JSON.stringify({ file_id: Number(fileId) }),
     });
 
     if (!res.ok) {
       throw new Error('SUBTITLE_DOWNLOAD_FAILED');
     }
 
-    const srtText = await res.text();
+    const data = (await res.json()) as { link?: string };
+
+    if (!data.link) {
+      throw new Error('SUBTITLE_LINK_MISSING');
+    }
+
+    const fileRes = await fetch(data.link, {
+      headers: {
+        'User-Agent': 'CineDrive v1.0',
+      },
+    });
+
+    if (!fileRes.ok) {
+      throw new Error('SUBTITLE_FILE_FETCH_FAILED');
+    }
+
+    const srtText = await fileRes.text();
     return convertSrtToVtt(srtText);
   }
 }

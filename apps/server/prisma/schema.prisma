@@ -8,18 +8,22 @@ generator client {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  email              String             @unique
-  passwordHash       String?
-  name               String
-  role               String             @default("user")
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  sessions           Session[]
-  googleConnection   GoogleConnection?
-  playbackProgresses PlaybackProgress[]
-  watchHistories     WatchHistory[]
-  favorites          Favorite[]
+  id                    String             @id @default(uuid())
+  email                 String             @unique
+  passwordHash          String?
+  name                  String
+  role                  String             @default("user")
+  opensubtitlesApiKey   String?
+  opensubtitlesUsername String?
+  opensubtitlesPassword String?
+  preferredLanguages    String             @default("tr,en")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  sessions              Session[]
+  googleConnection      GoogleConnection?
+  playbackProgresses    PlaybackProgress[]
+  watchHistories        WatchHistory[]
+  favorites             Favorite[]
 }
 
 model Session {

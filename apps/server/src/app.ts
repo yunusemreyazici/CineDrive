@@ -14,6 +14,7 @@ import { mediaQueryRoutes } from './routes/media-query.routes.js';
 import { playbackRoutes, historyRoutes } from './routes/playback.routes.js';
 import { favoriteRoutes } from './routes/favorite.routes.js';
 import { subtitleRoutes } from './routes/subtitle.routes.js';
+import { settingsRoutes } from './routes/settings.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 
 export const buildApp = async (): Promise<FastifyInstance> => {
@@ -85,6 +86,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(historyRoutes, { prefix: '/api/history' });
   await app.register(favoriteRoutes, { prefix: '/api/favorites' });
   await app.register(subtitleRoutes, { prefix: '/api/media' });
+  await app.register(settingsRoutes, { prefix: '/api/settings' });
 
   return app;
 };

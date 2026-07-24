@@ -6,6 +6,8 @@ import {
   useLibrariesQuery,
   useScanLibraryMutation,
   useLibraryScansQuery,
+  useOpenSubtitlesSettingsQuery,
+  useUpdateOpenSubtitlesSettingsMutation,
 } from '../hooks/useApi';
 
 export const SettingsPage: React.FC = () => {
@@ -175,6 +177,166 @@ export const SettingsPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* OpenSubtitles Integration Section */}
+      <OpenSubtitlesSettingsCard />
+    </div>
+  );
+};
+
+const OpenSubtitlesSettingsCard: React.FC = () => {
+  const { data: openSubSettings, isLoading } = useOpenSubtitlesSettingsQuery();
+  const updateSettings = useUpdateOpenSubtitlesSettingsMutation();
+
+  const [apiKey, setApiKey] = React.useState('');
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [preferredLanguages, setPreferredLanguages] = React.useState('tr,en');
+  const [savedSuccess, setSavedSuccess] = React.useState(false);
+
+  React.useEffect(() => {
+    if (openSubSettings) {
+      setApiKey(openSubSettings.apiKey || '');
+      setUsername(openSubSettings.username || '');
+      setPreferredLanguages(openSubSettings.preferredLanguages || 'tr,en');
+    }
+  }, [openSubSettings]);
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavedSuccess(false);
+    updateSettings.mutate(
+      {
+        apiKey,
+        username,
+        password,
+        preferredLanguages,
+      },
+      {
+        onSuccess: () => {
+          setSavedSuccess(true);
+          setTimeout(() => setSavedSuccess(false), 4000);
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl">
+            <Settings className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold font-display text-white">OpenSubtitles v1 Ayarları</h3>
+            <p className="text-xs text-zinc-400">Çevrimiçi altyazı arama ve otomatik indirme servisi</p>
+          </div>
+        </div>
+
+        {openSubSettings?.hasApiKey ? (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+            <CheckCircle2 className="w-4 h-4" />
+            API Anahtarı Aktif
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+            <AlertTriangle className="w-4 h-4" />
+            API Anahtarı Eksik
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="h-24 bg-zinc-800/50 rounded-xl animate-pulse" />
+      ) : (
+        <form onSubmit={handleSave} className="space-y-4 text-xs">
+          <div className="space-y-1.5">
+            <label className="block font-semibold text-zinc-200">
+              OpenSubtitles API Key (Consumer Key)
+            </label>
+            <input
+              type="text"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Örn: N1wK2wX9oW2e1tV8X0y5z6a7b8c9d0e1"
+              className="w-full px-4 py-3 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors font-mono"
+            />
+            <p className="text-[11px] text-zinc-400 leading-normal pt-1">
+              OpenSubtitles.com üzerinden ücretsiz bir API anahtarı edinebilirsiniz:{' '}
+              <a
+                href="https://www.opensubtitles.com/en/consumers"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-400 hover:underline inline-flex items-center gap-1 font-medium"
+              >
+                <span>OpenSubtitles Consumer Key Al</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-zinc-200">Kullanıcı Adı (Opsiyonel)</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="OpenSubtitles Kullanıcı Adı"
+                className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-zinc-200">Parola (Opsiyonel)</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5 pt-2">
+            <label className="block font-semibold text-zinc-200">Aranacak Altyazı Dilleri</label>
+            <input
+              type="text"
+              value={preferredLanguages}
+              onChange={(e) => setPreferredLanguages(e.target.value)}
+              placeholder="tr,en"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500 transition-colors"
+            />
+            <p className="text-[11px] text-zinc-500">Virgülle ayrılmış dil kodları (Örn: tr,en)</p>
+          </div>
+
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={updateSettings.isPending}
+              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all flex items-center gap-2"
+            >
+              {updateSettings.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Kaydediliyor...</span>
+                </>
+              ) : (
+                <span>Ayarları Kaydet</span>
+              )}
+            </button>
+
+            {savedSuccess && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4" />
+                OpenSubtitles ayarları başarıyla kaydedildi!
+              </span>
+            )}
+          </div>
+        </form>
+      )}
     </div>
   );
 };

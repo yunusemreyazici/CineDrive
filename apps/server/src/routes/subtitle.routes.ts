@@ -60,6 +60,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>('/subtitles/opensubtitles/search', async (request, reply) => {
     const { mediaId, seasonNumber, episodeNumber, languages } = request.query;
+    const userId = request.user!.id;
 
     if (!mediaId) {
       return reply.status(400).send({
@@ -71,9 +72,10 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const mediaItem = await fastify.prisma.mediaItem.findUnique({
-      where: { id: mediaId },
-    });
+    const [mediaItem, user] = await Promise.all([
+      fastify.prisma.mediaItem.findUnique({ where: { id: mediaId } }),
+      fastify.prisma.user.findUnique({ where: { id: userId } }),
+    ]);
 
     if (!mediaItem) {
       return reply.status(404).send({
@@ -87,45 +89,53 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
     const seasonNum = seasonNumber ? parseInt(seasonNumber, 10) : undefined;
     const episodeNum = episodeNumber ? parseInt(episodeNumber, 10) : undefined;
-    const langList = languages ? languages.split(',') : ['tur', 'eng'];
+    const userLangs = user?.preferredLanguages ? user.preferredLanguages.split(',') : ['tr', 'en'];
+    const langList = languages ? languages.split(',') : userLangs;
 
     const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
     const openSubtitlesService = new OpenSubtitlesService();
 
-    const results = await openSubtitlesService.searchSubtitles(
+    const result = await openSubtitlesService.searchSubtitles(
       mediaItem.title,
       seasonNum,
       episodeNum,
       langList,
+      user?.opensubtitlesApiKey || undefined,
     );
 
-    return reply.status(200).send({
-      results,
-    });
+    return reply.status(200).send(result);
   });
 
   // POST /api/media/subtitles/opensubtitles/download
   fastify.post<{
     Body: {
-      downloadUrl: string;
+      fileId?: number | string;
+      downloadUrl?: string;
     };
   }>('/subtitles/opensubtitles/download', async (request, reply) => {
-    const { downloadUrl } = request.body;
+    const { fileId, downloadUrl } = request.body;
+    const userId = request.user!.id;
 
-    if (!downloadUrl) {
+    const targetId = fileId || downloadUrl;
+    if (!targetId) {
       return reply.status(400).send({
         error: {
           code: 'BAD_REQUEST',
-          message: 'downloadUrl parametresi gereklidir.',
+          message: 'fileId veya downloadUrl parametresi gereklidir.',
           requestId: request.id,
         },
       });
     }
 
     try {
+      const user = await fastify.prisma.user.findUnique({ where: { id: userId } });
       const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
       const openSubtitlesService = new OpenSubtitlesService();
-      const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(downloadUrl);
+
+      const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(
+        targetId,
+        user?.opensubtitlesApiKey || undefined,
+      );
 
       reply.status(200);
       reply.header('Content-Type', 'text/vtt; charset=utf-8');

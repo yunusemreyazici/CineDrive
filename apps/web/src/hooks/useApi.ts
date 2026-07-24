@@ -269,3 +269,34 @@ export function useToggleFavoriteMutation() {
     },
   });
 }
+
+// --- SETTINGS HOOKS ---
+export interface OpenSubtitlesSettingsDto {
+  apiKey: string;
+  username: string;
+  preferredLanguages: string;
+  hasApiKey: boolean;
+}
+
+export function useOpenSubtitlesSettingsQuery() {
+  return useQuery({
+    queryKey: ['openSubtitlesSettings'],
+    queryFn: async () => {
+      const res = await apiClient.get<OpenSubtitlesSettingsDto>('/settings/opensubtitles');
+      return res.data;
+    },
+  });
+}
+
+export function useUpdateOpenSubtitlesSettingsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { apiKey?: string; username?: string; password?: string; preferredLanguages?: string }) => {
+      const res = await apiClient.put<OpenSubtitlesSettingsDto>('/settings/opensubtitles', data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['openSubtitlesSettings'] });
+    },
+  });
+}
