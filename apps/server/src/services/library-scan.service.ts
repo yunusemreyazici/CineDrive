@@ -29,6 +29,10 @@ export class LibraryScanService {
     return `media_${type}_${safeTitle}`;
   }
 
+  public isScanning(libraryId: string): boolean {
+    return this.activeScans.has(libraryId);
+  }
+
   /**
    * Scans all connected Google Drive accounts and Shared Drives asynchronously in the background
    */

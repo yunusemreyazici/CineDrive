@@ -61,11 +61,12 @@ export class GoogleDriveService {
       const drive = this.createDriveClient(accessToken);
 
       const response = await drive.files.list({
-        q: 'trashed = false',
+        q: "trashed = false and (mimeType contains 'video/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder' or name contains '.mp4' or name contains '.mkv' or name contains '.webm' or name contains '.avi' or name contains '.mov' or name contains '.ts' or name contains '.m2ts' or name contains '.flv' or name contains '.wmv' or name contains '.3gp' or name contains '.srt' or name contains '.vtt')",
         fields:
           'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
-        pageSize: 100,
+        pageSize: 1000,
         pageToken,
+        corpora: 'allDrives',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });

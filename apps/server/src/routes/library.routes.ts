@@ -158,6 +158,14 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/:id/scans', async (request, reply) => {
     const { id } = request.params;
 
+    // Auto-cleanup any orphaned scans marked as 'running' in DB if not actively scanning in memory
+    if (!fastify.libraryScanService.isScanning(id)) {
+      await fastify.prisma.libraryScan.updateMany({
+        where: { libraryId: id, status: 'running' },
+        data: { status: 'failed', completedAt: new Date() },
+      });
+    }
+
     const scans = await fastify.prisma.libraryScan.findMany({
       where: { libraryId: id },
       orderBy: { startedAt: 'desc' },
