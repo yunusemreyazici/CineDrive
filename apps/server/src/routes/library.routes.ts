@@ -114,10 +114,14 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     } catch (err: unknown) {
       fastify.log.error({ err, requestId: request.id }, 'Library scan failed');
-      return reply.status(500).send({
+      const isNotConnected = err instanceof Error && err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED';
+
+      return reply.status(isNotConnected ? 400 : 500).send({
         error: {
-          code: 'SCAN_FAILED',
-          message: err instanceof Error ? err.message : 'Kütüphane taraması başarısız oldu.',
+          code: isNotConnected ? 'GOOGLE_ACCOUNT_NOT_CONNECTED' : 'SCAN_FAILED',
+          message: isNotConnected
+            ? 'Lütfen önce Google Drive hesabınızı bağlayın.'
+            : (err instanceof Error ? err.message : 'Kütüphane taraması başarısız oldu.'),
           requestId: request.id,
         },
       });

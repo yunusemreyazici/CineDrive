@@ -31,6 +31,11 @@ export class LibraryScanService {
     private googleOAuthService: GoogleOAuthService,
   ) {}
 
+  private generateMediaItemId(type: string, normalizedTitle: string, year?: number): string {
+    const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
+    return `media_${type}_${safeTitle}_${year || 0}`;
+  }
+
   /**
    * Scans an entire media library starting from its rootFolderId
    */
@@ -198,11 +203,13 @@ export class LibraryScanService {
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
           : undefined;
 
+        const mediaItemId = this.generateMediaItemId(type, normalizedTitle, year);
+
         // Upsert MediaItem
         const mediaItem = await this.prisma.mediaItem.upsert({
-          where: { id: `media_${type}_${normalizedTitle}_${year || 0}` },
+          where: { id: mediaItemId },
           create: {
-            id: `media_${type}_${normalizedTitle}_${year || 0}`,
+            id: mediaItemId,
             type,
             title,
             originalTitle: customMeta?.originalTitle,
