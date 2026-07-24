@@ -1,12 +1,31 @@
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg from 'fluent-ffmpeg';
 import { Readable, PassThrough } from 'node:stream';
+import { randomUUID } from 'node:crypto';
 
 if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
 
 export class TranscodeService {
+  private readonly activeSessions = new Set<string>();
+  private readonly maxActiveSessions: number;
+
+  constructor() {
+    const configuredLimit = Number(process.env.TRANSCODE_MAX_ACTIVE_SESSIONS);
+    this.maxActiveSessions =
+      Number.isFinite(configuredLimit) && configuredLimit > 0
+        ? Math.floor(configuredLimit)
+        : 2;
+  }
+
+  public getStats() {
+    return {
+      activeSessions: this.activeSessions.size,
+      maxActiveSessions: this.maxActiveSessions,
+    };
+  }
+
   /**
    * Creates a live audio-transcoded stream with instant startup.
    * -probesize 65536 & -analyzeduration 0 prevent FFmpeg from downloading hundreds of MBs just to probe headers.
@@ -18,6 +37,12 @@ export class TranscodeService {
     options: { transcodeVideo?: boolean } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
+    if (this.activeSessions.size >= this.maxActiveSessions) {
+      throw new Error('TRANSCODE_CAPACITY_REACHED');
+    }
+
+    const sessionId = randomUUID();
+    this.activeSessions.add(sessionId);
     const outputStream = new PassThrough();
     const videoOptions = options.transcodeVideo
       ? process.platform === 'darwin'
@@ -40,6 +65,13 @@ export class TranscodeService {
           ]
       : ['-c:v copy'];
 
+    let closed = false;
+    const closeSession = () => {
+      if (closed) return;
+      closed = true;
+      this.activeSessions.delete(sessionId);
+    };
+
     const command = ffmpeg(inputStream)
       .inputOptions([
         // Keep a modest lead over playback so Safari's buffer grows instead of
@@ -58,13 +90,16 @@ export class TranscodeService {
         '-movflags frag_keyframe+empty_moov+default_base_moof',
       ])
       .on('error', (err: Error) => {
+        closeSession();
         if (!err.message.includes('Output stream closed') && !err.message.includes('Output pipe closed') && !err.message.includes('SIGKILL')) {
           console.error('[TranscodeService] FFmpeg streaming error:', err.message);
         }
         outputStream.destroy(err);
-      });
+      })
+      .on('end', closeSession);
 
     const kill = () => {
+      closeSession();
       try {
         command.kill('SIGKILL');
       } catch {

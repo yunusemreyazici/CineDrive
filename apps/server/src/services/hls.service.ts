@@ -10,7 +10,24 @@ if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 const READY_SEGMENT_COUNT = 3;
 const WAIT_TIMEOUT_MS = 45_000;
 const IDLE_JOB_TIMEOUT_MS = 45_000;
-const CACHE_VERSION = 'stream-copy-v3';
+const CACHE_VERSION = 'stream-copy-v4';
+const DEFAULT_CACHE_BYTES = 20 * 1024 * 1024 * 1024;
+const DEFAULT_MAX_ACTIVE_JOBS = 2;
+const ACCESS_MARKER = '.access';
+
+export type HlsServiceOptions = {
+  cacheRoot?: string;
+  maxCacheBytes?: number;
+  maxActiveJobs?: number;
+};
+
+export type HlsCacheStats = {
+  activeJobs: number;
+  cacheBytes: number;
+  cacheEntries: number;
+  maxCacheBytes: number;
+  maxActiveJobs: number;
+};
 
 type HlsJob = {
   command: FfmpegCommand;
@@ -20,11 +37,26 @@ type HlsJob = {
 };
 
 export class HlsService {
-  private readonly cacheRoot = path.resolve(process.cwd(), 'data/hls_cache');
+  private readonly cacheRoot: string;
+  private readonly maxCacheBytes: number;
+  private readonly maxActiveJobs: number;
   private readonly jobs = new Map<string, HlsJob>();
 
-  constructor() {
+  constructor(options: HlsServiceOptions = {}) {
+    this.cacheRoot =
+      options.cacheRoot || path.resolve(process.cwd(), 'data/hls_cache');
+    this.maxCacheBytes = this.positiveNumber(
+      options.maxCacheBytes,
+      process.env.HLS_CACHE_MAX_BYTES,
+      DEFAULT_CACHE_BYTES,
+    );
+    this.maxActiveJobs = this.positiveNumber(
+      options.maxActiveJobs,
+      process.env.HLS_MAX_ACTIVE_JOBS,
+      DEFAULT_MAX_ACTIVE_JOBS,
+    );
     fs.mkdirSync(this.cacheRoot, { recursive: true });
+    this.enforceCacheQuota();
   }
 
   public getCacheDir(cacheKey: string) {
@@ -42,11 +74,21 @@ export class HlsService {
     let job = this.jobs.get(cacheKey);
     if (job) {
       job.lastAccessAt = Date.now();
+      this.touchCache(outputDir);
       await job.ready;
       return playlistPath;
     }
 
-    if (this.isComplete(playlistPath)) return playlistPath;
+    if (this.isComplete(playlistPath)) {
+      this.touchCache(outputDir);
+      return playlistPath;
+    }
+
+    if (this.jobs.size >= this.maxActiveJobs) {
+      throw new Error('HLS_CAPACITY_REACHED');
+    }
+
+    this.enforceCacheQuota(cacheKey);
 
     // A previous viewer may have left while an EVENT playlist was still being
     // generated. Start clean instead of presenting a permanently truncated
@@ -68,6 +110,7 @@ export class HlsService {
       }
 
       fs.mkdirSync(outputDir, { recursive: true });
+      this.touchCache(outputDir);
       const sourceCodecs =
         typeof input === 'string' ? this.probeLocalCodecs(input) : null;
       const canCopyVideo =
@@ -137,6 +180,8 @@ export class HlsService {
             const completedJob = this.jobs.get(cacheKey);
             if (completedJob) clearInterval(completedJob.idleTimer);
             this.jobs.delete(cacheKey);
+            this.touchCache(outputDir);
+            this.enforceCacheQuota(cacheKey);
             finish(resolve);
           })
           .run();
@@ -176,7 +221,40 @@ export class HlsService {
     }
     const job = this.jobs.get(cacheKey);
     if (job) job.lastAccessAt = Date.now();
-    return path.join(this.getCacheDir(cacheKey), assetName);
+    const cacheDir = this.getCacheDir(cacheKey);
+    this.touchCache(cacheDir);
+    return path.join(cacheDir, assetName);
+  }
+
+  public getStats(): HlsCacheStats {
+    const entries = this.cacheEntries();
+    return {
+      activeJobs: this.jobs.size,
+      cacheBytes: entries.reduce((total, entry) => total + entry.size, 0),
+      cacheEntries: entries.length,
+      maxCacheBytes: this.maxCacheBytes,
+      maxActiveJobs: this.maxActiveJobs,
+    };
+  }
+
+  public enforceCacheQuota(protectedCacheKey?: string) {
+    const protectedDirectory = protectedCacheKey
+      ? this.getCacheDir(protectedCacheKey)
+      : undefined;
+    const activeDirectories = new Set(
+      [...this.jobs.keys()].map((key) => this.getCacheDir(key)),
+    );
+    const entries = this.cacheEntries();
+    let totalBytes = entries.reduce((total, entry) => total + entry.size, 0);
+
+    for (const entry of entries.sort((left, right) => left.accessedAt - right.accessedAt)) {
+      if (totalBytes <= this.maxCacheBytes) break;
+      if (entry.directory === protectedDirectory || activeDirectories.has(entry.directory)) {
+        continue;
+      }
+      fs.rmSync(entry.directory, { recursive: true, force: true });
+      totalBytes -= entry.size;
+    }
   }
 
   public shutdown() {
@@ -200,6 +278,56 @@ export class HlsService {
   private isComplete(playlistPath: string) {
     if (!fs.existsSync(playlistPath)) return false;
     return fs.readFileSync(playlistPath, 'utf8').includes('#EXT-X-ENDLIST');
+  }
+
+  private touchCache(directory: string) {
+    if (!fs.existsSync(directory)) return;
+    const marker = path.join(directory, ACCESS_MARKER);
+    const now = new Date();
+    try {
+      if (!fs.existsSync(marker)) fs.writeFileSync(marker, '');
+      fs.utimesSync(marker, now, now);
+    } catch {
+      // Cache access tracking must never interrupt playback.
+    }
+  }
+
+  private cacheEntries() {
+    if (!fs.existsSync(this.cacheRoot)) return [];
+    return fs
+      .readdirSync(this.cacheRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const directory = path.join(this.cacheRoot, entry.name);
+        const marker = path.join(directory, ACCESS_MARKER);
+        const accessedAt = fs.existsSync(marker)
+          ? fs.statSync(marker).mtimeMs
+          : fs.statSync(directory).mtimeMs;
+        return {
+          directory,
+          accessedAt,
+          size: this.directorySize(directory),
+        };
+      });
+  }
+
+  private directorySize(directory: string): number {
+    let size = 0;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) size += this.directorySize(entryPath);
+      else if (entry.isFile()) size += fs.statSync(entryPath).size;
+    }
+    return size;
+  }
+
+  private positiveNumber(
+    explicitValue: number | undefined,
+    environmentValue: string | undefined,
+    fallback: number,
+  ) {
+    const parsed = explicitValue ?? Number(environmentValue);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
   }
 
   private probeLocalCodecs(inputPath: string) {

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 
 // Browsers commonly request `bytes=N-`. Forwarding that request unchanged makes
@@ -32,6 +33,25 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       },
       include: { library: true },
     });
+
+  const hlsCacheKey = (driveFile: {
+    id: string;
+    size: bigint | null;
+    modifiedTime: Date | null;
+    md5Checksum: string | null;
+  }) => {
+    const fingerprint = createHash('sha256')
+      .update(
+        [
+          driveFile.size?.toString() || '',
+          driveFile.modifiedTime?.toISOString() || '',
+          driveFile.md5Checksum || '',
+        ].join(':'),
+      )
+      .digest('hex')
+      .slice(0, 12);
+    return `${driveFile.id}-${fingerprint}`;
+  };
 
   // Helper handler for GET and HEAD Range streaming requests
   const handleStreamRequest = async (
@@ -397,7 +417,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const playlistPath = await fastify.hlsService.ensureHls(
-          driveFile.id,
+          hlsCacheKey(driveFile),
           async () => {
             if (driveFile.storageType === 'local' && driveFile.localFilePath) {
               return driveFile.localFilePath;
@@ -438,7 +458,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         const assetPath = fastify.hlsService.resolveAsset(
-          driveFile.id,
+          hlsCacheKey(driveFile),
           request.params.assetName,
         );
         if (!fs.existsSync(assetPath)) return reply.status(404).send();
