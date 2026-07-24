@@ -110,6 +110,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     });
   }, [activeSubtitleId, availableSubtitles]);
 
+  // Handle missing video drive file ID gracefully
+  React.useEffect(() => {
+    if (!targetDriveFileId) {
+      setErrorState({
+        code: 'STREAM_FAILED',
+        message: 'Bu içerik için bağlı bir Google Drive video dosyası bulunamadı. Lütfen kütüphaneyi yeniden tarayın.',
+        isRetryable: false,
+      });
+    }
+  }, [targetDriveFileId]);
+
   const handleCustomSubtitleUpload = async (file: File) => {
     try {
       const text = await file.text();

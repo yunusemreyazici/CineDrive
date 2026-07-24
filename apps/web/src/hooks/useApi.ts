@@ -58,8 +58,18 @@ export function useGoogleStatusQuery() {
   return useQuery({
     queryKey: ['googleStatus'],
     queryFn: async () => {
-      const res = await apiClient.get<{ connected: boolean; connection: { googleEmail?: string; updatedAt: string } | null }>('/auth/google/status');
+      const res = await apiClient.get<{ connected: boolean; connection: { id?: string; email?: string; updatedAt: string } | null; connections?: Array<{ id: string; email: string; createdAt: string }> }>('/auth/google/status');
       return res.data;
+    },
+  });
+}
+
+export function useGoogleConnectionsQuery() {
+  return useQuery({
+    queryKey: ['googleConnections'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ connections: Array<{ id: string; email: string; createdAt: string }> }>('/auth/google/connections');
+      return res.data.connections || [];
     },
   });
 }
@@ -72,6 +82,20 @@ export function useUnlinkGoogleMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['googleStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['googleConnections'] });
+    },
+  });
+}
+
+export function useUnlinkGoogleConnectionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.delete(`/auth/google/connections/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['googleStatus'] });
+      queryClient.invalidateQueries({ queryKey: ['googleConnections'] });
     },
   });
 }

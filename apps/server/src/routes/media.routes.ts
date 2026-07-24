@@ -76,7 +76,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     // 2. Validate video MIME type or extension
     const isVideo =
       driveFile.mimeType.startsWith('video/') ||
-      ['.mp4', '.mkv', '.webm', '.m4v'].some((ext) => driveFile.name.toLowerCase().endsWith(ext));
+      driveFile.mimeType === 'application/octet-stream' ||
+      driveFile.mimeType === 'application/x-matroska' ||
+      ['.mp4', '.mkv', '.webm', '.m4v', '.avi', '.mov', '.ts', '.m2ts', '.flv', '.wmv', '.3gp'].some((ext) =>
+        driveFile.name.toLowerCase().endsWith(ext),
+      );
 
     if (!isVideo) {
       return reply.status(400).send({
@@ -87,12 +91,6 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-
-    // 3. Get valid Google access token for library connection
-    const accessToken = await fastify.googleOAuthService.getValidAccessToken(
-      userId,
-      driveFile.library.googleConnectionId || undefined,
-    );
 
     // 4. Setup AbortController for client socket disconnect handling
     const abortController = new AbortController();
@@ -109,6 +107,24 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     request.raw.on('close', onClientClose);
     reply.raw.on('finish', cleanupListeners);
     reply.raw.on('error', cleanupListeners);
+
+    // 3. Get valid Google access token for library connection
+    let accessToken: string;
+    try {
+      accessToken = await fastify.googleOAuthService.getValidAccessToken(
+        userId,
+        driveFile.library.googleConnectionId || undefined,
+      );
+    } catch {
+      cleanupListeners();
+      return reply.status(401).send({
+        error: {
+          code: 'GOOGLE_AUTH_REQUIRED',
+          message: 'Google Drive erişim izni yenilenemedi. Lütfen Ayarlar sayfasından hesabınızı tekrar bağlayın.',
+          requestId: request.id,
+        },
+      });
+    }
 
     try {
       const driveStreamRes = await fastify.driveService.createMediaStream(
@@ -132,13 +148,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Passthrough Google Drive headers to browser with browser-compatible MIME types
       let contentType = driveStreamRes.headers['content-type'] || driveFile.mimeType;
-      if (
-        contentType === 'video/x-matroska' ||
-        contentType === 'video/x-msvideo' ||
-        driveFile.name.toLowerCase().endsWith('.mkv') ||
-        driveFile.name.toLowerCase().endsWith('.avi')
-      ) {
-        contentType = 'video/webm';
+      if (!contentType || contentType === 'application/octet-stream') {
+        const nameLower = driveFile.name.toLowerCase();
+        if (nameLower.endsWith('.webm')) contentType = 'video/webm';
+        else if (nameLower.endsWith('.mkv')) contentType = 'video/x-matroska';
+        else contentType = 'video/mp4';
       }
       reply.header('Content-Type', contentType);
       if (driveStreamRes.headers['content-length']) {

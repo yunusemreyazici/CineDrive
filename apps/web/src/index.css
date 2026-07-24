@@ -3,6 +3,46 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --brand-50: 350 100% 98%;
+    --brand-100: 351 95% 94%;
+    --brand-400: 351 94% 71%;
+    --brand-500: 346 84% 61%;
+    --brand-600: 343 79% 50%;
+    --brand-700: 341 79% 41%;
+    --brand-900: 339 72% 27%;
+  }
+
+  [data-theme='midnight'] {
+    --brand-50: 180 100% 97%;
+    --brand-100: 183 96% 90%;
+    --brand-400: 187 92% 55%;
+    --brand-500: 189 94% 43%;
+    --brand-600: 191 91% 36%;
+    --brand-700: 193 82% 31%;
+    --brand-900: 195 73% 20%;
+  }
+
+  [data-theme='neon'] {
+    --brand-50: 270 100% 98%;
+    --brand-100: 269 97% 93%;
+    --brand-400: 271 91% 75%;
+    --brand-500: 271 91% 65%;
+    --brand-600: 271 81% 56%;
+    --brand-700: 272 72% 47%;
+    --brand-900: 273 66% 32%;
+  }
+
+  [data-theme='emerald'] {
+    --brand-50: 152 81% 96%;
+    --brand-100: 149 80% 90%;
+    --brand-400: 158 64% 52%;
+    --brand-500: 160 84% 39%;
+    --brand-600: 161 94% 30%;
+    --brand-700: 163 94% 24%;
+    --brand-900: 165 82% 16%;
+  }
+
   body {
     @apply bg-zinc-950 text-zinc-100 antialiased font-sans selection:bg-brand-500 selection:text-white transition-colors duration-300;
   }

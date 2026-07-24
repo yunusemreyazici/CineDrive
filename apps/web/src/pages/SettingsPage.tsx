@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import {
   useGoogleStatusQuery,
+  useGoogleConnectionsQuery,
   useUnlinkGoogleMutation,
+  useUnlinkGoogleConnectionMutation,
   useLibrariesQuery,
   useScanLibraryMutation,
   useLibraryScansQuery,
@@ -24,7 +26,9 @@ import { useUiStore, type ThemeType } from '../stores/useUiStore';
 
 export const SettingsPage: React.FC = () => {
   const { data: googleStatus, isLoading: isGoogleLoading } = useGoogleStatusQuery();
+  const { data: connections = [] } = useGoogleConnectionsQuery();
   const unlinkGoogle = useUnlinkGoogleMutation();
+  const unlinkConnection = useUnlinkGoogleConnectionMutation();
   const { data: libraries } = useLibrariesQuery();
   const scanLibrary = useScanLibraryMutation();
 
@@ -41,6 +45,10 @@ export const SettingsPage: React.FC = () => {
       scanLibrary.mutate(activeLibrary.id);
     }
   };
+
+  const allConnections = connections.length > 0
+    ? connections
+    : (googleStatus?.connections || (googleStatus?.connection ? [googleStatus.connection as { id?: string; email?: string; googleEmail?: string }] : []));
 
   return (
     <div className="space-y-8 max-w-4xl">
@@ -70,10 +78,10 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          {googleStatus?.connected ? (
+          {allConnections.length > 0 ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
               <CheckCircle2 className="w-4 h-4" />
-              Bağlandı
+              {allConnections.length} Hesap Bağlı
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
@@ -85,24 +93,42 @@ export const SettingsPage: React.FC = () => {
 
         {isGoogleLoading ? (
           <div className="h-12 bg-zinc-800/50 rounded-xl animate-pulse" />
-        ) : googleStatus?.connected ? (
+        ) : allConnections.length > 0 ? (
           <div className="space-y-4">
-            <div className="p-4 bg-zinc-950/60 border border-zinc-800 rounded-2xl space-y-3 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-zinc-500 font-medium">Bağlı Hesap:</span>
-                <span className="text-zinc-200 font-semibold font-mono">
-                  {(googleStatus.connection as { email?: string })?.email || 'Bilinmiyor'}
-                </span>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Bağlı Google Hesapları:</p>
+              <div className="divide-y divide-zinc-800 border border-zinc-800 rounded-2xl bg-zinc-950/60 overflow-hidden">
+                {allConnections.map((conn: { id?: string; email?: string; googleEmail?: string }, idx: number) => {
+                  const connEmail = (conn as { email?: string; googleEmail?: string }).email || (conn as { googleEmail?: string }).googleEmail || 'Google Hesabı';
+                  const connId = (conn as { id?: string }).id;
+                  return (
+                    <div key={connId || idx} className="p-3.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                        <span className="font-semibold text-zinc-200 font-mono">{connEmail}</span>
+                      </div>
+                      {connId ? (
+                        <button
+                          onClick={() => unlinkConnection.mutate(connId)}
+                          disabled={unlinkConnection.isPending}
+                          className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[11px] font-semibold rounded-lg transition-colors"
+                        >
+                          Kaldır
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
                 onClick={handleConnectGoogle}
-                className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold rounded-xl border border-zinc-700 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all"
               >
                 <ExternalLink className="w-4 h-4" />
-                Başka Google Hesabı Bağla
+                + Başka Google Hesabı Bağla
               </button>
 
               <button
@@ -111,7 +137,7 @@ export const SettingsPage: React.FC = () => {
                 className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-semibold rounded-xl transition-colors"
               >
                 <Unlink className="w-4 h-4" />
-                Hesap Bağlantısını Kaldır
+                Tüm Hesap Bağlantılarını Temizle
               </button>
             </div>
           </div>
