@@ -129,7 +129,11 @@ export function useScanLibraryMutation() {
   return useMutation({
     mutationFn: async (libraryId: string) => {
       try {
-        const res = await apiClient.post<{ scan: LibraryScanType }>(`/libraries/${libraryId}/scan`);
+        const res = await apiClient.post<{ scan: LibraryScanType }>(
+          `/libraries/${libraryId}/scan`,
+          {},
+          { timeout: 120000 },
+        );
         return res.data.scan;
       } catch (err) {
         throw parseApiError(err);
@@ -149,9 +153,14 @@ export function useLibraryScansQuery(libraryId?: string) {
     queryFn: async () => {
       if (!libraryId) return [];
       const res = await apiClient.get<{ scans: LibraryScanType[] }>(`/libraries/${libraryId}/scans`);
-      return res.data.scans;
+      return res.data.scans || [];
     },
     enabled: !!libraryId,
+    refetchInterval: (query) => {
+      const scans = query.state.data;
+      const latestScan = scans?.[0];
+      return latestScan?.status === 'running' ? 2000 : false;
+    },
   });
 }
 

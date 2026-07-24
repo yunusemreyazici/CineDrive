@@ -172,10 +172,10 @@ export const SettingsPage: React.FC = () => {
 
           <button
             onClick={handleScanTrigger}
-            disabled={scanLibrary.isPending || !googleStatus?.connected}
+            disabled={scanLibrary.isPending || lastScan?.status === 'running' || allConnections.length === 0}
             className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all disabled:opacity-40"
           >
-            {scanLibrary.isPending ? (
+            {scanLibrary.isPending || lastScan?.status === 'running' ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Taranıyor...

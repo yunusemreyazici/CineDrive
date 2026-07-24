@@ -30,7 +30,7 @@ export class LibraryScanService {
   }
 
   /**
-   * Scans all connected Google Drive accounts and Shared Drives without folder restrictions
+   * Scans all connected Google Drive accounts and Shared Drives asynchronously in the background
    */
   public async scanLibrary(userId: string, libraryId: string): Promise<string> {
     if (this.activeScans.has(libraryId)) {
@@ -50,6 +50,22 @@ export class LibraryScanService {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
     }
 
+    // Verify at least 1 connection can retrieve access token before acquiring lock
+    let validTokenFound = false;
+    for (const connection of connections) {
+      try {
+        await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+        validTokenFound = true;
+        break;
+      } catch {
+        // Check next connection
+      }
+    }
+
+    if (!validTokenFound) {
+      throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+    }
+
     // Acquire lock
     this.activeScans.add(libraryId);
 
@@ -62,30 +78,36 @@ export class LibraryScanService {
       },
     });
 
+    // Launch scan execution asynchronously in background
+    this.executeScanAsync(userId, libraryId, scan.id, connections).catch(() => {});
+
+    return scan.id;
+  }
+
+  private async executeScanAsync(
+    userId: string,
+    libraryId: string,
+    scanId: string,
+    connections: Array<{ id: string }>,
+  ): Promise<void> {
     const startTime = Date.now();
     let addedCount = 0;
     let updatedCount = 0;
     let errorCount = 0;
 
     try {
-      let activeConnectionsCount = 0;
-      // Scan files across ALL connected Google accounts & Shared Drives
       for (const connection of connections) {
         let accessToken: string;
         try {
           accessToken = await this.googleOAuthService.getValidAccessToken(userId, connection.id);
-          activeConnectionsCount++;
-        } catch (authErr) {
-          if (connections.length === 1) {
-            throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
-          }
+        } catch {
           continue;
         }
 
         const result = await this.scanAccountFiles(
           accessToken,
           libraryId,
-          scan.id,
+          scanId,
           connection.id,
         );
 
@@ -94,14 +116,10 @@ export class LibraryScanService {
         errorCount += result.errors;
       }
 
-      if (activeConnectionsCount === 0) {
-        throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
-      }
-
       const durationMs = Date.now() - startTime;
 
       await this.prisma.libraryScan.update({
-        where: { id: scan.id },
+        where: { id: scanId },
         data: {
           status: 'completed',
           completedAt: new Date(),
@@ -119,7 +137,7 @@ export class LibraryScanService {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       await this.prisma.libraryScan.update({
-        where: { id: scan.id },
+        where: { id: scanId },
         data: {
           status: 'failed',
           completedAt: new Date(),
@@ -130,18 +148,13 @@ export class LibraryScanService {
 
       await this.prisma.libraryScanError.create({
         data: {
-          scanId: scan.id,
+          scanId,
           errorMessage: `Fatal scan error: ${errorMessage}`,
         },
       });
-
-      throw err;
     } finally {
-      // Release lock
       this.activeScans.delete(libraryId);
     }
-
-    return scan.id;
   }
 
   private async scanAccountFiles(
