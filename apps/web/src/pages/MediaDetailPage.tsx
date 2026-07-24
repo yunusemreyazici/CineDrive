@@ -291,17 +291,21 @@ export const MediaDetailPage: React.FC = () => {
             {media.cast.map((actor, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-3 p-2.5 bg-zinc-900/60 border border-zinc-800/70 rounded-2xl hover:border-zinc-700 transition-colors"
+                onClick={() => navigate(`/person/${encodeURIComponent(actor.name)}`)}
+                className="flex items-center gap-3 p-2.5 bg-zinc-900/60 border border-zinc-800/70 rounded-2xl hover:border-brand-500/50 hover:bg-brand-600/10 cursor-pointer transition-all group"
+                title={`${actor.name} içeriklerini gör`}
               >
-                <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500">
+                <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500 group-hover:border-brand-500/50">
                   {actor.profileUrl ? (
                     <img src={actor.profileUrl} alt={actor.name} className="w-full h-full object-cover" />
                   ) : (
-                    <User className="w-6 h-6" />
+                    <User className="w-6 h-6 text-zinc-400 group-hover:text-brand-400" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-zinc-100 truncate">{actor.name}</p>
+                  <p className="text-xs font-bold text-zinc-100 truncate group-hover:text-brand-400 transition-colors">
+                    {actor.name}
+                  </p>
                   {actor.character && (
                     <p className="text-[11px] text-zinc-400 truncate">{actor.character}</p>
                   )}

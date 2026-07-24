@@ -17,17 +17,20 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/media: Filter & Search Media Items
   fastify.get('/', async (request, reply) => {
     const parseResult = mediaQuerySchema.safeParse(request.query);
-    const { type, year, search, sortBy, sortOrder, page, limit } = parseResult.success
+    const { type, genre, person, year, search, sortBy, sortOrder, page, limit } = parseResult.success
       ? parseResult.data
       : { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
 
     const where: Prisma.MediaItemWhereInput = {};
     if (type) where.type = type;
     if (year) where.year = year;
+    if (genre) where.genres = { contains: genre };
+    if (person) where.cast = { contains: person };
     if (search) {
       where.OR = [
         { title: { contains: search } },
         { normalizedTitle: { contains: search.toLowerCase() } },
+        { cast: { contains: search } },
       ];
     }
 

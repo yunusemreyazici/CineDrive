@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const mediaQuerySchema = z.object({
   type: z.enum(['movie', 'series']).optional(),
   genre: z.string().optional(),
+  person: z.string().optional(),
   year: z.coerce.number().optional(),
   search: z.string().optional(),
   sortBy: z.enum(['title', 'year', 'createdAt']).default('createdAt'),

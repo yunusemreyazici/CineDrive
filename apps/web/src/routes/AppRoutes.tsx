@@ -14,6 +14,7 @@ import { HistoryPage } from '../pages/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { InsightsPage } from '../pages/InsightsPage';
 import { MediaManagerPage } from '../pages/MediaManagerPage';
+import { PersonPage } from '../pages/PersonPage';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -27,6 +28,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/movies" element={<MoviesPage />} />
           <Route path="/series" element={<SeriesPage />} />
           <Route path="/media/:mediaId" element={<MediaDetailPage />} />
+          <Route path="/person/:personName" element={<PersonPage />} />
           <Route path="/manage" element={<MediaManagerPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/history" element={<HistoryPage />} />
