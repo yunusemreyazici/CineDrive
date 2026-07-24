@@ -67,9 +67,14 @@ export function convertSrtToVtt(srtContent: string): string {
   // 2. Normalize Windows/Mac line endings to standard LF (\n)
   clean = clean.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-  // 3. Convert timestamp commas to dots (e.g. 00:01:10,500 --> 00:01:13,000)
+  // 3. Convert timestamp commas to dots (00:01:10,500 --> 00:01:13,000 or 01:10,500 --> 01:13,000)
   clean = clean.replace(
     /(\d{2}:\d{2}:\d{2}),(\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}),(\d{3})/g,
+    '$1.$2 --> $3.$4',
+  );
+
+  clean = clean.replace(
+    /(\d{2}:\d{2}),(\d{3})\s*-->\s*(\d{2}:\d{2}),(\d{3})/g,
     '$1.$2 --> $3.$4',
   );
 
