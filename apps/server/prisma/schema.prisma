@@ -1,0 +1,224 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String?
+  name               String
+  role               String             @default("user")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  sessions           Session[]
+  googleConnection   GoogleConnection?
+  playbackProgresses PlaybackProgress[]
+  watchHistories     WatchHistory[]
+  favorites          Favorite[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model GoogleConnection {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleAccountId       String
+  email                 String
+  encryptedRefreshToken String
+  scopes                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model Library {
+  id            String        @id @default(uuid())
+  name          String
+  rootFolderId  String
+  lastScannedAt DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  files         DriveFile[]
+  scans         LibraryScan[]
+}
+
+model DriveFile {
+  id                 String          @id @default(uuid())
+  libraryId          String
+  library            Library         @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  googleDriveFileId  String          @unique
+  parentDriveFileId  String?
+  name               String
+  mimeType           String
+  size               BigInt?
+  modifiedTime       DateTime?
+  md5Checksum        String?
+  status             String          @default("active")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  episodes           Episode[]
+  subtitles          SubtitleTrack[]
+
+  @@index([libraryId])
+  @@index([parentDriveFileId])
+}
+
+model MediaItem {
+  id                  String             @id @default(uuid())
+  type                String
+  title               String
+  originalTitle       String?
+  normalizedTitle     String
+  year                Int?
+  overview            String?
+  posterDriveFileId   String?
+  backdropDriveFileId String?
+  duration            Float?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  movie               Movie?
+  series              Series?
+  episodes            Episode[]
+  playbackProgresses  PlaybackProgress[]
+  watchHistories      WatchHistory[]
+  favorites           Favorite[]
+
+  @@index([normalizedTitle])
+  @@index([type])
+}
+
+model Movie {
+  id          String    @id @default(uuid())
+  mediaItemId String    @unique
+  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  driveFileId String?
+}
+
+model Series {
+  id          String    @id @default(uuid())
+  mediaItemId String    @unique
+  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  seasons     Season[]
+}
+
+model Season {
+  id           String    @id @default(uuid())
+  seriesId     String
+  series       Series    @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  seasonNumber Int
+  name         String?
+  episodes     Episode[]
+
+  @@unique([seriesId, seasonNumber])
+}
+
+model Episode {
+  id                 String             @id @default(uuid())
+  seriesId           String
+  seasonId           String
+  season             Season             @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  mediaItemId        String
+  mediaItem          MediaItem          @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  driveFileId        String
+  driveFile          DriveFile          @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  seasonNumber       Int
+  episodeNumber      Int
+  title              String
+  duration           Float?
+  subtitles          SubtitleTrack[]
+  playbackProgresses PlaybackProgress[]
+
+  @@unique([seasonId, episodeNumber])
+}
+
+model SubtitleTrack {
+  id                 String   @id @default(uuid())
+  episodeId          String?
+  episode            Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  driveFileId        String
+  driveFile          DriveFile @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  language           String   @default("tr")
+  label              String?
+  isForced           Boolean  @default(false)
+  isHearingImpaired  Boolean  @default(false)
+}
+
+model PlaybackProgress {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaItemId     String
+  mediaItem       MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  episodeId       String?
+  episode         Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  positionSeconds Float
+  durationSeconds Float
+  percentage      Float
+  completed       Boolean   @default(false)
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, mediaItemId, episodeId])
+  @@index([userId])
+}
+
+model WatchHistory {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaItemId String
+  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  watchedAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Favorite {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaItemId String
+  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, mediaItemId])
+}
+
+model LibraryScan {
+  id           String             @id @default(uuid())
+  libraryId    String
+  library      Library            @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  status       String
+  addedCount   Int                @default(0)
+  updatedCount Int                @default(0)
+  deletedCount Int                @default(0)
+  errorCount   Int                @default(0)
+  durationMs   Int?
+  startedAt    DateTime           @default(now())
+  completedAt  DateTime?
+  errors       LibraryScanError[]
+}
+
+model LibraryScanError {
+  id           String      @id @default(uuid())
+  scanId       String
+  scan         LibraryScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  driveFileId  String?
+  errorMessage String
+  createdAt    DateTime    @default(now())
+}

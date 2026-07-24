@@ -1,0 +1,64 @@
+import Fastify, { type FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
+import { env } from './config/env.js';
+import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
+
+export const buildApp = async (): Promise<FastifyInstance> => {
+  const app = Fastify({
+    logger: {
+      level: env.LOG_LEVEL,
+      transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+    },
+    trustProxy: env.TRUST_PROXY,
+  });
+
+  // Register Security Plugins
+  await app.register(helmet, {
+    contentSecurityPolicy: env.NODE_ENV === 'production',
+  });
+
+  await app.register(cors, {
+    origin: env.CORS_ORIGIN,
+    credentials: true,
+  });
+
+  await app.register(cookie, {
+    secret: env.SESSION_SECRET,
+  });
+
+  await app.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
+  });
+
+  // Global Error Handler
+  app.setErrorHandler((error, request, reply) => {
+    const requestId = request.id;
+    app.log.error({ err: error, requestId }, 'Unhandled request error');
+
+    const statusCode = error.statusCode || 500;
+    const response: ApiErrorResponse = {
+      error: {
+        code: error.code || 'INTERNAL_SERVER_ERROR',
+        message: statusCode === 500 ? 'Internal Server Error' : error.message,
+        requestId,
+      },
+    };
+
+    reply.status(statusCode).send(response);
+  });
+
+  // Health check endpoint
+  app.get<{ Reply: HealthResponse }>('/api/health', async () => {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    };
+  });
+
+  return app;
+};
