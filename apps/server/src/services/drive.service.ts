@@ -104,12 +104,14 @@ export class GoogleDriveService {
   }
 
   /**
-   * Fetches a media file stream from Google Drive for Range requests proxy
+   * Creates a pass-through Readable stream directly from Google Drive API for video Range streaming.
+   * Supports AbortSignal for immediate disconnection on client close.
    */
-  public async getFileStream(
+  public async createMediaStream(
     accessToken: string,
     fileId: string,
     rangeHeader?: string,
+    signal?: AbortSignal,
   ): Promise<{
     stream: Readable;
     status: number;
@@ -126,14 +128,17 @@ export class GoogleDriveService {
       {
         headers,
         responseType: 'stream',
+        signal,
       },
     );
 
     const resHeaders: Record<string, string> = {};
-    if (response.headers['content-type']) resHeaders['content-type'] = response.headers['content-type'];
-    if (response.headers['content-length']) resHeaders['content-length'] = response.headers['content-length'];
-    if (response.headers['content-range']) resHeaders['content-range'] = response.headers['content-range'];
-    if (response.headers['accept-ranges']) resHeaders['accept-ranges'] = response.headers['accept-ranges'];
+    if (response.headers['content-type']) resHeaders['content-type'] = String(response.headers['content-type']);
+    if (response.headers['content-length']) resHeaders['content-length'] = String(response.headers['content-length']);
+    if (response.headers['content-range']) resHeaders['content-range'] = String(response.headers['content-range']);
+    if (response.headers['accept-ranges']) resHeaders['accept-ranges'] = String(response.headers['accept-ranges']);
+    if (response.headers['etag']) resHeaders['etag'] = String(response.headers['etag']);
+    if (response.headers['last-modified']) resHeaders['last-modified'] = String(response.headers['last-modified']);
 
     return {
       stream: response.data as Readable,

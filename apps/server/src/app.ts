@@ -9,10 +9,12 @@ import { prismaPlugin } from './plugins/prisma.js';
 import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { libraryRoutes } from './routes/library.routes.js';
+import { mediaRoutes } from './routes/media.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
+    exposeHeadRoutes: false,
     genReqId: (req) => (req.headers['x-request-id'] as string) || crypto.randomUUID(),
     logger: {
       level: env.LOG_LEVEL,
@@ -70,9 +72,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     };
   });
 
-  // Register Auth & Library Routes
+  // Register Auth, Library, and Media Streaming Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(libraryRoutes, { prefix: '/api/libraries' });
+  await app.register(mediaRoutes, { prefix: '/api/media' });
 
   return app;
 };

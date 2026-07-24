@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply, FastifyInstance 
 import { AuthService } from '../services/auth.service.js';
 import { GoogleOAuthService } from '../services/google-oauth.service.js';
 import { LibraryScanService } from '../services/library-scan.service.js';
+import { GoogleDriveService } from '../services/drive.service.js';
 import type { UserDto } from '@cinedrive/shared';
 
 declare module 'fastify' {
@@ -14,6 +15,7 @@ declare module 'fastify' {
     authService: AuthService;
     googleOAuthService: GoogleOAuthService;
     libraryScanService: LibraryScanService;
+    driveService: GoogleDriveService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -22,10 +24,12 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const authService = new AuthService(fastify.prisma);
   const googleOAuthService = new GoogleOAuthService(fastify.prisma);
   const libraryScanService = new LibraryScanService(fastify.prisma, googleOAuthService);
+  const driveService = new GoogleDriveService();
 
   fastify.decorate('authService', authService);
   fastify.decorate('googleOAuthService', googleOAuthService);
   fastify.decorate('libraryScanService', libraryScanService);
+  fastify.decorate('driveService', driveService);
 
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();
