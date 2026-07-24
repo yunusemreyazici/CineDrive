@@ -62,6 +62,10 @@ export class MetadataService {
       // Ignore network errors
     }
 
+    if (this.episodeCache.size > 100) {
+      const firstKey = this.episodeCache.keys().next().value;
+      if (firstKey) this.episodeCache.delete(firstKey);
+    }
     this.episodeCache.set(cleanTitle, map);
     return map;
   }

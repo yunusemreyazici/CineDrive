@@ -125,7 +125,11 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     } catch (err: unknown) {
       fastify.log.error({ err, requestId: request.id }, 'Library scan failed');
-      const isNotConnected = err instanceof Error && err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED';
+      const isNotConnected =
+        err instanceof Error &&
+        (err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED' ||
+          err.message === 'GOOGLE_REAUTHORIZATION_REQUIRED' ||
+          err.message.includes('File not found'));
       const isAlreadyRunning = err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS';
 
       if (isAlreadyRunning) {

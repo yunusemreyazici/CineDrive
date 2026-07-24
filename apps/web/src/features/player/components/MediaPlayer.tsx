@@ -78,6 +78,22 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
 
+  const createdUrlsRef = useRef<string[]>([]);
+
+  // Revoke object URLs on unmount to prevent browser memory leaks
+  React.useEffect(() => {
+    const urlsToRevoke = createdUrlsRef.current;
+    return () => {
+      urlsToRevoke.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // Ignore revoke errors
+        }
+      });
+    };
+  }, []);
+
   const handleCustomSubtitleUpload = async (file: File) => {
     try {
       const text = await file.text();
@@ -86,6 +102,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       const blob = new Blob([vttText], { type: 'text/vtt' });
       const objectUrl = URL.createObjectURL(blob);
+      createdUrlsRef.current.push(objectUrl);
 
       const customTrack: SubtitleTrackType = {
         id: `custom_${Date.now()}`,
@@ -115,6 +132,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const vttText = await res.text();
     const blob = new Blob([vttText], { type: 'text/vtt' });
     const objectUrl = URL.createObjectURL(blob);
+    createdUrlsRef.current.push(objectUrl);
 
     const openSubTrack: SubtitleTrackType = {
       id: `opensub_${Date.now()}`,
