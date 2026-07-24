@@ -56,6 +56,23 @@ export const WatchPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [mediaId, episodeId, isPlaying, duration]);
 
+  // Save final progress on component unmount
+  useEffect(() => {
+    return () => {
+      if (videoRef.current && duration > 0 && mediaId) {
+        const pos = Math.floor(videoRef.current.currentTime);
+        if (pos > 0) {
+          updateProgress.mutate({
+            mediaItemId: mediaId,
+            episodeId: episodeId || undefined,
+            positionSeconds: pos,
+            durationSeconds: Math.floor(duration),
+          });
+        }
+      }
+    };
+  }, [mediaId, episodeId, duration]);
+
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
