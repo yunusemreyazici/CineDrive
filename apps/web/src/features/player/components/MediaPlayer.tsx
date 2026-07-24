@@ -12,7 +12,12 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
-import type { MediaItemType, EpisodeType } from '../../../types/media';
+import type {
+  MediaItemType,
+  EpisodeType,
+  PlaybackMode,
+  PlaybackPlanType,
+} from '../../../types/media';
 
 interface MediaPlayerProps {
   media: MediaItemType;
@@ -47,9 +52,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   } = usePlayerStore();
   const { cinemaMode } = useUiStore();
 
-  // Always prefer the seekable/direct stream. Normal MP4 files are natively
-  // supported by Safari and must not be forced through the live transcoder.
-  const [useTranscode, setUseTranscode] = useState(false);
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local Media & Playback State
@@ -74,9 +76,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let serverSubtitles: SubtitleTrackType[] = [];
   let currentSeasonNum: number | undefined = undefined;
   let currentEpisodeNum: number | undefined = undefined;
+  let playbackPlan: PlaybackPlanType | undefined;
+  let analyzedDuration: number | undefined;
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
+    playbackPlan = media.movie.playbackPlan;
+    analyzedDuration = media.movie.technicalMetadata?.mediaDuration;
     serverSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
@@ -87,12 +93,26 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
     if (activeEp) {
       targetDriveFileId = activeEp.driveFileId;
+      playbackPlan = activeEp.playbackPlan;
+      analyzedDuration = activeEp.technicalMetadata?.mediaDuration;
       currentSeasonNum = activeEp.seasonNumber;
       currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
       serverSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
     }
   }
+
+  const recommendedPlaybackMode: PlaybackMode = isSafari
+    ? playbackPlan?.safari || 'direct'
+    : playbackPlan?.chromium || 'direct';
+  const [playbackMode, setPlaybackMode] =
+    useState<PlaybackMode>(recommendedPlaybackMode);
+  const useTranscode = playbackMode !== 'direct';
+
+  React.useEffect(() => {
+    setPlaybackMode(recommendedPlaybackMode);
+    setErrorState(null);
+  }, [recommendedPlaybackMode, targetDriveFileId]);
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
 
@@ -280,16 +300,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [episodeId]);
 
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
-  const streamUrl = targetDriveFileId
-    ? `/api/media/${targetDriveFileId}/stream${
-        useTranscode ? `?transcode=${isSafari ? 'full' : 'audio'}` : ''
-      }`
-    : '';
-  const shouldUseSafariHls = isSafari && useTranscode;
-  const videoSourceUrl =
-    shouldUseSafariHls && targetDriveFileId
+  const videoSourceUrl = targetDriveFileId
+    ? playbackMode === 'hls'
       ? `/api/media/${targetDriveFileId}/hls/index.m3u8`
-      : streamUrl;
+      : `/api/media/${targetDriveFileId}/stream${
+          playbackMode === 'audio'
+            ? '?transcode=audio'
+            : playbackMode === 'full'
+              ? '?transcode=full'
+              : ''
+        }`
+    : '';
 
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
@@ -306,10 +327,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setIsBuffering(false);
     const reportedDuration = videoRef.current.duration;
     setDuration(
-      Number.isFinite(reportedDuration) &&
-        reportedDuration > 0
-        ? reportedDuration
-        : 0,
+      analyzedDuration && analyzedDuration > 0
+        ? analyzedDuration
+        : Number.isFinite(reportedDuration) && reportedDuration > 0
+          ? reportedDuration
+          : 0,
     );
 
     // Codec support check
@@ -330,7 +352,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (
       !isCompleted &&
       savedPos > 15 &&
-      savedPos < video.duration - 30
+      savedPos < (analyzedDuration || video.duration) - 30
     ) {
       video.pause();
       setShowResumeModal(true);
@@ -365,7 +387,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         typeof video.webkitAudioDecodedByteCount === 'number' &&
         video.webkitAudioDecodedByteCount === 0
       ) {
-        setUseTranscode(true);
+        setPlaybackMode('audio');
       }
     }, 6000);
   }, [clearAudioCompatibilityCheck, isMuted, useTranscode, volume]);
@@ -395,7 +417,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
     }
 
-    const reportedDuration = videoRef.current.duration;
+    const reportedDuration = analyzedDuration || videoRef.current.duration;
     if (!Number.isFinite(reportedDuration) || reportedDuration <= 0) return;
 
     // Trigger next episode overlay when 15s remaining or 94% completion
@@ -572,9 +594,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           // Safari reports unsupported containers/codecs as a generic media
           // error. Retry once with full H.264/AAC compatibility transcoding;
           // if that also fails, show the actionable player error.
-          if (isSafari && !useTranscode) {
+          if (playbackMode === 'direct') {
             setErrorState(null);
-            setUseTranscode(true);
+            setPlaybackMode(isSafari ? 'hls' : 'full');
             return;
           }
 
@@ -643,7 +665,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           error={errorState}
           onRetry={handleRetry}
           onEnableTranscode={() => {
-            setUseTranscode(true);
+            setPlaybackMode(isSafari ? 'hls' : 'audio');
             handleRetry();
           }}
         />
@@ -671,7 +693,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           hasPreviousEpisode={!!previousEpisode}
           hasNextEpisode={!!nextEpisode}
           useTranscode={useTranscode}
-          onToggleTranscode={() => setUseTranscode(!useTranscode)}
+          onToggleTranscode={() =>
+            setPlaybackMode((current) =>
+              current === 'direct'
+                ? recommendedPlaybackMode === 'direct'
+                  ? isSafari
+                    ? 'hls'
+                    : 'audio'
+                  : recommendedPlaybackMode
+                : 'direct',
+            )
+          }
           onTogglePlay={togglePlay}
           onSkipBackward={skipBackward}
           onSkipForward={skipForward}

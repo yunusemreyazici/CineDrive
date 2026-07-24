@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init"
+    "prisma:migrate": "prisma migrate dev --name init",
+    "media:analyze": "tsx scripts/analyze-media.ts"
   },
   "dependencies": {
     "@cinedrive/shared": "workspace:*",

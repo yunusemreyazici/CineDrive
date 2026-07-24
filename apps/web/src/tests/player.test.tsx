@@ -157,6 +157,33 @@ describe('Player Components Unit Tests', () => {
     userAgentSpy.mockRestore();
   });
 
+  it('uses the analyzed playback plan before the first media request', () => {
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'audio',
+          reason: 'mkv:h264:dts',
+          analyzed: true,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio',
+    );
+  });
+
   it('does not reopen the next episode overlay after the user dismisses it', () => {
     const { container } = render(
       <QueryClientProvider client={queryClient}>

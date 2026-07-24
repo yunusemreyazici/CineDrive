@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@prisma/client';
+import { buildPlaybackPlan } from '../services/playback-plan.service.js';
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -10,6 +11,20 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
     return fallback;
   }
 }
+
+const technicalMetadataSelect = {
+  mediaContainer: true,
+  videoCodec: true,
+  videoProfile: true,
+  videoBitDepth: true,
+  audioCodec: true,
+  audioChannels: true,
+  mediaWidth: true,
+  mediaHeight: true,
+  mediaDuration: true,
+  mediaAnalyzedAt: true,
+  mediaAnalysisError: true,
+} satisfies Prisma.DriveFileSelect;
 
 export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -196,7 +211,11 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     const item = await fastify.prisma.mediaItem.findUnique({
       where: { id },
       include: {
-        movie: true,
+        movie: {
+          include: {
+            driveFile: { select: technicalMetadataSelect },
+          },
+        },
         series: {
           include: {
             seasons: {
@@ -205,6 +224,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                 episodes: {
                   orderBy: { episodeNumber: 'asc' },
                   include: {
+                    driveFile: { select: technicalMetadataSelect },
                     subtitles: {
                       include: { driveFile: true },
                     },
@@ -254,19 +274,33 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           ...item.series,
           seasons: item.series.seasons.map((season) => ({
             ...season,
-            episodes: season.episodes.map((ep) => ({
-              ...ep,
-              subtitles: ep.subtitles.map((sub) => ({
-                id: sub.id,
-                languageCode: sub.language,
-                languageLabel: sub.label || sub.language.toUpperCase(),
-                forced: sub.isForced,
-                hearingImpaired: sub.isHearingImpaired,
-                isDefault: sub.isDefault,
-                url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-              })),
-            })),
+            episodes: season.episodes.map((ep) => {
+              const { driveFile, ...episode } = ep;
+              return {
+                ...episode,
+                technicalMetadata: driveFile,
+                playbackPlan: buildPlaybackPlan(driveFile),
+                subtitles: ep.subtitles.map((sub) => ({
+                  id: sub.id,
+                  languageCode: sub.language,
+                  languageLabel: sub.label || sub.language.toUpperCase(),
+                  forced: sub.isForced,
+                  hearingImpaired: sub.isHearingImpaired,
+                  isDefault: sub.isDefault,
+                  url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
+                })),
+              };
+            }),
           })),
+        }
+      : null;
+    const formattedMovie = item.movie
+      ? {
+          id: item.movie.id,
+          mediaItemId: item.movie.mediaItemId,
+          driveFileId: item.movie.driveFileId,
+          technicalMetadata: item.movie.driveFile,
+          playbackPlan: buildPlaybackPlan(item.movie.driveFile || {}),
         }
       : null;
 
@@ -280,6 +314,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
         backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
         subtitles: formattedSubtitles,
+        movie: formattedMovie,
         series: formattedSeries,
       },
     });

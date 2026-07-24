@@ -3,9 +3,11 @@ import path from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { parseMediaFilename } from '@cinedrive/shared';
 import { MetadataService } from './metadata.service.js';
+import { MediaProbeService } from './media-probe.service.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
+  private mediaProbeService = new MediaProbeService();
 
   constructor(private prisma: PrismaClient) {}
 
@@ -58,6 +60,29 @@ export class LocalScanService {
           const existingDriveFile = await this.prisma.driveFile.findUnique({
             where: { localFilePath: file.fullPath },
           });
+          const sourceChanged =
+            !existingDriveFile?.modifiedTime ||
+            existingDriveFile.modifiedTime.getTime() !== stat.mtime.getTime();
+          let technicalMetadata = {};
+          if (!existingDriveFile?.mediaAnalyzedAt || sourceChanged) {
+            try {
+              technicalMetadata = await this.mediaProbeService.probeLocalFile(
+                file.fullPath,
+              );
+            } catch (probeError) {
+              technicalMetadata = {
+                mediaAnalyzedAt: new Date(),
+                mediaAnalysisError:
+                  probeError instanceof Error
+                    ? probeError.message.slice(0, 500)
+                    : 'MEDIA_PROBE_FAILED',
+              };
+              console.warn(
+                `[LocalScan] Teknik medya analizi başarısız: ${file.fullPath}`,
+                probeError,
+              );
+            }
+          }
 
           if (existingDriveFile) {
             updatedCount++;
@@ -73,6 +98,7 @@ export class LocalScanService {
               modifiedTime: stat.mtime,
               mimeType,
               status: 'active',
+              ...technicalMetadata,
             },
             create: {
               libraryId,
@@ -83,6 +109,7 @@ export class LocalScanService {
               modifiedTime: stat.mtime,
               mimeType,
               status: 'active',
+              ...technicalMetadata,
             },
           });
 

@@ -8,6 +8,29 @@ export interface SubtitleItemType {
   url: string;
 }
 
+export type PlaybackMode = 'direct' | 'audio' | 'hls' | 'full';
+
+export interface PlaybackPlanType {
+  safari: PlaybackMode;
+  chromium: PlaybackMode;
+  reason: string;
+  analyzed: boolean;
+}
+
+export interface MediaTechnicalMetadataType {
+  mediaContainer?: string;
+  videoCodec?: string;
+  videoProfile?: string;
+  videoBitDepth?: number;
+  audioCodec?: string;
+  audioChannels?: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
+  mediaDuration?: number;
+  mediaAnalyzedAt?: string;
+  mediaAnalysisError?: string;
+}
+
 export interface EpisodeType {
   id: string;
   seasonNumber: number;
@@ -19,6 +42,8 @@ export interface EpisodeType {
   driveFileId: string;
   subtitles?: SubtitleItemType[];
   playbackProgresses?: PlaybackProgressType[];
+  playbackPlan?: PlaybackPlanType;
+  technicalMetadata?: MediaTechnicalMetadataType;
 }
 
 export interface SeasonType {
@@ -36,6 +61,8 @@ export interface SeriesType {
 export interface MovieType {
   id: string;
   driveFileId: string;
+  playbackPlan?: PlaybackPlanType;
+  technicalMetadata?: MediaTechnicalMetadataType;
 }
 
 export interface PlaybackProgressType {

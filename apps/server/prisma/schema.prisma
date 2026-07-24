@@ -83,10 +83,22 @@ model DriveFile {
   size               BigInt?
   modifiedTime       DateTime?
   md5Checksum        String?
+  mediaContainer     String?
+  videoCodec         String?
+  videoProfile       String?
+  videoBitDepth      Int?
+  audioCodec         String?
+  audioChannels      Int?
+  mediaWidth         Int?
+  mediaHeight        Int?
+  mediaDuration      Float?
+  mediaAnalyzedAt    DateTime?
+  mediaAnalysisError String?
   status             String          @default("active")
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   episodes           Episode[]
+  movies             Movie[]
   subtitles          SubtitleTrack[]
 
   @@index([libraryId])
@@ -134,6 +146,7 @@ model Movie {
   mediaItemId String    @unique
   mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   driveFileId String?
+  driveFile   DriveFile? @relation(fields: [driveFileId], references: [id], onDelete: SetNull)
 }
 
 model Series {
