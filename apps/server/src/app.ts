@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
@@ -35,7 +35,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   });
 
   // Global Error Handler
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     const requestId = request.id;
     app.log.error({ err: error, requestId }, 'Unhandled request error');
 

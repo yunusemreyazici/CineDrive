@@ -23,7 +23,8 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@cinedrive/shared": ["../../packages/shared/dist"]
     }
   },
   "include": ["src"]

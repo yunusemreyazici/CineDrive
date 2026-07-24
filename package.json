@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "test": "pnpm -r run test",
     "prisma:generate": "pnpm --filter @cinedrive/server prisma:generate",
     "prisma:migrate": "pnpm --filter @cinedrive/server prisma:migrate"
   },
