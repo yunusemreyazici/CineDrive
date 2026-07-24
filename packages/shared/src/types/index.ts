@@ -14,6 +14,12 @@ export interface GoogleConnectionDto {
   createdAt: string;
 }
 
+export interface CastMemberDto {
+  name: string;
+  character?: string;
+  profileUrl?: string;
+}
+
 export interface MediaItemDto {
   id: string;
   type: 'movie' | 'series';
@@ -25,6 +31,14 @@ export interface MediaItemDto {
   posterUrl?: string;
   backdropUrl?: string;
   duration?: number;
+  voteAverage?: number;
+  voteCount?: number;
+  genres?: string[];
+  cast?: CastMemberDto[];
+  trailerUrl?: string;
+  contentRating?: string;
+  tmdbId?: number;
+  imdbId?: string;
   createdAt: string;
   updatedAt: string;
 }

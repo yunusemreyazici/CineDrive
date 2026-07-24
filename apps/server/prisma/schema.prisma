@@ -96,6 +96,14 @@ model MediaItem {
   posterUrl           String?
   backdropUrl         String?
   duration            Float?
+  voteAverage         Float?
+  voteCount           Int?
+  genres              String?
+  cast                String?
+  trailerUrl          String?
+  contentRating       String?
+  tmdbId              Int?
+  imdbId              String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   movie               Movie?

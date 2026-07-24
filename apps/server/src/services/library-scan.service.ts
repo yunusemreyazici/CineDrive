@@ -220,6 +220,14 @@ export class LibraryScanService {
         let onlineBackdropUrl: string | null = null;
         let overview = customMeta?.overview || null;
         let finalYear = year;
+        let voteAverage: number | undefined;
+        let voteCount: number | undefined;
+        let genresStr: string | undefined = customMeta?.genres ? JSON.stringify(customMeta.genres) : undefined;
+        let castStr: string | undefined;
+        let trailerUrl: string | undefined;
+        let contentRating: string | undefined;
+        let tmdbId: number | undefined;
+        let imdbId: string | undefined;
 
         if (!posterFile) {
           const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
@@ -228,6 +236,14 @@ export class LibraryScanService {
             onlineBackdropUrl = onlineMeta.backdropUrl;
             if (!overview) overview = onlineMeta.overview;
             if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
+            if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
+            if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
+            if (onlineMeta.genres && !genresStr) genresStr = JSON.stringify(onlineMeta.genres);
+            if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
+            if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
+            if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
+            if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
+            if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
           }
         }
 
@@ -249,6 +265,14 @@ export class LibraryScanService {
             posterUrl: onlinePosterUrl,
             backdropUrl: onlineBackdropUrl,
             duration: durationSec,
+            voteAverage,
+            voteCount,
+            genres: genresStr,
+            cast: castStr,
+            trailerUrl,
+            contentRating,
+            tmdbId,
+            imdbId,
           },
           update: {
             title,
@@ -258,6 +282,14 @@ export class LibraryScanService {
             backdropDriveFileId: backdropFile?.id || undefined,
             posterUrl: onlinePosterUrl || undefined,
             backdropUrl: onlineBackdropUrl || undefined,
+            voteAverage: voteAverage || undefined,
+            voteCount: voteCount || undefined,
+            genres: genresStr || undefined,
+            cast: castStr || undefined,
+            trailerUrl: trailerUrl || undefined,
+            contentRating: contentRating || undefined,
+            tmdbId: tmdbId || undefined,
+            imdbId: imdbId || undefined,
           },
         });
 

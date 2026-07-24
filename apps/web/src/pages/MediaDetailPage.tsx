@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Play, Heart, Clock, Film, Tv, CheckCircle2 } from 'lucide-react';
+import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User } from 'lucide-react';
 import { useMediaDetailQuery, useToggleFavoriteMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import type { SeasonType, EpisodeType } from '../types/media';
@@ -12,6 +12,7 @@ export const MediaDetailPage: React.FC = () => {
   const toggleFavorite = useToggleFavoriteMutation();
 
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
+  const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
 
   if (isLoading) {
     return (
@@ -52,20 +53,28 @@ export const MediaDetailPage: React.FC = () => {
     ? seasons.find((s) => s.id === selectedSeasonId) || seasons[0]
     : seasons[0];
 
+  // YouTube Embed Link Extractor
+  const getYouTubeEmbedUrl = (url?: string) => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    return match ? `https://www.youtube.com/embed/${match[1]}?autoplay=1` : null;
+  };
+  const embedTrailerUrl = getYouTubeEmbedUrl(media.trailerUrl);
+
   return (
     <div className="space-y-10">
       {/* Top Hero Banner */}
-      <div className="relative w-full rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 shadow-2xl p-6 md:p-10 flex flex-col md:flex-row gap-8 items-end md:items-center min-h-[400px]">
+      <div className="relative w-full rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 shadow-2xl p-6 md:p-10 flex flex-col md:flex-row gap-8 items-end md:items-center min-h-[420px]">
         {/* Backdrop & Gradients */}
         {backdropUrl && (
           <img
             src={backdropUrl}
             alt={media.title}
-            className="absolute inset-0 w-full h-full object-cover filter brightness-50"
+            className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4]"
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/50 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/60 to-transparent" />
 
         {/* Poster Image */}
         <div className="relative z-10 w-36 md:w-52 aspect-[2/3] bg-zinc-800 rounded-2xl overflow-hidden shadow-2xl border border-zinc-700/50 flex-shrink-0">
@@ -80,11 +89,27 @@ export const MediaDetailPage: React.FC = () => {
 
         {/* Details Text Container */}
         <div className="relative z-10 flex-1">
-          <div className="flex items-center gap-3 text-xs text-zinc-300 font-medium mb-2">
+          {/* Metadata Badges (Type, Year, Duration, Rating, Content Rating) */}
+          <div className="flex flex-wrap items-center gap-2.5 text-xs text-zinc-300 font-medium mb-3">
             <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 uppercase font-semibold text-zinc-200">
               {media.type === 'movie' ? 'Film' : 'Dizi'}
             </span>
+
+            {media.voteAverage && (
+              <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold">
+                <Star className="w-3.5 h-3.5 fill-current text-amber-400" />
+                {media.voteAverage.toFixed(1)} / 10
+              </span>
+            )}
+
+            {media.contentRating && (
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold">
+                {media.contentRating}
+              </span>
+            )}
+
             {media.year && <span>{media.year}</span>}
+
             {media.duration && (
               <span className="flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" />
@@ -98,7 +123,21 @@ export const MediaDetailPage: React.FC = () => {
           </h1>
 
           {media.originalTitle && (
-            <p className="text-sm text-zinc-400 font-medium italic mb-4">{media.originalTitle}</p>
+            <p className="text-sm text-zinc-400 font-medium italic mb-3">{media.originalTitle}</p>
+          )}
+
+          {/* Genre Badges */}
+          {media.genres && media.genres.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {media.genres.map((genre) => (
+                <span
+                  key={genre}
+                  className="px-2 py-0.5 rounded-md bg-zinc-800/80 border border-zinc-700/60 text-[11px] font-medium text-zinc-300"
+                >
+                  {genre}
+                </span>
+              ))}
+            </div>
           )}
 
           {media.overview && (
@@ -108,14 +147,24 @@ export const MediaDetailPage: React.FC = () => {
           )}
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate(`/watch/${media.id}`)}
-              className="flex items-center gap-2.5 px-6 py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105"
+              className="flex items-center gap-2.5 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105"
             >
               <Play className="w-5 h-5 fill-current" />
               {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
             </button>
+
+            {embedTrailerUrl && (
+              <button
+                onClick={() => setShowTrailerModal(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-white font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
+              >
+                <Video className="w-4 h-4 text-brand-400" />
+                Fragman İzle
+              </button>
+            )}
 
             <button
               onClick={() =>
@@ -124,7 +173,7 @@ export const MediaDetailPage: React.FC = () => {
                   isFavorite: !!media.isFavorite,
                 })
               }
-              className={`p-3.5 rounded-xl border backdrop-blur-md transition-all hover:scale-105 ${
+              className={`p-3 rounded-xl border backdrop-blur-md transition-all hover:scale-105 ${
                 media.isFavorite
                   ? 'bg-rose-500/20 border-rose-500/40 text-rose-500'
                   : 'bg-zinc-900/80 border-zinc-700 text-zinc-400 hover:text-white'
@@ -135,6 +184,37 @@ export const MediaDetailPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Cast Members Section ("Oyuncu Kadrosu") */}
+      {media.cast && media.cast.length > 0 && (
+        <div className="space-y-4 pt-2">
+          <h3 className="text-xl font-bold font-display text-white border-b border-zinc-800 pb-3">
+            Oyuncu Kadrosu
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            {media.cast.map((actor, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-3 p-2.5 bg-zinc-900/60 border border-zinc-800/70 rounded-2xl hover:border-zinc-700 transition-colors"
+              >
+                <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500">
+                  {actor.profileUrl ? (
+                    <img src={actor.profileUrl} alt={actor.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-6 h-6" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-zinc-100 truncate">{actor.name}</p>
+                  {actor.character && (
+                    <p className="text-[11px] text-zinc-400 truncate">{actor.character}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Series Seasons & Episodes Section */}
       {media.type === 'series' && seasons.length > 0 && (
@@ -237,6 +317,35 @@ export const MediaDetailPage: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Trailer YouTube Embed Modal */}
+      {showTrailerModal && embedTrailerUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/60">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Video className="w-4 h-4 text-brand-400" />
+                {media.title} — Resmi Fragman
+              </h3>
+              <button
+                onClick={() => setShowTrailerModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="relative w-full aspect-video bg-black">
+              <iframe
+                src={embedTrailerUrl}
+                title={`${media.title} Fragman`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="w-full h-full border-0"
+              />
+            </div>
           </div>
         </div>
       )}

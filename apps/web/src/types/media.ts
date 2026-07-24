@@ -45,6 +45,12 @@ export interface PlaybackProgressType {
   completed: boolean;
 }
 
+export interface CastMemberType {
+  name: string;
+  character?: string;
+  profileUrl?: string;
+}
+
 export interface MediaItemType {
   id: string;
   type: 'movie' | 'series';
@@ -58,6 +64,14 @@ export interface MediaItemType {
   posterUrl?: string;
   backdropUrl?: string;
   duration?: number;
+  voteAverage?: number;
+  voteCount?: number;
+  genres?: string[];
+  cast?: CastMemberType[];
+  trailerUrl?: string;
+  contentRating?: string;
+  tmdbId?: number;
+  imdbId?: string;
   isFavorite?: boolean;
   movie?: MovieType;
   series?: SeriesType;

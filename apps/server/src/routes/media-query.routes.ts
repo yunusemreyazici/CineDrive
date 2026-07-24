@@ -61,6 +61,8 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
 
     const enrichedItems = items.map((item) => ({
       ...item,
+      genres: item.genres ? (() => { try { return JSON.parse(item.genres); } catch { return []; } })() : [],
+      cast: item.cast ? (() => { try { return JSON.parse(item.cast); } catch { return []; } })() : [],
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
       posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
@@ -148,9 +150,14 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
     }));
 
+    const genresList = item.genres ? (() => { try { return JSON.parse(item.genres); } catch { return []; } })() : [];
+    const castList = item.cast ? (() => { try { return JSON.parse(item.cast); } catch { return []; } })() : [];
+
     return reply.status(200).send({
       media: {
         ...item,
+        genres: genresList,
+        cast: castList,
         isFavorite: item.favorites.length > 0,
         progress: item.playbackProgresses[0] || null,
         posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
