@@ -8,6 +8,7 @@ import { env } from './config/env.js';
 import { prismaPlugin } from './plugins/prisma.js';
 import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { libraryRoutes } from './routes/library.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 
 export const buildApp = async (): Promise<FastifyInstance> => {
@@ -69,8 +70,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     };
   });
 
-  // Register Auth Routes
+  // Register Auth & Library Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(libraryRoutes, { prefix: '/api/libraries' });
 
   return app;
 };

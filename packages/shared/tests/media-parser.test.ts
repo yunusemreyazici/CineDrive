@@ -1,54 +1,102 @@
 import { describe, it, expect } from 'vitest';
 import { parseMediaFilename } from '../src/utils/media-parser';
 
-describe('parseMediaFilename', () => {
-  it('should correctly parse movie filename with year in parentheses', () => {
-    const result = parseMediaFilename('Inception (2010).mp4');
-    expect(result).toEqual({
-      type: 'movie',
-      title: 'Inception',
-      normalizedTitle: 'inception',
-      year: 2010,
+describe('parseMediaFilename Comprehensive Tests', () => {
+  describe('Movie Parsing', () => {
+    it('should parse year in parentheses e.g. "Inception (2010).mp4"', () => {
+      const result = parseMediaFilename('Inception (2010).mp4');
+      expect(result).toEqual({
+        type: 'movie',
+        title: 'Inception',
+        normalizedTitle: 'inception',
+        year: 2010,
+      });
+    });
+
+    it('should parse year with dots e.g. "Movie.Name.2025.1080p.mkv"', () => {
+      const result = parseMediaFilename('Movie.Name.2025.1080p.mkv');
+      expect(result).toEqual({
+        type: 'movie',
+        title: 'Movie Name',
+        normalizedTitle: 'movie name',
+        year: 2025,
+      });
+    });
+
+    it('should parse year in brackets e.g. "Movie Name [2025].mp4"', () => {
+      const result = parseMediaFilename('Movie Name [2025].mp4');
+      expect(result).toEqual({
+        type: 'movie',
+        title: 'Movie Name',
+        normalizedTitle: 'movie name',
+        year: 2025,
+      });
+    });
+
+    it('should clean technical tags (1080p, 2160p, 4K, WEB-DL, WEBRip, BluRay, HDR, DV, x264, x265, HEVC, AAC, DTS, DDP5.1, MULTI, REPACK)', () => {
+      const result = parseMediaFilename(
+        'The.Matrix.1999.2160p.4K.WEB-DL.BluRay.HDR.DV.x265.HEVC.DTS.DDP5.1.MULTI.REPACK.mkv',
+      );
+      expect(result.type).toBe('movie');
+      expect(result.title).toBe('The Matrix');
+      expect(result.year).toBe(1999);
     });
   });
 
-  it('should clean technical tags from movie filename', () => {
-    const result = parseMediaFilename('Inception.2010.1080p.WEB-DL.x264.AAC.mp4');
-    expect(result.type).toEqual('movie');
-    expect(result.title).toEqual('Inception');
-    expect(result.year).toEqual(2010);
-  });
-
-  it('should parse series episode S01E01 pattern', () => {
-    const result = parseMediaFilename('Severance.S01E01.1080p.WEBRip.mp4');
-    expect(result).toEqual({
-      type: 'series',
-      title: 'Severance',
-      normalizedTitle: 'severance',
-      seasonNumber: 1,
-      episodeNumber: 1,
+  describe('Series & Episode Parsing', () => {
+    it('should parse S01E01 pattern', () => {
+      const result = parseMediaFilename('Severance.S01E01.mp4');
+      expect(result).toEqual({
+        type: 'series',
+        title: 'Severance',
+        normalizedTitle: 'severance',
+        seasonNumber: 1,
+        episodeNumber: 1,
+      });
     });
-  });
 
-  it('should parse series episode 1x02 pattern', () => {
-    const result = parseMediaFilename('Severance.1x02.mp4');
-    expect(result).toEqual({
-      type: 'series',
-      title: 'Severance',
-      normalizedTitle: 'severance',
-      seasonNumber: 1,
-      episodeNumber: 2,
+    it('should parse lowercase s01e01 pattern', () => {
+      const result = parseMediaFilename('severance.s02e05.1080p.mkv');
+      expect(result).toEqual({
+        type: 'series',
+        title: 'severance',
+        normalizedTitle: 'severance',
+        seasonNumber: 2,
+        episodeNumber: 5,
+      });
     });
-  });
 
-  it('should parse verbose Turkish season and episode pattern', () => {
-    const result = parseMediaFilename('Severance Sezon 2 Bölüm 3.mkv');
-    expect(result).toEqual({
-      type: 'series',
-      title: 'Severance',
-      normalizedTitle: 'severance',
-      seasonNumber: 2,
-      episodeNumber: 3,
+    it('should parse 1x01 pattern', () => {
+      const result = parseMediaFilename('Game of Thrones 1x01 Winter Is Coming.mkv');
+      expect(result).toEqual({
+        type: 'series',
+        title: 'Game of Thrones',
+        normalizedTitle: 'game of thrones',
+        seasonNumber: 1,
+        episodeNumber: 1,
+      });
+    });
+
+    it('should parse "Season 1 Episode 1" pattern', () => {
+      const result = parseMediaFilename('Breaking Bad Season 2 Episode 3.mkv');
+      expect(result).toEqual({
+        type: 'series',
+        title: 'Breaking Bad',
+        normalizedTitle: 'breaking bad',
+        seasonNumber: 2,
+        episodeNumber: 3,
+      });
+    });
+
+    it('should parse Turkish "Sezon 1 Bölüm 1" pattern', () => {
+      const result = parseMediaFilename('Gibi Sezon 3 Bölüm 5.mp4');
+      expect(result).toEqual({
+        type: 'series',
+        title: 'Gibi',
+        normalizedTitle: 'gibi',
+        seasonNumber: 3,
+        episodeNumber: 5,
+      });
     });
   });
 });
