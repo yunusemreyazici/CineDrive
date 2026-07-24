@@ -20,19 +20,32 @@ export class TranscodeService {
   ): { stream: Readable; kill: () => void } {
     const outputStream = new PassThrough();
     const videoOptions = options.transcodeVideo
-      ? [
-          '-c:v libx264',
-          '-preset veryfast',
-          '-crf 23',
-          '-pix_fmt yuv420p',
-        ]
+      ? process.platform === 'darwin'
+        ? [
+            '-c:v h264_videotoolbox',
+            '-b:v 5M',
+            '-maxrate 6M',
+            '-bufsize 12M',
+            '-profile:v high',
+            '-level:v 4.1',
+            '-pix_fmt yuv420p',
+            '-g 50',
+          ]
+        : [
+            '-c:v libx264',
+            '-preset veryfast',
+            '-crf 23',
+            '-pix_fmt yuv420p',
+            '-g 50',
+          ]
       : ['-c:v copy'];
 
     const command = ffmpeg(inputStream)
       .inputOptions([
-        // A pipe source otherwise gets consumed as fast as CPU/network allow,
-        // causing hundreds of MB of unnecessary read-ahead in a few seconds.
-        '-re',
+        // Keep a modest lead over playback so Safari's buffer grows instead of
+        // draining on small encode/load spikes. This remains tightly bounded,
+        // unlike an unrestricted pipe that consumed hundreds of MB per second.
+        '-readrate', '1.25',
         '-probesize', '65536',
         '-analyzeduration', '0',
       ])

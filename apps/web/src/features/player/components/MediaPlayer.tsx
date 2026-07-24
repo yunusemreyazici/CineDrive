@@ -61,6 +61,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [bufferedTime, setBufferedTime] = useState(0);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [showNextEpisodeModal, setShowNextEpisodeModal] = useState(false);
+  const nextEpisodeDismissedRef = useRef(false);
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
 
@@ -270,6 +271,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       ? episodes[currentEpisodeIndex + 1]
       : null;
 
+  React.useEffect(() => {
+    nextEpisodeDismissedRef.current = false;
+    setShowNextEpisodeModal(false);
+  }, [episodeId]);
+
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
   const streamUrl = targetDriveFileId
     ? `/api/media/${targetDriveFileId}/stream${
@@ -347,9 +353,20 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           sourceBuffer.appendBuffer(value);
           await waitForUpdateEnd(sourceBuffer);
 
+          const video = videoRef.current;
+          if (
+            video &&
+            video.paused &&
+            sourceBuffer.buffered.length > 0 &&
+            sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1) -
+              video.currentTime >=
+              8
+          ) {
+            video.play().catch(() => {});
+          }
+
           // Retain a rolling two-minute window instead of accumulating an
           // entire movie in Safari's SourceBuffer memory.
-          const video = videoRef.current;
           if (
             video &&
             sourceBuffer.buffered.length > 0 &&
@@ -407,7 +424,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     setIsBuffering(false);
-    setDuration(videoRef.current.duration);
+    const reportedDuration = videoRef.current.duration;
+    setDuration(
+      !shouldUseSafariMediaSource &&
+        Number.isFinite(reportedDuration) &&
+        reportedDuration > 0
+        ? reportedDuration
+        : 0,
+    );
 
     // Codec support check
     const video = videoRef.current;
@@ -424,9 +448,16 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const savedPos = media.progress?.positionSeconds || 0;
     const isCompleted = media.progress?.completed;
 
-    if (!isCompleted && savedPos > 15 && savedPos < video.duration - 30) {
+    if (
+      !shouldUseSafariMediaSource &&
+      !isCompleted &&
+      savedPos > 15 &&
+      savedPos < video.duration - 30
+    ) {
       video.pause();
       setShowResumeModal(true);
+    } else if (shouldUseSafariMediaSource) {
+      video.pause();
     } else {
       video.play().catch(() => {});
     }
@@ -488,10 +519,22 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
     }
 
+    // Media Source duration grows with appended fragments and is not the real
+    // episode duration. In that mode only the actual `ended` event may advance.
+    if (shouldUseSafariMediaSource) return;
+
+    const reportedDuration = videoRef.current.duration;
+    if (!Number.isFinite(reportedDuration) || reportedDuration <= 0) return;
+
     // Trigger next episode overlay when 15s remaining or 94% completion
-    const remainingSeconds = videoRef.current.duration - videoRef.current.currentTime;
-    const percentage = (videoRef.current.currentTime / videoRef.current.duration) * 100;
-    if ((remainingSeconds <= 15 || percentage >= 94) && !showNextEpisodeModal && nextEpisode) {
+    const remainingSeconds = reportedDuration - videoRef.current.currentTime;
+    const percentage = (videoRef.current.currentTime / reportedDuration) * 100;
+    if (
+      (remainingSeconds <= 15 || percentage >= 94) &&
+      !showNextEpisodeModal &&
+      !nextEpisodeDismissedRef.current &&
+      nextEpisode
+    ) {
       saveProgress(true);
       if (autoPlayNext) {
         setShowNextEpisodeModal(true);
@@ -501,7 +544,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleVideoEnded = () => {
     saveProgress(true);
-    if (nextEpisode && autoPlayNext) {
+    if (nextEpisode && autoPlayNext && !nextEpisodeDismissedRef.current) {
       setShowNextEpisodeModal(true);
     }
   };
@@ -720,7 +763,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             setShowNextEpisodeModal(false);
             handleEpisodeChange(nextEpisode.id);
           }}
-          onCancel={() => setShowNextEpisodeModal(false)}
+          onCancel={() => {
+            nextEpisodeDismissedRef.current = true;
+            setShowNextEpisodeModal(false);
+          }}
         />
       )}
 

@@ -23,6 +23,37 @@ describe('Player Components Unit Tests', () => {
       driveFileId: 'gdrive_interstellar_file',
     },
   };
+  const mockSeries: MediaItemType = {
+    id: 'media_series_test',
+    type: 'series',
+    title: 'Test Series',
+    normalizedTitle: 'test-series',
+    series: {
+      id: 'series_test',
+      seasons: [
+        {
+          id: 'season_test',
+          seasonNumber: 1,
+          episodes: [
+            {
+              id: 'episode_1',
+              seasonNumber: 1,
+              episodeNumber: 1,
+              title: 'Episode 1',
+              driveFileId: 'file_1',
+            },
+            {
+              id: 'episode_2',
+              seasonNumber: 1,
+              episodeNumber: 2,
+              title: 'Episode 2',
+              driveFileId: 'file_2',
+            },
+          ],
+        },
+      ],
+    },
+  };
 
   it('renders ResumeOverlay with position time and handles choice', () => {
     const onResume = vi.fn();
@@ -139,5 +170,34 @@ describe('Player Components Unit Tests', () => {
 
     userAgentSpy.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it('does not reopen the next episode overlay after the user dismisses it', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockSeries} episodeId="episode_1" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'duration', {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      value: 95,
+    });
+
+    fireEvent.timeUpdate(video);
+    expect(screen.getByText('Sonraki Bölüm')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Kapat' }));
+    expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
+
+    fireEvent.timeUpdate(video);
+    expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
   });
 });
