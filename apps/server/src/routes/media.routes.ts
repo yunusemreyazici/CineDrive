@@ -55,13 +55,39 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // 1. Verify file exists in database and belongs to an active library
-    const driveFile = await fastify.prisma.driveFile.findFirst({
+    let driveFile = await fastify.prisma.driveFile.findFirst({
       where: {
         OR: [{ googleDriveFileId: driveFileId }, { id: driveFileId }],
         status: 'active',
       },
       include: { library: true },
     });
+
+    if (!driveFile) {
+      // Fallback 1: Is driveFileId a MediaItem ID (for movies)?
+      const movieItem = await fastify.prisma.movie.findFirst({
+        where: { mediaItemId: driveFileId },
+      });
+      if (movieItem?.driveFileId) {
+        driveFile = await fastify.prisma.driveFile.findFirst({
+          where: { id: movieItem.driveFileId, status: 'active' },
+          include: { library: true },
+        });
+      }
+    }
+
+    if (!driveFile) {
+      // Fallback 2: Is driveFileId an Episode ID?
+      const episodeItem = await fastify.prisma.episode.findFirst({
+        where: { id: driveFileId },
+      });
+      if (episodeItem?.driveFileId) {
+        driveFile = await fastify.prisma.driveFile.findFirst({
+          where: { id: episodeItem.driveFileId, status: 'active' },
+          include: { library: true },
+        });
+      }
+    }
 
     if (!driveFile) {
       return reply.status(404).send({

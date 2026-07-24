@@ -194,9 +194,13 @@ export class GoogleOAuthService {
   }
 
   private async performTokenRefresh(userId: string, connectionId?: string): Promise<string> {
-    const connection = connectionId
+    let connection = connectionId
       ? await this.prisma.googleConnection.findFirst({ where: { id: connectionId, userId } })
-      : await this.prisma.googleConnection.findFirst({ where: { userId } });
+      : null;
+
+    if (!connection) {
+      connection = await this.prisma.googleConnection.findFirst({ where: { userId } });
+    }
 
     if (!connection) {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
