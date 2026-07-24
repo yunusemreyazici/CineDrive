@@ -34,9 +34,9 @@ export class LibraryScanService {
     private googleOAuthService: GoogleOAuthService,
   ) {}
 
-  private generateMediaItemId(type: string, normalizedTitle: string, year?: number): string {
-    const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
-    return `media_${type}_${safeTitle}_${year || 0}`;
+  private generateMediaItemId(type: string, normalizedTitle: string): string {
+    const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return `media_${type}_${safeTitle}`;
   }
 
   /**
@@ -231,7 +231,7 @@ export class LibraryScanService {
           }
         }
 
-        const mediaItemId = this.generateMediaItemId(type, normalizedTitle, finalYear);
+        const mediaItemId = this.generateMediaItemId(type, normalizedTitle);
 
         // Upsert MediaItem
         const mediaItem = await this.prisma.mediaItem.upsert({
