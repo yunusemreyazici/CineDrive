@@ -89,6 +89,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const { cinemaMode, toggleCinemaMode } = useUiStore();
+  const bufferAhead = Math.max(0, bufferedTime - currentTime);
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -207,6 +208,13 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             <span>{formatTime(currentTime)}</span>
             <span className="mx-1 text-zinc-600">/</span>
             <span>{formatTime(duration)}</span>
+          </div>
+          <div
+            className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-500"
+            title="İndirilen ileri oynatma tamponu"
+          >
+            <Radio className="h-3.5 w-3.5" />
+            {Math.floor(bufferAhead)} sn hazır
           </div>
         </div>
 

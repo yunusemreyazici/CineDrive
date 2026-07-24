@@ -29,6 +29,9 @@ const isSafariBrowser = () => {
   return /Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(navigator.userAgent);
 };
 
+const STALL_RECOVERY_DELAY_MS = 12_000;
+const MAX_STALL_RECOVERY_ATTEMPTS = 2;
+
 export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) => {
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -53,6 +56,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const { cinemaMode } = useUiStore();
 
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallRecoveryAttemptsRef = useRef(0);
+  const recoveryPositionRef = useRef<number | null>(null);
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -65,6 +72,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const nextEpisodeDismissedRef = useRef(false);
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
   const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
 
@@ -112,6 +120,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   React.useEffect(() => {
     setPlaybackMode(recommendedPlaybackMode);
     setErrorState(null);
+    stallRecoveryAttemptsRef.current = 0;
+    recoveryPositionRef.current = null;
+    setConnectionMessage(null);
   }, [recommendedPlaybackMode, targetDriveFileId]);
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
@@ -125,6 +136,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       if (audioCompatibilityTimerRef.current) {
         clearTimeout(audioCompatibilityTimerRef.current);
       }
+      if (stallRecoveryTimerRef.current) clearTimeout(stallRecoveryTimerRef.current);
+      if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
       urlsToRevoke.forEach((url) => {
         try {
           URL.revokeObjectURL(url);
@@ -345,6 +358,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       return;
     }
 
+    if (recoveryPositionRef.current !== null) {
+      const recoveryPosition = recoveryPositionRef.current;
+      recoveryPositionRef.current = null;
+      video.currentTime = recoveryPosition;
+      video.play().catch(() => {});
+      return;
+    }
+
     // Check if saved resume position exists (> 15s and not completed)
     const savedPos = media.progress?.positionSeconds || 0;
     const isCompleted = media.progress?.completed;
@@ -435,6 +456,62 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
     }
   };
+
+  const updateBufferedTime = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.buffered.length === 0) return;
+
+    for (let index = 0; index < video.buffered.length; index++) {
+      const start = video.buffered.start(index);
+      const end = video.buffered.end(index);
+      if (video.currentTime >= start && video.currentTime <= end) {
+        setBufferedTime(end);
+        return;
+      }
+    }
+  }, []);
+
+  const clearStallRecoveryTimer = useCallback(() => {
+    if (!stallRecoveryTimerRef.current) return;
+    clearTimeout(stallRecoveryTimerRef.current);
+    stallRecoveryTimerRef.current = null;
+  }, []);
+
+  const handleWaiting = useCallback(() => {
+    setIsBuffering(true);
+    clearStallRecoveryTimer();
+
+    if (playbackMode !== 'direct' && playbackMode !== 'hls') return;
+
+    stallRecoveryTimerRef.current = setTimeout(() => {
+      const video = videoRef.current;
+      if (
+        !video ||
+        video.paused ||
+        stallRecoveryAttemptsRef.current >= MAX_STALL_RECOVERY_ATTEMPTS
+      ) {
+        return;
+      }
+
+      stallRecoveryAttemptsRef.current += 1;
+      recoveryPositionRef.current = video.currentTime;
+      setConnectionMessage(
+        `Bağlantı yeniden kuruluyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+      );
+      video.load();
+    }, STALL_RECOVERY_DELAY_MS);
+  }, [clearStallRecoveryTimer, playbackMode]);
+
+  const handlePlaying = useCallback(() => {
+    setIsBuffering(false);
+    setConnectionMessage(null);
+    clearStallRecoveryTimer();
+
+    if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+    stablePlaybackTimerRef.current = setTimeout(() => {
+      stallRecoveryAttemptsRef.current = 0;
+    }, 30_000);
+  }, [clearStallRecoveryTimer]);
 
   const handleVideoEnded = () => {
     saveProgress(true);
@@ -567,8 +644,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       {/* Buffering Center Spinner */}
       {isBuffering && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <div className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-full backdrop-blur-md">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 px-6 py-5 backdrop-blur-md">
             <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+            <span className="text-xs font-semibold text-zinc-300">
+              {connectionMessage || 'Akış tamponlanıyor…'}
+            </span>
           </div>
         </div>
       )}
@@ -585,8 +665,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           setIsPlaying(false);
           clearAudioCompatibilityCheck();
         }}
-        onWaiting={() => setIsBuffering(true)}
-        onPlaying={() => setIsBuffering(false)}
+        onWaiting={handleWaiting}
+        onStalled={handleWaiting}
+        onPlaying={handlePlaying}
+        onCanPlay={handlePlaying}
+        onProgress={updateBufferedTime}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleVideoEnded}
