@@ -1,5 +1,6 @@
 import { google, type drive_v3 } from 'googleapis';
 import { Readable } from 'stream';
+import { buffer } from 'node:stream/consumers';
 
 export interface DriveFileMetadata {
   id: string;
@@ -185,6 +186,46 @@ export class GoogleDriveService {
         headers: resHeaders,
       };
     }
+
+  /**
+   * Downloads a strictly bounded byte range for media header analysis.
+   * Refuses an upstream 200 response so a provider regression can never turn
+   * a small probe into an accidental full-file download.
+   */
+  public async getMediaRangeBuffer(
+    accessToken: string,
+    fileId: string,
+    start: number,
+    end: number,
+  ): Promise<Buffer> {
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+      throw new Error('INVALID_MEDIA_RANGE');
+    }
+
+    const expectedLength = end - start + 1;
+    const response = await this.createMediaStream(
+      accessToken,
+      fileId,
+      `bytes=${start}-${end}`,
+    );
+
+    if (response.status !== 206) {
+      response.stream.destroy();
+      throw new Error('DRIVE_RANGE_NOT_SUPPORTED');
+    }
+
+    const contentLength = Number(response.headers['content-length']);
+    if (Number.isFinite(contentLength) && contentLength > expectedLength) {
+      response.stream.destroy();
+      throw new Error('DRIVE_RANGE_EXCEEDED');
+    }
+
+    const content = await buffer(response.stream);
+    if (content.length > expectedLength) {
+      throw new Error('DRIVE_RANGE_EXCEEDED');
+    }
+    return content;
+  }
 
   /**
    * Lists all Shared Drives (Team Drives) accessible by the user

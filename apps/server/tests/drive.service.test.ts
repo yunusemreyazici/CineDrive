@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Readable } from 'node:stream';
 import { GoogleDriveService } from '../src/services/drive.service';
 
 describe('GoogleDriveService Unit Tests', () => {
@@ -37,5 +38,36 @@ describe('GoogleDriveService Unit Tests', () => {
 
     await expect(driveService.withExponentialBackoff(fn, 3, 10)).rejects.toThrow('Not found');
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('downloads only the requested media range', async () => {
+    const createMediaStream = vi.spyOn(driveService, 'createMediaStream').mockResolvedValue({
+      stream: Readable.from(Buffer.from('header')),
+      status: 206,
+      headers: {
+        'content-length': '6',
+        'content-range': 'bytes 0-5/1000',
+      },
+    });
+
+    await expect(
+      driveService.getMediaRangeBuffer('token', 'file', 0, 5),
+    ).resolves.toEqual(Buffer.from('header'));
+    expect(createMediaStream).toHaveBeenCalledWith('token', 'file', 'bytes=0-5');
+  });
+
+  it('refuses a full-file response to a bounded media probe', async () => {
+    const stream = Readable.from(Buffer.alloc(1024));
+    const destroy = vi.spyOn(stream, 'destroy');
+    vi.spyOn(driveService, 'createMediaStream').mockResolvedValue({
+      stream,
+      status: 200,
+      headers: { 'content-length': '1024' },
+    });
+
+    await expect(
+      driveService.getMediaRangeBuffer('token', 'file', 0, 5),
+    ).rejects.toThrow('DRIVE_RANGE_NOT_SUPPORTED');
+    expect(destroy).toHaveBeenCalled();
   });
 });

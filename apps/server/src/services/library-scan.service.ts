@@ -3,6 +3,7 @@ import { parseMediaFilename, parseSubtitleFilename } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
 import { MetadataService } from './metadata.service.js';
+import { MediaProbeService } from './media-probe.service.js';
 
 const VIDEO_MIME_TYPES = [
   'video/mp4',
@@ -17,6 +18,7 @@ const VIDEO_MIME_TYPES = [
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
   private metadataService = new MetadataService();
+  private mediaProbeService = new MediaProbeService();
   private activeScans = new Set<string>();
 
   constructor(
@@ -222,6 +224,37 @@ export class LibraryScanService {
         if (driveFile.isNew) added++;
         else updated++;
 
+        if (driveFile.needsMediaAnalysis && video.size) {
+          try {
+            const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
+              name: video.name,
+              size: BigInt(video.size),
+              readRange: (start, end) =>
+                this.driveService.getMediaRangeBuffer(
+                  accessToken,
+                  video.id,
+                  start,
+                  end,
+                ),
+            });
+            await this.prisma.driveFile.update({
+              where: { id: driveFile.record.id },
+              data: technicalMetadata,
+            });
+          } catch (error) {
+            await this.prisma.driveFile.update({
+              where: { id: driveFile.record.id },
+              data: {
+                mediaAnalyzedAt: new Date(),
+                mediaAnalysisError:
+                  error instanceof Error
+                    ? error.message.slice(0, 500)
+                    : 'REMOTE_MEDIA_PROBE_FAILED',
+              },
+            });
+          }
+        }
+
         // Live progress update on LibraryScan record in DB
         await this.prisma.libraryScan.update({
           where: { id: scanId },
@@ -408,6 +441,12 @@ export class LibraryScanService {
     const existing = await this.prisma.driveFile.findUnique({
       where: { googleDriveFileId: file.id },
     });
+    const nextModifiedTime = file.modifiedTime ? new Date(file.modifiedTime) : null;
+    const sourceChanged =
+      !!existing &&
+      (existing.size !== (file.size ? BigInt(file.size) : null) ||
+        existing.modifiedTime?.getTime() !== nextModifiedTime?.getTime() ||
+        existing.md5Checksum !== (file.md5Checksum || null));
 
     const record = await this.prisma.driveFile.upsert({
       where: { googleDriveFileId: file.id },
@@ -418,19 +457,39 @@ export class LibraryScanService {
         name: file.name,
         mimeType: file.mimeType,
         size: file.size ? BigInt(file.size) : null,
-        modifiedTime: file.modifiedTime ? new Date(file.modifiedTime) : null,
+        modifiedTime: nextModifiedTime,
         md5Checksum: file.md5Checksum || null,
         status: 'active',
       },
       update: {
         name: file.name,
         size: file.size ? BigInt(file.size) : null,
-        modifiedTime: file.modifiedTime ? new Date(file.modifiedTime) : null,
+        modifiedTime: nextModifiedTime,
+        md5Checksum: file.md5Checksum || null,
         status: 'active',
+        ...(sourceChanged
+          ? {
+              mediaAnalyzedAt: null,
+              mediaAnalysisError: null,
+              mediaContainer: null,
+              videoCodec: null,
+              videoProfile: null,
+              videoBitDepth: null,
+              audioCodec: null,
+              audioChannels: null,
+              mediaWidth: null,
+              mediaHeight: null,
+              mediaDuration: null,
+            }
+          : {}),
       },
     });
 
-    return { record, isNew: !existing };
+    return {
+      record,
+      isNew: !existing,
+      needsMediaAnalysis: !existing?.mediaAnalyzedAt || sourceChanged,
+    };
   }
 
   private async matchSubtitles(
