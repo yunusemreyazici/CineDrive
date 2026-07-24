@@ -176,11 +176,9 @@ export function useClearLibraryMutation() {
         throw parseApiError(err);
       }
     },
-    onSuccess: (_, libraryId) => {
-      queryClient.invalidateQueries({ queryKey: ['libraries'] });
-      queryClient.invalidateQueries({ queryKey: ['libraryScans', libraryId] });
-      queryClient.invalidateQueries({ queryKey: ['media'] });
-      queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      queryClient.resetQueries();
     },
   });
 }

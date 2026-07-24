@@ -202,6 +202,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.prisma.season.deleteMany({});
     await fastify.prisma.series.deleteMany({});
     await fastify.prisma.movie.deleteMany({});
+    await fastify.prisma.mediaItem.deleteMany({});
     await fastify.prisma.driveFile.deleteMany({ where: { libraryId: id } });
 
     await fastify.prisma.library.update({
