@@ -22,6 +22,7 @@
     "argon2": "^0.41.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
+    "fastify-plugin": "^5.0.1",
     "googleapis": "^144.0.0",
     "pino": "^9.6.0",
     "zod": "^3.24.2"

@@ -1,10 +1,28 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { envSchema, type EnvConfig } from '@cinedrive/shared';
 
-// Load .env file from root or current directory
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const envPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), '../../.env'),
+  path.resolve(__dirname, '../../../.env'),
+  path.resolve(__dirname, '../../../../.env'),
+  path.resolve(process.cwd(), '.env.example'),
+  path.resolve(process.cwd(), '../../.env.example'),
+  path.resolve(__dirname, '../../../.env.example'),
+  path.resolve(__dirname, '../../../../.env.example'),
+];
+
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+}
 
 const parseEnv = (): EnvConfig => {
   const result = envSchema.safeParse(process.env);

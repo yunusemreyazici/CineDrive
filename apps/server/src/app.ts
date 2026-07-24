@@ -3,11 +3,16 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
+import crypto from 'crypto';
 import { env } from './config/env.js';
+import { prismaPlugin } from './plugins/prisma.js';
+import { authPlugin } from './plugins/auth.js';
+import { authRoutes } from './routes/auth.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
+    genReqId: (req) => (req.headers['x-request-id'] as string) || crypto.randomUUID(),
     logger: {
       level: env.LOG_LEVEL,
       transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
@@ -34,6 +39,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     timeWindow: '1 minute',
   });
 
+  // Register Core Database & Auth Plugins
+  await app.register(prismaPlugin);
+  await app.register(authPlugin);
+
   // Global Error Handler
   app.setErrorHandler((error: FastifyError, request, reply) => {
     const requestId = request.id;
@@ -59,6 +68,9 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       uptime: process.uptime(),
     };
   });
+
+  // Register Auth Routes
+  await app.register(authRoutes, { prefix: '/api/auth' });
 
   return app;
 };

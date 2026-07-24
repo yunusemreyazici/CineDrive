@@ -1,6 +1,9 @@
 import fp from 'fastify-plugin';
+import fs from 'fs';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyInstance } from 'fastify';
+import { env } from '../config/env.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -8,7 +11,17 @@ declare module 'fastify' {
   }
 }
 
-export const prismaPlugin: FastifyPluginAsync = fp(async (fastify) => {
+export const prismaPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance) => {
+  // Ensure SQLite data directory exists if using file-based SQLite
+  if (env.DATABASE_URL.startsWith('file:')) {
+    const dbPath = env.DATABASE_URL.replace(/^file:/, '');
+    const absoluteDbPath = path.isAbsolute(dbPath) ? dbPath : path.resolve(process.cwd(), dbPath);
+    const dbDir = path.dirname(absoluteDbPath);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+  }
+
   const prisma = new PrismaClient({
     log: fastify.log.level === 'debug' ? ['query', 'info', 'warn', 'error'] : ['error'],
   });
@@ -18,7 +31,7 @@ export const prismaPlugin: FastifyPluginAsync = fp(async (fastify) => {
 
   fastify.decorate('prisma', prisma);
 
-  fastify.addHook('onClose', async (instance) => {
+  fastify.addHook('onClose', async (instance: FastifyInstance) => {
     await instance.prisma.$disconnect();
     fastify.log.info('📦 Prisma SQLite Database disconnected');
   });
