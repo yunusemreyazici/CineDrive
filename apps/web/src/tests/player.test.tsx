@@ -7,6 +7,7 @@ import {
   getBufferedAheadSeconds,
   MediaPlayer,
   normalizeSubtitleTrack,
+  togglePlayerFullscreen,
 } from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
 import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOverlay';
@@ -42,6 +43,31 @@ describe('Player Components Unit Tests', () => {
     });
 
     expect(getBufferedAheadSeconds(video)).toBe(15);
+  });
+
+  it('uses native iPhone video fullscreen when the standard API is unavailable', async () => {
+    const video = document.createElement('video') as HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    };
+    const container = document.createElement('div');
+    const enterFullscreen = vi.fn();
+    video.webkitEnterFullscreen = enterFullscreen;
+
+    await expect(togglePlayerFullscreen(video, container)).resolves.toBe('native-video');
+    expect(enterFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses container fullscreen where the standard API is available', async () => {
+    const video = document.createElement('video');
+    const container = document.createElement('div');
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(container, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    await expect(togglePlayerFullscreen(video, container)).resolves.toBe('container');
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes API subtitle fields before rendering native tracks', () => {

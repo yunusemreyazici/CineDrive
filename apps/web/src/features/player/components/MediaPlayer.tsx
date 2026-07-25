@@ -70,6 +70,73 @@ export const getBufferedAheadSeconds = (video: HTMLVideoElement) => {
   return 0;
 };
 
+type WebkitFullscreenVideo = HTMLVideoElement & {
+  webkitDisplayingFullscreen?: boolean;
+  webkitEnterFullscreen?: () => void;
+  webkitExitFullscreen?: () => void;
+};
+
+type WebkitFullscreenDocument = Document & {
+  webkitExitFullscreen?: () => void;
+  webkitFullscreenElement?: Element | null;
+};
+
+export const togglePlayerFullscreen = async (
+  video: HTMLVideoElement,
+  container: HTMLElement,
+) => {
+  const fullscreenDocument = document as WebkitFullscreenDocument;
+  const webkitVideo = video as WebkitFullscreenVideo;
+
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+    return 'exited' as const;
+  }
+
+  if (fullscreenDocument.webkitFullscreenElement) {
+    fullscreenDocument.webkitExitFullscreen?.();
+    return 'exited' as const;
+  }
+
+  if (webkitVideo.webkitDisplayingFullscreen) {
+    webkitVideo.webkitExitFullscreen?.();
+    return 'exited' as const;
+  }
+
+  // iPhone Safari does not expose the standard Fullscreen API for arbitrary
+  // elements. Its native video fullscreen method must run directly inside the
+  // user gesture, so use it before any asynchronous fallback.
+  if (!container.requestFullscreen && webkitVideo.webkitEnterFullscreen) {
+    webkitVideo.webkitEnterFullscreen();
+    return 'native-video' as const;
+  }
+
+  if (container.requestFullscreen) {
+    try {
+      await container.requestFullscreen();
+      return 'container' as const;
+    } catch {
+      if (webkitVideo.webkitEnterFullscreen) {
+        webkitVideo.webkitEnterFullscreen();
+        return 'native-video' as const;
+      }
+      throw new Error('FULLSCREEN_NOT_SUPPORTED');
+    }
+  }
+
+  if (video.requestFullscreen) {
+    await video.requestFullscreen();
+    return 'video' as const;
+  }
+
+  if (webkitVideo.webkitEnterFullscreen) {
+    webkitVideo.webkitEnterFullscreen();
+    return 'native-video' as const;
+  }
+
+  throw new Error('FULLSCREEN_NOT_SUPPORTED');
+};
+
 export const normalizeSubtitleTrack = (
   subtitle: SubtitleItemType | SubtitleTrackType,
 ): SubtitleTrackType => {
@@ -131,6 +198,7 @@ const chooseAutoQuality = (sourceHeight?: number) => {
 
 export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) => {
   const navigate = useNavigate();
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const isSafari = isSafariBrowser();
   const [hlsSessionId] = useState(createHlsSessionId);
@@ -187,6 +255,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   >({});
   const [subtitleTrackLoadVersion, setSubtitleTrackLoadVersion] = useState(0);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [qualityPreference, setQualityPreference] =
     useState<QualityPreference>(initialQualityPreference);
 
@@ -1093,12 +1162,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [isMuted, setIsMuted]);
 
   const toggleFullscreen = useCallback(() => {
-    if (!videoRef.current) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      videoRef.current.requestFullscreen();
-    }
+    const video = videoRef.current;
+    const container = playerContainerRef.current;
+    if (!video || !container) return;
+
+    setFullscreenError(null);
+    void togglePlayerFullscreen(video, container).catch(() => {
+      setFullscreenError('Bu tarayıcı tam ekran video oynatmayı desteklemiyor.');
+    });
   }, []);
 
   const togglePiP = useCallback(() => {
@@ -1155,6 +1226,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   return (
     <div
+      ref={playerContainerRef}
       onMouseMove={resetHideTimer}
       onTouchStart={resetHideTimer}
       className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] min-h-[100svh] w-screen select-none flex-col justify-between overflow-hidden bg-black"
@@ -1282,6 +1354,15 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-zinc-950/90 backdrop-blur-md border border-brand-500/40 rounded-2xl text-xs font-bold text-white shadow-2xl animate-fade-in flex items-center gap-2">
           <Clock className="w-4 h-4 text-brand-400" />
           <span>{delayToast}</span>
+        </div>
+      )}
+
+      {fullscreenError && (
+        <div
+          role="alert"
+          className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+4.5rem)] z-50 -translate-x-1/2 rounded-xl border border-red-500/30 bg-zinc-950/95 px-4 py-2 text-center text-xs font-semibold text-red-300 shadow-2xl"
+        >
+          {fullscreenError}
         </div>
       )}
 
