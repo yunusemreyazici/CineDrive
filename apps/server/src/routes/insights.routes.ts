@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { MediaHealthDto } from '@cinedrive/shared';
 import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
+import { MediaProbeService } from '../services/media-probe.service.js';
 
 export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
+  const mediaProbeService = new MediaProbeService();
+  const activeReanalysis = new Set<string>();
 
   const summarizeAnalysisError = (error: string) => {
     const normalized = error.toLowerCase();
@@ -265,4 +268,93 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(200).send(response);
   });
+
+  fastify.post<{ Params: { driveFileId: string } }>(
+    '/media-health/:driveFileId/reanalyze',
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const driveFile = await fastify.prisma.driveFile.findFirst({
+        where: {
+          id: request.params.driveFileId,
+          status: 'active',
+          library: {
+            OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
+          },
+        },
+        include: { library: true },
+      });
+
+      if (!driveFile) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_FILE_NOT_FOUND',
+            message: 'Yeniden analiz edilecek medya dosyası bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      if (activeReanalysis.has(driveFile.id)) {
+        return reply.status(409).send({
+          error: {
+            code: 'MEDIA_ANALYSIS_IN_PROGRESS',
+            message: 'Bu dosya zaten analiz ediliyor.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      activeReanalysis.add(driveFile.id);
+      try {
+        let metadata;
+        if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+          metadata = await mediaProbeService.probeLocalFile(driveFile.localFilePath);
+        } else {
+          const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+            userId,
+            driveFile.library.googleConnectionId || undefined,
+          );
+          metadata = await mediaProbeService.probeRemoteFile({
+            name: driveFile.name,
+            size: driveFile.size || 0n,
+            readRange: (start, end) =>
+              fastify.driveService.getMediaRangeBuffer(
+                accessToken,
+                driveFile.googleDriveFileId || '',
+                start,
+                end,
+              ),
+          });
+        }
+
+        await fastify.prisma.driveFile.update({
+          where: { id: driveFile.id },
+          data: metadata,
+        });
+        return reply.status(200).send({
+          success: true,
+          message: 'Medya teknik bilgileri güncellendi.',
+        });
+      } catch (error) {
+        const rawError =
+          error instanceof Error ? error.message.slice(0, 500) : 'MEDIA_PROBE_FAILED';
+        await fastify.prisma.driveFile.update({
+          where: { id: driveFile.id },
+          data: {
+            mediaAnalyzedAt: new Date(),
+            mediaAnalysisError: rawError,
+          },
+        });
+        return reply.status(422).send({
+          error: {
+            code: 'MEDIA_ANALYSIS_FAILED',
+            message: summarizeAnalysisError(rawError),
+            requestId: request.id,
+          },
+        });
+      } finally {
+        activeReanalysis.delete(driveFile.id);
+      }
+    },
+  );
 };

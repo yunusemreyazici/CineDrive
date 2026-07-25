@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { MediaHealthDto } from '@cinedrive/shared';
 import {
   Activity,
@@ -8,9 +8,10 @@ import {
   Database,
   Loader2,
   RefreshCw,
+  RotateCw,
   Server,
 } from 'lucide-react';
-import { apiClient } from '../api/client';
+import { apiClient, parseApiError } from '../api/client';
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -63,6 +64,11 @@ const Distribution = ({
 };
 
 export const MediaHealthPage: React.FC = () => {
+  const queryClient = useQueryClient();
+  const [analysisMessage, setAnalysisMessage] = React.useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const { data, isLoading, isError, refetch, isFetching } = useQuery<MediaHealthDto>({
     queryKey: ['media-health'],
     queryFn: async () => {
@@ -70,6 +76,30 @@ export const MediaHealthPage: React.FC = () => {
       return response.data;
     },
     refetchInterval: 15_000,
+  });
+  const reanalyze = useMutation({
+    mutationFn: async (driveFileId: string) => {
+      try {
+        const response = await apiClient.post<{ message: string }>(
+          `/insights/media-health/${driveFileId}/reanalyze`,
+        );
+        return response.data;
+      } catch (error) {
+        throw parseApiError(error);
+      }
+    },
+    onMutate: () => setAnalysisMessage(null),
+    onSuccess: (result) => {
+      setAnalysisMessage({ type: 'success', text: result.message });
+      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+    },
+    onError: (error: { message?: string }) => {
+      setAnalysisMessage({
+        type: 'error',
+        text: error.message || 'Medya yeniden analiz edilemedi.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+    },
   });
 
   if (isLoading) {
@@ -187,6 +217,19 @@ export const MediaHealthPage: React.FC = () => {
         </div>
       </section>
 
+      {analysisMessage ? (
+        <div
+          role="status"
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            analysisMessage.type === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+              : 'border-red-500/30 bg-red-500/10 text-red-200'
+          }`}
+        >
+          {analysisMessage.text}
+        </div>
+      ) : null}
+
       {data.failures.length > 0 ? (
         <section className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
           <h2 className="mb-4 flex items-center gap-2 font-bold text-red-200">
@@ -194,11 +237,27 @@ export const MediaHealthPage: React.FC = () => {
           </h2>
           <div className="divide-y divide-zinc-800">
             {data.failures.map((failure) => (
-              <div key={failure.id} className="py-3">
-                <p className="truncate text-sm font-semibold text-zinc-200">{failure.name}</p>
-                <p className="mt-1 truncate text-xs text-zinc-500">
-                  {failure.libraryName} · {failure.error}
-                </p>
+              <div key={failure.id} className="flex items-center gap-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-zinc-200">{failure.name}</p>
+                  <p className="mt-1 truncate text-xs text-zinc-500">
+                    {failure.libraryName} · {failure.error}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => reanalyze.mutate(failure.id)}
+                  disabled={reanalyze.isPending}
+                  aria-label={`${failure.name} dosyasını tekrar analiz et`}
+                  className="flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-brand-500/50 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                >
+                  {reanalyze.isPending && reanalyze.variables === failure.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-3.5 w-3.5" />
+                  )}
+                  Tekrar Analiz Et
+                </button>
               </div>
             ))}
           </div>
