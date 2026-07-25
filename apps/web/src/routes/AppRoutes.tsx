@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import { LoginPage } from '../pages/LoginPage';
@@ -12,9 +12,6 @@ import { WatchPage } from '../pages/WatchPage';
 import { FavoritesPage } from '../pages/FavoritesPage';
 import { HistoryPage } from '../pages/HistoryPage';
 import { SettingsPage } from '../pages/SettingsPage';
-import { InsightsPage } from '../pages/InsightsPage';
-import { MediaHealthPage } from '../pages/MediaHealthPage';
-import { MediaManagerPage } from '../pages/MediaManagerPage';
 import { PersonPage } from '../pages/PersonPage';
 
 export const AppRoutes: React.FC = () => {
@@ -30,11 +27,11 @@ export const AppRoutes: React.FC = () => {
           <Route path="/series" element={<SeriesPage />} />
           <Route path="/media/:mediaId" element={<MediaDetailPage />} />
           <Route path="/person/:personName" element={<PersonPage />} />
-          <Route path="/manage" element={<MediaManagerPage />} />
+          <Route path="/manage" element={<Navigate to="/settings?tab=manage" replace />} />
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/history" element={<HistoryPage />} />
-          <Route path="/insights" element={<InsightsPage />} />
-          <Route path="/media-health" element={<MediaHealthPage />} />
+          <Route path="/insights" element={<Navigate to="/settings?tab=storage" replace />} />
+          <Route path="/media-health" element={<Navigate to="/settings?tab=health" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
 

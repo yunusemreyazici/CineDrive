@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Settings,
   ShieldCheck,
@@ -19,6 +20,7 @@ import {
   FolderPlus,
   Folder,
   EyeOff,
+  Activity,
 } from 'lucide-react';
 import {
   useSessionQuery,
@@ -37,8 +39,89 @@ import {
   useUpdateOpenSubtitlesSettingsMutation,
 } from '../hooks/useApi';
 import { useUiStore, type ThemeType } from '../stores/useUiStore';
+import { MediaManagerPage } from './MediaManagerPage';
+import { InsightsPage } from './InsightsPage';
+import { MediaHealthPage } from './MediaHealthPage';
+
+type SettingsTab = 'general' | 'manage' | 'storage' | 'health';
+
+const settingsTabs: Array<{
+  id: SettingsTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'general', label: 'Genel', icon: Settings },
+  { id: 'manage', label: 'Veri Yönetimi', icon: Database },
+  { id: 'storage', label: 'Depolama Analizi', icon: HardDrive },
+  { id: 'health', label: 'Medya Sağlığı', icon: Activity },
+];
+
+const isSettingsTab = (value: string | null): value is SettingsTab =>
+  settingsTabs.some((tab) => tab.id === value);
 
 export const SettingsPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const activeTab: SettingsTab = isSettingsTab(requestedTab) ? requestedTab : 'general';
+
+  const selectTab = (tab: SettingsTab) => {
+    setSearchParams(tab === 'general' ? {} : { tab });
+  };
+
+  return (
+    <div className="space-y-7">
+      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
+        <div className="p-3 bg-brand-600/20 border border-brand-500/30 text-brand-400 rounded-2xl">
+          <Settings className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Ayarlar</h2>
+          <p className="text-sm text-zinc-400 mt-0.5">
+            Sistem, kütüphane ve medya araçlarını tek yerden yönetin
+          </p>
+        </div>
+      </div>
+
+      <div
+        role="tablist"
+        aria-label="Ayar bölümleri"
+        className="flex gap-2 overflow-x-auto rounded-2xl border border-zinc-800/70 bg-zinc-950/50 p-2 scrollbar-none"
+      >
+        {settingsTabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => selectTab(tab.id)}
+              className={`flex min-w-max items-center gap-2.5 rounded-xl border px-4 py-3 text-sm font-semibold transition-all ${
+                isActive
+                  ? 'border-brand-500/40 bg-brand-600/20 text-brand-300 shadow-lg shadow-brand-500/10'
+                  : 'border-transparent text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100'
+              }`}
+            >
+              <Icon className="h-5 w-5" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div role="tabpanel">
+        {activeTab === 'general' && <GeneralSettingsContent />}
+        {activeTab === 'manage' && <MediaManagerPage />}
+        {activeTab === 'storage' && <InsightsPage />}
+        {activeTab === 'health' && <MediaHealthPage />}
+      </div>
+    </div>
+  );
+};
+
+const GeneralSettingsContent: React.FC = () => {
   const { data: googleStatus, isLoading: isGoogleLoading } = useGoogleStatusQuery();
   const { data: connections = [] } = useGoogleConnectionsQuery();
   const unlinkGoogle = useUnlinkGoogleMutation();
@@ -66,16 +149,6 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-4xl">
-      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
-        <div className="p-3 bg-brand-600/20 border border-brand-500/30 text-brand-400 rounded-2xl">
-          <Settings className="w-6 h-6" />
-        </div>
-        <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Sistem Ayarları</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Profil yönetimi, Google Drive entegrasyonu, tema ve kütüphane ayarları</p>
-        </div>
-      </div>
-
       {/* User Profile Card */}
       <UserProfileCard />
 
