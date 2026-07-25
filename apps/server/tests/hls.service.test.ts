@@ -96,9 +96,7 @@ describe('HlsService cache management', () => {
     const service = createService(1024);
 
     expect(() => service.getCacheDir('../escape')).toThrow('INVALID_HLS_KEY');
-    expect(() => service.resolveAsset('safe', '../secret')).toThrow(
-      'INVALID_HLS_ASSET',
-    );
+    expect(() => service.resolveAsset('safe', '../secret')).toThrow('INVALID_HLS_ASSET');
   });
 
   it('stops an active encoder when its final player session is released', () => {
@@ -108,10 +106,12 @@ describe('HlsService cache management', () => {
     idleTimer.unref();
     const cacheKey = 'episode-session';
 
-    (service as unknown as {
-      jobs: Map<string, unknown>;
-      leases: Map<string, Set<string>>;
-    }).jobs.set(cacheKey, {
+    (
+      service as unknown as {
+        jobs: Map<string, unknown>;
+        leases: Map<string, Set<string>>;
+      }
+    ).jobs.set(cacheKey, {
       id: 'job-session',
       command: { kill },
       ready: Promise.resolve(),
@@ -123,9 +123,11 @@ describe('HlsService cache management', () => {
       lastAccessAt: Date.now(),
       idleTimer,
     });
-    (service as unknown as {
-      leases: Map<string, Set<string>>;
-    }).leases.set(cacheKey, new Set(['player_session_1', 'player_session_2']));
+    (
+      service as unknown as {
+        leases: Map<string, Set<string>>;
+      }
+    ).leases.set(cacheKey, new Set(['player_session_1', 'player_session_2']));
 
     expect(service.releaseHls(cacheKey, 'player_session_1')).toBe(false);
     expect(kill).not.toHaveBeenCalled();
@@ -163,9 +165,7 @@ describe('HlsService cache management', () => {
 
     expect(internals.detachJob(cacheKey, oldCommand)).toBe('replaced');
     expect(service.getStats().activeJobs).toBe(1);
-    expect(internals.leases.get(cacheKey)).toEqual(
-      new Set(['replacement_session']),
-    );
+    expect(internals.leases.get(cacheKey)).toEqual(new Set(['replacement_session']));
 
     service.shutdown();
   });
@@ -192,10 +192,7 @@ describe('HlsService cache management', () => {
       lastAccessAt: Date.now(),
       idleTimer,
     });
-    internals.leases.set(
-      'observable-cache',
-      new Set(['viewer_one', 'viewer_two']),
-    );
+    internals.leases.set('observable-cache', new Set(['viewer_one', 'viewer_two']));
 
     expect(service.getJobs()).toEqual([
       expect.objectContaining({
@@ -216,26 +213,80 @@ describe('HlsService cache management', () => {
       throw new Error('INPUT_REQUESTED');
     });
     await expect(
-      service.ensureHls(
-        'observable-cache',
-        inputFactory,
-        0,
-        'observable-cache',
-        'viewer_one',
-      ),
+      service.ensureHls('observable-cache', inputFactory, 0, 'observable-cache', 'viewer_one'),
     ).rejects.toThrow('HLS_JOB_STOPPED');
     expect(inputFactory).not.toHaveBeenCalled();
 
     expect(service.releaseHls('observable-cache', 'viewer_one')).toBe(false);
     await expect(
-      service.ensureHls(
-        'observable-cache',
-        inputFactory,
-        0,
-        'observable-cache',
-        'viewer_one',
-      ),
+      service.ensureHls('observable-cache', inputFactory, 0, 'observable-cache', 'viewer_one'),
     ).rejects.toThrow('INPUT_REQUESTED');
     expect(inputFactory).toHaveBeenCalledOnce();
+  });
+
+  it('prioritizes a seek request when an HLS slot becomes available', async () => {
+    const service = createService(1024);
+    const idleTimerOne = setInterval(() => {}, 60_000);
+    const idleTimerTwo = setInterval(() => {}, 60_000);
+    idleTimerOne.unref();
+    idleTimerTwo.unref();
+    const internals = service as unknown as {
+      jobs: Map<string, unknown>;
+      reserveSlot: (familyKey: string, sessionId: string, priority: number) => Promise<string>;
+      drainPendingSlots: () => void;
+      releaseReservation: (reservationId: string) => void;
+    };
+    const fakeJob = (id: string, idleTimer: NodeJS.Timeout) => ({
+      id,
+      command: { kill: vi.fn() },
+      ready: Promise.resolve(),
+      familyKey: id,
+      mediaName: id,
+      pid: null,
+      startSeconds: 0,
+      startedAt: Date.now(),
+      lastAccessAt: Date.now(),
+      idleTimer,
+    });
+    internals.jobs.set('active-one', fakeJob('active-one', idleTimerOne));
+    internals.jobs.set('active-two', fakeJob('active-two', idleTimerTwo));
+
+    const order: string[] = [];
+    let seekReservation = '';
+    const normal = internals
+      .reserveSlot('normal-family', 'normal_session', 1)
+      .then((reservationId) => {
+        order.push('normal');
+        internals.releaseReservation(reservationId);
+      });
+    const seek = internals.reserveSlot('seek-family', 'seek_session', 2).then((reservationId) => {
+      order.push('seek');
+      seekReservation = reservationId;
+    });
+
+    internals.jobs.delete('active-one');
+    internals.drainPendingSlots();
+    await seek;
+    expect(order).toEqual(['seek']);
+
+    internals.jobs.delete('active-two');
+    internals.drainPendingSlots();
+    await normal;
+    expect(order).toEqual(['seek', 'normal']);
+    internals.releaseReservation(seekReservation);
+    service.shutdown();
+  });
+
+  it('copies H.264 video and only fully encodes incompatible video codecs', () => {
+    const service = createService(1024);
+    const internals = service as unknown as {
+      videoOptions: (videoCodec: string) => string[];
+    };
+
+    expect(internals.videoOptions('h264')).toEqual(['-c:v copy']);
+    expect(internals.videoOptions('hevc')).toEqual(
+      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
+    );
+    expect(internals.videoOptions('')).toContain('-c:v libx264');
   });
 });

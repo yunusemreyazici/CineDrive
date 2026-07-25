@@ -66,6 +66,16 @@ type ProcessRegistryEntry = {
   startedAt: number;
 };
 
+type PendingSlot = {
+  id: string;
+  familyKey: string;
+  sessionId?: string;
+  priority: number;
+  queuedAt: number;
+  resolve: (reservationId: string) => void;
+  reject: (error: Error) => void;
+};
+
 export class HlsService {
   private readonly cacheRoot: string;
   private readonly maxCacheBytes: number;
@@ -75,10 +85,11 @@ export class HlsService {
   private readonly leases = new Map<string, Set<string>>();
   private readonly blockedSessions = new Map<string, number>();
   private readonly processRegistry = new Map<string, ProcessRegistryEntry>();
+  private readonly pendingSlots: PendingSlot[] = [];
+  private readonly reservedSlots = new Set<string>();
 
   constructor(options: HlsServiceOptions = {}) {
-    this.cacheRoot =
-      options.cacheRoot || path.resolve(process.cwd(), 'data/hls_cache');
+    this.cacheRoot = options.cacheRoot || path.resolve(process.cwd(), 'data/hls_cache');
     this.maxCacheBytes = this.positiveNumber(
       options.maxCacheBytes,
       process.env.HLS_CACHE_MAX_BYTES,
@@ -107,6 +118,7 @@ export class HlsService {
     familyKey = cacheKey,
     sessionId?: string,
     mediaName = cacheKey,
+    sourceVideoCodec?: string | null,
   ) {
     if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
       throw new Error('HLS_JOB_STOPPED');
@@ -146,187 +158,178 @@ export class HlsService {
       }
     }
 
-    if (this.jobs.size >= this.maxActiveJobs) {
-      throw new Error('HLS_CAPACITY_REACHED');
-    }
+    this.drainPendingSlots();
+    const reservationId = await this.reserveSlot(familyKey, sessionId, startSeconds > 0 ? 2 : 1);
 
-    this.enforceCacheQuota(cacheKey);
-    this.enforceFamilyCacheLimit(familyKey, cacheKey);
-
-    // A previous viewer may have left while an EVENT playlist was still being
-    // generated. Start clean instead of presenting a permanently truncated
-    // playlist as if it were a complete episode.
-    if (fs.existsSync(outputDir)) {
-      fs.rmSync(outputDir, { recursive: true, force: true });
-    }
-
-    if (!job) {
-      const input = await inputFactory();
-
-      // Resolving a remote source may take long enough for a concurrent
-      // request to start this cache first. Discard the duplicate source.
-      job = this.jobs.get(cacheKey);
-      if (job) {
-        if (typeof input !== 'string') input.destroy();
-        await job.ready;
-        return playlistPath;
+    try {
+      if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
+        throw new Error('HLS_JOB_STOPPED');
       }
       if (sessionId && !this.leases.get(cacheKey)?.has(sessionId)) {
-        if (typeof input !== 'string') input.destroy();
         throw new Error('HLS_CLIENT_RELEASED');
       }
 
-      fs.mkdirSync(outputDir, { recursive: true });
-      this.touchCache(outputDir);
+      this.enforceCacheQuota(cacheKey);
       this.enforceFamilyCacheLimit(familyKey, cacheKey);
-      const sourceCodecs =
-        typeof input === 'string' ? this.probeLocalCodecs(input) : null;
-      // Although recent Safari versions can decode many HEVC files directly,
-      // some hvc1 sources still fail after they are remuxed as fragmented HLS.
-      // Keep H.264 zero-copy, but make every other codec deterministic for the
-      // Safari compatibility path.
-      const canCopyVideo = sourceCodecs?.video === 'h264';
-      const videoOptions = canCopyVideo
-        ? ['-c:v copy']
-        : [
-            '-c:v libx264',
-            '-preset ultrafast',
-            '-tune zerolatency',
-            '-b:v 5M',
-            '-maxrate 6M',
-            '-bufsize 12M',
-            '-profile:v high',
-            '-level:v 4.1',
-            '-pix_fmt yuv420p',
-            '-force_key_frames expr:gte(t,n_forced*4)',
-          ];
-      const command = ffmpeg(input)
-        // Generate a modest buffer ahead of playback instead of racing through
-        // a multi-GB source and duplicating the whole file immediately.
-        .inputOptions([
-          ...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
-          '-readrate 2',
-        ])
-        .outputOptions([
-          '-map 0:v:0',
-          '-map 0:a:0?',
-          '-sn',
-          '-dn',
-          ...videoOptions,
-          '-c:a aac',
-          '-b:a 192k',
-          '-ac 2',
-          '-f hls',
-          '-hls_time 4',
-          '-hls_list_size 0',
-          '-hls_playlist_type event',
-          '-hls_segment_type fmp4',
-          '-hls_fmp4_init_filename init.mp4',
-          '-hls_segment_filename',
-          path.join(outputDir, 'segment-%06d.m4s'),
-          '-hls_flags independent_segments+temp_file',
-        ])
-        .output(playlistPath);
-      const jobId = crypto.randomUUID();
-      const startedAt = Date.now();
-      let processId: number | null = null;
 
-      const ready = new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let poll: NodeJS.Timeout | undefined;
-        const finish = (callback: () => void) => {
-          if (settled) return;
-          settled = true;
-          if (poll) clearInterval(poll);
-          callback();
-        };
+      // A previous viewer may have left while an EVENT playlist was still being
+      // generated. Start clean instead of presenting a permanently truncated
+      // playlist as if it were a complete episode.
+      if (fs.existsSync(outputDir)) {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      }
 
-        command
-          .on('start', () => {
-            processId =
-              (
-                command as FfmpegCommand & {
-                  ffmpegProc?: { pid?: number };
-                }
-              ).ffmpegProc?.pid || null;
-            const activeJob = this.jobs.get(cacheKey);
-            if (activeJob?.id === jobId) activeJob.pid = processId;
-            if (processId) {
-              this.processRegistry.set(jobId, {
-                jobId,
-                pid: processId,
-                cacheKey,
-                startedAt,
-              });
-              this.persistProcessRegistry();
-            }
-          })
-          .on('error', (error: Error) => {
-            this.unregisterProcess(jobId);
-            const jobState = this.detachJob(cacheKey, command);
-            // FFmpeg writes ENDLIST when it is terminated gracefully. That
-            // does not mean the episode was fully generated, so never retain
-            // an interrupted cache as a reusable completed stream. A newer
-            // encoder may already own this key after fast back/forward
-            // navigation, so the old process must not remove its output.
-            if (jobState !== 'replaced') {
-              fs.rmSync(outputDir, { recursive: true, force: true });
-            }
-            finish(() => reject(error));
-          })
-          .on('end', () => {
-            this.unregisterProcess(jobId);
-            const jobState = this.detachJob(cacheKey, command);
-            if (jobState === 'replaced') {
-              finish(resolve);
-              return;
-            }
-            fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
-            this.touchCache(outputDir);
-            this.enforceFamilyCacheLimit(familyKey, cacheKey);
-            this.enforceCacheQuota(cacheKey);
-            finish(resolve);
-          })
-          .run();
+      if (!job) {
+        const input = await inputFactory();
 
-        const startedAt = Date.now();
-        poll = setInterval(() => {
-          if (this.isReady(playlistPath)) {
-            finish(resolve);
-          } else if (Date.now() - startedAt >= WAIT_TIMEOUT_MS) {
-            finish(() => reject(new Error('HLS_PREPARATION_TIMEOUT')));
-          }
-        }, 250);
-      });
-
-      const idleTimer = setInterval(() => {
-        const activeJob = this.jobs.get(cacheKey);
-        if (
-          activeJob &&
-          Date.now() - activeJob.lastAccessAt >= IDLE_JOB_TIMEOUT_MS
-        ) {
-          activeJob.command.kill('SIGKILL');
+        // Resolving a remote source may take long enough for a concurrent
+        // request to start this cache first. Discard the duplicate source.
+        job = this.jobs.get(cacheKey);
+        if (job) {
+          if (typeof input !== 'string') input.destroy();
+          await job.ready;
+          return playlistPath;
         }
-      }, 5_000);
-      idleTimer.unref();
+        if (sessionId && !this.leases.get(cacheKey)?.has(sessionId)) {
+          if (typeof input !== 'string') input.destroy();
+          throw new Error('HLS_CLIENT_RELEASED');
+        }
 
-      job = {
-        id: jobId,
-        command,
-        ready,
-        familyKey,
-        mediaName,
-        pid: processId,
-        startSeconds,
-        startedAt,
-        lastAccessAt: Date.now(),
-        idleTimer,
-      };
-      this.jobs.set(cacheKey, job);
+        fs.mkdirSync(outputDir, { recursive: true });
+        this.touchCache(outputDir);
+        this.enforceFamilyCacheLimit(familyKey, cacheKey);
+        const probedCodecs = typeof input === 'string' ? this.probeLocalCodecs(input) : null;
+        const normalizedVideoCodec = sourceVideoCodec?.toLowerCase() || probedCodecs?.video || '';
+        // Although recent Safari versions can decode many HEVC files directly,
+        // some hvc1 sources still fail after they are remuxed as fragmented HLS.
+        // Keep H.264 zero-copy, but make every other codec deterministic for the
+        // Safari compatibility path.
+        const videoOptions = this.videoOptions(normalizedVideoCodec);
+        const command = ffmpeg(input)
+          // Generate a modest buffer ahead of playback instead of racing through
+          // a multi-GB source and duplicating the whole file immediately.
+          .inputOptions([...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []), '-readrate 2'])
+          .outputOptions([
+            '-map 0:v:0',
+            '-map 0:a:0?',
+            '-sn',
+            '-dn',
+            ...videoOptions,
+            '-c:a aac',
+            '-b:a 192k',
+            '-ac 2',
+            '-f hls',
+            '-hls_time 4',
+            '-hls_list_size 0',
+            '-hls_playlist_type event',
+            '-hls_segment_type fmp4',
+            '-hls_fmp4_init_filename init.mp4',
+            '-hls_segment_filename',
+            path.join(outputDir, 'segment-%06d.m4s'),
+            '-hls_flags independent_segments+temp_file',
+          ])
+          .output(playlistPath);
+        const jobId = crypto.randomUUID();
+        const startedAt = Date.now();
+        let processId: number | null = null;
+
+        const ready = new Promise<void>((resolve, reject) => {
+          let settled = false;
+          let poll: NodeJS.Timeout | undefined;
+          const finish = (callback: () => void) => {
+            if (settled) return;
+            settled = true;
+            if (poll) clearInterval(poll);
+            callback();
+          };
+
+          command
+            .on('start', () => {
+              processId =
+                (
+                  command as FfmpegCommand & {
+                    ffmpegProc?: { pid?: number };
+                  }
+                ).ffmpegProc?.pid || null;
+              const activeJob = this.jobs.get(cacheKey);
+              if (activeJob?.id === jobId) activeJob.pid = processId;
+              if (processId) {
+                this.processRegistry.set(jobId, {
+                  jobId,
+                  pid: processId,
+                  cacheKey,
+                  startedAt,
+                });
+                this.persistProcessRegistry();
+              }
+            })
+            .on('error', (error: Error) => {
+              this.unregisterProcess(jobId);
+              const jobState = this.detachJob(cacheKey, command);
+              // FFmpeg writes ENDLIST when it is terminated gracefully. That
+              // does not mean the episode was fully generated, so never retain
+              // an interrupted cache as a reusable completed stream. A newer
+              // encoder may already own this key after fast back/forward
+              // navigation, so the old process must not remove its output.
+              if (jobState !== 'replaced') {
+                fs.rmSync(outputDir, { recursive: true, force: true });
+              }
+              finish(() => reject(error));
+            })
+            .on('end', () => {
+              this.unregisterProcess(jobId);
+              const jobState = this.detachJob(cacheKey, command);
+              if (jobState === 'replaced') {
+                finish(resolve);
+                return;
+              }
+              fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
+              this.touchCache(outputDir);
+              this.enforceFamilyCacheLimit(familyKey, cacheKey);
+              this.enforceCacheQuota(cacheKey);
+              finish(resolve);
+            })
+            .run();
+
+          const startedAt = Date.now();
+          poll = setInterval(() => {
+            if (this.isReady(playlistPath)) {
+              finish(resolve);
+            } else if (Date.now() - startedAt >= WAIT_TIMEOUT_MS) {
+              finish(() => reject(new Error('HLS_PREPARATION_TIMEOUT')));
+            }
+          }, 250);
+        });
+
+        const idleTimer = setInterval(() => {
+          const activeJob = this.jobs.get(cacheKey);
+          if (activeJob && Date.now() - activeJob.lastAccessAt >= IDLE_JOB_TIMEOUT_MS) {
+            activeJob.command.kill('SIGKILL');
+          }
+        }, 5_000);
+        idleTimer.unref();
+
+        job = {
+          id: jobId,
+          command,
+          ready,
+          familyKey,
+          mediaName,
+          pid: processId,
+          startSeconds,
+          startedAt,
+          lastAccessAt: Date.now(),
+          idleTimer,
+        };
+        this.jobs.set(cacheKey, job);
+        this.consumeReservation(reservationId);
+      }
+
+      await job.ready;
+      return playlistPath;
+    } finally {
+      this.releaseReservation(reservationId);
     }
-
-    await job.ready;
-    return playlistPath;
   }
 
   public resolveAsset(cacheKey: string, assetName: string) {
@@ -373,10 +376,7 @@ export class HlsService {
     const [cacheKey, job] = entry;
     const blockedUntil = Date.now() + MANUAL_STOP_BLOCK_MS;
     for (const sessionId of this.leases.get(cacheKey) ?? []) {
-      this.blockedSessions.set(
-        this.sessionKey(cacheKey, sessionId),
-        blockedUntil,
-      );
+      this.blockedSessions.set(this.sessionKey(cacheKey, sessionId), blockedUntil);
     }
     clearInterval(job.idleTimer);
     this.jobs.delete(cacheKey);
@@ -386,6 +386,7 @@ export class HlsService {
     } catch {
       // Process may already have exited.
     }
+    this.drainPendingSlots();
     return true;
   }
 
@@ -394,6 +395,7 @@ export class HlsService {
       throw new Error('INVALID_HLS_SESSION');
     }
     this.blockedSessions.delete(this.sessionKey(cacheKey, sessionId));
+    this.cancelPendingSlots(sessionId);
     const sessions = this.leases.get(cacheKey);
     if (!sessions) return false;
 
@@ -411,16 +413,13 @@ export class HlsService {
     } catch {
       // Process may already have exited.
     }
+    this.drainPendingSlots();
     return true;
   }
 
   public enforceCacheQuota(protectedCacheKey?: string) {
-    const protectedDirectory = protectedCacheKey
-      ? this.getCacheDir(protectedCacheKey)
-      : undefined;
-    const activeDirectories = new Set(
-      [...this.jobs.keys()].map((key) => this.getCacheDir(key)),
-    );
+    const protectedDirectory = protectedCacheKey ? this.getCacheDir(protectedCacheKey) : undefined;
+    const activeDirectories = new Set([...this.jobs.keys()].map((key) => this.getCacheDir(key)));
     const entries = this.cacheEntries();
     let totalBytes = entries.reduce((total, entry) => total + entry.size, 0);
 
@@ -434,19 +433,12 @@ export class HlsService {
     }
   }
 
-  public enforceFamilyCacheLimit(
-    familyKey: string,
-    protectedCacheKey?: string,
-  ) {
+  public enforceFamilyCacheLimit(familyKey: string, protectedCacheKey?: string) {
     if (!/^[a-zA-Z0-9_-]+$/.test(familyKey)) {
       throw new Error('INVALID_HLS_KEY');
     }
-    const protectedDirectory = protectedCacheKey
-      ? this.getCacheDir(protectedCacheKey)
-      : undefined;
-    const activeDirectories = new Set(
-      [...this.jobs.keys()].map((key) => this.getCacheDir(key)),
-    );
+    const protectedDirectory = protectedCacheKey ? this.getCacheDir(protectedCacheKey) : undefined;
+    const activeDirectories = new Set([...this.jobs.keys()].map((key) => this.getCacheDir(key)));
     const baseDirectoryName = `${familyKey}-${CACHE_VERSION}`;
     const seekDirectoryPrefix = `${familyKey}-at-`;
     const versionSuffix = `-${CACHE_VERSION}`;
@@ -455,8 +447,7 @@ export class HlsService {
         const name = path.basename(entry.directory);
         return (
           name === baseDirectoryName ||
-          (name.startsWith(seekDirectoryPrefix) &&
-            name.endsWith(versionSuffix))
+          (name.startsWith(seekDirectoryPrefix) && name.endsWith(versionSuffix))
         );
       })
       .sort((left, right) => right.accessedAt - left.accessedAt);
@@ -464,8 +455,7 @@ export class HlsService {
     let retainedEntries = 0;
     for (const entry of familyEntries) {
       const mustRetain =
-        entry.directory === protectedDirectory ||
-        activeDirectories.has(entry.directory);
+        entry.directory === protectedDirectory || activeDirectories.has(entry.directory);
       if (mustRetain || retainedEntries < MAX_FAMILY_CACHE_ENTRIES) {
         retainedEntries += 1;
         continue;
@@ -486,6 +476,10 @@ export class HlsService {
     this.jobs.clear();
     this.leases.clear();
     this.blockedSessions.clear();
+    for (const pending of this.pendingSlots.splice(0)) {
+      pending.reject(new Error('HLS_SERVICE_SHUTDOWN'));
+    }
+    this.reservedSlots.clear();
   }
 
   private acquireLease(cacheKey: string, sessionId: string) {
@@ -501,6 +495,22 @@ export class HlsService {
     return `${cacheKey}:${sessionId}`;
   }
 
+  private videoOptions(videoCodec: string) {
+    if (videoCodec === 'h264') return ['-c:v copy'];
+    return [
+      '-c:v libx264',
+      '-preset ultrafast',
+      '-tune zerolatency',
+      '-b:v 5M',
+      '-maxrate 6M',
+      '-bufsize 12M',
+      '-profile:v high',
+      '-level:v 4.1',
+      '-pix_fmt yuv420p',
+      '-force_key_frames expr:gte(t,n_forced*4)',
+    ];
+  }
+
   private isSessionBlocked(cacheKey: string, sessionId: string) {
     const key = this.sessionKey(cacheKey, sessionId);
     const blockedUntil = this.blockedSessions.get(key);
@@ -512,6 +522,69 @@ export class HlsService {
     return true;
   }
 
+  private reserveSlot(
+    familyKey: string,
+    sessionId: string | undefined,
+    priority: number,
+  ): Promise<string> {
+    if (this.jobs.size + this.reservedSlots.size < this.maxActiveJobs) {
+      const reservationId = crypto.randomUUID();
+      this.reservedSlots.add(reservationId);
+      return Promise.resolve(reservationId);
+    }
+
+    if (sessionId) this.cancelPendingSlots(sessionId);
+    return new Promise<string>((resolve, reject) => {
+      this.pendingSlots.push({
+        id: crypto.randomUUID(),
+        familyKey,
+        sessionId,
+        priority,
+        queuedAt: Date.now(),
+        resolve,
+        reject,
+      });
+      this.sortPendingSlots();
+    });
+  }
+
+  private cancelPendingSlots(sessionId: string) {
+    for (let index = this.pendingSlots.length - 1; index >= 0; index -= 1) {
+      const pending = this.pendingSlots[index]!;
+      if (pending.sessionId !== sessionId) continue;
+      this.pendingSlots.splice(index, 1);
+      pending.reject(new Error('HLS_REQUEST_SUPERSEDED'));
+    }
+  }
+
+  private sortPendingSlots() {
+    this.pendingSlots.sort(
+      (left, right) => right.priority - left.priority || left.queuedAt - right.queuedAt,
+    );
+  }
+
+  private drainPendingSlots() {
+    this.sortPendingSlots();
+    while (
+      this.pendingSlots.length > 0 &&
+      this.jobs.size + this.reservedSlots.size < this.maxActiveJobs
+    ) {
+      const pending = this.pendingSlots.shift()!;
+      const reservationId = pending.id;
+      this.reservedSlots.add(reservationId);
+      pending.resolve(reservationId);
+    }
+  }
+
+  private consumeReservation(reservationId: string) {
+    this.reservedSlots.delete(reservationId);
+  }
+
+  private releaseReservation(reservationId: string) {
+    if (!this.reservedSlots.delete(reservationId)) return;
+    this.drainPendingSlots();
+  }
+
   private detachJob(cacheKey: string, command: FfmpegCommand) {
     const currentJob = this.jobs.get(cacheKey);
     if (!currentJob) return 'missing' as const;
@@ -520,6 +593,7 @@ export class HlsService {
     clearInterval(currentJob.idleTimer);
     this.jobs.delete(cacheKey);
     this.leases.delete(cacheKey);
+    this.drainPendingSlots();
     return 'detached' as const;
   }
 
@@ -536,11 +610,10 @@ export class HlsService {
     for (const entry of entries) {
       if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0) continue;
       try {
-        const command = execFileSync(
-          'ps',
-          ['-p', String(entry.pid), '-o', 'command='],
-          { encoding: 'utf8', timeout: 2_000 },
-        );
+        const command = execFileSync('ps', ['-p', String(entry.pid), '-o', 'command='], {
+          encoding: 'utf8',
+          timeout: 2_000,
+        });
         if (
           command.includes(String(ffmpegPath)) &&
           command.includes(this.cacheRoot) &&
@@ -579,10 +652,7 @@ export class HlsService {
 
   private isComplete(playlistPath: string) {
     if (!fs.existsSync(playlistPath)) return false;
-    const completionMarker = path.join(
-      path.dirname(playlistPath),
-      COMPLETE_MARKER,
-    );
+    const completionMarker = path.join(path.dirname(playlistPath), COMPLETE_MARKER);
     return (
       fs.existsSync(completionMarker) &&
       fs.readFileSync(playlistPath, 'utf8').includes('#EXT-X-ENDLIST')

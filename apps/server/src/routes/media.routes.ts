@@ -35,12 +35,15 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       include: { library: true },
     });
 
-  const hlsCacheKey = (driveFile: {
-    id: string;
-    size: bigint | null;
-    modifiedTime: Date | null;
-    md5Checksum: string | null;
-  }, startSeconds = 0) => {
+  const hlsCacheKey = (
+    driveFile: {
+      id: string;
+      size: bigint | null;
+      modifiedTime: Date | null;
+      md5Checksum: string | null;
+    },
+    startSeconds = 0,
+  ) => {
     const fingerprint = createHash('sha256')
       .update(
         [
@@ -51,9 +54,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       )
       .digest('hex')
       .slice(0, 12);
-    return `${driveFile.id}-${fingerprint}${
-      startSeconds > 0 ? `-at-${startSeconds}` : ''
-    }`;
+    return `${driveFile.id}-${fingerprint}${startSeconds > 0 ? `-at-${startSeconds}` : ''}`;
   };
 
   const parseHlsStart = (value: unknown) => {
@@ -68,9 +69,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   };
 
   const parseHlsSession = (value: unknown) =>
-    typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value)
-      ? value
-      : null;
+    typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null;
 
   // Helper handler for GET and HEAD Range streaming requests
   const handleStreamRequest = async (
@@ -127,7 +126,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     // 1. Verify file exists in database and belongs to an active library
     let driveFile = await fastify.prisma.driveFile.findFirst({
       where: {
-        OR: [{ googleDriveFileId: driveFileId }, { id: driveFileId }, { localFilePath: driveFileId }],
+        OR: [
+          { googleDriveFileId: driveFileId },
+          { id: driveFileId },
+          { localFilePath: driveFileId },
+        ],
         status: 'active',
       },
       include: { library: true },
@@ -176,9 +179,19 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       driveFile.mimeType.startsWith('video/') ||
       driveFile.mimeType === 'application/octet-stream' ||
       driveFile.mimeType === 'application/x-matroska' ||
-      ['.mp4', '.mkv', '.webm', '.m4v', '.avi', '.mov', '.ts', '.m2ts', '.flv', '.wmv', '.3gp'].some((ext) =>
-        driveFile.name.toLowerCase().endsWith(ext),
-      );
+      [
+        '.mp4',
+        '.mkv',
+        '.webm',
+        '.m4v',
+        '.avi',
+        '.mov',
+        '.ts',
+        '.m2ts',
+        '.flv',
+        '.wmv',
+        '.3gp',
+      ].some((ext) => driveFile.name.toLowerCase().endsWith(ext));
 
     if (!isVideo) {
       return reply.status(400).send({
@@ -208,12 +221,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
     const requestedQuality = (request.query as Record<string, string>)?.quality;
-    const validQualities = new Set<TranscodeQuality>([
-      'original',
-      '1080p',
-      '720p',
-      '480p',
-    ]);
+    const validQualities = new Set<TranscodeQuality>(['original', '1080p', '720p', '480p']);
     if (requestedQuality && !validQualities.has(requestedQuality as TranscodeQuality)) {
       cleanupListeners();
       return reply.status(400).send({
@@ -321,7 +329,8 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(401).send({
         error: {
           code: 'GOOGLE_AUTH_REQUIRED',
-          message: 'Google Drive erişim izni yenilenemedi. Lütfen Ayarlar sayfasından hesabınızı tekrar bağlayın.',
+          message:
+            'Google Drive erişim izni yenilenemedi. Lütfen Ayarlar sayfasından hesabınızı tekrar bağlayın.',
           requestId: request.id,
         },
       });
@@ -444,140 +453,123 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
-  }>(
-    '/:driveFileId/hls/index.m3u8',
-    async (request, reply) => {
-      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
-      if (!driveFile) {
-        return reply.status(404).send({
+  }>('/:driveFileId/hls/index.m3u8', async (request, reply) => {
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    if (!driveFile) {
+      return reply.status(404).send({
+        error: {
+          code: 'HLS_SOURCE_NOT_FOUND',
+          message: 'HLS kaynağı bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    try {
+      const startSeconds = parseHlsStart(request.query.start);
+      if (startSeconds === null) {
+        return reply.status(400).send({
           error: {
-            code: 'HLS_SOURCE_NOT_FOUND',
-            message: 'HLS kaynağı bulunamadı.',
+            code: 'INVALID_HLS_START',
+            message: 'Geçersiz HLS başlangıç zamanı.',
             requestId: request.id,
           },
         });
       }
-
-      try {
-        const startSeconds = parseHlsStart(request.query.start);
-        if (startSeconds === null) {
-          return reply.status(400).send({
-            error: {
-              code: 'INVALID_HLS_START',
-              message: 'Geçersiz HLS başlangıç zamanı.',
-              requestId: request.id,
-            },
-          });
-        }
-        const sessionId = parseHlsSession(request.query.session);
-        if (!sessionId) {
-          return reply.status(400).send({
-            error: {
-              code: 'INVALID_HLS_SESSION',
-              message: 'Geçersiz HLS oynatma oturumu.',
-              requestId: request.id,
-            },
-          });
-        }
-        const playlistPath = await fastify.hlsService.ensureHls(
-          hlsCacheKey(driveFile, startSeconds),
-          async () => {
-            if (driveFile.storageType === 'local' && driveFile.localFilePath) {
-              return driveFile.localFilePath;
-            }
-
-            const accessToken = await fastify.googleOAuthService.getValidAccessToken(
-              request.user!.id,
-              driveFile.library?.googleConnectionId || undefined,
-            );
-            const response = await fastify.driveService.createMediaStream(
-              accessToken,
-              driveFile.googleDriveFileId || '',
-            );
-            return response.stream;
+      const sessionId = parseHlsSession(request.query.session);
+      if (!sessionId) {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_HLS_SESSION',
+            message: 'Geçersiz HLS oynatma oturumu.',
+            requestId: request.id,
           },
-          startSeconds,
-          hlsCacheKey(driveFile),
-          sessionId,
-          driveFile.name,
-        );
-        const assetQuery = `?start=${startSeconds}`;
-        const playlist = fs
-          .readFileSync(playlistPath, 'utf8')
-          .replace(
-            /#EXT-X-MAP:URI="([^"]+)"/g,
-            `#EXT-X-MAP:URI="$1${assetQuery}"`,
-          )
-          .replace(
-            /^(segment-\d{6}\.m4s)$/gm,
-            `$1${assetQuery}`,
+        });
+      }
+      const playlistPath = await fastify.hlsService.ensureHls(
+        hlsCacheKey(driveFile, startSeconds),
+        async () => {
+          if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+            return driveFile.localFilePath;
+          }
+
+          const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+            request.user!.id,
+            driveFile.library?.googleConnectionId || undefined,
           );
-        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-        reply.header('Cache-Control', 'no-cache');
-        return reply.send(playlist);
-      } catch (error) {
-        request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
-        return reply.status(500).send({
-          error: {
-            code: 'HLS_PREPARATION_FAILED',
-            message: 'Safari uyumlu akış hazırlanamadı.',
-            requestId: request.id,
-          },
-        });
-      }
-    },
-  );
+          const response = await fastify.driveService.createMediaStream(
+            accessToken,
+            driveFile.googleDriveFileId || '',
+          );
+          return response.stream;
+        },
+        startSeconds,
+        hlsCacheKey(driveFile),
+        sessionId,
+        driveFile.name,
+        driveFile.videoCodec,
+      );
+      const assetQuery = `?start=${startSeconds}`;
+      const playlist = fs
+        .readFileSync(playlistPath, 'utf8')
+        .replace(/#EXT-X-MAP:URI="([^"]+)"/g, `#EXT-X-MAP:URI="$1${assetQuery}"`)
+        .replace(/^(segment-\d{6}\.m4s)$/gm, `$1${assetQuery}`);
+      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+      reply.header('Cache-Control', 'no-cache');
+      return reply.send(playlist);
+    } catch (error) {
+      request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
+      return reply.status(500).send({
+        error: {
+          code: 'HLS_PREPARATION_FAILED',
+          message: 'Safari uyumlu akış hazırlanamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+  });
 
   fastify.post<{
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
-  }>(
-    '/:driveFileId/hls/release',
-    async (request, reply) => {
-      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
-      if (!driveFile) return reply.status(404).send();
+  }>('/:driveFileId/hls/release', async (request, reply) => {
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    if (!driveFile) return reply.status(404).send();
 
-      const startSeconds = parseHlsStart(request.query.start);
-      const sessionId = parseHlsSession(request.query.session);
-      if (startSeconds === null || !sessionId) {
-        return reply.status(400).send();
-      }
+    const startSeconds = parseHlsStart(request.query.start);
+    const sessionId = parseHlsSession(request.query.session);
+    if (startSeconds === null || !sessionId) {
+      return reply.status(400).send();
+    }
 
-      const stopped = fastify.hlsService.releaseHls(
-        hlsCacheKey(driveFile, startSeconds),
-        sessionId,
-      );
-      return reply.status(200).send({ stopped });
-    },
-  );
+    const stopped = fastify.hlsService.releaseHls(hlsCacheKey(driveFile, startSeconds), sessionId);
+    return reply.status(200).send({ stopped });
+  });
 
   fastify.get<{
     Params: { driveFileId: string; assetName: string };
     Querystring: { start?: string };
-  }>(
-    '/:driveFileId/hls/:assetName',
-    async (request, reply) => {
-      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
-      if (!driveFile) return reply.status(404).send();
+  }>('/:driveFileId/hls/:assetName', async (request, reply) => {
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    if (!driveFile) return reply.status(404).send();
 
-      try {
-        const startSeconds = parseHlsStart(request.query.start);
-        if (startSeconds === null) return reply.status(400).send();
-        const assetPath = fastify.hlsService.resolveAsset(
-          hlsCacheKey(driveFile, startSeconds),
-          request.params.assetName,
-        );
-        if (!fs.existsSync(assetPath)) return reply.status(404).send();
+    try {
+      const startSeconds = parseHlsStart(request.query.start);
+      if (startSeconds === null) return reply.status(400).send();
+      const assetPath = fastify.hlsService.resolveAsset(
+        hlsCacheKey(driveFile, startSeconds),
+        request.params.assetName,
+      );
+      if (!fs.existsSync(assetPath)) return reply.status(404).send();
 
-        const isInit = request.params.assetName === 'init.mp4';
-        reply.header('Content-Type', isInit ? 'video/mp4' : 'video/iso.segment');
-        reply.header('Cache-Control', 'public, max-age=31536000, immutable');
-        return reply.send(fs.createReadStream(assetPath));
-      } catch {
-        return reply.status(404).send();
-      }
-    },
-  );
+      const isInit = request.params.assetName === 'init.mp4';
+      reply.header('Content-Type', isInit ? 'video/mp4' : 'video/iso.segment');
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+      return reply.send(fs.createReadStream(assetPath));
+    } catch {
+      return reply.status(404).send();
+    }
+  });
 
   // GET /api/media/:driveFileId/stream
   fastify.get<{ Params: { driveFileId: string } }>(
