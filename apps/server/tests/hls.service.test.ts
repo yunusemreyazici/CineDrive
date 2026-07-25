@@ -128,4 +128,35 @@ describe('HlsService cache management', () => {
     expect(kill).toHaveBeenCalledWith('SIGKILL');
     expect(service.getStats().activeJobs).toBe(0);
   });
+
+  it('does not let a stopped encoder detach its back-navigation replacement', () => {
+    const service = createService(1024);
+    const oldCommand = { kill: vi.fn() };
+    const replacementCommand = { kill: vi.fn() };
+    const replacementTimer = setInterval(() => {}, 60_000);
+    replacementTimer.unref();
+    const cacheKey = 'back-navigation-race';
+    const internals = service as unknown as {
+      jobs: Map<string, unknown>;
+      leases: Map<string, Set<string>>;
+      detachJob: (key: string, command: unknown) => string;
+    };
+
+    internals.jobs.set(cacheKey, {
+      command: replacementCommand,
+      ready: Promise.resolve(),
+      familyKey: cacheKey,
+      lastAccessAt: Date.now(),
+      idleTimer: replacementTimer,
+    });
+    internals.leases.set(cacheKey, new Set(['replacement_session']));
+
+    expect(internals.detachJob(cacheKey, oldCommand)).toBe('replaced');
+    expect(service.getStats().activeJobs).toBe(1);
+    expect(internals.leases.get(cacheKey)).toEqual(
+      new Set(['replacement_session']),
+    );
+
+    service.shutdown();
+  });
 });

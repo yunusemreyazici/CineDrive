@@ -203,21 +203,23 @@ export class HlsService {
 
         command
           .on('error', (error: Error) => {
-            const failedJob = this.jobs.get(cacheKey);
-            if (failedJob) clearInterval(failedJob.idleTimer);
-            this.jobs.delete(cacheKey);
-            this.leases.delete(cacheKey);
+            const jobState = this.detachJob(cacheKey, command);
             // FFmpeg writes ENDLIST when it is terminated gracefully. That
             // does not mean the episode was fully generated, so never retain
-            // an interrupted cache as a reusable completed stream.
-            fs.rmSync(outputDir, { recursive: true, force: true });
+            // an interrupted cache as a reusable completed stream. A newer
+            // encoder may already own this key after fast back/forward
+            // navigation, so the old process must not remove its output.
+            if (jobState !== 'replaced') {
+              fs.rmSync(outputDir, { recursive: true, force: true });
+            }
             finish(() => reject(error));
           })
           .on('end', () => {
-            const completedJob = this.jobs.get(cacheKey);
-            if (completedJob) clearInterval(completedJob.idleTimer);
-            this.jobs.delete(cacheKey);
-            this.leases.delete(cacheKey);
+            const jobState = this.detachJob(cacheKey, command);
+            if (jobState === 'replaced') {
+              finish(resolve);
+              return;
+            }
             fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
             this.touchCache(outputDir);
             this.enforceFamilyCacheLimit(familyKey, cacheKey);
@@ -387,6 +389,17 @@ export class HlsService {
     const sessions = this.leases.get(cacheKey) || new Set<string>();
     sessions.add(sessionId);
     this.leases.set(cacheKey, sessions);
+  }
+
+  private detachJob(cacheKey: string, command: FfmpegCommand) {
+    const currentJob = this.jobs.get(cacheKey);
+    if (!currentJob) return 'missing' as const;
+    if (currentJob.command !== command) return 'replaced' as const;
+
+    clearInterval(currentJob.idleTimer);
+    this.jobs.delete(cacheKey);
+    this.leases.delete(cacheKey);
+    return 'detached' as const;
   }
 
   private isReady(playlistPath: string) {
