@@ -57,6 +57,17 @@ export const alignSubtitleCueToPlaybackTimeline = (
   };
 };
 
+export const getBufferedAheadSeconds = (video: HTMLVideoElement) => {
+  for (let index = 0; index < video.buffered.length; index++) {
+    const start = video.buffered.start(index);
+    const end = video.buffered.end(index);
+    if (video.currentTime >= start - 0.05 && video.currentTime <= end) {
+      return Math.max(0, end - video.currentTime);
+    }
+  }
+  return 0;
+};
+
 const getQualityStorage = () => {
   try {
     return typeof window === 'undefined' ? undefined : window.localStorage;
@@ -130,6 +141,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const firstFrameReportedRef = useRef(false);
   const stallStartedAtRef = useRef<number | null>(null);
   const seekStartedAtRef = useRef<number | null>(null);
+  const lastTimeUpdateRef = useRef(0);
   const originalCueTimesRef = useRef(
     new WeakMap<TextTrackCue, { startTime: number; endTime: number }>(),
   );
@@ -716,9 +728,26 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
+    const localPlaybackTime = videoRef.current.currentTime;
     const playbackPosition =
-      videoRef.current.currentTime + playbackTimelineOffset;
+      localPlaybackTime + playbackTimelineOffset;
     setCurrentTime(playbackPosition);
+
+    // Safari can emit a transient waiting/stalled event while it still has a
+    // healthy forward buffer, and may not emit a matching playing event.
+    // Advancing media time is authoritative proof that playback is not stuck.
+    if (
+      !videoRef.current.paused &&
+      localPlaybackTime > lastTimeUpdateRef.current + 0.01
+    ) {
+      setIsBuffering(false);
+      setConnectionMessage(null);
+      if (stallRecoveryTimerRef.current) {
+        clearTimeout(stallRecoveryTimerRef.current);
+        stallRecoveryTimerRef.current = null;
+      }
+    }
+    lastTimeUpdateRef.current = localPlaybackTime;
 
     // Calculate buffered range
     if (videoRef.current.buffered.length > 0) {
@@ -774,6 +803,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, []);
 
   const handleWaiting = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.paused) return;
+
+    // `stalled` describes network activity, not necessarily exhausted media.
+    // Safari frequently reports it with tens of seconds still playable.
+    if (getBufferedAheadSeconds(video) >= 1) {
+      setIsBuffering(false);
+      clearStallRecoveryTimer();
+      return;
+    }
+
     if (stallStartedAtRef.current === null) {
       stallStartedAtRef.current = performance.now();
     }
@@ -827,6 +867,16 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     playbackTimelineOffset,
     qualityPreference,
   ]);
+
+  const handleStalled = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.paused || getBufferedAheadSeconds(video) >= 1) {
+      setIsBuffering(false);
+      clearStallRecoveryTimer();
+      return;
+    }
+    handleWaiting();
+  }, [clearStallRecoveryTimer, handleWaiting]);
 
   const handlePlaying = useCallback(() => {
     const now = performance.now();
@@ -1029,7 +1079,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           clearAudioCompatibilityCheck();
         }}
         onWaiting={handleWaiting}
-        onStalled={handleWaiting}
+        onStalled={handleStalled}
         onPlaying={handlePlaying}
         onCanPlay={handleCanPlayReady}
         onProgress={updateBufferedTime}

@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   alignSubtitleCueToPlaybackTimeline,
+  getBufferedAheadSeconds,
   MediaPlayer,
 } from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
@@ -28,6 +29,21 @@ describe('Player Components Unit Tests', () => {
       startTime: 2.9,
       endTime: 5.4,
     });
+  });
+
+  it('measures only the buffered range containing the playback head', () => {
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 12 });
+    Object.defineProperty(video, 'buffered', {
+      configurable: true,
+      value: {
+        length: 2,
+        start: (index: number) => [0, 10][index],
+        end: (index: number) => [5, 27][index],
+      },
+    });
+
+    expect(getBufferedAheadSeconds(video)).toBe(15);
   });
 
   it('parses OpenSubtitles WebVTT cues and finds them on the absolute playback timeline', () => {
@@ -176,6 +192,64 @@ Sonraki cümle`);
     );
 
     expect(screen.getByText('Interstellar')).toBeInTheDocument();
+  });
+
+  it('ignores Safari stalled events while forward media remains buffered', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'paused', { configurable: true, value: false });
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 30 });
+    Object.defineProperty(video, 'buffered', {
+      configurable: true,
+      value: {
+        length: 1,
+        start: () => 0,
+        end: () => 45,
+      },
+    });
+
+    fireEvent.stalled(video);
+    expect(screen.queryByText('Akış tamponlanıyor…')).not.toBeInTheDocument();
+  });
+
+  it('dismisses a stale buffering notice as soon as Safari media time advances', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'paused', { configurable: true, value: false });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      writable: true,
+      value: 30,
+    });
+    Object.defineProperty(video, 'buffered', {
+      configurable: true,
+      value: {
+        length: 0,
+        start: () => 0,
+        end: () => 0,
+      },
+    });
+
+    fireEvent.waiting(video);
+    expect(screen.getByText('Akış tamponlanıyor…')).toBeInTheDocument();
+
+    video.currentTime = 30.25;
+    fireEvent.timeUpdate(video);
+    expect(screen.queryByText('Akış tamponlanıyor…')).not.toBeInTheDocument();
   });
 
   it('keeps Safari on direct MP4 first and falls back to full transcode after a media error', () => {
