@@ -1157,13 +1157,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     <div
       onMouseMove={resetHideTimer}
       onTouchStart={resetHideTimer}
-      className="fixed inset-0 z-50 bg-black flex flex-col justify-between select-none overflow-hidden"
+      className="fixed inset-x-0 top-0 z-50 flex h-[100dvh] min-h-[100svh] w-screen select-none flex-col justify-between overflow-hidden bg-black"
     >
       <style>{cueStyle}</style>
 
       {/* Top Navigation Header Bar */}
       <div
-        className={`absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-30 flex items-center gap-4 transition-opacity duration-300 ${
+        className={`absolute inset-x-0 top-0 z-30 flex items-center gap-3 bg-gradient-to-b from-black/90 via-black/40 to-transparent px-3 pb-8 pt-[calc(env(safe-area-inset-top)+0.75rem)] transition-opacity duration-300 sm:gap-4 sm:p-6 ${
           areControlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -1172,12 +1172,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             saveProgress(true);
             navigate(`/media/${media.id}`);
           }}
-          className="p-3 bg-zinc-900/80 hover:bg-zinc-800 text-white rounded-full backdrop-blur-md transition-colors"
+          className="rounded-full bg-zinc-900/80 p-2.5 text-white backdrop-blur-md transition-colors hover:bg-zinc-800 sm:p-3"
           aria-label="Geri Dön"
         >
-          <ArrowLeft className="w-6 h-6" />
+          <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
-        <h2 className="text-lg font-bold font-display text-white truncate">{titleDisplay}</h2>
+        <h2 className="truncate font-display text-base font-bold text-white sm:text-lg">
+          {titleDisplay}
+        </h2>
       </div>
 
       {/* Buffering Center Spinner */}
@@ -1256,7 +1258,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       {activeOverlayCue && (
         <div
-          className="pointer-events-none absolute inset-x-4 bottom-24 z-30 flex justify-center text-center"
+          className="pointer-events-none absolute inset-x-4 bottom-36 z-30 flex justify-center text-center sm:bottom-24"
           data-testid="subtitle-overlay"
         >
           <span

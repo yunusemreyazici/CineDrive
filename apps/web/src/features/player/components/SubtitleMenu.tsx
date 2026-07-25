@@ -116,7 +116,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
   };
 
   return (
-    <div className="absolute bottom-16 right-16 w-80 bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-3 z-50 backdrop-blur-xl animate-in fade-in duration-150 text-zinc-100">
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] z-50 w-auto rounded-2xl border border-zinc-800 bg-zinc-900/95 p-3 text-zinc-100 shadow-2xl backdrop-blur-xl animate-in fade-in duration-150 sm:absolute sm:inset-x-auto sm:bottom-16 sm:right-16 sm:w-80">
       {/* Header & Tabs */}
       <div className="flex items-center justify-between border-b border-zinc-800 pb-2 mb-2">
         <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 w-full justify-between">

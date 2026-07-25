@@ -115,7 +115,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   };
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-30 space-y-3">
+    <div className="absolute inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-black via-black/75 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-8 sm:space-y-3 sm:p-6">
       {/* Subtitle & Speed Menus */}
       {subtitleMenuOpen && (
         <SubtitleMenu
@@ -158,14 +158,14 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
       />
 
       {/* Control Buttons Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         {/* Left Action Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center justify-between gap-1 sm:justify-start sm:gap-3">
           {hasPreviousEpisode && onPreviousEpisode && (
             <button
               onClick={onPreviousEpisode}
               aria-label="Önceki Bölüm"
-              className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors"
+              className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
             >
               <SkipBack className="w-5 h-5 fill-current" />
             </button>
@@ -174,16 +174,20 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           <button
             onClick={onTogglePlay}
             aria-label={isPlaying ? 'Duraklat' : 'Oynat'}
-            className="p-3 bg-brand-600 hover:bg-brand-500 text-white rounded-full shadow-lg shadow-brand-500/30 transition-transform active:scale-95"
+            className="shrink-0 rounded-full bg-brand-600 p-2.5 text-white shadow-lg shadow-brand-500/30 transition-transform hover:bg-brand-500 active:scale-95 sm:p-3"
           >
-            {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current translate-x-0.5" />}
+            {isPlaying ? (
+              <Pause className="w-5 h-5 fill-current" />
+            ) : (
+              <Play className="w-5 h-5 fill-current translate-x-0.5" />
+            )}
           </button>
 
           {hasNextEpisode && onNextEpisode && (
             <button
               onClick={onNextEpisode}
               aria-label="Sonraki Bölüm"
-              className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors"
+              className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
             >
               <SkipForward className="w-5 h-5 fill-current" />
             </button>
@@ -206,13 +210,17 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           </button>
 
           {/* Volume Control Group */}
-          <div className="flex items-center gap-2 group">
+          <div className="group flex items-center gap-1 sm:gap-2">
             <button
               onClick={onToggleMute}
               aria-label={isMuted ? 'Sesi Aç' : 'Sesi Kapat'}
               className="p-2 text-zinc-400 hover:text-white transition-colors"
             >
-              {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
+              {isMuted || volume === 0 ? (
+                <VolumeX className="w-5 h-5 text-rose-400" />
+              ) : (
+                <Volume2 className="w-5 h-5" />
+              )}
             </button>
             <input
               type="range"
@@ -222,12 +230,12 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               value={isMuted ? 0 : volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
               aria-label="Ses Seviyesi"
-              className="w-16 h-1 bg-zinc-800 accent-brand-500 rounded-lg cursor-pointer opacity-75 group-hover:opacity-100 transition-opacity"
+              className="hidden h-1 w-16 cursor-pointer rounded-lg bg-zinc-800 accent-brand-500 opacity-75 transition-opacity group-hover:opacity-100 sm:block"
             />
           </div>
 
           {/* Time Display */}
-          <div className="text-xs text-zinc-400 font-medium ml-2 font-display">
+          <div className="ml-1 whitespace-nowrap font-display text-[11px] font-medium text-zinc-400 sm:ml-2 sm:text-xs">
             <span>{formatTime(currentTime)}</span>
             <span className="mx-1 text-zinc-600">/</span>
             <span>{formatTime(duration)}</span>
@@ -242,7 +250,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
         </div>
 
         {/* Right Settings Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-1 border-t border-white/[0.06] pt-1.5 sm:w-auto sm:justify-start sm:gap-2 sm:border-0 sm:pt-0">
           <button
             onClick={() => {
               setSubtitleMenuOpen(!subtitleMenuOpen);
@@ -260,7 +268,11 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             <button
               onClick={onToggleTranscode}
               aria-label="Ses / Safari Uyum Modu"
-              title={useTranscode ? 'Ses Uyum Modu (AAC Transcode) Aktif' : 'Ses / Safari Uyum Modunu Etkinleştir (AAC)'}
+              title={
+                useTranscode
+                  ? 'Ses Uyum Modu (AAC Transcode) Aktif'
+                  : 'Ses / Safari Uyum Modunu Etkinleştir (AAC)'
+              }
               className={`p-2 rounded-xl transition-colors ${
                 useTranscode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
               }`}

@@ -15,7 +15,7 @@ export const PlaybackSpeedMenu: React.FC<PlaybackSpeedMenuProps> = ({
   onClose,
 }) => {
   return (
-    <div className="absolute bottom-16 right-10 w-44 bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-50 backdrop-blur-xl animate-in fade-in duration-150">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] right-3 z-50 w-44 rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in duration-150 sm:absolute sm:bottom-16 sm:right-10">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 mb-1 text-xs font-bold text-zinc-400 font-display">
         <Gauge className="w-4 h-4" />
         Oynatma Hızı
@@ -29,7 +29,9 @@ export const PlaybackSpeedMenu: React.FC<PlaybackSpeedMenuProps> = ({
             onClose();
           }}
           className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl font-medium transition-colors ${
-            currentSpeed === speed ? 'bg-brand-600/20 text-brand-400' : 'text-zinc-300 hover:bg-zinc-800'
+            currentSpeed === speed
+              ? 'bg-brand-600/20 text-brand-400'
+              : 'text-zinc-300 hover:bg-zinc-800'
           }`}
         >
           <span>{speed === 1.0 ? 'Normal (1.0x)' : `${speed}x`}</span>

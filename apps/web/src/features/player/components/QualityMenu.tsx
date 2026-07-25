@@ -17,7 +17,7 @@ export const QualityMenu: React.FC<{
   onSelectQuality: (quality: QualityPreference) => void;
   onClose: () => void;
 }> = ({ currentQuality, effectiveQuality, onSelectQuality, onClose }) => (
-  <div className="absolute bottom-16 right-10 z-50 w-52 rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl">
+  <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] right-3 z-50 w-52 rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl sm:absolute sm:bottom-16 sm:right-10">
     <div className="mb-1 flex items-center gap-2 border-b border-zinc-800 px-3 py-2 text-xs font-bold text-zinc-400">
       <MonitorUp className="h-4 w-4" />
       Görüntü Kalitesi
