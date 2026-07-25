@@ -94,6 +94,17 @@ describe('Playback & History API Integration Tests', () => {
     expect(res2.statusCode).toBe(200);
     const body2 = JSON.parse(res2.body);
     expect(body2.progress.completed).toBe(true);
+
+    const [progressRows, historyRows] = await Promise.all([
+      app.prisma.playbackProgress.count({
+        where: { mediaItemId: 'media_test_pb_1', episodeId: null },
+      }),
+      app.prisma.watchHistory.count({
+        where: { mediaItemId: 'media_test_pb_1', episodeId: null },
+      }),
+    ]);
+    expect(progressRows).toBe(1);
+    expect(historyRows).toBe(1);
   });
 
   it('PUT /api/playback/progress with invalid episode ID should return 400', async () => {

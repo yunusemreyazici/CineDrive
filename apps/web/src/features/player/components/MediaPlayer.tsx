@@ -12,6 +12,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
+import { findActiveSubtitleCue, parseWebVttCues } from '../utils/subtitleCues';
 import type {
   MediaItemType,
   EpisodeType,
@@ -159,6 +160,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let serverSubtitles: SubtitleTrackType[] = [];
   let currentSeasonNum: number | undefined = undefined;
   let currentEpisodeNum: number | undefined = undefined;
+  let activeEpisodeId: string | undefined = episodeId;
   let playbackPlan: PlaybackPlanType | undefined;
   let analyzedDuration: number | undefined;
   let analyzedHeight: number | undefined;
@@ -175,6 +177,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
     if (activeEp) {
+      activeEpisodeId = activeEp.id;
       targetDriveFileId = activeEp.driveFileId;
       playbackPlan = activeEp.playbackPlan;
       analyzedDuration = activeEp.technicalMetadata?.mediaDuration;
@@ -216,6 +219,15 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [automaticQuality, recommendedPlaybackMode, targetDriveFileId]);
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
+  const nativeSubtitles = availableSubtitles.filter((subtitle) => !subtitle.cues?.length);
+  const activeOverlaySubtitle = availableSubtitles.find(
+    (subtitle) =>
+      subtitle.cues?.length &&
+      (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId)),
+  );
+  const activeOverlayCue = activeOverlaySubtitle?.cues
+    ? findActiveSubtitleCue(activeOverlaySubtitle.cues, currentTime, subtitleDelay)
+    : undefined;
 
   const createdUrlsRef = useRef<string[]>([]);
 
@@ -246,14 +258,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (!videoRef.current) return;
     const tracks = Array.from(videoRef.current.textTracks);
     tracks.forEach((track, idx) => {
-      const sub = availableSubtitles[idx];
+      const sub = nativeSubtitles[idx];
       if (sub && (sub.id === activeSubtitleId || (sub.isDefault && !activeSubtitleId))) {
         track.mode = 'showing';
       } else {
         track.mode = 'disabled';
       }
     });
-  }, [activeSubtitleId, availableSubtitles, subtitleTrackLoadVersion]);
+  }, [activeSubtitleId, nativeSubtitles, subtitleTrackLoadVersion]);
 
   // Native Safari HLS restarts its media timeline at zero after an absolute
   // seek. Keep subtitle cues on that local timeline while preserving the
@@ -337,19 +349,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const text = await file.text();
       const isSrt = file.name.toLowerCase().endsWith('.srt');
       const vttText = isSrt ? convertSrtToVtt(text) : text;
-
-      const blob = new Blob([vttText], { type: 'text/vtt' });
-      const objectUrl = URL.createObjectURL(blob);
-      createdUrlsRef.current.push(objectUrl);
+      const cues = parseWebVttCues(vttText);
+      if (!cues.length) throw new Error('Subtitle file has no valid cues');
 
       const customTrack: SubtitleTrackType = {
         id: `custom_${Date.now()}`,
         language: 'tr',
-      label: `${file.name.replace(/\.[^/.]+$/, '')} (Yerel)`,
-      isForced: false,
-      isHearingImpaired: false,
-      isDefault: false,
-      url: objectUrl,
+        label: `${file.name.replace(/\.[^/.]+$/, '')} (Yerel)`,
+        isForced: false,
+        isHearingImpaired: false,
+        isDefault: false,
+        cues,
       };
 
       setCustomSubtitles((prev) => [...prev, customTrack]);
@@ -368,9 +378,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     if (!res.ok) throw new Error('Download failed');
     const vttText = await res.text();
-    const blob = new Blob([vttText], { type: 'text/vtt' });
-    const objectUrl = URL.createObjectURL(blob);
-    createdUrlsRef.current.push(objectUrl);
+    const cues = parseWebVttCues(vttText);
+    if (!cues.length) throw new Error('Downloaded subtitle has no valid cues');
 
     const openSubTrack: SubtitleTrackType = {
       id: `opensub_${Date.now()}`,
@@ -379,7 +388,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       isForced: false,
       isHearingImpaired: false,
       isDefault: false,
-      url: objectUrl,
+      cues,
     };
 
     setCustomSubtitles((prev) => [...prev, openSubTrack]);
@@ -532,7 +541,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
     mediaItemId: media.id,
-    episodeId,
+    episodeId: activeEpisodeId,
     isPlaying,
     currentTime,
     duration,
@@ -1054,7 +1063,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }`}
         playsInline
       >
-        {availableSubtitles.map((sub) => (
+        {nativeSubtitles.map((sub) => (
           <track
             key={sub.id}
             src={(sub as unknown as { url?: string }).url || `/api/media/${sub.id}/subtitle`}
@@ -1066,6 +1075,28 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           />
         ))}
       </video>
+
+      {activeOverlayCue && (
+        <div
+          className="pointer-events-none absolute inset-x-4 bottom-24 z-30 flex justify-center text-center"
+          data-testid="subtitle-overlay"
+        >
+          <span
+            className="whitespace-pre-line rounded-md px-3 py-1.5 font-semibold leading-snug text-white"
+            style={{
+              fontSize: `${subtitleFontSize}%`,
+              backgroundColor:
+                subtitleBgColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'transparent',
+              textShadow:
+                subtitleBgColor === 'shadow'
+                  ? '2px 2px 4px rgba(0, 0, 0, 0.95), -2px -2px 4px rgba(0, 0, 0, 0.95)'
+                  : 'none',
+            }}
+          >
+            {activeOverlayCue.text}
+          </span>
+        </div>
+      )}
 
       {/* Subtitle Delay Live Toast Notification Overlay */}
       {delayToast && (

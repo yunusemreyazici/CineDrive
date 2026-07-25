@@ -11,6 +11,10 @@ import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOve
 import { PlayerError } from '../features/player/components/PlayerError';
 import { SubtitleMenu } from '../features/player/components/SubtitleMenu';
 import type { MediaItemType } from '../types/media';
+import {
+  findActiveSubtitleCue,
+  parseWebVttCues,
+} from '../features/player/utils/subtitleCues';
 
 describe('Player Components Unit Tests', () => {
   const hlsSessionId = '00000000-0000-4000-8000-000000000000';
@@ -24,6 +28,29 @@ describe('Player Components Unit Tests', () => {
       startTime: 2.9,
       endTime: 5.4,
     });
+  });
+
+  it('parses OpenSubtitles WebVTT cues and finds them on the absolute playback timeline', () => {
+    const cues = parseWebVttCues(`WEBVTT
+
+00:32:04.000 --> 00:32:07.500 align:middle
+<i>Türkçe &amp; altyazı</i>
+ikinci satır
+
+00:32:09.000 --> 00:32:11.000
+Sonraki cümle`);
+
+    expect(cues).toEqual([
+      {
+        startTime: 1924,
+        endTime: 1927.5,
+        text: 'Türkçe & altyazı\nikinci satır',
+      },
+      { startTime: 1929, endTime: 1931, text: 'Sonraki cümle' },
+    ]);
+    expect(findActiveSubtitleCue(cues, 1925)?.text).toContain('Türkçe');
+    expect(findActiveSubtitleCue(cues, 1928)).toBeUndefined();
+    expect(findActiveSubtitleCue(cues, 1928.5, -0.5)?.text).toBe('Sonraki cümle');
   });
 
   beforeEach(() => {

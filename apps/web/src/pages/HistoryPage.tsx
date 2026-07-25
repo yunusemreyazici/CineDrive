@@ -164,7 +164,7 @@ export const HistoryPage: React.FC = () => {
                 <a
                   href={
                     item.episodeId
-                      ? `/watch/${item.mediaItem.id}?episodeId=${item.episodeId}`
+                      ? `/watch/${item.mediaItem.id}/${item.episodeId}`
                       : `/watch/${item.mediaItem.id}`
                   }
                   className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold"

@@ -82,67 +82,169 @@ export class PlaybackService {
     const now = new Date();
 
     // 6. Upsert PlaybackProgress
-    const progress = await this.prisma.playbackProgress.upsert({
-      where: {
-        userId_mediaItemId_episodeId: {
-          userId,
-          mediaItemId,
-          episodeId: episodeId || '',
-        },
-      },
-      create: {
-        userId,
-        mediaItemId,
-        episodeId: episodeId || null,
-        positionSeconds,
-        durationSeconds,
-        percentage,
-        completed: isCompleted,
-        firstStartedAt: now,
-        lastPlayedAt: now,
-        completedAt: isCompleted ? now : null,
-      },
-      update: {
-        positionSeconds,
-        durationSeconds,
-        percentage,
-        completed: isCompleted,
-        lastPlayedAt: now,
-        completedAt: isCompleted ? (existing?.completedAt || now) : null,
-      },
-      include: {
-        mediaItem: true,
-        episode: true,
-      },
-    });
+    const progressData = {
+      positionSeconds,
+      durationSeconds,
+      percentage,
+      completed: isCompleted,
+      lastPlayedAt: now,
+      completedAt: isCompleted ? (existing?.completedAt || now) : null,
+    };
+    const progress = existing
+      ? await this.prisma.playbackProgress.update({
+          where: { id: existing.id },
+          data: progressData,
+          include: {
+            mediaItem: true,
+            episode: true,
+          },
+        })
+      : await this.prisma.playbackProgress.create({
+          data: {
+            userId,
+            mediaItemId,
+            episodeId: episodeId || null,
+            ...progressData,
+            firstStartedAt: now,
+          },
+          include: {
+            mediaItem: true,
+            episode: true,
+          },
+        });
 
-    // 7. Upsert WatchHistory
-    await this.prisma.watchHistory.upsert({
+    // 7. Update WatchHistory without relying on a nullable compound unique
+    // key. SQLite treats NULL values as distinct, so Prisma upsert would
+    // create a new movie/general-series row on every progress save.
+    const existingHistory = await this.prisma.watchHistory.findFirst({
       where: {
-        userId_mediaItemId_episodeId: {
-          userId,
-          mediaItemId,
-          episodeId: episodeId || '',
-        },
-      },
-      create: {
         userId,
         mediaItemId,
         episodeId: episodeId || null,
-        positionSeconds,
-        durationSeconds,
-        completed: isCompleted,
-        watchedAt: now,
-      },
-      update: {
-        positionSeconds,
-        durationSeconds,
-        completed: isCompleted,
-        watchedAt: now,
       },
     });
+    if (existingHistory) {
+      await this.prisma.watchHistory.update({
+        where: { id: existingHistory.id },
+        data: {
+          positionSeconds,
+          durationSeconds,
+          completed: isCompleted,
+          watchedAt: now,
+        },
+      });
+    } else {
+      await this.prisma.watchHistory.create({
+        data: {
+          userId,
+          mediaItemId,
+          episodeId: episodeId || null,
+          positionSeconds,
+          durationSeconds,
+          completed: isCompleted,
+          watchedAt: now,
+        },
+      });
+    }
+
+    if (episodeId) {
+      // Older player versions saved the first selected episode as a
+      // series-level NULL record. Once a concrete episode is saved, discard
+      // that legacy sibling so the series appears only once.
+      await this.prisma.$transaction([
+        this.prisma.playbackProgress.deleteMany({
+          where: { userId, mediaItemId, episodeId: null },
+        }),
+        this.prisma.watchHistory.deleteMany({
+          where: { userId, mediaItemId, episodeId: null },
+        }),
+      ]);
+    }
 
     return progress;
+  }
+
+  public async repairDuplicateTrackingRecords() {
+    const [progressRows, historyRows] = await Promise.all([
+      this.prisma.playbackProgress.findMany({
+        orderBy: { lastPlayedAt: 'desc' },
+        select: {
+          id: true,
+          userId: true,
+          mediaItemId: true,
+          episodeId: true,
+          positionSeconds: true,
+          durationSeconds: true,
+          completed: true,
+          lastPlayedAt: true,
+        },
+      }),
+      this.prisma.watchHistory.findMany({
+        orderBy: { watchedAt: 'desc' },
+        select: { id: true, userId: true, mediaItemId: true, episodeId: true },
+      }),
+    ]);
+
+    const duplicateIds = <T extends {
+      id: string;
+      userId: string;
+      mediaItemId: string;
+      episodeId: string | null;
+    }>(rows: T[]) => {
+      const seen = new Set<string>();
+      const duplicates: string[] = [];
+      for (const row of rows) {
+        const key = `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
+        if (seen.has(key)) duplicates.push(row.id);
+        else seen.add(key);
+      }
+      return duplicates;
+    };
+
+    const progressDuplicates = duplicateIds(progressRows);
+    const historyDuplicates = duplicateIds(historyRows);
+    const [progressResult, historyResult] = await this.prisma.$transaction([
+      this.prisma.playbackProgress.deleteMany({
+        where: { id: { in: progressDuplicates } },
+      }),
+      this.prisma.watchHistory.deleteMany({
+        where: { id: { in: historyDuplicates } },
+      }),
+    ]);
+
+    const trackingKey = (row: {
+      userId: string;
+      mediaItemId: string;
+      episodeId: string | null;
+    }) => `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
+    const retainedProgress = progressRows.filter((row) => !progressDuplicates.includes(row.id));
+    const retainedHistoryKeys = new Set(
+      historyRows
+        .filter((row) => !historyDuplicates.includes(row.id))
+        .map((row) => trackingKey(row)),
+    );
+    const missingHistory = retainedProgress.filter(
+      (row) => !retainedHistoryKeys.has(trackingKey(row)),
+    );
+    if (missingHistory.length > 0) {
+      await this.prisma.watchHistory.createMany({
+        data: missingHistory.map((row) => ({
+          userId: row.userId,
+          mediaItemId: row.mediaItemId,
+          episodeId: row.episodeId,
+          positionSeconds: row.positionSeconds,
+          durationSeconds: row.durationSeconds,
+          completed: row.completed,
+          watchedAt: row.lastPlayedAt,
+        })),
+      });
+    }
+
+    return {
+      progressRemoved: progressResult.count,
+      historyRemoved: historyResult.count,
+      historyRestored: missingHistory.length,
+    };
   }
 
   /**

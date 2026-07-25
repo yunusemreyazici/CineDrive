@@ -1,3 +1,5 @@
+import type { SubtitleCue } from '../utils/subtitleCues';
+
 export interface SubtitleTrackType {
   id: string;
   language: string;
@@ -7,6 +9,7 @@ export interface SubtitleTrackType {
   isDefault?: boolean;
   url?: string;
   src?: string;
+  cues?: SubtitleCue[];
 }
 
 export type PlayerErrorCode =

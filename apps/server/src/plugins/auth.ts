@@ -61,6 +61,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
 
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();
+  await playbackService.repairDuplicateTrackingRecords();
 
   // Attach session decorator to each request
   fastify.decorateRequest('user', null);
