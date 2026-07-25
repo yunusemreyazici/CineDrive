@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MediaPlayer } from '../features/player/components/MediaPlayer';
+import {
+  alignSubtitleCueToPlaybackTimeline,
+  MediaPlayer,
+} from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
 import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOverlay';
 import { PlayerError } from '../features/player/components/PlayerError';
@@ -11,6 +14,17 @@ import type { MediaItemType } from '../types/media';
 
 describe('Player Components Unit Tests', () => {
   const hlsSessionId = '00000000-0000-4000-8000-000000000000';
+
+  it('aligns absolute subtitle cues with a restarted Safari HLS timeline', () => {
+    expect(alignSubtitleCueToPlaybackTimeline(2030.5, 2033, 2028, 0)).toEqual({
+      startTime: 2.5,
+      endTime: 5,
+    });
+    expect(alignSubtitleCueToPlaybackTimeline(2030.5, 2033, 2028, 0.4)).toEqual({
+      startTime: 2.9,
+      endTime: 5.4,
+    });
+  });
 
   beforeEach(() => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(hlsSessionId);

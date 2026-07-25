@@ -43,6 +43,19 @@ const createHlsSessionId = () =>
     ? crypto.randomUUID()
     : `player_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+export const alignSubtitleCueToPlaybackTimeline = (
+  startTime: number,
+  endTime: number,
+  timelineOffset: number,
+  subtitleDelay: number,
+) => {
+  const alignedStart = Math.max(0, startTime - timelineOffset + subtitleDelay);
+  return {
+    startTime: alignedStart,
+    endTime: Math.max(alignedStart + 0.001, endTime - timelineOffset + subtitleDelay),
+  };
+};
+
 const getQualityStorage = () => {
   try {
     return typeof window === 'undefined' ? undefined : window.localStorage;
@@ -116,6 +129,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const firstFrameReportedRef = useRef(false);
   const stallStartedAtRef = useRef<number | null>(null);
   const seekStartedAtRef = useRef<number | null>(null);
+  const originalCueTimesRef = useRef(
+    new WeakMap<TextTrackCue, { startTime: number; endTime: number }>(),
+  );
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -128,6 +144,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const nextEpisodeDismissedRef = useRef(false);
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
+  const [subtitleTrackLoadVersion, setSubtitleTrackLoadVersion] = useState(0);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [qualityPreference, setQualityPreference] =
     useState<QualityPreference>(initialQualityPreference);
@@ -235,29 +252,39 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         track.mode = 'disabled';
       }
     });
-  }, [activeSubtitleId, availableSubtitles]);
+  }, [activeSubtitleId, availableSubtitles, subtitleTrackLoadVersion]);
 
-  // Live real-time subtitle cue timing offset shift
-  const prevDelayRef = React.useRef(0);
+  // Native Safari HLS restarts its media timeline at zero after an absolute
+  // seek. Keep subtitle cues on that local timeline while preserving the
+  // user's live subtitle delay.
   const [delayToast, setDelayToast] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!videoRef.current) return;
-    const delta = subtitleDelay - prevDelayRef.current;
-    if (delta === 0) return;
+    const timelineOffset = playbackMode === 'hls' ? hlsStartOffset : 0;
 
     const tracks = Array.from(videoRef.current.textTracks);
     tracks.forEach((track) => {
       if (track.cues) {
         Array.from(track.cues).forEach((cue) => {
-          cue.startTime += delta;
-          cue.endTime += delta;
+          let originalTimes = originalCueTimesRef.current.get(cue);
+          if (!originalTimes) {
+            originalTimes = { startTime: cue.startTime, endTime: cue.endTime };
+            originalCueTimesRef.current.set(cue, originalTimes);
+          }
+
+          const alignedTimes = alignSubtitleCueToPlaybackTimeline(
+            originalTimes.startTime,
+            originalTimes.endTime,
+            timelineOffset,
+            subtitleDelay,
+          );
+          cue.startTime = alignedTimes.startTime;
+          cue.endTime = alignedTimes.endTime;
         });
       }
     });
-
-    prevDelayRef.current = subtitleDelay;
-  }, [subtitleDelay]);
+  }, [hlsStartOffset, playbackMode, subtitleDelay, subtitleTrackLoadVersion]);
 
   // Z & X Keyboard Hotkeys for live subtitle delay adjustment
   React.useEffect(() => {
@@ -317,11 +344,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const customTrack: SubtitleTrackType = {
         id: `custom_${Date.now()}`,
         language: 'tr',
-        label: `${file.name.replace(/\.[^/.]+$/, '')} (Yerel)`,
-        isForced: false,
-        isHearingImpaired: false,
-        isDefault: true,
-        url: objectUrl,
+      label: `${file.name.replace(/\.[^/.]+$/, '')} (Yerel)`,
+      isForced: false,
+      isHearingImpaired: false,
+      isDefault: false,
+      url: objectUrl,
       };
 
       setCustomSubtitles((prev) => [...prev, customTrack]);
@@ -350,7 +377,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       label,
       isForced: false,
       isHearingImpaired: false,
-      isDefault: true,
+      isDefault: false,
       url: objectUrl,
     };
 
@@ -1003,7 +1030,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             kind="subtitles"
             srcLang={sub.language}
             label={sub.label || sub.language.toUpperCase()}
-            default={sub.isDefault || activeSubtitleId === sub.id}
+            default={activeSubtitleId === sub.id || (sub.isDefault && !activeSubtitleId)}
+            onLoad={() => setSubtitleTrackLoadVersion((version) => version + 1)}
           />
         ))}
       </video>
