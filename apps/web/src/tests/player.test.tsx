@@ -189,7 +189,8 @@ describe('Player Components Unit Tests', () => {
     );
   });
 
-  it('starts a new Safari HLS window when seeking beyond generated segments', () => {
+  it('debounces Safari HLS seeks and starts only the final requested window', () => {
+    vi.useFakeTimers();
     const userAgentSpy = vi
       .spyOn(window.navigator, 'userAgent', 'get')
       .mockReturnValue(
@@ -228,15 +229,23 @@ describe('Player Components Unit Tests', () => {
 
     fireEvent.loadedMetadata(video);
     fireEvent.keyDown(window, { key: '5' });
+    fireEvent.keyDown(window, { key: '7' });
 
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=500',
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
     );
-    expect(screen.getByText('8:20 konumundan akış hazırlanıyor')).toBeInTheDocument();
+    expect(screen.getByText('11:40 konumundan akış hazırlanıyor')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=700',
+    );
     userAgentSpy.mockRestore();
   });
 
   it('does not reopen the resume prompt after a Safari HLS source change', () => {
+    vi.useFakeTimers();
     const userAgentSpy = vi
       .spyOn(window.navigator, 'userAgent', 'get')
       .mockReturnValue(
@@ -282,6 +291,9 @@ describe('Player Components Unit Tests', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }),
     );
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
     expect(video.getAttribute('src')).toBe(
       '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=154',
     );

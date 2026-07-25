@@ -65,6 +65,33 @@ describe('HlsService cache management', () => {
     });
   });
 
+  it('keeps only the three most recent seek caches for one episode', () => {
+    const service = createService(1024 * 1024);
+    const familyKey = 'episode-fingerprint';
+    const cacheKeys = [
+      familyKey,
+      `${familyKey}-at-100`,
+      `${familyKey}-at-200`,
+      `${familyKey}-at-300`,
+    ];
+
+    cacheKeys.forEach((cacheKey, index) => {
+      const directory = service.getCacheDir(cacheKey);
+      fs.mkdirSync(directory, { recursive: true });
+      const accessMarker = path.join(directory, '.access');
+      fs.writeFileSync(accessMarker, '');
+      const accessTime = new Date(Date.now() - (cacheKeys.length - index) * 1000);
+      fs.utimesSync(accessMarker, accessTime, accessTime);
+    });
+
+    service.enforceFamilyCacheLimit(familyKey, `${familyKey}-at-300`);
+
+    expect(fs.existsSync(service.getCacheDir(familyKey))).toBe(false);
+    expect(fs.existsSync(service.getCacheDir(`${familyKey}-at-100`))).toBe(true);
+    expect(fs.existsSync(service.getCacheDir(`${familyKey}-at-200`))).toBe(true);
+    expect(fs.existsSync(service.getCacheDir(`${familyKey}-at-300`))).toBe(true);
+  });
+
   it('rejects unsafe cache and asset names', () => {
     const service = createService(1024);
 

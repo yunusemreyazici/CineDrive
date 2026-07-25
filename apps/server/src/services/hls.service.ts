@@ -13,6 +13,7 @@ const IDLE_JOB_TIMEOUT_MS = 45_000;
 const CACHE_VERSION = 'safari-h264-v6';
 const DEFAULT_CACHE_BYTES = 20 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_ACTIVE_JOBS = 2;
+const MAX_FAMILY_CACHE_ENTRIES = 3;
 const ACCESS_MARKER = '.access';
 const COMPLETE_MARKER = '.complete';
 
@@ -85,6 +86,7 @@ export class HlsService {
 
     if (this.isComplete(playlistPath)) {
       this.touchCache(outputDir);
+      this.enforceFamilyCacheLimit(familyKey, cacheKey);
       return playlistPath;
     }
 
@@ -108,6 +110,7 @@ export class HlsService {
     }
 
     this.enforceCacheQuota(cacheKey);
+    this.enforceFamilyCacheLimit(familyKey, cacheKey);
 
     // A previous viewer may have left while an EVENT playlist was still being
     // generated. Start clean instead of presenting a permanently truncated
@@ -130,6 +133,7 @@ export class HlsService {
 
       fs.mkdirSync(outputDir, { recursive: true });
       this.touchCache(outputDir);
+      this.enforceFamilyCacheLimit(familyKey, cacheKey);
       const sourceCodecs =
         typeof input === 'string' ? this.probeLocalCodecs(input) : null;
       // Although recent Safari versions can decode many HEVC files directly,
@@ -206,6 +210,7 @@ export class HlsService {
             this.jobs.delete(cacheKey);
             fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
             this.touchCache(outputDir);
+            this.enforceFamilyCacheLimit(familyKey, cacheKey);
             this.enforceCacheQuota(cacheKey);
             finish(resolve);
           })
@@ -285,6 +290,46 @@ export class HlsService {
       }
       fs.rmSync(entry.directory, { recursive: true, force: true });
       totalBytes -= entry.size;
+    }
+  }
+
+  public enforceFamilyCacheLimit(
+    familyKey: string,
+    protectedCacheKey?: string,
+  ) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(familyKey)) {
+      throw new Error('INVALID_HLS_KEY');
+    }
+    const protectedDirectory = protectedCacheKey
+      ? this.getCacheDir(protectedCacheKey)
+      : undefined;
+    const activeDirectories = new Set(
+      [...this.jobs.keys()].map((key) => this.getCacheDir(key)),
+    );
+    const baseDirectoryName = `${familyKey}-${CACHE_VERSION}`;
+    const seekDirectoryPrefix = `${familyKey}-at-`;
+    const versionSuffix = `-${CACHE_VERSION}`;
+    const familyEntries = this.cacheEntries()
+      .filter((entry) => {
+        const name = path.basename(entry.directory);
+        return (
+          name === baseDirectoryName ||
+          (name.startsWith(seekDirectoryPrefix) &&
+            name.endsWith(versionSuffix))
+        );
+      })
+      .sort((left, right) => right.accessedAt - left.accessedAt);
+
+    let retainedEntries = 0;
+    for (const entry of familyEntries) {
+      const mustRetain =
+        entry.directory === protectedDirectory ||
+        activeDirectories.has(entry.directory);
+      if (mustRetain || retainedEntries < MAX_FAMILY_CACHE_ENTRIES) {
+        retainedEntries += 1;
+        continue;
+      }
+      fs.rmSync(entry.directory, { recursive: true, force: true });
     }
   }
 

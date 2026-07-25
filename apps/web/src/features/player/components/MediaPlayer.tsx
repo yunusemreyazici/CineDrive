@@ -32,6 +32,7 @@ const isSafariBrowser = () => {
 
 const STALL_RECOVERY_DELAY_MS = 12_000;
 const MAX_STALL_RECOVERY_ATTEMPTS = 2;
+const HLS_SEEK_DEBOUNCE_MS = 400;
 const QUALITY_STORAGE_KEY = 'cinedrive-player-quality-v1';
 
 const getQualityStorage = () => {
@@ -100,6 +101,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHlsSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryAttemptsRef = useRef(0);
   const recoveryPositionRef = useRef<number | null>(null);
   const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
@@ -176,6 +178,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       : qualityPreference;
 
   React.useEffect(() => {
+    if (pendingHlsSeekTimerRef.current) {
+      clearTimeout(pendingHlsSeekTimerRef.current);
+      pendingHlsSeekTimerRef.current = null;
+    }
     setPlaybackMode(recommendedPlaybackMode);
     setHlsStartOffset(0);
     resumePromptHandledRef.current = false;
@@ -200,6 +206,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
       if (stallRecoveryTimerRef.current) clearTimeout(stallRecoveryTimerRef.current);
       if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+      if (pendingHlsSeekTimerRef.current) {
+        clearTimeout(pendingHlsSeekTimerRef.current);
+      }
       urlsToRevoke.forEach((url) => {
         try {
           URL.revokeObjectURL(url);
@@ -528,6 +537,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       );
 
       if (playbackMode !== 'hls') {
+        if (pendingHlsSeekTimerRef.current) {
+          clearTimeout(pendingHlsSeekTimerRef.current);
+          pendingHlsSeekTimerRef.current = null;
+        }
         video.currentTime = targetTime;
         if (shouldPlay) video.play().catch(() => {});
         return;
@@ -546,6 +559,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
 
       if (isInCurrentWindow) {
+        if (pendingHlsSeekTimerRef.current) {
+          clearTimeout(pendingHlsSeekTimerRef.current);
+          pendingHlsSeekTimerRef.current = null;
+        }
         video.currentTime = localTarget;
         if (shouldPlay) video.play().catch(() => {});
         return;
@@ -560,11 +577,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setConnectionMessage(
         `${Math.floor(targetTime / 60)}:${String(Math.floor(targetTime % 60)).padStart(2, '0')} konumundan akış hazırlanıyor`,
       );
-      if (nextOffset === hlsStartOffset) {
-        video.load();
-      } else {
-        setHlsStartOffset(nextOffset);
+      if (pendingHlsSeekTimerRef.current) {
+        clearTimeout(pendingHlsSeekTimerRef.current);
       }
+      pendingHlsSeekTimerRef.current = setTimeout(() => {
+        pendingHlsSeekTimerRef.current = null;
+        if (nextOffset === hlsStartOffset) {
+          video.load();
+        } else {
+          setHlsStartOffset(nextOffset);
+        }
+      }, HLS_SEEK_DEBOUNCE_MS);
     },
     [duration, hlsStartOffset, playbackMode],
   );
