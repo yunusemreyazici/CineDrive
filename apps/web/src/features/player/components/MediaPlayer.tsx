@@ -678,7 +678,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       const nextOffset = Math.floor(targetTime);
       suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
-      resumeAfterSourceChangeRef.current = shouldPlay ? 'hls' : null;
+      // Resume the mode that is actually being reloaded. Using a fixed HLS
+      // marker leaves audio/full compatibility streams paused at local 0.
+      resumeAfterSourceChangeRef.current = shouldPlay ? playbackMode : null;
       setCurrentTime(targetTime);
       setBufferedTime(targetTime);
       setIsBuffering(true);

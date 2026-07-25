@@ -393,6 +393,61 @@ Sonraki cümle`);
     userAgentSpy.mockRestore();
   });
 
+  it('resumes playback after loading a saved position in audio compatibility mode', () => {
+    vi.useFakeTimers();
+    const resumableMovie: MediaItemType = {
+      ...mockMovie,
+      progress: {
+        positionSeconds: 1962,
+        durationSeconds: 3694,
+        percentage: 53.1,
+        completed: false,
+      },
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'audio',
+          reason: 'mkv:h264:dts',
+          analyzed: true,
+        },
+        technicalMetadata: {
+          mediaDuration: 3694,
+          mediaHeight: 1080,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={resumableMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    const playSpy = vi.spyOn(video, 'play').mockResolvedValue();
+    vi.spyOn(video, 'pause').mockImplementation(() => {});
+    fireEvent.loadedMetadata(video);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(video.getAttribute('src')).toBe(
+      `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=1962&session=${hlsSessionId}`,
+    );
+
+    fireEvent.loadedMetadata(video);
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(playSpy).toHaveBeenCalled();
+  });
+
   it('releases the active Safari HLS encoder when the player unmounts', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
