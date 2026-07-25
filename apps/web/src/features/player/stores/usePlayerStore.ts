@@ -1,5 +1,15 @@
 import { create } from 'zustand';
 
+const AUTO_PLAY_NEXT_STORAGE_KEY = 'cinedrive-auto-play-next-v1';
+
+const getInitialAutoPlayNext = () => {
+  try {
+    return localStorage.getItem(AUTO_PLAY_NEXT_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+};
+
 interface PlayerState {
   volume: number;
   isMuted: boolean;
@@ -24,7 +34,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   isMuted: false,
   playbackSpeed: 1,
   activeSubtitleId: null,
-  autoPlayNext: true,
+  autoPlayNext: getInitialAutoPlayNext(),
   subtitleDelay: 0,
   subtitleFontSize: 100,
   subtitleBgColor: 'black',
@@ -32,7 +42,14 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setIsMuted: (isMuted) => set({ isMuted }),
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
   setActiveSubtitleId: (activeSubtitleId) => set({ activeSubtitleId }),
-  setAutoPlayNext: (autoPlayNext) => set({ autoPlayNext }),
+  setAutoPlayNext: (autoPlayNext) => {
+    try {
+      localStorage.setItem(AUTO_PLAY_NEXT_STORAGE_KEY, String(autoPlayNext));
+    } catch {
+      // Keep the preference in memory if storage is unavailable.
+    }
+    set({ autoPlayNext });
+  },
   setSubtitleDelay: (subtitleDelay) => set({ subtitleDelay }),
   setSubtitleFontSize: (subtitleFontSize) => set({ subtitleFontSize }),
   setSubtitleBgColor: (subtitleBgColor) => set({ subtitleBgColor }),

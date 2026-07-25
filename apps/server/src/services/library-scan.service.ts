@@ -222,7 +222,7 @@ export class LibraryScanService {
       try {
         const driveFile = await this.upsertDriveFile(libraryId, video);
         if (driveFile.isNew) added++;
-        else updated++;
+        else if (driveFile.sourceChanged) updated++;
 
         if (driveFile.needsMediaAnalysis && video.size) {
           try {
@@ -270,6 +270,10 @@ export class LibraryScanService {
         const normalizedTitle = title.toLowerCase();
         const year = parsedName.year;
         const type = parsedName.type;
+        const mediaItemId = this.generateMediaItemId(type, normalizedTitle);
+        const existingMediaItem = await this.prisma.mediaItem.findUnique({
+          where: { id: mediaItemId },
+        });
 
         const durationSec = video.videoMediaMetadata?.durationMillis
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
@@ -288,7 +292,14 @@ export class LibraryScanService {
         let tmdbId: number | undefined;
         let imdbId: string | undefined;
 
-        const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
+        const shouldRefreshMetadata =
+          driveFile.isNew ||
+          driveFile.sourceChanged ||
+          !existingMediaItem ||
+          !existingMediaItem.tmdbId;
+        const onlineMeta = shouldRefreshMetadata
+          ? await this.metadataService.fetchMetadata(title, type as 'movie' | 'series')
+          : null;
         if (onlineMeta) {
           onlinePosterUrl = onlineMeta.posterUrl;
           onlineBackdropUrl = onlineMeta.backdropUrl;
@@ -303,8 +314,6 @@ export class LibraryScanService {
           if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
           if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
         }
-
-        const mediaItemId = this.generateMediaItemId(type, normalizedTitle);
 
         // Upsert MediaItem
         const mediaItem = await this.prisma.mediaItem.upsert({
@@ -385,7 +394,21 @@ export class LibraryScanService {
             update: {},
           });
 
-          const epMetaMap = await this.metadataService.fetchShowEpisodes(title);
+          const existingEpisode = await this.prisma.episode.findUnique({
+            where: {
+              seasonId_episodeNumber: {
+                seasonId: season.id,
+                episodeNumber,
+              },
+            },
+          });
+          const epMetaMap =
+            driveFile.isNew ||
+            driveFile.sourceChanged ||
+            !existingEpisode ||
+            !existingEpisode.stillUrl
+              ? await this.metadataService.fetchShowEpisodes(title)
+              : new Map();
           const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
 
           const epTitle = epMeta?.name || video.name.replace(/\.[^/.]+$/, '');
@@ -488,6 +511,7 @@ export class LibraryScanService {
     return {
       record,
       isNew: !existing,
+      sourceChanged,
       needsMediaAnalysis: !existing?.mediaAnalyzedAt || sourceChanged,
     };
   }

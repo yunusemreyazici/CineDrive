@@ -244,6 +244,7 @@ model WatchHistory {
   positionSeconds Float     @default(0)
   durationSeconds Float     @default(0)
   completed       Boolean   @default(false)
+  deviceType      String    @default("unknown")
   watchedAt       DateTime  @default(now())
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

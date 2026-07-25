@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Pencil, Trash2, AlertTriangle, Loader2, Download } from 'lucide-react';
-import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation } from '../hooks/useApi';
+import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation, useMediaListQuery } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { MediaCard } from '../components/media/MediaCard';
 import { EditMetadataModal } from '../components/EditMetadataModal';
 import { TrailerModal } from '../components/media/TrailerModal';
 import type { SeasonType, EpisodeType } from '../types/media';
@@ -11,6 +12,19 @@ export const MediaDetailPage: React.FC = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
   const { data: media, isLoading } = useMediaDetailQuery(mediaId);
+  const primaryGenre = media?.genres?.[0];
+  const { data: similarData } = useMediaListQuery(
+    media
+      ? {
+          type: media.type,
+          genre: primaryGenre,
+          sortBy: 'voteAverage',
+          sortOrder: 'desc',
+          limit: 12,
+        }
+      : undefined,
+    { enabled: !!media },
+  );
   const toggleFavorite = useToggleFavoriteMutation();
   const deleteMutation = useDeleteMediaItemMutation();
   const autoSubtitleMutation = useAutoDownloadSubtitleMutation();
@@ -99,6 +113,9 @@ export const MediaDetailPage: React.FC = () => {
     return match ? `https://www.youtube.com/embed/${match[1]}?autoplay=1` : null;
   };
   const embedTrailerUrl = getYouTubeEmbedUrl(media.trailerUrl);
+  const similarItems = (similarData?.media || [])
+    .filter((item) => item.id !== media.id)
+    .slice(0, 6);
 
   return (
     <div className="space-y-10">
@@ -420,6 +437,29 @@ export const MediaDetailPage: React.FC = () => {
             })}
           </div>
         </div>
+      )}
+
+      {similarItems.length > 0 && (
+        <section className="space-y-4" aria-labelledby="similar-media-heading">
+          <div>
+            <h2
+              id="similar-media-heading"
+              className="text-2xl font-extrabold font-display text-white"
+            >
+              Benzer İçerikler
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              {primaryGenre
+                ? `${primaryGenre} türündeki yüksek puanlı diğer içerikler`
+                : 'Kütüphanenizdeki benzer içerikler'}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {similarItems.map((item) => (
+              <MediaCard key={item.id} media={item} />
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Trailer YouTube Embed Modal */}

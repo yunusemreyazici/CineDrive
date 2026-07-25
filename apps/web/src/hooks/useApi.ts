@@ -277,7 +277,7 @@ export function useAutoDownloadSubtitleMutation() {
 }
 export function useMediaListQuery(
   params?: Partial<MediaQueryInput>,
-  options?: { respectVisibilityPreference?: boolean },
+  options?: { respectVisibilityPreference?: boolean; enabled?: boolean },
 ) {
   const hideMoviesWithoutMetadata = useUiStore(
     (state) => state.hideMoviesWithoutMetadata,
@@ -295,6 +295,7 @@ export function useMediaListQuery(
       });
       return res.data;
     },
+    enabled: options?.enabled !== false,
   });
 }
 

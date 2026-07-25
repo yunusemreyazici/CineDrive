@@ -112,6 +112,10 @@ export interface WatchHistoryType {
   mediaItem: MediaItemType;
   episodeId?: string;
   episode?: EpisodeType;
+  positionSeconds: number;
+  durationSeconds: number;
+  completed: boolean;
+  deviceType?: 'desktop' | 'tablet' | 'mobile' | 'unknown';
 }
 
 export interface LibraryScanType {

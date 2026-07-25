@@ -84,9 +84,9 @@ export class LocalScanService {
             }
           }
 
-          if (existingDriveFile) {
+          if (existingDriveFile && sourceChanged) {
             updatedCount++;
-          } else {
+          } else if (!existingDriveFile) {
             addedCount++;
           }
 
@@ -121,6 +121,11 @@ export class LocalScanService {
           const type = parsedName.type; // 'movie' | 'series'
           const seasonNumber = parsedName.seasonNumber || 1;
           const episodeNumber = parsedName.episodeNumber || 1;
+          const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+          const mediaItemId = `media_${type}_${safeTitle}`;
+          const existingMediaItem = await this.prisma.mediaItem.findUnique({
+            where: { id: mediaItemId },
+          });
 
           // ── TMDB Metadata Enrichment ─────────────────────────────────────────
           let onlinePosterUrl: string | null = null;
@@ -136,7 +141,13 @@ export class LocalScanService {
           let tmdbId: number | undefined;
           let imdbId: string | undefined;
 
-          const onlineMeta = await this.metadataService.fetchMetadata(title, type as 'movie' | 'series');
+          const onlineMeta =
+            !existingDriveFile ||
+            sourceChanged ||
+            !existingMediaItem ||
+            !existingMediaItem.tmdbId
+              ? await this.metadataService.fetchMetadata(title, type as 'movie' | 'series')
+              : null;
           if (onlineMeta) {
             onlinePosterUrl = onlineMeta.posterUrl;
             onlineBackdropUrl = onlineMeta.backdropUrl;
@@ -154,9 +165,6 @@ export class LocalScanService {
           // ────────────────────────────────────────────────────────────────────
 
           // Deterministic ID (same algorithm as LibraryScanService)
-          const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-          const mediaItemId = `media_${type}_${safeTitle}`;
-
           // Upsert MediaItem with full TMDB data
           const mediaItem = await this.prisma.mediaItem.upsert({
             where: { id: mediaItemId },
@@ -230,7 +238,21 @@ export class LocalScanService {
             });
 
             // Fetch per-episode TMDB metadata
-            const epMetaMap = await this.metadataService.fetchShowEpisodes(title);
+            const existingEpisode = await this.prisma.episode.findUnique({
+              where: {
+                seasonId_episodeNumber: {
+                  seasonId: season.id,
+                  episodeNumber,
+                },
+              },
+            });
+            const epMetaMap =
+              !existingDriveFile ||
+              sourceChanged ||
+              !existingEpisode ||
+              !existingEpisode.stillUrl
+                ? await this.metadataService.fetchShowEpisodes(title)
+                : new Map();
             const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
             const epTitle = epMeta?.name || file.name.replace(/\.[^/.]+$/, '');
             const epOverview = epMeta?.overview || null;

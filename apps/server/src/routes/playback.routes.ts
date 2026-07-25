@@ -1,6 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { updateProgressSchema } from '@cinedrive/shared';
 
+const deviceTypeFromUserAgent = (userAgent = '') => {
+  const normalized = userAgent.toLowerCase();
+  if (/ipad|tablet/.test(normalized)) return 'tablet';
+  if (/mobile|iphone|android/.test(normalized)) return 'mobile';
+  return normalized ? 'desktop' : 'unknown';
+};
+
 export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
@@ -25,6 +32,7 @@ export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
       const progress = await fastify.playbackService.updateProgress(userId, {
         ...parseResult.data,
         clientTimestamp,
+        deviceType: deviceTypeFromUserAgent(request.headers['user-agent']),
       });
 
       return reply.status(200).send({ progress });

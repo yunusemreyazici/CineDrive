@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
-import { History, Trash2, Play, Calendar, Film, Tv } from 'lucide-react';
+import { History, Trash2, Play, Calendar, Film, Tv, Monitor, Smartphone, Tablet } from 'lucide-react';
 import { useWatchHistoryQuery, useDeleteHistoryMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { apiClient } from '../api/client';
 import { useQueryClient } from '@tanstack/react-query';
 
-type HistoryFilterType = 'all' | 'movie' | 'series' | 'completed' | 'in_progress';
+type HistoryFilterType = 'all' | 'movie' | 'series';
+type DurationFilter = 'all' | 'short' | 'medium' | 'long';
+type DeviceFilter = 'all' | 'desktop' | 'tablet' | 'mobile';
 
 export const HistoryPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState<HistoryFilterType>('all');
+  const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
+  const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('all');
+  const [episodesOnly, setEpisodesOnly] = useState(false);
   const { data: historyItems, isLoading } = useWatchHistoryQuery();
   const deleteHistoryMutation = useDeleteHistoryMutation();
 
@@ -38,8 +43,14 @@ export const HistoryPage: React.FC = () => {
   };
 
   const filteredItems = (historyItems || []).filter((item) => {
-    if (activeFilter === 'movie') return item.mediaItem.type === 'movie';
-    if (activeFilter === 'series') return item.mediaItem.type === 'series';
+    if (activeFilter === 'movie' && item.mediaItem.type !== 'movie') return false;
+    if (activeFilter === 'series' && item.mediaItem.type !== 'series') return false;
+    if (episodesOnly && !item.episodeId) return false;
+    const watchedMinutes = item.positionSeconds / 60;
+    if (durationFilter === 'short' && watchedMinutes >= 15) return false;
+    if (durationFilter === 'medium' && (watchedMinutes < 15 || watchedMinutes >= 45)) return false;
+    if (durationFilter === 'long' && watchedMinutes < 45) return false;
+    if (deviceFilter !== 'all' && item.deviceType !== deviceFilter) return false;
     return true;
   });
 
@@ -66,6 +77,50 @@ export const HistoryPage: React.FC = () => {
             Tüm Geçmişi Temizle
           </button>
         )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="space-y-1.5 text-xs text-zinc-400">
+          <span className="font-semibold">İzlenen süre</span>
+          <select
+            value={durationFilter}
+            onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}
+            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
+          >
+            <option value="all">Tüm süreler</option>
+            <option value="short">15 dakikadan az</option>
+            <option value="medium">15–45 dakika</option>
+            <option value="long">45 dakika ve üzeri</option>
+          </select>
+        </label>
+        <label className="space-y-1.5 text-xs text-zinc-400">
+          <span className="font-semibold">Cihaz</span>
+          <select
+            value={deviceFilter}
+            onChange={(event) => setDeviceFilter(event.target.value as DeviceFilter)}
+            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
+          >
+            <option value="all">Tüm cihazlar</option>
+            <option value="desktop">Bilgisayar</option>
+            <option value="tablet">Tablet</option>
+            <option value="mobile">Telefon</option>
+          </select>
+        </label>
+        <label className="flex items-end">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={episodesOnly}
+            onClick={() => setEpisodesOnly((value) => !value)}
+            className={`w-full rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
+              episodesOnly
+                ? 'border-brand-500 bg-brand-600 text-white'
+                : 'border-zinc-800 bg-zinc-900 text-zinc-400'
+            }`}
+          >
+            Yalnızca bölümler
+          </button>
+        </label>
       </div>
 
       {/* Filter Tabs */}
@@ -156,6 +211,25 @@ export const HistoryPage: React.FC = () => {
                       </span>
                     )}
                   </h4>
+                  <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+                    <span>{Math.max(1, Math.round(item.positionSeconds / 60))} dk izlendi</span>
+                    <span className="flex items-center gap-1">
+                      {item.deviceType === 'mobile' ? (
+                        <Smartphone className="h-3 w-3" />
+                      ) : item.deviceType === 'tablet' ? (
+                        <Tablet className="h-3 w-3" />
+                      ) : (
+                        <Monitor className="h-3 w-3" />
+                      )}
+                      {item.deviceType === 'mobile'
+                        ? 'Telefon'
+                        : item.deviceType === 'tablet'
+                          ? 'Tablet'
+                          : item.deviceType === 'desktop'
+                            ? 'Bilgisayar'
+                            : 'Bilinmiyor'}
+                    </span>
+                  </div>
                 </div>
               </div>
 

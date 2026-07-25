@@ -13,7 +13,7 @@ export class PlaybackService {
    */
   public async updateProgress(
     userId: string,
-    data: UpdateProgressInput & { clientTimestamp?: number },
+    data: UpdateProgressInput & { clientTimestamp?: number; deviceType?: string },
   ) {
     const { mediaItemId, episodeId, clientTimestamp } = data;
     let positionSeconds = data.positionSeconds;
@@ -130,6 +130,7 @@ export class PlaybackService {
           positionSeconds,
           durationSeconds,
           completed: isCompleted,
+          deviceType: data.deviceType || existingHistory.deviceType,
           watchedAt: now,
         },
       });
@@ -142,6 +143,7 @@ export class PlaybackService {
           positionSeconds,
           durationSeconds,
           completed: isCompleted,
+          deviceType: data.deviceType || 'unknown',
           watchedAt: now,
         },
       });
