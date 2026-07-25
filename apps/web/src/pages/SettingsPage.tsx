@@ -69,14 +69,14 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-7">
-      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
-        <div className="p-3 bg-brand-600/20 border border-brand-500/30 text-brand-400 rounded-2xl">
-          <Settings className="w-6 h-6" />
+    <div className="settings-compact space-y-4">
+      <div className="flex items-center gap-3 border-b border-zinc-800/60 pb-4">
+        <div className="rounded-xl border border-brand-500/30 bg-brand-600/20 p-2.5 text-brand-400">
+          <Settings className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Ayarlar</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">
+          <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">Ayarlar</h2>
+          <p className="mt-0.5 text-xs text-zinc-400">
             Sistem, kütüphane ve medya araçlarını tek yerden yönetin
           </p>
         </div>
@@ -85,7 +85,7 @@ export const SettingsPage: React.FC = () => {
       <div
         role="tablist"
         aria-label="Ayar bölümleri"
-        className="flex gap-2 overflow-x-auto rounded-2xl border border-zinc-800/70 bg-zinc-950/50 p-2 scrollbar-none"
+        className="scrollbar-none flex gap-1.5 overflow-x-auto rounded-xl border border-zinc-800/70 bg-zinc-950/50 p-1.5"
       >
         {settingsTabs.map((tab) => {
           const Icon = tab.icon;
@@ -98,24 +98,24 @@ export const SettingsPage: React.FC = () => {
               role="tab"
               aria-selected={isActive}
               onClick={() => selectTab(tab.id)}
-              className={`flex min-w-max items-center gap-2.5 rounded-xl border px-4 py-3 text-sm font-semibold transition-all ${
+              className={`flex min-w-max items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
                 isActive
                   ? 'border-brand-500/40 bg-brand-600/20 text-brand-300 shadow-lg shadow-brand-500/10'
                   : 'border-transparent text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100'
               }`}
             >
-              <Icon className="h-5 w-5" />
+              <Icon className="h-4 w-4" />
               {tab.label}
             </button>
           );
         })}
       </div>
 
-      <div role="tabpanel">
-        {activeTab === 'general' && <GeneralSettingsContent />}
-        {activeTab === 'manage' && <MediaManagerPage />}
-        {activeTab === 'storage' && <InsightsPage />}
-        {activeTab === 'health' && <MediaHealthPage />}
+      <div role="tabpanel" className={activeTab === 'general' ? '' : 'settings-tool'}>
+        {activeTab === 'general' ? <GeneralSettingsContent /> : null}
+        {activeTab === 'manage' ? <MediaManagerPage /> : null}
+        {activeTab === 'storage' ? <InsightsPage /> : null}
+        {activeTab === 'health' ? <MediaHealthPage /> : null}
       </div>
     </div>
   );
@@ -148,7 +148,7 @@ const GeneralSettingsContent: React.FC = () => {
     : (googleStatus?.connections || (googleStatus?.connection ? [googleStatus.connection as { id?: string; email?: string; googleEmail?: string }] : []));
 
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="settings-general">
       {/* User Profile Card */}
       <UserProfileCard />
 
