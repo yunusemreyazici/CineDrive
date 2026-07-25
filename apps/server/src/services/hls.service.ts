@@ -10,10 +10,11 @@ if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 const READY_SEGMENT_COUNT = 3;
 const WAIT_TIMEOUT_MS = 45_000;
 const IDLE_JOB_TIMEOUT_MS = 45_000;
-const CACHE_VERSION = 'stream-copy-v4';
+const CACHE_VERSION = 'safari-h264-v6';
 const DEFAULT_CACHE_BYTES = 20 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_ACTIVE_JOBS = 2;
 const ACCESS_MARKER = '.access';
+const COMPLETE_MARKER = '.complete';
 
 export type HlsServiceOptions = {
   cacheRoot?: string;
@@ -113,25 +114,23 @@ export class HlsService {
       this.touchCache(outputDir);
       const sourceCodecs =
         typeof input === 'string' ? this.probeLocalCodecs(input) : null;
-      const canCopyVideo =
-        sourceCodecs?.video === 'h264' || sourceCodecs?.video === 'hevc';
+      // Although recent Safari versions can decode many HEVC files directly,
+      // some hvc1 sources still fail after they are remuxed as fragmented HLS.
+      // Keep H.264 zero-copy, but make every other codec deterministic for the
+      // Safari compatibility path.
+      const canCopyVideo = sourceCodecs?.video === 'h264';
       const videoOptions = canCopyVideo
-        ? [
-            '-c:v copy',
-            ...(sourceCodecs?.video === 'hevc' ? ['-tag:v hvc1'] : []),
-          ]
+        ? ['-c:v copy']
         : [
-            ...(process.platform === 'darwin'
-              ? [
-                  '-c:v h264_videotoolbox',
-                  '-b:v 5M',
-                  '-maxrate 6M',
-                  '-bufsize 12M',
-                  '-profile:v high',
-                  '-level:v 4.1',
-                  '-pix_fmt yuv420p',
-                ]
-              : ['-c:v libx264', '-preset veryfast', '-crf 23', '-pix_fmt yuv420p']),
+            '-c:v libx264',
+            '-preset ultrafast',
+            '-tune zerolatency',
+            '-b:v 5M',
+            '-maxrate 6M',
+            '-bufsize 12M',
+            '-profile:v high',
+            '-level:v 4.1',
+            '-pix_fmt yuv420p',
             '-force_key_frames expr:gte(t,n_forced*4)',
           ];
       const command = ffmpeg(input)
@@ -174,12 +173,17 @@ export class HlsService {
             const failedJob = this.jobs.get(cacheKey);
             if (failedJob) clearInterval(failedJob.idleTimer);
             this.jobs.delete(cacheKey);
+            // FFmpeg writes ENDLIST when it is terminated gracefully. That
+            // does not mean the episode was fully generated, so never retain
+            // an interrupted cache as a reusable completed stream.
+            fs.rmSync(outputDir, { recursive: true, force: true });
             finish(() => reject(error));
           })
           .on('end', () => {
             const completedJob = this.jobs.get(cacheKey);
             if (completedJob) clearInterval(completedJob.idleTimer);
             this.jobs.delete(cacheKey);
+            fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
             this.touchCache(outputDir);
             this.enforceCacheQuota(cacheKey);
             finish(resolve);
@@ -202,7 +206,7 @@ export class HlsService {
           activeJob &&
           Date.now() - activeJob.lastAccessAt >= IDLE_JOB_TIMEOUT_MS
         ) {
-          activeJob.command.kill('SIGTERM');
+          activeJob.command.kill('SIGKILL');
         }
       }, 5_000);
       idleTimer.unref();
@@ -277,7 +281,14 @@ export class HlsService {
 
   private isComplete(playlistPath: string) {
     if (!fs.existsSync(playlistPath)) return false;
-    return fs.readFileSync(playlistPath, 'utf8').includes('#EXT-X-ENDLIST');
+    const completionMarker = path.join(
+      path.dirname(playlistPath),
+      COMPLETE_MARKER,
+    );
+    return (
+      fs.existsSync(completionMarker) &&
+      fs.readFileSync(playlistPath, 'utf8').includes('#EXT-X-ENDLIST')
+    );
   }
 
   private touchCache(directory: string) {

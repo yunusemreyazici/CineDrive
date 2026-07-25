@@ -19,6 +19,27 @@ afterEach(() => {
 });
 
 describe('HlsService cache management', () => {
+  it('does not reuse an interrupted playlist that only contains ENDLIST', async () => {
+    const service = createService(1024);
+    const staleDirectory = service.getCacheDir('stale');
+    fs.mkdirSync(staleDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(staleDirectory, 'index.m3u8'),
+      '#EXTM3U\n#EXTINF:4,\nsegment-000000.m4s\n#EXT-X-ENDLIST\n',
+    );
+    let inputRequested = false;
+
+    await expect(
+      service.ensureHls('stale', async () => {
+        inputRequested = true;
+        throw new Error('FRESH_INPUT_REQUESTED');
+      }),
+    ).rejects.toThrow('FRESH_INPUT_REQUESTED');
+
+    expect(inputRequested).toBe(true);
+    expect(fs.existsSync(staleDirectory)).toBe(false);
+  });
+
   it('evicts the least recently used completed cache when over quota', () => {
     const service = createService(10);
     const oldDirectory = service.getCacheDir('old');
