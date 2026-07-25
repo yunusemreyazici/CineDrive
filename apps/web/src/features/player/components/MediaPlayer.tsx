@@ -165,6 +165,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     : playbackPlan?.chromium || 'direct';
   const [playbackMode, setPlaybackMode] =
     useState<PlaybackMode>(recommendedPlaybackMode);
+  const [hlsStartOffset, setHlsStartOffset] = useState(0);
   const useTranscode = playbackMode !== 'direct';
   const automaticQuality = chooseAutoQuality(analyzedHeight);
   const [adaptiveQuality, setAdaptiveQuality] = useState(automaticQuality);
@@ -175,6 +176,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   React.useEffect(() => {
     setPlaybackMode(recommendedPlaybackMode);
+    setHlsStartOffset(0);
     setErrorState(null);
     stallRecoveryAttemptsRef.current = 0;
     recoveryPositionRef.current = null;
@@ -372,7 +374,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
   const videoSourceUrl = targetDriveFileId
     ? playbackMode === 'hls'
-      ? `/api/media/${targetDriveFileId}/hls/index.m3u8`
+      ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}`
       : `/api/media/${targetDriveFileId}/stream${
           playbackMode === 'audio'
             ? '?transcode=audio'
@@ -453,7 +455,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (recoveryPositionRef.current !== null) {
       const recoveryPosition = recoveryPositionRef.current;
       recoveryPositionRef.current = null;
-      video.currentTime = recoveryPosition;
+      video.currentTime =
+        playbackMode === 'hls'
+          ? Math.max(0, recoveryPosition - hlsStartOffset)
+          : recoveryPosition;
       video.play().catch(() => {});
       return;
     }
@@ -507,29 +512,82 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     }, 6000);
   }, [clearAudioCompatibilityCheck, isMuted, useTranscode, volume]);
 
+  const seekToAbsoluteTime = useCallback(
+    (requestedTime: number, shouldPlay = true) => {
+      const video = videoRef.current;
+      if (!video || !Number.isFinite(requestedTime)) return;
+      const targetTime = Math.max(
+        0,
+        duration > 0 ? Math.min(duration, requestedTime) : requestedTime,
+      );
+
+      if (playbackMode !== 'hls') {
+        video.currentTime = targetTime;
+        if (shouldPlay) video.play().catch(() => {});
+        return;
+      }
+
+      const localTarget = targetTime - hlsStartOffset;
+      let isInCurrentWindow = false;
+      for (let index = 0; index < video.seekable.length; index++) {
+        if (
+          localTarget >= video.seekable.start(index) &&
+          localTarget <= video.seekable.end(index)
+        ) {
+          isInCurrentWindow = true;
+          break;
+        }
+      }
+
+      if (isInCurrentWindow) {
+        video.currentTime = localTarget;
+        if (shouldPlay) video.play().catch(() => {});
+        return;
+      }
+
+      const nextOffset = Math.floor(targetTime);
+      suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
+      resumeAfterSourceChangeRef.current = shouldPlay ? 'hls' : null;
+      setCurrentTime(targetTime);
+      setBufferedTime(targetTime);
+      setIsBuffering(true);
+      setConnectionMessage(
+        `${Math.floor(targetTime / 60)}:${String(Math.floor(targetTime % 60)).padStart(2, '0')} konumundan akış hazırlanıyor`,
+      );
+      if (nextOffset === hlsStartOffset) {
+        video.load();
+      } else {
+        setHlsStartOffset(nextOffset);
+      }
+    },
+    [duration, hlsStartOffset, playbackMode],
+  );
+
   const handleResumeClick = () => {
-    if (videoRef.current && media.progress?.positionSeconds) {
-      videoRef.current.currentTime = media.progress.positionSeconds;
-      videoRef.current.play().catch(() => {});
+    if (media.progress?.positionSeconds) {
+      seekToAbsoluteTime(media.progress.positionSeconds);
     }
     setShowResumeModal(false);
   };
 
   const handleRestartClick = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-    }
+    seekToAbsoluteTime(0);
     setShowResumeModal(false);
   };
 
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
-    setCurrentTime(videoRef.current.currentTime);
+    const playbackPosition =
+      videoRef.current.currentTime +
+      (playbackMode === 'hls' ? hlsStartOffset : 0);
+    setCurrentTime(playbackPosition);
 
     // Calculate buffered range
     if (videoRef.current.buffered.length > 0) {
-      setBufferedTime(videoRef.current.buffered.end(videoRef.current.buffered.length - 1));
+      setBufferedTime(
+        videoRef.current.buffered.end(videoRef.current.buffered.length - 1) +
+          (playbackMode === 'hls' ? hlsStartOffset : 0),
+      );
     }
 
     const reportedDuration = analyzedDuration || videoRef.current.duration;
@@ -537,7 +595,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (Date.now() < suppressNextEpisodeUntilRef.current) return;
 
     // Trigger next episode overlay when 15s remaining or 94% completion
-    const playbackPosition = videoRef.current.currentTime;
     if (
       !Number.isFinite(playbackPosition) ||
       playbackPosition < 30 ||
@@ -572,11 +629,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const start = video.buffered.start(index);
       const end = video.buffered.end(index);
       if (video.currentTime >= start && video.currentTime <= end) {
-        setBufferedTime(end);
+        setBufferedTime(
+          end + (playbackMode === 'hls' ? hlsStartOffset : 0),
+        );
         return;
       }
     }
-  }, []);
+  }, [hlsStartOffset, playbackMode]);
 
   const clearStallRecoveryTimer = useCallback(() => {
     if (!stallRecoveryTimerRef.current) return;
@@ -621,13 +680,20 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
 
       stallRecoveryAttemptsRef.current += 1;
-      recoveryPositionRef.current = video.currentTime;
+      recoveryPositionRef.current =
+        video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0);
       setConnectionMessage(
         `Bağlantı yeniden kuruluyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
       );
       video.load();
     }, STALL_RECOVERY_DELAY_MS);
-  }, [clearStallRecoveryTimer, effectiveQuality, playbackMode, qualityPreference]);
+  }, [
+    clearStallRecoveryTimer,
+    effectiveQuality,
+    hlsStartOffset,
+    playbackMode,
+    qualityPreference,
+  ]);
 
   const handlePlaying = useCallback(() => {
     if (resumeAfterSourceChangeRef.current === playbackMode) {
@@ -651,7 +717,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleVideoEnded = () => {
     const video = videoRef.current;
     const reportedDuration = analyzedDuration || duration || video?.duration || 0;
-    const playbackPosition = video?.currentTime || 0;
+    const playbackPosition =
+      (video?.currentTime || 0) +
+      (playbackMode === 'hls' ? hlsStartOffset : 0);
     if (
       Date.now() < suppressNextEpisodeUntilRef.current ||
       !Number.isFinite(reportedDuration) ||
@@ -686,12 +754,20 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [isPlaying]);
 
   const skipBackward = useCallback(() => {
-    if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
-  }, []);
+    const video = videoRef.current;
+    if (!video) return;
+    seekToAbsoluteTime(
+      video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) - 10,
+    );
+  }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
 
   const skipForward = useCallback(() => {
-    if (videoRef.current) videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
-  }, [duration]);
+    const video = videoRef.current;
+    if (!video) return;
+    seekToAbsoluteTime(
+      video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) + 10,
+    );
+  }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
 
   const toggleMute = useCallback(() => {
     if (!videoRef.current) return;
@@ -740,9 +816,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setActiveSubtitleId(activeSubtitleId ? null : firstSub ? firstSub.id : null);
     },
     onSeekPercent: (percent) => {
-      if (videoRef.current && duration > 0) {
-        videoRef.current.currentTime = (percent / 100) * duration;
-      }
+      if (duration > 0) seekToAbsoluteTime((percent / 100) * duration);
     },
     onCloseMenu: () => {
       if (document.fullscreenElement) document.exitFullscreen();
@@ -953,14 +1027,18 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
             resumeAfterSourceChangeRef.current =
               isPlaying || Boolean(video && !video.paused) ? nextMode : null;
+            if (nextMode === 'hls') {
+              setHlsStartOffset(Math.floor(currentTime));
+            } else if (playbackMode === 'hls') {
+              recoveryPositionRef.current = currentTime;
+              setHlsStartOffset(0);
+            }
             setPlaybackMode(nextMode);
           }}
           onTogglePlay={togglePlay}
           onSkipBackward={skipBackward}
           onSkipForward={skipForward}
-          onSeek={(time) => {
-            if (videoRef.current) videoRef.current.currentTime = time;
-          }}
+          onSeek={seekToAbsoluteTime}
           onVolumeChange={(vol) => {
             setVolume(vol);
             if (videoRef.current) videoRef.current.volume = vol;

@@ -40,7 +40,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     size: bigint | null;
     modifiedTime: Date | null;
     md5Checksum: string | null;
-  }) => {
+  }, startSeconds = 0) => {
     const fingerprint = createHash('sha256')
       .update(
         [
@@ -51,7 +51,20 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       )
       .digest('hex')
       .slice(0, 12);
-    return `${driveFile.id}-${fingerprint}`;
+    return `${driveFile.id}-${fingerprint}${
+      startSeconds > 0 ? `-at-${startSeconds}` : ''
+    }`;
+  };
+
+  const parseHlsStart = (value: unknown) => {
+    if (value === undefined) return 0;
+    if (typeof value !== 'string' || !/^\d+(?:\.\d+)?$/.test(value)) return null;
+    const startSeconds = Math.floor(Number(value));
+    return Number.isSafeInteger(startSeconds) &&
+      startSeconds >= 0 &&
+      startSeconds <= 7 * 24 * 60 * 60
+      ? startSeconds
+      : null;
   };
 
   // Helper handler for GET and HEAD Range streaming requests
@@ -423,7 +436,10 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   };
 
   // Native Safari HLS playlist. Segments are generated once and then reused.
-  fastify.get<{ Params: { driveFileId: string } }>(
+  fastify.get<{
+    Params: { driveFileId: string };
+    Querystring: { start?: string };
+  }>(
     '/:driveFileId/hls/index.m3u8',
     async (request, reply) => {
       const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
@@ -438,8 +454,18 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
+        const startSeconds = parseHlsStart(request.query.start);
+        if (startSeconds === null) {
+          return reply.status(400).send({
+            error: {
+              code: 'INVALID_HLS_START',
+              message: 'Geçersiz HLS başlangıç zamanı.',
+              requestId: request.id,
+            },
+          });
+        }
         const playlistPath = await fastify.hlsService.ensureHls(
-          hlsCacheKey(driveFile),
+          hlsCacheKey(driveFile, startSeconds),
           async () => {
             if (driveFile.storageType === 'local' && driveFile.localFilePath) {
               return driveFile.localFilePath;
@@ -455,10 +481,22 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             );
             return response.stream;
           },
+          startSeconds,
         );
+        const assetQuery = `?start=${startSeconds}`;
+        const playlist = fs
+          .readFileSync(playlistPath, 'utf8')
+          .replace(
+            /#EXT-X-MAP:URI="([^"]+)"/g,
+            `#EXT-X-MAP:URI="$1${assetQuery}"`,
+          )
+          .replace(
+            /^(segment-\d{6}\.m4s)$/gm,
+            `$1${assetQuery}`,
+          );
         reply.header('Content-Type', 'application/vnd.apple.mpegurl');
         reply.header('Cache-Control', 'no-cache');
-        return reply.send(fs.createReadStream(playlistPath));
+        return reply.send(playlist);
       } catch (error) {
         request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
         return reply.status(500).send({
@@ -472,15 +510,20 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  fastify.get<{ Params: { driveFileId: string; assetName: string } }>(
+  fastify.get<{
+    Params: { driveFileId: string; assetName: string };
+    Querystring: { start?: string };
+  }>(
     '/:driveFileId/hls/:assetName',
     async (request, reply) => {
       const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
       if (!driveFile) return reply.status(404).send();
 
       try {
+        const startSeconds = parseHlsStart(request.query.start);
+        if (startSeconds === null) return reply.status(400).send();
         const assetPath = fastify.hlsService.resolveAsset(
-          hlsCacheKey(driveFile),
+          hlsCacheKey(driveFile, startSeconds),
           request.params.assetName,
         );
         if (!fs.existsSync(assetPath)) return reply.status(404).send();

@@ -68,6 +68,7 @@ export class HlsService {
   public async ensureHls(
     cacheKey: string,
     inputFactory: () => Promise<string | Readable>,
+    startSeconds = 0,
   ) {
     const outputDir = this.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
@@ -136,7 +137,10 @@ export class HlsService {
       const command = ffmpeg(input)
         // Generate a modest buffer ahead of playback instead of racing through
         // a multi-GB source and duplicating the whole file immediately.
-        .inputOptions(['-readrate 2'])
+        .inputOptions([
+          ...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
+          '-readrate 2',
+        ])
         .outputOptions([
           '-map 0:v:0',
           '-map 0:a:0?',

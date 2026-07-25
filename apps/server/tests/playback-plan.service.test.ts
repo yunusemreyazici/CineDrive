@@ -26,6 +26,17 @@ describe('buildPlaybackPlan', () => {
     ).toMatchObject({ safari: 'hls', chromium: 'full' });
   });
 
+  it('automatically uses normalized HLS for HEVC/AAC MP4 in Safari', () => {
+    expect(
+      buildPlaybackPlan({
+        mediaContainer: 'mp4',
+        videoCodec: 'hevc',
+        audioCodec: 'aac',
+        mediaAnalyzedAt: analyzedAt,
+      }),
+    ).toMatchObject({ safari: 'hls', chromium: 'full', analyzed: true });
+  });
+
   it('copies compatible H.264 video and converts only incompatible MKV audio in Chromium', () => {
     expect(
       buildPlaybackPlan({

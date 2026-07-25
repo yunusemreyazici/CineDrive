@@ -12,6 +12,7 @@ import type { MediaItemType } from '../types/media';
 describe('Player Components Unit Tests', () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   const queryClient = new QueryClient({
@@ -154,7 +155,7 @@ describe('Player Components Unit Tests', () => {
     fireEvent.error(video!);
 
     expect(video?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8',
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
     );
     expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
 
@@ -186,6 +187,53 @@ describe('Player Components Unit Tests', () => {
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
       '/api/media/gdrive_interstellar_file/stream?transcode=audio',
     );
+  });
+
+  it('starts a new Safari HLS window when seeking beyond generated segments', () => {
+    const userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+      );
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mp4:hevc:aac',
+          analyzed: true,
+        },
+        technicalMetadata: {
+          mediaDuration: 1000,
+          mediaHeight: 1080,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    vi.spyOn(video, 'play').mockResolvedValue();
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
+    );
+
+    fireEvent.loadedMetadata(video);
+    fireEvent.keyDown(window, { key: '5' });
+
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=500',
+    );
+    expect(screen.getByText('8:20 konumundan akış hazırlanıyor')).toBeInTheDocument();
+    userAgentSpy.mockRestore();
   });
 
   it('resumes playback after switching to compatibility mode', async () => {

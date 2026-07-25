@@ -16,7 +16,11 @@ interface PlaybackSource {
 
 const SAFARI_DIRECT_CONTAINERS = new Set(['mp4', 'm4v', 'mov']);
 const CHROMIUM_DIRECT_CONTAINERS = new Set(['mp4', 'm4v', 'webm']);
-const SAFARI_VIDEO_CODECS = new Set(['h264', 'hevc']);
+// HEVC support in Safari varies by the exact hvc1 sample structure and breaks
+// for some otherwise valid files after fragmented-MP4 remuxing. The HLS
+// compatibility path normalizes HEVC to H.264, so only H.264 is considered
+// reliably direct-playable.
+const SAFARI_VIDEO_CODECS = new Set(['h264']);
 const CHROMIUM_VIDEO_CODECS = new Set(['h264', 'vp8', 'vp9', 'av1']);
 const SAFARI_AUDIO_CODECS = new Set(['aac', 'ac3', 'eac3', 'mp3']);
 const CHROMIUM_AUDIO_CODECS = new Set(['aac', 'mp3', 'opus', 'vorbis']);
