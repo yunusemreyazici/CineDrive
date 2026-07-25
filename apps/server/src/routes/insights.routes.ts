@@ -269,6 +269,23 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(200).send(response);
   });
 
+  fastify.post<{ Params: { jobId: string } }>(
+    '/media-health/hls/:jobId/stop',
+    async (request, reply) => {
+      const stopped = fastify.hlsService.stopJob(request.params.jobId);
+      if (!stopped) {
+        return reply.status(404).send({
+          error: {
+            code: 'HLS_JOB_NOT_FOUND',
+            message: 'Aktif HLS işi bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+      return reply.status(200).send({ stopped: true });
+    },
+  );
+
   fastify.post<{ Params: { driveFileId: string } }>(
     '/media-health/:driveFileId/reanalyze',
     async (request, reply) => {

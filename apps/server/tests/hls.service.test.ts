@@ -112,9 +112,14 @@ describe('HlsService cache management', () => {
       jobs: Map<string, unknown>;
       leases: Map<string, Set<string>>;
     }).jobs.set(cacheKey, {
+      id: 'job-session',
       command: { kill },
       ready: Promise.resolve(),
       familyKey: cacheKey,
+      mediaName: 'Test Episode.mkv',
+      pid: 1234,
+      startSeconds: 0,
+      startedAt: Date.now(),
       lastAccessAt: Date.now(),
       idleTimer,
     });
@@ -143,9 +148,14 @@ describe('HlsService cache management', () => {
     };
 
     internals.jobs.set(cacheKey, {
+      id: 'replacement-job',
       command: replacementCommand,
       ready: Promise.resolve(),
       familyKey: cacheKey,
+      mediaName: 'Replacement Episode.mkv',
+      pid: 5678,
+      startSeconds: 300,
+      startedAt: Date.now(),
       lastAccessAt: Date.now(),
       idleTimer: replacementTimer,
     });
@@ -158,5 +168,74 @@ describe('HlsService cache management', () => {
     );
 
     service.shutdown();
+  });
+
+  it('reports job details and prevents a stopped Safari session from restarting it', async () => {
+    const service = createService(1024);
+    const kill = vi.fn();
+    const idleTimer = setInterval(() => {}, 60_000);
+    idleTimer.unref();
+    const internals = service as unknown as {
+      jobs: Map<string, unknown>;
+      leases: Map<string, Set<string>>;
+    };
+
+    internals.jobs.set('observable-cache', {
+      id: 'observable-job',
+      command: { kill },
+      ready: Promise.resolve(),
+      familyKey: 'observable-cache',
+      mediaName: 'Observable Episode.mkv',
+      pid: 4321,
+      startSeconds: 125,
+      startedAt: Date.now() - 5_000,
+      lastAccessAt: Date.now(),
+      idleTimer,
+    });
+    internals.leases.set(
+      'observable-cache',
+      new Set(['viewer_one', 'viewer_two']),
+    );
+
+    expect(service.getJobs()).toEqual([
+      expect.objectContaining({
+        id: 'observable-job',
+        cacheKey: 'observable-cache',
+        mediaName: 'Observable Episode.mkv',
+        pid: 4321,
+        startSeconds: 125,
+        viewerCount: 2,
+      }),
+    ]);
+    expect(service.stopJob('observable-job')).toBe(true);
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    expect(service.getJobs()).toEqual([]);
+    expect(service.stopJob('observable-job')).toBe(false);
+
+    const inputFactory = vi.fn(async () => {
+      throw new Error('INPUT_REQUESTED');
+    });
+    await expect(
+      service.ensureHls(
+        'observable-cache',
+        inputFactory,
+        0,
+        'observable-cache',
+        'viewer_one',
+      ),
+    ).rejects.toThrow('HLS_JOB_STOPPED');
+    expect(inputFactory).not.toHaveBeenCalled();
+
+    expect(service.releaseHls('observable-cache', 'viewer_one')).toBe(false);
+    await expect(
+      service.ensureHls(
+        'observable-cache',
+        inputFactory,
+        0,
+        'observable-cache',
+        'viewer_one',
+      ),
+    ).rejects.toThrow('INPUT_REQUESTED');
+    expect(inputFactory).toHaveBeenCalledOnce();
   });
 });

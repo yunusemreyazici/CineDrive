@@ -98,6 +98,16 @@ export interface MediaHealthDto {
       cacheEntries: number;
       maxCacheBytes: number;
       maxActiveJobs: number;
+      jobs: Array<{
+        id: string;
+        cacheKey: string;
+        mediaName: string;
+        pid: number | null;
+        startSeconds: number;
+        startedAt: string;
+        lastAccessAt: string;
+        viewerCount: number;
+      }>;
     };
     transcode: {
       activeSessions: number;

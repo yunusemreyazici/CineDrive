@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg, { type FfmpegCommand } from 'fluent-ffmpeg';
 
@@ -16,6 +17,8 @@ const DEFAULT_MAX_ACTIVE_JOBS = 2;
 const MAX_FAMILY_CACHE_ENTRIES = 3;
 const ACCESS_MARKER = '.access';
 const COMPLETE_MARKER = '.complete';
+const PROCESS_REGISTRY_FILE = '.active-processes.json';
+const MANUAL_STOP_BLOCK_MS = 5 * 60 * 1000;
 
 export type HlsServiceOptions = {
   cacheRoot?: string;
@@ -29,22 +32,49 @@ export type HlsCacheStats = {
   cacheEntries: number;
   maxCacheBytes: number;
   maxActiveJobs: number;
+  jobs: HlsJobInfo[];
 };
 
 type HlsJob = {
+  id: string;
   command: FfmpegCommand;
   ready: Promise<void>;
   familyKey: string;
+  mediaName: string;
+  pid: number | null;
+  startSeconds: number;
+  startedAt: number;
   lastAccessAt: number;
   idleTimer: NodeJS.Timeout;
+};
+
+export type HlsJobInfo = {
+  id: string;
+  cacheKey: string;
+  mediaName: string;
+  pid: number | null;
+  startSeconds: number;
+  startedAt: string;
+  lastAccessAt: string;
+  viewerCount: number;
+};
+
+type ProcessRegistryEntry = {
+  jobId: string;
+  pid: number;
+  cacheKey: string;
+  startedAt: number;
 };
 
 export class HlsService {
   private readonly cacheRoot: string;
   private readonly maxCacheBytes: number;
   private readonly maxActiveJobs: number;
+  private readonly processRegistryPath: string;
   private readonly jobs = new Map<string, HlsJob>();
   private readonly leases = new Map<string, Set<string>>();
+  private readonly blockedSessions = new Map<string, number>();
+  private readonly processRegistry = new Map<string, ProcessRegistryEntry>();
 
   constructor(options: HlsServiceOptions = {}) {
     this.cacheRoot =
@@ -60,6 +90,8 @@ export class HlsService {
       DEFAULT_MAX_ACTIVE_JOBS,
     );
     fs.mkdirSync(this.cacheRoot, { recursive: true });
+    this.processRegistryPath = path.join(this.cacheRoot, PROCESS_REGISTRY_FILE);
+    this.cleanupOrphanedProcesses();
     this.enforceCacheQuota();
   }
 
@@ -74,7 +106,12 @@ export class HlsService {
     startSeconds = 0,
     familyKey = cacheKey,
     sessionId?: string,
+    mediaName = cacheKey,
   ) {
+    if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
+      throw new Error('HLS_JOB_STOPPED');
+    }
+
     const outputDir = this.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
     if (sessionId) this.acquireLease(cacheKey, sessionId);
@@ -190,6 +227,9 @@ export class HlsService {
           '-hls_flags independent_segments+temp_file',
         ])
         .output(playlistPath);
+      const jobId = crypto.randomUUID();
+      const startedAt = Date.now();
+      let processId: number | null = null;
 
       const ready = new Promise<void>((resolve, reject) => {
         let settled = false;
@@ -202,7 +242,27 @@ export class HlsService {
         };
 
         command
+          .on('start', () => {
+            processId =
+              (
+                command as FfmpegCommand & {
+                  ffmpegProc?: { pid?: number };
+                }
+              ).ffmpegProc?.pid || null;
+            const activeJob = this.jobs.get(cacheKey);
+            if (activeJob?.id === jobId) activeJob.pid = processId;
+            if (processId) {
+              this.processRegistry.set(jobId, {
+                jobId,
+                pid: processId,
+                cacheKey,
+                startedAt,
+              });
+              this.persistProcessRegistry();
+            }
+          })
           .on('error', (error: Error) => {
+            this.unregisterProcess(jobId);
             const jobState = this.detachJob(cacheKey, command);
             // FFmpeg writes ENDLIST when it is terminated gracefully. That
             // does not mean the episode was fully generated, so never retain
@@ -215,6 +275,7 @@ export class HlsService {
             finish(() => reject(error));
           })
           .on('end', () => {
+            this.unregisterProcess(jobId);
             const jobState = this.detachJob(cacheKey, command);
             if (jobState === 'replaced') {
               finish(resolve);
@@ -250,9 +311,14 @@ export class HlsService {
       idleTimer.unref();
 
       job = {
+        id: jobId,
         command,
         ready,
         familyKey,
+        mediaName,
+        pid: processId,
+        startSeconds,
+        startedAt,
         lastAccessAt: Date.now(),
         idleTimer,
       };
@@ -282,13 +348,52 @@ export class HlsService {
       cacheEntries: entries.length,
       maxCacheBytes: this.maxCacheBytes,
       maxActiveJobs: this.maxActiveJobs,
+      jobs: this.getJobs(),
     };
+  }
+
+  public getJobs(): HlsJobInfo[] {
+    return [...this.jobs.entries()]
+      .map(([cacheKey, job]) => ({
+        id: job.id,
+        cacheKey,
+        mediaName: job.mediaName,
+        pid: job.pid,
+        startSeconds: job.startSeconds,
+        startedAt: new Date(job.startedAt).toISOString(),
+        lastAccessAt: new Date(job.lastAccessAt).toISOString(),
+        viewerCount: this.leases.get(cacheKey)?.size || 0,
+      }))
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  }
+
+  public stopJob(jobId: string) {
+    const entry = [...this.jobs.entries()].find(([, job]) => job.id === jobId);
+    if (!entry) return false;
+    const [cacheKey, job] = entry;
+    const blockedUntil = Date.now() + MANUAL_STOP_BLOCK_MS;
+    for (const sessionId of this.leases.get(cacheKey) ?? []) {
+      this.blockedSessions.set(
+        this.sessionKey(cacheKey, sessionId),
+        blockedUntil,
+      );
+    }
+    clearInterval(job.idleTimer);
+    this.jobs.delete(cacheKey);
+    this.leases.delete(cacheKey);
+    try {
+      job.command.kill('SIGKILL');
+    } catch {
+      // Process may already have exited.
+    }
+    return true;
   }
 
   public releaseHls(cacheKey: string, sessionId: string) {
     if (!/^[a-zA-Z0-9_-]{8,128}$/.test(sessionId)) {
       throw new Error('INVALID_HLS_SESSION');
     }
+    this.blockedSessions.delete(this.sessionKey(cacheKey, sessionId));
     const sessions = this.leases.get(cacheKey);
     if (!sessions) return false;
 
@@ -380,6 +485,7 @@ export class HlsService {
     }
     this.jobs.clear();
     this.leases.clear();
+    this.blockedSessions.clear();
   }
 
   private acquireLease(cacheKey: string, sessionId: string) {
@@ -391,6 +497,21 @@ export class HlsService {
     this.leases.set(cacheKey, sessions);
   }
 
+  private sessionKey(cacheKey: string, sessionId: string) {
+    return `${cacheKey}:${sessionId}`;
+  }
+
+  private isSessionBlocked(cacheKey: string, sessionId: string) {
+    const key = this.sessionKey(cacheKey, sessionId);
+    const blockedUntil = this.blockedSessions.get(key);
+    if (!blockedUntil) return false;
+    if (blockedUntil <= Date.now()) {
+      this.blockedSessions.delete(key);
+      return false;
+    }
+    return true;
+  }
+
   private detachJob(cacheKey: string, command: FfmpegCommand) {
     const currentJob = this.jobs.get(cacheKey);
     if (!currentJob) return 'missing' as const;
@@ -400,6 +521,54 @@ export class HlsService {
     this.jobs.delete(cacheKey);
     this.leases.delete(cacheKey);
     return 'detached' as const;
+  }
+
+  private cleanupOrphanedProcesses() {
+    let entries: ProcessRegistryEntry[] = [];
+    try {
+      entries = JSON.parse(
+        fs.readFileSync(this.processRegistryPath, 'utf8'),
+      ) as ProcessRegistryEntry[];
+    } catch {
+      // A missing or invalid registry is equivalent to an empty registry.
+    }
+
+    for (const entry of entries) {
+      if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0) continue;
+      try {
+        const command = execFileSync(
+          'ps',
+          ['-p', String(entry.pid), '-o', 'command='],
+          { encoding: 'utf8', timeout: 2_000 },
+        );
+        if (
+          command.includes(String(ffmpegPath)) &&
+          command.includes(this.cacheRoot) &&
+          command.includes('-f hls')
+        ) {
+          process.kill(entry.pid, 'SIGKILL');
+        }
+      } catch {
+        // The process has already exited or cannot be inspected.
+      }
+    }
+    this.persistProcessRegistry();
+  }
+
+  private unregisterProcess(jobId: string) {
+    if (!this.processRegistry.delete(jobId)) return;
+    this.persistProcessRegistry();
+  }
+
+  private persistProcessRegistry() {
+    try {
+      fs.writeFileSync(
+        this.processRegistryPath,
+        JSON.stringify([...this.processRegistry.values()]),
+      );
+    } catch {
+      // Observability must never interrupt playback.
+    }
   }
 
   private isReady(playlistPath: string) {

@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCw,
   Server,
+  Square,
 } from 'lucide-react';
 import { apiClient, parseApiError } from '../api/client';
 
@@ -75,7 +76,7 @@ export const MediaHealthPage: React.FC = () => {
       const response = await apiClient.get<MediaHealthDto>('/insights/media-health');
       return response.data;
     },
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
   });
   const reanalyze = useMutation({
     mutationFn: async (driveFileId: string) => {
@@ -97,6 +98,28 @@ export const MediaHealthPage: React.FC = () => {
       setAnalysisMessage({
         type: 'error',
         text: error.message || 'Medya yeniden analiz edilemedi.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+    },
+  });
+  const stopHlsJob = useMutation({
+    mutationFn: async (jobId: string) => {
+      const response = await apiClient.post<{ stopped: boolean }>(
+        `/insights/media-health/hls/${jobId}/stop`,
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      setAnalysisMessage({
+        type: 'success',
+        text: 'HLS işi ve bağlı FFmpeg süreci durduruldu.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+    },
+    onError: (error) => {
+      setAnalysisMessage({
+        type: 'error',
+        text: parseApiError(error).message,
       });
       queryClient.invalidateQueries({ queryKey: ['media-health'] });
     },
@@ -215,6 +238,83 @@ export const MediaHealthPage: React.FC = () => {
           </p>
           <p className="mt-2 text-sm text-zinc-500">Aktif audio/full uyumluluk oturumları</p>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="flex items-center gap-2 font-bold text-white">
+              <Server className="h-5 w-5 text-brand-400" /> Aktif HLS işleri
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              PID, medya, izleyici ve son erişim bilgileri.
+            </p>
+          </div>
+          <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
+            {data.runtime.hls.jobs.length} iş
+          </span>
+        </div>
+
+        {data.runtime.hls.jobs.length === 0 ? (
+          <p className="mt-5 rounded-xl border border-dashed border-zinc-800 p-5 text-center text-sm text-zinc-500">
+            Aktif HLS/FFmpeg işi yok.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-zinc-800">
+                  <th className="px-3 py-3 font-semibold">Medya</th>
+                  <th className="px-3 py-3 font-semibold">PID</th>
+                  <th className="px-3 py-3 font-semibold">Başlangıç</th>
+                  <th className="px-3 py-3 font-semibold">İzleyici</th>
+                  <th className="px-3 py-3 font-semibold">Son erişim</th>
+                  <th className="px-3 py-3 text-right font-semibold">İşlem</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/80">
+                {data.runtime.hls.jobs.map((job) => (
+                  <tr key={job.id}>
+                    <td className="max-w-sm px-3 py-3">
+                      <p className="truncate font-semibold text-zinc-200" title={job.mediaName}>
+                        {job.mediaName}
+                      </p>
+                      <p className="mt-1 font-mono text-[11px] text-zinc-600">
+                        {job.id.slice(0, 8)}
+                      </p>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-zinc-300">
+                      {job.pid ?? 'hazırlanıyor'}
+                    </td>
+                    <td className="px-3 py-3 text-zinc-400">
+                      {job.startSeconds ? `${job.startSeconds} sn` : 'Baştan'}
+                    </td>
+                    <td className="px-3 py-3 text-zinc-400">{job.viewerCount}</td>
+                    <td className="px-3 py-3 text-zinc-400">
+                      {new Date(job.lastAccessAt).toLocaleTimeString('tr-TR')}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => stopHlsJob.mutate(job.id)}
+                        disabled={stopHlsJob.isPending}
+                        aria-label={`${job.mediaName} HLS işini durdur`}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {stopHlsJob.isPending && stopHlsJob.variables === job.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5 fill-current" />
+                        )}
+                        Durdur
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {analysisMessage ? (

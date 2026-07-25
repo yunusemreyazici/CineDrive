@@ -352,6 +352,83 @@ describe('Player Components Unit Tests', () => {
     userAgentSpy.mockRestore();
   });
 
+  it('releases every superseded HLS stream during Safari back-forward stress', () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+      );
+    const createPlannedMovie = (
+      id: string,
+      driveFileId: string,
+      title: string,
+    ): MediaItemType => ({
+      ...mockMovie,
+      id,
+      title,
+      movie: {
+        ...mockMovie.movie!,
+        driveFileId,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mkv:hevc:aac',
+          analyzed: true,
+        },
+      },
+    });
+    const firstMovie = createPlannedMovie(
+      'media_first',
+      'first_drive_file',
+      'First Movie',
+    );
+    const secondMovie = createPlannedMovie(
+      'media_second',
+      'second_drive_file',
+      'Second Movie',
+    );
+
+    const { rerender, unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={firstMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={secondMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={firstMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    window.dispatchEvent(new Event('pagehide'));
+    unmount();
+
+    const releaseUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/hls/release'));
+    expect(releaseUrls).toEqual(
+      expect.arrayContaining([
+        `/api/media/first_drive_file/hls/release?start=0&session=${hlsSessionId}`,
+        `/api/media/second_drive_file/hls/release?start=0&session=${hlsSessionId}`,
+      ]),
+    );
+    expect(releaseUrls.filter((url) => url.includes('first_drive_file')).length)
+      .toBeGreaterThanOrEqual(2);
+    userAgentSpy.mockRestore();
+  });
+
   it('resumes playback after switching to compatibility mode', async () => {
     const { container } = render(
       <QueryClientProvider client={queryClient}>
