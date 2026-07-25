@@ -64,12 +64,14 @@ export const HomePage: React.FC = () => {
 
   const allMedia = mediaData?.media || [];
   const featuredCandidates = useMemo(() => {
-    const richCandidates = allMedia.filter(
+    const moviesOnly = allMedia.filter((media) => media.type === 'movie');
+    const candidatePool = moviesOnly.length > 0 ? moviesOnly : allMedia;
+    const richCandidates = candidatePool.filter(
       (media) =>
         Boolean(media.backdropUrl || media.backdropDriveFileId) &&
         Boolean(media.overview),
     );
-    const visualCandidates = allMedia.filter((media) =>
+    const visualCandidates = candidatePool.filter((media) =>
       Boolean(media.backdropUrl || media.backdropDriveFileId),
     );
 
@@ -78,8 +80,8 @@ export const HomePage: React.FC = () => {
         ? richCandidates
         : visualCandidates.length > 0
           ? visualCandidates
-          : allMedia
-    ).slice(0, 6);
+          : candidatePool
+    );
   }, [allMedia]);
   const featuredItem =
     featuredCandidates.find((media) => media.id === featuredId) || featuredCandidates[0];
@@ -145,14 +147,7 @@ export const HomePage: React.FC = () => {
   return (
     <div className="space-y-6 pb-8">
       {featuredItem && (
-        <FeaturedHero
-          media={featuredItem}
-          navigation={{
-            items: featuredCandidates.map((item) => ({ id: item.id, title: item.title })),
-            activeId: featuredItem.id,
-            onSelect: setFeaturedId,
-          }}
-        />
+        <FeaturedHero media={featuredItem} />
       )}
 
       {continueWatching && continueWatching.length > 0 && (

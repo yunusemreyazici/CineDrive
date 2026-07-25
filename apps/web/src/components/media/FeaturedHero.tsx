@@ -20,14 +20,9 @@ interface FeaturedHeroProps {
       percentage: number;
     } | null;
   };
-  navigation?: {
-    items: Array<{ id: string; title: string }>;
-    activeId: string;
-    onSelect: (id: string) => void;
-  };
 }
 
-export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media, navigation }) => {
+export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
   const [showTrailerModal, setShowTrailerModal] = useState(false);
@@ -125,29 +120,6 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media, navigation })
           </button>
         </div>
       </div>
-
-      {navigation && navigation.items.length > 1 ? (
-        <div
-          className="absolute bottom-8 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2"
-          aria-label="Öne çıkan içerikler"
-        >
-          {navigation.items.map((item) => {
-            const isActive = navigation.activeId === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={item.title}
-                aria-current={isActive ? 'true' : undefined}
-                onClick={() => navigation.onSelect(item.id)}
-                className={`h-2 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${
-                  isActive ? 'w-5 bg-brand-400' : 'w-2 bg-white/35 hover:bg-white/70'
-                }`}
-              />
-            );
-          })}
-        </div>
-      ) : null}
 
       <TrailerModal
         isOpen={showTrailerModal}
