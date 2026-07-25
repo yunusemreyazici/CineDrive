@@ -51,7 +51,10 @@ export class LibraryScanService {
       throw new Error('LIBRARY_NOT_FOUND');
     }
 
-    const connections = await this.googleOAuthService.getConnectionsInfo(userId);
+    const allConnections = await this.googleOAuthService.getConnectionsInfo(userId);
+    const connections = library.googleConnectionId
+      ? allConnections.filter((connection) => connection.id === library.googleConnectionId)
+      : allConnections;
     if (connections.length === 0) {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
     }
@@ -85,7 +88,13 @@ export class LibraryScanService {
     });
 
     // Launch scan execution asynchronously in background
-    this.executeScanAsync(userId, libraryId, scan.id, connections).catch(() => {});
+    this.executeScanAsync(
+      userId,
+      libraryId,
+      scan.id,
+      connections,
+      library.rootFolderId,
+    ).catch(() => {});
 
     return scan.id;
   }
@@ -95,6 +104,7 @@ export class LibraryScanService {
     libraryId: string,
     scanId: string,
     connections: Array<{ id: string }>,
+    rootFolderId: string,
   ): Promise<void> {
     const startTime = Date.now();
     let addedCount = 0;
@@ -114,7 +124,7 @@ export class LibraryScanService {
           accessToken,
           libraryId,
           scanId,
-          connection.id,
+          rootFolderId,
         );
 
         addedCount += result.added;
@@ -167,22 +177,27 @@ export class LibraryScanService {
     accessToken: string,
     libraryId: string,
     scanId: string,
-    connectionId: string,
+    rootFolderId: string,
   ): Promise<{ added: number; updated: number; errors: number }> {
     let added = 0;
     let updated = 0;
     let errors = 0;
 
-    // 1. Fetch ALL files across the entire Google Drive account (including Shared Drives)
+    // An empty root folder scans the whole account. Otherwise only the selected
+    // folder and its descendants are included.
     const allFiles: DriveFileMetadata[] = [];
-    let pageToken: string | undefined;
 
     try {
-      do {
-        const page = await this.driveService.listAccountFiles(accessToken, pageToken);
-        allFiles.push(...page.files);
-        pageToken = page.nextPageToken;
-      } while (pageToken);
+      if (rootFolderId.trim()) {
+        allFiles.push(...await this.listFolderTree(accessToken, rootFolderId.trim()));
+      } else {
+        let pageToken: string | undefined;
+        do {
+          const page = await this.driveService.listAccountFiles(accessToken, pageToken);
+          allFiles.push(...page.files);
+          pageToken = page.nextPageToken;
+        } while (pageToken);
+      }
     } catch (err: unknown) {
       const isAuthErr =
         err instanceof Error &&
@@ -210,12 +225,6 @@ export class LibraryScanService {
     const videos = allFiles.filter(
       (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
     );
-
-    // Link library to active google connection
-    await this.prisma.library.update({
-      where: { id: libraryId },
-      data: { googleConnectionId: connectionId },
-    }).catch(() => {});
 
     // 3. Process Videos across account
     for (const video of videos) {
@@ -458,6 +467,41 @@ export class LibraryScanService {
     }
 
     return { added, updated, errors };
+  }
+
+  private async listFolderTree(
+    accessToken: string,
+    rootFolderId: string,
+  ): Promise<DriveFileMetadata[]> {
+    const files: DriveFileMetadata[] = [];
+    const pendingFolderIds = [rootFolderId];
+    const visitedFolderIds = new Set<string>();
+
+    while (pendingFolderIds.length > 0) {
+      const folderId = pendingFolderIds.shift()!;
+      if (visitedFolderIds.has(folderId)) continue;
+      visitedFolderIds.add(folderId);
+
+      let pageToken: string | undefined;
+      do {
+        const page = await this.driveService.listFolderContents(
+          accessToken,
+          folderId,
+          pageToken,
+        );
+
+        for (const file of page.files) {
+          if (file.mimeType === 'application/vnd.google-apps.folder') {
+            pendingFolderIds.push(file.id);
+          } else {
+            files.push(file);
+          }
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+    }
+
+    return files;
   }
 
   private async upsertDriveFile(libraryId: string, file: DriveFileMetadata) {

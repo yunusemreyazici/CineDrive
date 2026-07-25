@@ -34,6 +34,7 @@ import {
   useUnlinkGoogleConnectionMutation,
   useLibrariesQuery,
   useCreateLibraryMutation,
+  useUpdateLibraryMutation,
   useScanLibraryMutation,
   useLibraryScansQuery,
   useClearLibraryMutation,
@@ -226,9 +227,26 @@ const GeneralSettingsContent: React.FC = () => {
   const unlinkGoogle = useUnlinkGoogleMutation();
   const unlinkConnection = useUnlinkGoogleConnectionMutation();
   const { data: libraries } = useLibrariesQuery();
+  const updateLibrary = useUpdateLibraryMutation();
   const scanLibrary = useScanLibraryMutation();
 
-  const activeLibrary = libraries?.[0];
+  const activeLibrary = libraries?.find((library) => library.storageType === 'gdrive');
+  const [driveScanMode, setDriveScanMode] = useState<'all' | 'folder'>('all');
+  const [driveFolderId, setDriveFolderId] = useState('');
+  const [driveConnectionId, setDriveConnectionId] = useState('');
+  const [scanSettingsSaved, setScanSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    if (!activeLibrary) return;
+    setDriveScanMode(activeLibrary.rootFolderId ? 'folder' : 'all');
+    setDriveFolderId(activeLibrary.rootFolderId || '');
+    setDriveConnectionId(activeLibrary.googleConnectionId || '');
+  }, [
+    activeLibrary?.id,
+    activeLibrary?.rootFolderId,
+    activeLibrary?.googleConnectionId,
+  ]);
+
   const { data: scanHistory } = useLibraryScansQuery(activeLibrary?.id);
   const lastScan = scanHistory?.[0];
 
@@ -240,6 +258,19 @@ const GeneralSettingsContent: React.FC = () => {
     if (activeLibrary) {
       scanLibrary.mutate(activeLibrary.id);
     }
+  };
+
+  const handleSaveScanSettings = async () => {
+    if (!activeLibrary) return;
+    setScanSettingsSaved(false);
+    await updateLibrary.mutateAsync({
+      id: activeLibrary.id,
+      data: {
+        rootFolderId: driveScanMode === 'folder' ? driveFolderId.trim() : '',
+        googleConnectionId: driveConnectionId || null,
+      },
+    });
+    setScanSettingsSaved(true);
   };
 
   const allConnections = connections.length > 0
@@ -382,6 +413,118 @@ const GeneralSettingsContent: React.FC = () => {
               </>
             )}
           </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setDriveScanMode('all');
+              setScanSettingsSaved(false);
+            }}
+            className={`p-4 text-left rounded-2xl border transition-colors ${
+              driveScanMode === 'all'
+                ? 'border-brand-500 bg-brand-500/10'
+                : 'border-zinc-800 bg-zinc-950/60 hover:border-zinc-700'
+            }`}
+          >
+            <p className="text-sm font-semibold text-white">Tüm Google Drive</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Bağlı hesaptaki tüm medya dosyalarını ve erişilebilir Ortak Sürücüleri tarar.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDriveScanMode('folder');
+              setScanSettingsSaved(false);
+            }}
+            className={`p-4 text-left rounded-2xl border transition-colors ${
+              driveScanMode === 'folder'
+                ? 'border-brand-500 bg-brand-500/10'
+                : 'border-zinc-800 bg-zinc-950/60 hover:border-zinc-700'
+            }`}
+          >
+            <p className="text-sm font-semibold text-white">Belirli Klasör</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Seçilen klasörü ve içindeki bütün alt klasörleri tarar.
+            </p>
+          </button>
+        </div>
+
+        {driveScanMode === 'folder' && (
+          <div className="space-y-2">
+            <label htmlFor="drive-root-folder-id" className="block text-xs font-semibold text-zinc-200">
+              Google Drive klasör ID’si
+            </label>
+            <input
+              id="drive-root-folder-id"
+              type="text"
+              value={driveFolderId}
+              onChange={(event) => {
+                setDriveFolderId(event.target.value);
+                setScanSettingsSaved(false);
+              }}
+              placeholder="Örn: 1AbCdEfGhIjKlMnOp"
+              className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-sm font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-brand-500"
+            />
+            <p className="text-[11px] text-zinc-500">
+              Drive klasörünü açıp URL’deki <span className="font-mono">/folders/</span> sonrasındaki değeri kopyalayın.
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label htmlFor="drive-connection-id" className="block text-xs font-semibold text-zinc-200">
+            Taranacak Google hesabı
+          </label>
+          <select
+            id="drive-connection-id"
+            value={driveConnectionId}
+            onChange={(event) => {
+              setDriveConnectionId(event.target.value);
+              setScanSettingsSaved(false);
+            }}
+            className="w-full px-4 py-2.5 bg-zinc-950/80 border border-zinc-800 rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-brand-500"
+          >
+            <option value="">Tüm bağlı Google hesapları</option>
+            {allConnections.map((connection, index) => {
+              const id = connection.id || '';
+              const email = connection.email ||
+                ('googleEmail' in connection ? connection.googleEmail : undefined) ||
+                `Google Hesabı ${index + 1}`;
+              return id ? <option key={id} value={id}>{email}</option> : null;
+            })}
+          </select>
+          {driveScanMode === 'folder' && !driveConnectionId && allConnections.length > 1 && (
+            <p className="text-[11px] text-amber-400">
+              Klasör taramasında klasörün bağlı olduğu hesabı seçmeniz önerilir.
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSaveScanSettings}
+            disabled={
+              !activeLibrary ||
+              updateLibrary.isPending ||
+              (driveScanMode === 'folder' && !driveFolderId.trim())
+            }
+            className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-40"
+          >
+            {updateLibrary.isPending ? 'Kaydediliyor...' : 'Tarama Alanını Kaydet'}
+          </button>
+          {scanSettingsSaved && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
+              Kaydedildi
+            </span>
+          )}
+          {updateLibrary.error && (
+            <span className="text-xs text-red-400">{updateLibrary.error.message}</span>
+          )}
         </div>
 
         {scanLibrary.error && (

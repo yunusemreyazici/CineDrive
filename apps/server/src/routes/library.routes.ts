@@ -11,26 +11,17 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { createdAt: 'asc' },
     });
 
-    // Auto-create or update default library from GOOGLE_DRIVE_ROOT_FOLDER_ID
-    if (env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
-      if (libraries.length === 0) {
-        const defaultLib = await fastify.prisma.library.create({
-          data: {
-            name: 'Main Media Library',
-            rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID,
-          },
-        });
-        libraries = [defaultLib];
-      } else {
-        const firstLib = libraries[0];
-        if (firstLib && firstLib.rootFolderId !== env.GOOGLE_DRIVE_ROOT_FOLDER_ID) {
-          const updated = await fastify.prisma.library.update({
-            where: { id: firstLib.id },
-            data: { rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID },
-          });
-          libraries[0] = updated;
-        }
-      }
+    // Keep one configurable Google Drive library available. The environment
+    // value is only an initial default and never overwrites UI changes.
+    if (!libraries.some((library) => library.storageType === 'gdrive')) {
+      const defaultLib = await fastify.prisma.library.create({
+        data: {
+          name: 'Google Drive',
+          storageType: 'gdrive',
+          rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',
+        },
+      });
+      libraries = [...libraries, defaultLib];
     }
 
     return reply.status(200).send({ libraries });

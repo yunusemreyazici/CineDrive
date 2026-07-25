@@ -106,7 +106,7 @@ export class GoogleDriveService {
         q: `'${folderId}' in parents and trashed = false`,
         fields:
           'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
-        pageSize: 100,
+        pageSize: 1000,
         pageToken,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,

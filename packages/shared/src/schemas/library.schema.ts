@@ -23,6 +23,7 @@ export const updateLibrarySchema = z.object({
   name: z.string().min(1).optional(),
   rootFolderId: z.string().optional(),
   localFolderPath: z.string().optional(),
+  googleConnectionId: z.string().nullable().optional(),
 });
 
 export type CreateLibraryInput = z.infer<typeof createLibrarySchema>;

@@ -5,6 +5,8 @@ import type {
   UserDto,
   MediaQueryInput,
   CreateLibraryInput,
+  LibraryDto,
+  UpdateLibraryInput,
   UpdateProgressInput,
   UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
@@ -114,9 +116,26 @@ export function useLibrariesQuery() {
     queryKey: ['libraries'],
     queryFn: async () => {
       const res = await apiClient.get<{
-        libraries: { id: string; name: string; rootFolderId: string }[];
+        libraries: LibraryDto[];
       }>('/libraries');
       return res.data.libraries;
+    },
+  });
+}
+
+export function useUpdateLibraryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: UpdateLibraryInput }) => {
+      try {
+        const res = await apiClient.patch<{ library: LibraryDto }>(`/libraries/${id}`, data);
+        return res.data.library;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
     },
   });
 }
