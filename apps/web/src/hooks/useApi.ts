@@ -60,7 +60,11 @@ export function useGoogleStatusQuery() {
   return useQuery({
     queryKey: ['googleStatus'],
     queryFn: async () => {
-      const res = await apiClient.get<{ connected: boolean; connection: { id?: string; email?: string; updatedAt: string } | null; connections?: Array<{ id: string; email: string; createdAt: string }> }>('/auth/google/status');
+      const res = await apiClient.get<{
+        connected: boolean;
+        connection: { id?: string; email?: string; updatedAt: string } | null;
+        connections?: Array<{ id: string; email: string; createdAt: string }>;
+      }>('/auth/google/status');
       return res.data;
     },
   });
@@ -70,7 +74,9 @@ export function useGoogleConnectionsQuery() {
   return useQuery({
     queryKey: ['googleConnections'],
     queryFn: async () => {
-      const res = await apiClient.get<{ connections: Array<{ id: string; email: string; createdAt: string }> }>('/auth/google/connections');
+      const res = await apiClient.get<{
+        connections: Array<{ id: string; email: string; createdAt: string }>;
+      }>('/auth/google/connections');
       return res.data.connections || [];
     },
   });
@@ -107,7 +113,9 @@ export function useLibrariesQuery() {
   return useQuery({
     queryKey: ['libraries'],
     queryFn: async () => {
-      const res = await apiClient.get<{ libraries: { id: string; name: string; rootFolderId: string }[] }>('/libraries');
+      const res = await apiClient.get<{
+        libraries: { id: string; name: string; rootFolderId: string }[];
+      }>('/libraries');
       return res.data.libraries;
     },
   });
@@ -117,7 +125,10 @@ export function useCreateLibraryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: CreateLibraryInput) => {
-      const res = await apiClient.post<{ library: { id: string; name: string } }>('/libraries', data);
+      const res = await apiClient.post<{ library: { id: string; name: string } }>(
+        '/libraries',
+        data,
+      );
       return res.data.library;
     },
     onSuccess: () => {
@@ -154,7 +165,9 @@ export function useLibraryScansQuery(libraryId?: string) {
     queryKey: ['libraryScans', libraryId],
     queryFn: async () => {
       if (!libraryId) return [];
-      const res = await apiClient.get<{ scans: LibraryScanType[] }>(`/libraries/${libraryId}/scans`);
+      const res = await apiClient.get<{ scans: LibraryScanType[] }>(
+        `/libraries/${libraryId}/scans`,
+      );
       return res.data.scans || [];
     },
     enabled: !!libraryId,
@@ -279,9 +292,7 @@ export function useMediaListQuery(
   params?: Partial<MediaQueryInput>,
   options?: { respectVisibilityPreference?: boolean; enabled?: boolean },
 ) {
-  const hideMoviesWithoutMetadata = useUiStore(
-    (state) => state.hideMoviesWithoutMetadata,
-  );
+  const hideMoviesWithoutMetadata = useUiStore((state) => state.hideMoviesWithoutMetadata);
   const respectVisibilityPreference = options?.respectVisibilityPreference !== false;
   const effectiveParams = respectVisibilityPreference
     ? { ...params, hideWithoutMetadata: hideMoviesWithoutMetadata }
@@ -290,7 +301,10 @@ export function useMediaListQuery(
   return useQuery({
     queryKey: ['media', effectiveParams],
     queryFn: async () => {
-      const res = await apiClient.get<{ media: MediaItemType[]; pagination: { total: number; page: number; limit: number; totalPages: number } }>('/media', {
+      const res = await apiClient.get<{
+        media: MediaItemType[];
+        pagination: { total: number; page: number; limit: number; totalPages: number };
+      }>('/media', {
         params: effectiveParams,
       });
       return res.data;
@@ -370,6 +384,22 @@ export function useDeleteHistoryMutation() {
   });
 }
 
+export function useClearWatchHistoryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await apiClient.delete('/history');
+    },
+    onSuccess: async () => {
+      queryClient.setQueryData(['watchHistory'], []);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['watchHistory'] }),
+        queryClient.invalidateQueries({ queryKey: ['continueWatching'] }),
+      ]);
+    },
+  });
+}
+
 export function useUpdateProgressMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -399,7 +429,13 @@ export function useToggleFavoriteMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ mediaItemId, isFavorite }: { mediaItemId: string; isFavorite: boolean }) => {
+    mutationFn: async ({
+      mediaItemId,
+      isFavorite,
+    }: {
+      mediaItemId: string;
+      isFavorite: boolean;
+    }) => {
       if (isFavorite) {
         await apiClient.delete(`/favorites/${mediaItemId}`);
       } else {
@@ -459,7 +495,12 @@ export function useOpenSubtitlesSettingsQuery() {
 export function useUpdateOpenSubtitlesSettingsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { apiKey?: string; username?: string; password?: string; preferredLanguages?: string }) => {
+    mutationFn: async (data: {
+      apiKey?: string;
+      username?: string;
+      password?: string;
+      preferredLanguages?: string;
+    }) => {
       const res = await apiClient.put<OpenSubtitlesSettingsDto>('/settings/opensubtitles', data);
       return res.data;
     },
@@ -486,7 +527,10 @@ export function useChangePasswordMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
-      const res = await apiClient.put<{ user: UserDto; message: string }>('/auth/change-password', data);
+      const res = await apiClient.put<{ user: UserDto; message: string }>(
+        '/auth/change-password',
+        data,
+      );
       return res.data;
     },
     onSuccess: () => {

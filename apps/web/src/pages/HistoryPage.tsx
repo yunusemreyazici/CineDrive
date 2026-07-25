@@ -1,28 +1,40 @@
 import React, { useState } from 'react';
-import { History, Trash2, Play, Calendar, Film, Tv, Monitor, Smartphone, Tablet } from 'lucide-react';
-import { useWatchHistoryQuery, useDeleteHistoryMutation } from '../hooks/useApi';
+import {
+  History,
+  Trash2,
+  Play,
+  Calendar,
+  Film,
+  Tv,
+  Monitor,
+  Smartphone,
+  Tablet,
+} from 'lucide-react';
+import {
+  useWatchHistoryQuery,
+  useDeleteHistoryMutation,
+  useClearWatchHistoryMutation,
+} from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
-import { apiClient } from '../api/client';
-import { useQueryClient } from '@tanstack/react-query';
+import { parseApiError } from '../api/client';
 
 type HistoryFilterType = 'all' | 'movie' | 'series';
 type DurationFilter = 'all' | 'short' | 'medium' | 'long';
 type DeviceFilter = 'all' | 'desktop' | 'tablet' | 'mobile';
 
 export const HistoryPage: React.FC = () => {
-  const queryClient = useQueryClient();
   const [activeFilter, setActiveFilter] = useState<HistoryFilterType>('all');
   const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('all');
   const [episodesOnly, setEpisodesOnly] = useState(false);
   const { data: historyItems, isLoading } = useWatchHistoryQuery();
   const deleteHistoryMutation = useDeleteHistoryMutation();
+  const clearHistoryMutation = useClearWatchHistoryMutation();
 
   const handleClearAllHistory = async () => {
-    if (window.confirm('Tüm izleme geçmişinizi silmek istediğinize emin misiniz?')) {
-      await apiClient.delete('/api/history');
-      queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
-    }
+    if (!window.confirm('Tüm izleme geçmişinizi silmek istediğinize emin misiniz?')) return;
+
+    clearHistoryMutation.mutate();
   };
 
   const formatFriendlyDate = (dateString: string) => {
@@ -63,21 +75,35 @@ export const HistoryPage: React.FC = () => {
             <History className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">İzleme Geçmişi</h2>
-            <p className="text-sm text-zinc-400 mt-0.5">Daha önce izlediğiniz tüm içeriklerin kaydı</p>
+            <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">
+              İzleme Geçmişi
+            </h2>
+            <p className="text-sm text-zinc-400 mt-0.5">
+              Daha önce izlediğiniz tüm içeriklerin kaydı
+            </p>
           </div>
         </div>
 
         {historyItems && historyItems.length > 0 && (
           <button
             onClick={handleClearAllHistory}
+            disabled={clearHistoryMutation.isPending}
             className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-colors self-start sm:self-auto"
           >
             <Trash2 className="w-4 h-4" />
-            Tüm Geçmişi Temizle
+            {clearHistoryMutation.isPending ? 'Geçmiş Temizleniyor…' : 'Tüm Geçmişi Temizle'}
           </button>
         )}
       </div>
+
+      {clearHistoryMutation.isError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+        >
+          {parseApiError(clearHistoryMutation.error).message}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="space-y-1.5 text-xs text-zinc-400">
@@ -206,7 +232,9 @@ export const HistoryPage: React.FC = () => {
                     {item.episode && (
                       <span className="text-zinc-400 font-normal ml-2 text-xs">
                         {item.episode.seasonNumber}x
-                        {item.episode.episodeNumber < 10 ? `0${item.episode.episodeNumber}` : item.episode.episodeNumber}{' '}
+                        {item.episode.episodeNumber < 10
+                          ? `0${item.episode.episodeNumber}`
+                          : item.episode.episodeNumber}{' '}
                         - {item.episode.title}
                       </span>
                     )}
