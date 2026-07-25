@@ -19,7 +19,10 @@ import type { MediaItemType } from '../types/media';
 
 export const MediaManagerPage: React.FC = () => {
   const navigate = useNavigate();
-  const { data: mediaData, isLoading } = useMediaListQuery({ limit: 500 });
+  const { data: mediaData, isLoading } = useMediaListQuery(
+    { limit: 500 },
+    { respectVisibilityPreference: false },
+  );
   const batchDeleteMutation = useBatchDeleteMediaMutation();
 
   const [search, setSearch] = useState('');

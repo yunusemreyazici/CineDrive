@@ -18,6 +18,7 @@ import {
   HardDrive,
   FolderPlus,
   Folder,
+  EyeOff,
 } from 'lucide-react';
 import {
   useSessionQuery,
@@ -83,6 +84,9 @@ export const SettingsPage: React.FC = () => {
 
       {/* Theme Selector Section */}
       <ThemeSettingsCard />
+
+      {/* Library Visibility Section */}
+      <LibraryVisibilitySettingsCard />
 
       {/* Google Drive OAuth Section */}
       <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
@@ -248,6 +252,57 @@ export const SettingsPage: React.FC = () => {
 
       {/* Database Management Section */}
       <DatabaseManagementCard />
+    </div>
+  );
+};
+
+const LibraryVisibilitySettingsCard: React.FC = () => {
+  const hideMoviesWithoutMetadata = useUiStore(
+    (state) => state.hideMoviesWithoutMetadata,
+  );
+  const setHideMoviesWithoutMetadata = useUiStore(
+    (state) => state.setHideMoviesWithoutMetadata,
+  );
+
+  return (
+    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-5">
+      <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
+        <div className="p-2.5 bg-violet-500/10 text-violet-400 rounded-xl">
+          <EyeOff className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold font-display text-white">Kütüphane Görünürlüğü</h3>
+          <p className="text-xs text-zinc-400">Film listelerinde gösterilecek içerikleri seçin</p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-5 p-4 bg-zinc-950/60 border border-zinc-800 rounded-2xl">
+        <div>
+          <p className="text-sm font-semibold text-zinc-100">Metadata’sı olmayan filmleri gizle</p>
+          <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+            TMDB eşleşmesi bulunmayan filmler ana sayfa ve film listelerinde gösterilmez.
+            Medya Yönetimi ekranında erişilebilir kalırlar.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={hideMoviesWithoutMetadata}
+          aria-label="Metadata’sı olmayan filmleri gizle"
+          onClick={() => setHideMoviesWithoutMetadata(!hideMoviesWithoutMetadata)}
+          className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
+            hideMoviesWithoutMetadata
+              ? 'bg-brand-600 border-brand-500'
+              : 'bg-zinc-800 border-zinc-700'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+              hideMoviesWithoutMetadata ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </div>
     </div>
   );
 };

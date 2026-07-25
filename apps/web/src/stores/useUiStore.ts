@@ -7,10 +7,12 @@ interface UiState {
   viewMode: 'grid' | 'list';
   theme: ThemeType;
   cinemaMode: boolean;
+  hideMoviesWithoutMetadata: boolean;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setViewMode: (mode: 'grid' | 'list') => void;
   setTheme: (theme: ThemeType) => void;
+  setHideMoviesWithoutMetadata: (hidden: boolean) => void;
   toggleCinemaMode: () => void;
   setCinemaMode: (enabled: boolean) => void;
 }
@@ -45,17 +47,38 @@ const applyThemeToDocument = (theme: ThemeType) => {
 const initialTheme = getInitialTheme();
 applyThemeToDocument(initialTheme);
 
+const getInitialHideMoviesWithoutMetadata = () => {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return localStorage.getItem('cinedrive_hide_movies_without_metadata') === 'true';
+  } catch {
+    return false;
+  }
+};
+
 export const useUiStore = create<UiState>((set) => ({
   sidebarOpen: false,
   viewMode: 'grid',
   theme: initialTheme,
   cinemaMode: false,
+  hideMoviesWithoutMetadata: getInitialHideMoviesWithoutMetadata(),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setTheme: (theme) => {
     applyThemeToDocument(theme);
     set({ theme });
+  },
+  setHideMoviesWithoutMetadata: (hideMoviesWithoutMetadata) => {
+    try {
+      localStorage.setItem(
+        'cinedrive_hide_movies_without_metadata',
+        String(hideMoviesWithoutMetadata),
+      );
+    } catch {
+      // The in-memory preference still works when storage is unavailable.
+    }
+    set({ hideMoviesWithoutMetadata });
   },
   toggleCinemaMode: () => set((state) => ({ cinemaMode: !state.cinemaMode })),
   setCinemaMode: (cinemaMode) => set({ cinemaMode }),

@@ -32,7 +32,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/media: Filter & Search Media Items
   fastify.get('/', async (request, reply) => {
     const parseResult = mediaQuerySchema.safeParse(request.query);
-    const { type, genre, person, year, yearFrom, yearTo, minRating, search, sortBy, sortOrder, page, limit } = parseResult.success
+    const { type, genre, person, year, yearFrom, yearTo, minRating, search, hideWithoutMetadata, sortBy, sortOrder, page, limit } = parseResult.success
       ? parseResult.data
       : { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
 
@@ -59,6 +59,16 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         { title: { contains: search } },
         { normalizedTitle: { contains: search.toLowerCase() } },
         { cast: { contains: search } },
+      ];
+    }
+
+    // This preference hides only unmatched movies. Series and manually managed
+    // items remain available, and the media manager intentionally bypasses it.
+    if (hideWithoutMetadata) {
+      where.AND = [
+        {
+          OR: [{ type: 'series' }, { type: 'movie', tmdbId: { not: null } }],
+        },
       ];
     }
 

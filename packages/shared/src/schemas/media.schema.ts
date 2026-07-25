@@ -9,6 +9,12 @@ export const mediaQuerySchema = z.object({
   yearTo: z.coerce.number().optional(),
   minRating: z.coerce.number().optional(),
   search: z.string().optional(),
+  hideWithoutMetadata: z
+    .preprocess(
+      (value) => (value === 'true' ? true : value === 'false' ? false : value),
+      z.boolean(),
+    )
+    .optional(),
   sortBy: z.enum(['title', 'year', 'voteAverage', 'createdAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().default(1),

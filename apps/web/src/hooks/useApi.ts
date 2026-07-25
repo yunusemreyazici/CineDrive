@@ -9,6 +9,7 @@ import type {
   UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
 import type { MediaItemType, WatchHistoryType, LibraryScanType, EpisodeType } from '../types/media';
+import { useUiStore } from '../stores/useUiStore';
 
 // --- AUTH HOOKS ---
 export function useSessionQuery() {
@@ -274,12 +275,23 @@ export function useAutoDownloadSubtitleMutation() {
     },
   });
 }
-export function useMediaListQuery(params?: Partial<MediaQueryInput>) {
+export function useMediaListQuery(
+  params?: Partial<MediaQueryInput>,
+  options?: { respectVisibilityPreference?: boolean },
+) {
+  const hideMoviesWithoutMetadata = useUiStore(
+    (state) => state.hideMoviesWithoutMetadata,
+  );
+  const respectVisibilityPreference = options?.respectVisibilityPreference !== false;
+  const effectiveParams = respectVisibilityPreference
+    ? { ...params, hideWithoutMetadata: hideMoviesWithoutMetadata }
+    : params;
+
   return useQuery({
-    queryKey: ['media', params],
+    queryKey: ['media', effectiveParams],
     queryFn: async () => {
       const res = await apiClient.get<{ media: MediaItemType[]; pagination: { total: number; page: number; limit: number; totalPages: number } }>('/media', {
-        params,
+        params: effectiveParams,
       });
       return res.data;
     },
