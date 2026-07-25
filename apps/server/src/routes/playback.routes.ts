@@ -143,6 +143,8 @@ export const historyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/', async (request, reply) => {
     const userId = request.user!.id;
     await fastify.playbackService.clearWatchHistory(userId);
-    return reply.status(200).send({ message: 'All history cleared successfully' });
+    return reply
+      .status(200)
+      .send({ message: 'History and playback progress cleared successfully' });
   });
 };

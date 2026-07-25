@@ -395,6 +395,8 @@ export function useClearWatchHistoryMutation() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['watchHistory'] }),
         queryClient.invalidateQueries({ queryKey: ['continueWatching'] }),
+        queryClient.invalidateQueries({ queryKey: ['media'] }),
+        queryClient.invalidateQueries({ queryKey: ['mediaDetail'] }),
       ]);
     },
   });

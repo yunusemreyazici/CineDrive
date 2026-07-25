@@ -177,5 +177,23 @@ describe('Playback & History API Integration Tests', () => {
     });
 
     expect(clearRes.statusCode).toBe(200);
+
+    const historyAfterClear = await app.inject({
+      method: 'GET',
+      url: '/api/history',
+      cookies: { session_id: sessionCookie!.value },
+    });
+    const progressAfterClear = await app.prisma.playbackProgress.findMany({
+      where: { mediaItemId: 'media_test_pb_1' },
+    });
+    const continueAfterClear = await app.inject({
+      method: 'GET',
+      url: '/api/playback/continue',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(JSON.parse(historyAfterClear.body).history).toHaveLength(0);
+    expect(progressAfterClear).toHaveLength(0);
+    expect(JSON.parse(continueAfterClear.body).items).toHaveLength(0);
   });
 });

@@ -88,7 +88,7 @@ export class PlaybackService {
       percentage,
       completed: isCompleted,
       lastPlayedAt: now,
-      completedAt: isCompleted ? (existing?.completedAt || now) : null,
+      completedAt: isCompleted ? existing?.completedAt || now : null,
     };
     const progress = existing
       ? await this.prisma.playbackProgress.update({
@@ -187,12 +187,16 @@ export class PlaybackService {
       }),
     ]);
 
-    const duplicateIds = <T extends {
-      id: string;
-      userId: string;
-      mediaItemId: string;
-      episodeId: string | null;
-    }>(rows: T[]) => {
+    const duplicateIds = <
+      T extends {
+        id: string;
+        userId: string;
+        mediaItemId: string;
+        episodeId: string | null;
+      },
+    >(
+      rows: T[],
+    ) => {
       const seen = new Set<string>();
       const duplicates: string[] = [];
       for (const row of rows) {
@@ -214,11 +218,8 @@ export class PlaybackService {
       }),
     ]);
 
-    const trackingKey = (row: {
-      userId: string;
-      mediaItemId: string;
-      episodeId: string | null;
-    }) => `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
+    const trackingKey = (row: { userId: string; mediaItemId: string; episodeId: string | null }) =>
+      `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
     const retainedProgress = progressRows.filter((row) => !progressDuplicates.includes(row.id));
     const retainedHistoryKeys = new Set(
       historyRows
@@ -400,11 +401,18 @@ export class PlaybackService {
   }
 
   /**
-   * Clears entire watch history for active user
+   * Clears the entire watch history and every saved resume position for the
+   * active user. Keeping these tables in sync prevents deleted history from
+   * reappearing as a "continue watching" prompt.
    */
   public async clearWatchHistory(userId: string) {
-    await this.prisma.watchHistory.deleteMany({
-      where: { userId },
-    });
+    await this.prisma.$transaction([
+      this.prisma.watchHistory.deleteMany({
+        where: { userId },
+      }),
+      this.prisma.playbackProgress.deleteMany({
+        where: { userId },
+      }),
+    ]);
   }
 }

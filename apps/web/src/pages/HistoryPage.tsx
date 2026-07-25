@@ -32,7 +32,12 @@ export const HistoryPage: React.FC = () => {
   const clearHistoryMutation = useClearWatchHistoryMutation();
 
   const handleClearAllHistory = async () => {
-    if (!window.confirm('Tüm izleme geçmişinizi silmek istediğinize emin misiniz?')) return;
+    if (
+      !window.confirm(
+        'Tüm izleme geçmişiniz ve kaldığınız yer bilgileri silinecek. Devam etmek istiyor musunuz?',
+      )
+    )
+      return;
 
     clearHistoryMutation.mutate();
   };
