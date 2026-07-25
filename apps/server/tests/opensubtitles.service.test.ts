@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OpenSubtitlesService } from '../src/services/opensubtitles.service';
+import { decodeSubtitleBytes } from '../src/utils/subtitle-encoding';
 
 describe('OpenSubtitlesService', () => {
   const service = new OpenSubtitlesService();
@@ -86,6 +87,17 @@ describe('OpenSubtitlesService', () => {
     expect(JSON.parse(String(downloadRequest?.[1]?.body))).toEqual({ file_id: 123 });
     expect(result).toContain('WEBVTT');
     expect(result).toContain('00:00:01.000 --> 00:00:02.000');
+  });
+
+  it('decodes legacy Windows-1254 Turkish subtitle bytes without replacement characters', () => {
+    const windows1254 = Uint8Array.from([
+      0x44, 0xfd, 0xfe, 0x61, 0x72, 0xfd, 0x20, 0xe7, 0xfd, 0x6b, 0x2e,
+    ]);
+
+    const decoded = decodeSubtitleBytes(windows1254);
+
+    expect(decoded).toBe('Dışarı çık.');
+    expect(decoded).not.toContain('\uFFFD');
   });
 
   it('rejects oversized subtitle downloads', async () => {

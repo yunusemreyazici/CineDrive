@@ -5,6 +5,7 @@ import path from 'path';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import { GoogleDriveService } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
+import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
 
 const CACHE_DIR = path.resolve(process.cwd(), 'data', 'subtitle_cache');
 const MAX_SUBTITLE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB Max limit
@@ -54,7 +55,7 @@ export class SubtitleService {
     const checksum = track.driveFile.md5Checksum || 'nochecksum';
     const cacheHash = crypto
       .createHash('sha256')
-      .update(`${track.driveFile.googleDriveFileId}_${modifiedTime}_${checksum}_v1`)
+      .update(`${track.driveFile.googleDriveFileId}_${modifiedTime}_${checksum}_v2`)
       .digest('hex');
 
     const cacheFilePath = path.join(CACHE_DIR, `${cacheHash}.vtt`);
@@ -71,7 +72,7 @@ export class SubtitleService {
 
     let rawContent: string;
     if (track.driveFile.storageType === 'local' && track.driveFile.localFilePath) {
-      rawContent = await fs.readFile(track.driveFile.localFilePath, 'utf-8');
+      rawContent = decodeSubtitleBytes(await fs.readFile(track.driveFile.localFilePath));
     } else {
       const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
       rawContent = await this.driveService.getFileTextContent(

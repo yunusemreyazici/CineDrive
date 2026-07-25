@@ -400,7 +400,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cacheHash = crypto
       .createHash('sha256')
-      .update(`${syntheticDriveFileId}_1970_nochecksum_v1`)
+      .update(`${syntheticDriveFileId}_1970_nochecksum_v2`)
       .digest('hex');
 
     const cacheFilePath = path.join(CACHE_DIR, `${cacheHash}.vtt`);

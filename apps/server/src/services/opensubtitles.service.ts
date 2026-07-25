@@ -1,4 +1,5 @@
 import { convertSrtToVtt } from '@cinedrive/shared';
+import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
 
 const API_BASE_URL = 'https://api.opensubtitles.com/api/v1';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -180,10 +181,11 @@ export class OpenSubtitlesService {
       throw new Error('SUBTITLE_FILE_TOO_LARGE');
     }
 
-    const srtText = await fileRes.text();
-    if (Buffer.byteLength(srtText, 'utf8') > MAX_SUBTITLE_SIZE_BYTES) {
+    const subtitleBytes = new Uint8Array(await fileRes.arrayBuffer());
+    if (subtitleBytes.byteLength > MAX_SUBTITLE_SIZE_BYTES) {
       throw new Error('SUBTITLE_FILE_TOO_LARGE');
     }
+    const srtText = decodeSubtitleBytes(subtitleBytes);
     return convertSrtToVtt(srtText);
   }
 }

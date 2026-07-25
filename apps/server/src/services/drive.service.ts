@@ -1,5 +1,6 @@
 import { google, type drive_v3 } from 'googleapis';
 import { Readable } from 'stream';
+import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
 import { buffer } from 'node:stream/consumers';
 
 export interface DriveFileMetadata {
@@ -137,9 +138,10 @@ export class GoogleDriveService {
       const drive = this.createDriveClient(accessToken);
       const response = await drive.files.get(
         { fileId, alt: 'media', supportsAllDrives: true },
-        { responseType: 'text' },
+        { responseType: 'arraybuffer' },
       );
-      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+      if (typeof response.data === 'string') return response.data;
+      return decodeSubtitleBytes(Buffer.from(response.data as ArrayBuffer));
     });
   }
 
