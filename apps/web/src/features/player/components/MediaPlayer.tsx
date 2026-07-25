@@ -103,6 +103,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const stallRecoveryAttemptsRef = useRef(0);
   const recoveryPositionRef = useRef<number | null>(null);
   const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
+  const resumePromptHandledRef = useRef(false);
   const suppressNextEpisodeUntilRef = useRef(0);
 
   // Local Media & Playback State
@@ -177,6 +178,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   React.useEffect(() => {
     setPlaybackMode(recommendedPlaybackMode);
     setHlsStartOffset(0);
+    resumePromptHandledRef.current = false;
+    setShowResumeModal(false);
     setErrorState(null);
     stallRecoveryAttemptsRef.current = 0;
     recoveryPositionRef.current = null;
@@ -467,11 +470,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const savedPos = media.progress?.positionSeconds || 0;
     const isCompleted = media.progress?.completed;
 
-    if (
+    const shouldOfferResume =
+      !resumePromptHandledRef.current &&
       !isCompleted &&
       savedPos > 15 &&
-      savedPos < (analyzedDuration || video.duration) - 30
-    ) {
+      savedPos < (analyzedDuration || video.duration) - 30;
+    resumePromptHandledRef.current = true;
+
+    if (shouldOfferResume) {
       video.pause();
       setShowResumeModal(true);
     } else {

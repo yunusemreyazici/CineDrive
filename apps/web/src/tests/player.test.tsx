@@ -236,6 +236,61 @@ describe('Player Components Unit Tests', () => {
     userAgentSpy.mockRestore();
   });
 
+  it('does not reopen the resume prompt after a Safari HLS source change', () => {
+    const userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+      );
+    const resumableMovie: MediaItemType = {
+      ...mockMovie,
+      progress: {
+        positionSeconds: 154,
+        durationSeconds: 1000,
+        percentage: 15.4,
+        completed: false,
+      },
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mp4:hevc:aac',
+          analyzed: true,
+        },
+        technicalMetadata: {
+          mediaDuration: 1000,
+          mediaHeight: 1080,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={resumableMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    vi.spyOn(video, 'play').mockResolvedValue();
+    vi.spyOn(video, 'pause').mockImplementation(() => {});
+    fireEvent.loadedMetadata(video);
+    expect(screen.getByText('İzlemeye Devam Et')).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }),
+    );
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=154',
+    );
+
+    fireEvent.loadedMetadata(video);
+    expect(screen.queryByText('İzlemeye Devam Et')).not.toBeInTheDocument();
+    userAgentSpy.mockRestore();
+  });
+
   it('resumes playback after switching to compatibility mode', async () => {
     const { container } = render(
       <QueryClientProvider client={queryClient}>
