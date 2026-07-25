@@ -67,6 +67,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       : null;
   };
 
+  const parseHlsSession = (value: unknown) =>
+    typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value)
+      ? value
+      : null;
+
   // Helper handler for GET and HEAD Range streaming requests
   const handleStreamRequest = async (
     driveFileId: string,
@@ -438,7 +443,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   // Native Safari HLS playlist. Segments are generated once and then reused.
   fastify.get<{
     Params: { driveFileId: string };
-    Querystring: { start?: string };
+    Querystring: { start?: string; session?: string };
   }>(
     '/:driveFileId/hls/index.m3u8',
     async (request, reply) => {
@@ -464,6 +469,16 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             },
           });
         }
+        const sessionId = parseHlsSession(request.query.session);
+        if (!sessionId) {
+          return reply.status(400).send({
+            error: {
+              code: 'INVALID_HLS_SESSION',
+              message: 'Geçersiz HLS oynatma oturumu.',
+              requestId: request.id,
+            },
+          });
+        }
         const playlistPath = await fastify.hlsService.ensureHls(
           hlsCacheKey(driveFile, startSeconds),
           async () => {
@@ -483,6 +498,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           },
           startSeconds,
           hlsCacheKey(driveFile),
+          sessionId,
         );
         const assetQuery = `?start=${startSeconds}`;
         const playlist = fs
@@ -508,6 +524,29 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
       }
+    },
+  );
+
+  fastify.post<{
+    Params: { driveFileId: string };
+    Querystring: { start?: string; session?: string };
+  }>(
+    '/:driveFileId/hls/release',
+    async (request, reply) => {
+      const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+      if (!driveFile) return reply.status(404).send();
+
+      const startSeconds = parseHlsStart(request.query.start);
+      const sessionId = parseHlsSession(request.query.session);
+      if (startSeconds === null || !sessionId) {
+        return reply.status(400).send();
+      }
+
+      const stopped = fastify.hlsService.releaseHls(
+        hlsCacheKey(driveFile, startSeconds),
+        sessionId,
+      );
+      return reply.status(200).send({ stopped });
     },
   );
 

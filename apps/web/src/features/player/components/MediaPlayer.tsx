@@ -35,6 +35,11 @@ const MAX_STALL_RECOVERY_ATTEMPTS = 2;
 const HLS_SEEK_DEBOUNCE_MS = 400;
 const QUALITY_STORAGE_KEY = 'cinedrive-player-quality-v1';
 
+const createHlsSessionId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `player_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
 const getQualityStorage = () => {
   try {
     return typeof window === 'undefined' ? undefined : window.localStorage;
@@ -79,6 +84,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const isSafari = isSafariBrowser();
+  const [hlsSessionId] = useState(createHlsSessionId);
 
   // Player Store State
   const {
@@ -386,7 +392,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
   const videoSourceUrl = targetDriveFileId
     ? playbackMode === 'hls'
-      ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}`
+      ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}&session=${hlsSessionId}`
       : `/api/media/${targetDriveFileId}/stream${
           playbackMode === 'audio'
             ? '?transcode=audio'
@@ -395,6 +401,29 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
               : ''
         }`
     : '';
+
+  React.useEffect(() => {
+    if (playbackMode !== 'hls' || !targetDriveFileId) return;
+
+    const releaseUrl =
+      `/api/media/${targetDriveFileId}/hls/release` +
+      `?start=${hlsStartOffset}&session=${hlsSessionId}`;
+    const releaseStream = () => {
+      void fetch(releaseUrl, {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+      }).catch(() => {
+        // The server-side idle timeout remains a fallback for abrupt exits.
+      });
+    };
+
+    window.addEventListener('pagehide', releaseStream);
+    return () => {
+      window.removeEventListener('pagehide', releaseStream);
+      releaseStream();
+    };
+  }, [hlsSessionId, hlsStartOffset, playbackMode, targetDriveFileId]);
 
   React.useLayoutEffect(() => {
     suppressNextEpisodeUntilRef.current = Date.now() + 20_000;

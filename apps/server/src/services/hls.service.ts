@@ -44,6 +44,7 @@ export class HlsService {
   private readonly maxCacheBytes: number;
   private readonly maxActiveJobs: number;
   private readonly jobs = new Map<string, HlsJob>();
+  private readonly leases = new Map<string, Set<string>>();
 
   constructor(options: HlsServiceOptions = {}) {
     this.cacheRoot =
@@ -72,9 +73,11 @@ export class HlsService {
     inputFactory: () => Promise<string | Readable>,
     startSeconds = 0,
     familyKey = cacheKey,
+    sessionId?: string,
   ) {
     const outputDir = this.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
+    if (sessionId) this.acquireLease(cacheKey, sessionId);
 
     let job = this.jobs.get(cacheKey);
     if (job) {
@@ -98,6 +101,7 @@ export class HlsService {
       if (activeKey === cacheKey || activeJob.familyKey !== familyKey) continue;
       clearInterval(activeJob.idleTimer);
       this.jobs.delete(activeKey);
+      this.leases.delete(activeKey);
       try {
         activeJob.command.kill('SIGKILL');
       } catch {
@@ -129,6 +133,10 @@ export class HlsService {
         if (typeof input !== 'string') input.destroy();
         await job.ready;
         return playlistPath;
+      }
+      if (sessionId && !this.leases.get(cacheKey)?.has(sessionId)) {
+        if (typeof input !== 'string') input.destroy();
+        throw new Error('HLS_CLIENT_RELEASED');
       }
 
       fs.mkdirSync(outputDir, { recursive: true });
@@ -198,6 +206,7 @@ export class HlsService {
             const failedJob = this.jobs.get(cacheKey);
             if (failedJob) clearInterval(failedJob.idleTimer);
             this.jobs.delete(cacheKey);
+            this.leases.delete(cacheKey);
             // FFmpeg writes ENDLIST when it is terminated gracefully. That
             // does not mean the episode was fully generated, so never retain
             // an interrupted cache as a reusable completed stream.
@@ -208,6 +217,7 @@ export class HlsService {
             const completedJob = this.jobs.get(cacheKey);
             if (completedJob) clearInterval(completedJob.idleTimer);
             this.jobs.delete(cacheKey);
+            this.leases.delete(cacheKey);
             fs.writeFileSync(path.join(outputDir, COMPLETE_MARKER), '');
             this.touchCache(outputDir);
             this.enforceFamilyCacheLimit(familyKey, cacheKey);
@@ -271,6 +281,30 @@ export class HlsService {
       maxCacheBytes: this.maxCacheBytes,
       maxActiveJobs: this.maxActiveJobs,
     };
+  }
+
+  public releaseHls(cacheKey: string, sessionId: string) {
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(sessionId)) {
+      throw new Error('INVALID_HLS_SESSION');
+    }
+    const sessions = this.leases.get(cacheKey);
+    if (!sessions) return false;
+
+    sessions.delete(sessionId);
+    if (sessions.size > 0) return false;
+
+    this.leases.delete(cacheKey);
+    const job = this.jobs.get(cacheKey);
+    if (!job) return false;
+
+    clearInterval(job.idleTimer);
+    this.jobs.delete(cacheKey);
+    try {
+      job.command.kill('SIGKILL');
+    } catch {
+      // Process may already have exited.
+    }
+    return true;
   }
 
   public enforceCacheQuota(protectedCacheKey?: string) {
@@ -343,6 +377,16 @@ export class HlsService {
       }
     }
     this.jobs.clear();
+    this.leases.clear();
+  }
+
+  private acquireLease(cacheKey: string, sessionId: string) {
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(sessionId)) {
+      throw new Error('INVALID_HLS_SESSION');
+    }
+    const sessions = this.leases.get(cacheKey) || new Set<string>();
+    sessions.add(sessionId);
+    this.leases.set(cacheKey, sessions);
   }
 
   private isReady(playlistPath: string) {

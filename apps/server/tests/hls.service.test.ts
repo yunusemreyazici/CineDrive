@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HlsService } from '../src/services/hls.service';
 
 const temporaryDirectories: string[] = [];
@@ -99,5 +99,33 @@ describe('HlsService cache management', () => {
     expect(() => service.resolveAsset('safe', '../secret')).toThrow(
       'INVALID_HLS_ASSET',
     );
+  });
+
+  it('stops an active encoder when its final player session is released', () => {
+    const service = createService(1024);
+    const kill = vi.fn();
+    const idleTimer = setInterval(() => {}, 60_000);
+    idleTimer.unref();
+    const cacheKey = 'episode-session';
+
+    (service as unknown as {
+      jobs: Map<string, unknown>;
+      leases: Map<string, Set<string>>;
+    }).jobs.set(cacheKey, {
+      command: { kill },
+      ready: Promise.resolve(),
+      familyKey: cacheKey,
+      lastAccessAt: Date.now(),
+      idleTimer,
+    });
+    (service as unknown as {
+      leases: Map<string, Set<string>>;
+    }).leases.set(cacheKey, new Set(['player_session_1', 'player_session_2']));
+
+    expect(service.releaseHls(cacheKey, 'player_session_1')).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+    expect(service.releaseHls(cacheKey, 'player_session_2')).toBe(true);
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
+    expect(service.getStats().activeJobs).toBe(0);
   });
 });

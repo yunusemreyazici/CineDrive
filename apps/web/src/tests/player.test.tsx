@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10,6 +10,12 @@ import { SubtitleMenu } from '../features/player/components/SubtitleMenu';
 import type { MediaItemType } from '../types/media';
 
 describe('Player Components Unit Tests', () => {
+  const hlsSessionId = '00000000-0000-4000-8000-000000000000';
+
+  beforeEach(() => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(hlsSessionId);
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -155,7 +161,7 @@ describe('Player Components Unit Tests', () => {
     fireEvent.error(video!);
 
     expect(video?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
+      `/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0&session=${hlsSessionId}`,
     );
     expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
 
@@ -224,7 +230,7 @@ describe('Player Components Unit Tests', () => {
     const video = container.querySelector('video')!;
     vi.spyOn(video, 'play').mockResolvedValue();
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
+      `/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0&session=${hlsSessionId}`,
     );
 
     fireEvent.loadedMetadata(video);
@@ -232,14 +238,14 @@ describe('Player Components Unit Tests', () => {
     fireEvent.keyDown(window, { key: '7' });
 
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0',
+      `/api/media/gdrive_interstellar_file/hls/index.m3u8?start=0&session=${hlsSessionId}`,
     );
     expect(screen.getByText('11:40 konumundan akış hazırlanıyor')).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(400);
     });
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=700',
+      `/api/media/gdrive_interstellar_file/hls/index.m3u8?start=700&session=${hlsSessionId}`,
     );
     userAgentSpy.mockRestore();
   });
@@ -295,11 +301,54 @@ describe('Player Components Unit Tests', () => {
       vi.advanceTimersByTime(400);
     });
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/hls/index.m3u8?start=154',
+      `/api/media/gdrive_interstellar_file/hls/index.m3u8?start=154&session=${hlsSessionId}`,
     );
 
     fireEvent.loadedMetadata(video);
     expect(screen.queryByText('İzlemeye Devam Et')).not.toBeInTheDocument();
+    userAgentSpy.mockRestore();
+  });
+
+  it('releases the active Safari HLS encoder when the player unmounts', () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const userAgentSpy = vi
+      .spyOn(window.navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+      );
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mp4:hevc:aac',
+          analyzed: true,
+        },
+      },
+    };
+
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    unmount();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/media/gdrive_interstellar_file/hls/release?start=0&session=${hlsSessionId}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+      },
+    );
     userAgentSpy.mockRestore();
   });
 
