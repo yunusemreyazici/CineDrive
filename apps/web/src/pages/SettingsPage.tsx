@@ -81,6 +81,7 @@ const settingsSearchItems: Array<{
   { label: 'Yerel Kütüphane', description: 'Yerel klasörleri yönetin', tab: 'general', targetId: 'settings-local-library' },
   { label: 'OpenSubtitles', description: 'Altyazı servisi ayarları', tab: 'general', targetId: 'settings-opensubtitles' },
   { label: 'Veritabanı', description: 'Kütüphane verilerini temizleyin', tab: 'general', targetId: 'settings-database' },
+  { label: 'Hakkında', description: 'CineDrive sürüm bilgisi', tab: 'general', targetId: 'settings-about' },
   { label: 'Veri Yönetimi', description: 'Toplu içerik işlemleri', tab: 'manage' },
   { label: 'Depolama Analizi', description: 'Alan ve mükerrer dosyalar', tab: 'storage' },
   { label: 'Medya Sağlığı', description: 'Oynatma uyumluluğu ve HLS işleri', tab: 'health' },
@@ -423,9 +424,25 @@ const GeneralSettingsContent: React.FC = () => {
 
       {/* Database Management Section */}
       <DatabaseManagementCard />
+
+      <AboutSettingsCard />
     </div>
   );
 };
+
+const AboutSettingsCard: React.FC = () => (
+  <div id="settings-about" className="scroll-mt-24 border border-zinc-800/60 bg-zinc-900/30">
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <h3 className="font-display text-sm font-bold text-white">CineDrive Hakkında</h3>
+        <p className="mt-1 text-xs text-zinc-500">Kişisel Google Drive medya sunucusu</p>
+      </div>
+      <span className="rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1 text-[11px] font-semibold text-zinc-400">
+        v1.0
+      </span>
+    </div>
+  </div>
+);
 
 const LibraryVisibilitySettingsCard: React.FC = () => {
   const hideMoviesWithoutMetadata = useUiStore(
@@ -484,10 +501,10 @@ const ThemeSettingsCard: React.FC = () => {
   const themes: Array<{ id: ThemeType; name: string; desc: string; bgClass: string; accentClass: string }> = [
     {
       id: 'default',
-      name: 'CineDrive Red',
-      desc: 'Orijinal Kırmızı Tema',
+      name: 'CineDrive Cyan',
+      desc: 'Modern Medya Merkezi',
       bgClass: 'bg-zinc-950',
-      accentClass: 'bg-red-600',
+      accentClass: 'bg-cyan-500',
     },
     {
       id: 'midnight',

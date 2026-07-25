@@ -2,15 +2,21 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import { Navbar } from '../components/layout/Navbar';
 import { Sidebar } from '../components/layout/Sidebar';
+import { useUiStore } from '../stores/useUiStore';
 
 export const AppLayout: React.FC = () => {
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-brand-500 selection:text-white">
-      <Navbar />
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
 
-      <div className="flex flex-1">
-        <Sidebar />
-        <main className="mx-auto w-full max-w-[1500px] flex-1 p-4 md:p-8">
+  return (
+    <div className="min-h-screen bg-[#070809] font-sans text-zinc-100 selection:bg-brand-500 selection:text-white">
+      <Sidebar />
+      <div
+        className={`min-w-0 transition-[margin] duration-300 ${
+          sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[220px]'
+        }`}
+      >
+        <Navbar />
+        <main className="mx-auto w-full max-w-[1600px] px-4 py-4 md:px-6 md:py-5">
           <Outlet />
         </main>
       </div>

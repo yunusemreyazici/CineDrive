@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
@@ -10,7 +10,6 @@ import type { MediaItemType } from '../types/media';
 import {
   useMediaListQuery,
   useContinueWatchingQuery,
-  useFavoritesQuery,
 } from '../hooks/useApi';
 
 const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
@@ -19,20 +18,18 @@ interface HomeSectionProps {
   title: string;
   href: string;
   items: MediaItemType[];
+  layout?: 'grid' | 'rail';
 }
 
-const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items }) => {
+const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 'rail' }) => {
   if (items.length === 0) return null;
 
   return (
-    <section className="space-y-5">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="font-display text-xl font-bold tracking-tight text-white md:text-2xl">
-            {title}
-          </h2>
-          <div className="mt-2 h-px w-10 bg-brand-500" />
-        </div>
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
+          {title}
+        </h2>
         <Link
           to={href}
           className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
@@ -41,11 +38,21 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items }) => {
           <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
         </Link>
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
-        {items.slice(0, 6).map((media) => (
-          <HomeMediaCard key={media.id} media={media} />
-        ))}
-      </div>
+      {layout === 'grid' ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+          {items.slice(0, 6).map((media) => (
+            <HomeMediaCard key={media.id} media={media} />
+          ))}
+        </div>
+      ) : (
+        <div className="scrollbar-none flex snap-x gap-3 overflow-x-auto pb-2">
+          {items.slice(0, 12).map((media) => (
+            <div key={media.id} className="w-[150px] shrink-0 snap-start sm:w-[170px] xl:w-[185px]">
+              <HomeMediaCard media={media} />
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 };
@@ -54,16 +61,9 @@ export const HomePage: React.FC = () => {
   const [featuredId, setFeaturedId] = useState<string | null>(null);
   const { data: mediaData, isLoading: isMediaLoading } = useMediaListQuery({ limit: 30 });
   const { data: continueWatching } = useContinueWatchingQuery();
-  const { data: favorites } = useFavoritesQuery();
 
   const allMedia = mediaData?.media || [];
-  const featuredItem = allMedia.find((media) => media.id === featuredId);
-  const movies = allMedia.filter((m) => m.type === 'movie');
-  const series = allMedia.filter((m) => m.type === 'series');
-
-  useLayoutEffect(() => {
-    if (featuredId || allMedia.length === 0) return;
-
+  const featuredCandidates = useMemo(() => {
     const richCandidates = allMedia.filter(
       (media) =>
         Boolean(media.backdropUrl || media.backdropDriveFileId) &&
@@ -72,12 +72,28 @@ export const HomePage: React.FC = () => {
     const visualCandidates = allMedia.filter((media) =>
       Boolean(media.backdropUrl || media.backdropDriveFileId),
     );
-    const candidates =
+
+    return (
       richCandidates.length > 0
         ? richCandidates
         : visualCandidates.length > 0
           ? visualCandidates
-          : allMedia;
+          : allMedia
+    ).slice(0, 6);
+  }, [allMedia]);
+  const featuredItem =
+    featuredCandidates.find((media) => media.id === featuredId) || featuredCandidates[0];
+  const movies = allMedia.filter((m) => m.type === 'movie');
+  const series = allMedia.filter((m) => m.type === 'series');
+  const genres = useMemo(
+    () => Array.from(new Set(allMedia.flatMap((media) => media.genres || []))).slice(0, 10),
+    [allMedia],
+  );
+
+  useLayoutEffect(() => {
+    if (featuredId || allMedia.length === 0) return;
+
+    const candidates = featuredCandidates;
 
     let lastFeaturedId: string | null = null;
     try {
@@ -100,12 +116,12 @@ export const HomePage: React.FC = () => {
     } catch {
       // Seçimi kalıcılaştırmak kritik değildir.
     }
-  }, [allMedia, featuredId]);
+  }, [allMedia.length, featuredCandidates, featuredId]);
 
   if (isMediaLoading) {
     return (
-      <div className="space-y-8 animate-pulse">
-        <div className="w-full h-96 bg-zinc-900 rounded-3xl" />
+      <div className="space-y-6 animate-pulse">
+        <div className="h-[350px] w-full rounded-2xl bg-zinc-900" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
@@ -127,38 +143,62 @@ export const HomePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-14 pb-10 md:space-y-16">
-      {featuredItem && <FeaturedHero media={featuredItem} />}
+    <div className="space-y-6 pb-8">
+      {featuredItem && (
+        <FeaturedHero
+          media={featuredItem}
+          navigation={{
+            items: featuredCandidates.map((item) => ({ id: item.id, title: item.title })),
+            activeId: featuredItem.id,
+            onSelect: setFeaturedId,
+          }}
+        />
+      )}
 
       {continueWatching && continueWatching.length > 0 && (
-        <section className="space-y-5">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="font-display text-xl font-bold tracking-tight text-white md:text-2xl">
-                İzlemeye Devam Et
-              </h2>
-              <div className="mt-2 h-px w-10 bg-brand-500" />
-            </div>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
+              İzlemeye Devam Et
+            </h2>
             <Link
               to="/history"
               className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
             >
-              Geçmişi aç
+              Tümünü gör
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {continueWatching.slice(0, 4).map((item) => (
+          <div className="scrollbar-none flex snap-x gap-3 overflow-x-auto pb-2">
+            {continueWatching.slice(0, 10).map((item) => (
               <ContinueWatchingCard key={item.id} item={item} />
             ))}
           </div>
         </section>
       )}
 
-      <HomeSection title="Son Eklenenler" href="/library" items={allMedia} />
+      <HomeSection title="Son Eklenenler" href="/library" items={allMedia} layout="grid" />
       <HomeSection title="Filmler" href="/movies" items={movies} />
       <HomeSection title="Diziler" href="/series" items={series} />
-      <HomeSection title="Favorileriniz" href="/favorites" items={favorites || []} />
+
+      {genres.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
+            Türlere Göre
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {genres.map((genre) => (
+              <Link
+                key={genre}
+                to={`/library?genre=${encodeURIComponent(genre)}`}
+                className="rounded-lg border border-white/[0.08] bg-[#111214] px-3.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-[#181a1d] hover:text-white"
+              >
+                {genre}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 };

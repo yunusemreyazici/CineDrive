@@ -1,19 +1,31 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Menu, Search, Film, User, LogOut, Settings, Dices } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Menu, Search, User, LogOut, Settings, Dices } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
 import { useSessionQuery, useLogoutMutation } from '../../hooks/useApi';
 import { RandomPickerModal } from '../media/RandomPickerModal';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
-  const { toggleSidebar } = useUiStore();
+  const { toggleSidebar, toggleSidebarCollapsed } = useUiStore();
   const { data: session } = useSessionQuery();
   const logoutMutation = useLogoutMutation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showRandomModal, setShowRandomModal] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase('tr-TR') === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,38 +41,35 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full h-16 bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/50 px-4 md:px-8 flex items-center justify-between gap-4">
-      {/* Left section: Drawer toggle & Logo */}
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-40 flex h-[72px] w-full items-center justify-between gap-4 border-b border-white/[0.06] bg-[#070809]/90 px-4 backdrop-blur-xl md:px-6">
+      <div className="flex shrink-0 items-center">
         <button
-          onClick={toggleSidebar}
+          onClick={() => {
+            if (window.matchMedia('(min-width: 1024px)').matches) toggleSidebarCollapsed();
+            else toggleSidebar();
+          }}
           aria-label="Menüyü Aç/Kapat"
-          className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
-          <Menu className="w-6 h-6" />
+          <Menu className="h-5 w-5" />
         </button>
-
-        <Link to="/" className="flex items-center gap-2.5 group">
-          <div className="p-2 bg-brand-600/20 border border-brand-500/30 rounded-xl text-brand-500 shadow-md shadow-brand-500/10 group-hover:scale-105 transition-transform">
-            <Film className="w-5 h-5" />
-          </div>
-          <span className="text-xl font-bold font-display tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-            CineDrive
-          </span>
-        </Link>
       </div>
 
       {/* Middle section: Global Search Bar */}
-      <form onSubmit={handleSearchSubmit} className="flex-1 max-w-md hidden sm:block">
+      <form onSubmit={handleSearchSubmit} className="hidden w-full max-w-xl sm:block">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
+            ref={searchInputRef}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Film, dizi veya başlık ara..."
-            className="w-full pl-10 pr-4 py-2 text-sm bg-zinc-900/60 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20 transition-all"
+            className="h-10 w-full rounded-xl border border-white/[0.08] bg-[#111214] pl-10 pr-14 text-sm text-zinc-100 placeholder-zinc-500 transition-all focus:border-brand-500/60 focus:outline-none focus:ring-2 focus:ring-brand-500/15"
           />
+          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-500">
+            ⌘ K
+          </kbd>
         </div>
       </form>
 
@@ -68,7 +77,7 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setShowRandomModal(true)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-brand-600/20 border border-brand-500/30 hover:bg-brand-600/30 text-brand-400 hover:text-white text-xs font-semibold rounded-xl transition-all shadow-sm"
+          className="flex items-center gap-2 rounded-xl border border-brand-400/25 bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white shadow-[0_8px_24px_hsl(var(--brand-900)/0.28)] transition-all hover:bg-brand-500"
           title="Rastgele İçerik Önerisi Al"
         >
           <Dices className="w-4 h-4 text-brand-400" />

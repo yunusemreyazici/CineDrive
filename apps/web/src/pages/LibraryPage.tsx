@@ -14,6 +14,7 @@ export const LibraryPage: React.FC = () => {
 
   const typeParam = searchParams.get('type') as 'movie' | 'series' | null;
   const searchParam = searchParams.get('search') || '';
+  const genreParam = searchParams.get('genre') || undefined;
   const pageParam = parseInt(searchParams.get('page') || '1', 10);
 
   const [filterState, setFilterState] = useState<FilterState>({
@@ -21,8 +22,14 @@ export const LibraryPage: React.FC = () => {
     sortOrder: 'desc',
     minRating: undefined,
     yearRange: 'all',
-    genre: undefined,
+    genre: genreParam,
   });
+
+  React.useEffect(() => {
+    setFilterState((current) =>
+      current.genre === genreParam ? current : { ...current, genre: genreParam },
+    );
+  }, [genreParam]);
 
   const queryInput = useMemo(() => {
     let yearFrom: number | undefined;

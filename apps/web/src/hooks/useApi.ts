@@ -335,6 +335,19 @@ export function useContinueWatchingQuery() {
   });
 }
 
+export function useResetProgressMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (mediaItemId: string) => {
+      await apiClient.delete(`/playback/${mediaItemId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
+      queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+    },
+  });
+}
+
 export function useWatchHistoryQuery() {
   return useQuery({
     queryKey: ['watchHistory'],

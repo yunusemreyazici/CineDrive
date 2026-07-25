@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Play, Info, Heart, Video } from 'lucide-react';
 import { useToggleFavoriteMutation } from '../../hooks/useApi';
 import { TrailerModal } from './TrailerModal';
+import { formatMediaTitle } from '../../utils/formatMediaTitle';
 
 interface FeaturedHeroProps {
   media: {
@@ -19,9 +20,14 @@ interface FeaturedHeroProps {
       percentage: number;
     } | null;
   };
+  navigation?: {
+    items: Array<{ id: string; title: string }>;
+    activeId: string;
+    onSelect: (id: string) => void;
+  };
 }
 
-export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
+export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media, navigation }) => {
   const navigate = useNavigate();
   const toggleFavorite = useToggleFavoriteMutation();
   const [showTrailerModal, setShowTrailerModal] = useState(false);
@@ -36,7 +42,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         : null);
 
   return (
-    <section className="relative flex min-h-[430px] w-full items-end overflow-hidden rounded-2xl border border-white/[0.07] bg-zinc-900 shadow-[0_32px_90px_rgba(0,0,0,0.38)] md:min-h-[520px]">
+    <section className="relative flex h-[420px] w-full items-center overflow-hidden bg-[#070809] md:h-[460px]">
       {backdropUrl ? (
         <img
           src={backdropUrl}
@@ -47,15 +53,16 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         <div className="absolute inset-0 bg-gradient-to-br from-brand-950 via-zinc-950 to-zinc-900" />
       )}
 
-      <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/30 to-black/5" />
-      <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/65 to-transparent md:via-zinc-950/35" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#070809] via-transparent to-black/10" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#070809] via-[#070809]/75 to-transparent md:via-[#070809]/50" />
+      <div className="absolute inset-0 bg-gradient-to-l from-[#070809]/45 via-transparent to-transparent" />
 
-      <div className="relative z-10 max-w-2xl p-6 md:p-10 lg:p-12">
-        <h1 className="max-w-xl font-display text-4xl font-extrabold tracking-[-0.035em] text-white drop-shadow-md md:text-6xl">
-          {media.title}
+      <div className="relative z-10 w-full max-w-[500px] px-5 md:px-8 lg:px-10">
+        <h1 className="font-display text-4xl font-extrabold tracking-[-0.035em] text-white drop-shadow-md md:text-5xl">
+          {formatMediaTitle(media.title)}
         </h1>
 
-        <div className="mt-4 flex items-center gap-2.5 text-xs font-medium text-zinc-300 md:text-sm">
+        <div className="mt-3 flex items-center gap-2.5 text-xs font-medium text-zinc-300">
           {media.year && <span>{media.year}</span>}
           {media.year && <span className="h-1 w-1 rounded-full bg-brand-500" />}
           <span>{media.type === 'movie' ? 'Film' : 'Dizi'}</span>
@@ -68,15 +75,15 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         </div>
 
         {media.overview && (
-          <p className="mt-5 line-clamp-3 max-w-xl text-sm leading-6 text-zinc-300 drop-shadow md:text-base md:leading-7">
+          <p className="mt-5 line-clamp-3 max-w-[500px] text-sm leading-6 text-zinc-300 drop-shadow">
             {media.overview}
           </p>
         )}
 
-        <div className="mt-7 flex flex-wrap items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => navigate(`/watch/${media.id}`)}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-950/30 transition hover:bg-brand-500 active:scale-[0.98]"
+            className="flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-950/30 transition hover:bg-brand-500 active:scale-[0.98]"
           >
             <Play className="h-4 w-4 fill-current" />
             {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
@@ -85,7 +92,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
           {media.trailerUrl && (
             <button
               onClick={() => setShowTrailerModal(true)}
-              className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-3 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
+              className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
             >
               <Video className="h-4 w-4 text-brand-400" />
               Fragman
@@ -94,7 +101,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
 
           <button
             onClick={() => navigate(`/media/${media.id}`)}
-            className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-3 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
+            className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
           >
             <Info className="h-4 w-4" />
             Detaylar
@@ -108,7 +115,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
               })
             }
             aria-label="Favoriye Ekle/Çıkar"
-            className={`flex h-11 w-11 items-center justify-center rounded-lg border backdrop-blur-md transition ${
+            className={`flex h-10 w-10 items-center justify-center rounded-lg border backdrop-blur-md transition ${
               media.isFavorite
                 ? 'bg-rose-500/20 border-rose-500/40 text-rose-500'
                 : 'border-white/15 bg-black/35 text-zinc-300 hover:bg-white/10 hover:text-white'
@@ -118,6 +125,29 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
           </button>
         </div>
       </div>
+
+      {navigation && navigation.items.length > 1 ? (
+        <div
+          className="absolute bottom-8 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2"
+          aria-label="Öne çıkan içerikler"
+        >
+          {navigation.items.map((item) => {
+            const isActive = navigation.activeId === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.title}
+                aria-current={isActive ? 'true' : undefined}
+                onClick={() => navigation.onSelect(item.id)}
+                className={`h-2 rounded-full transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${
+                  isActive ? 'w-5 bg-brand-400' : 'w-2 bg-white/35 hover:bg-white/70'
+                }`}
+              />
+            );
+          })}
+        </div>
+      ) : null}
 
       <TrailerModal
         isOpen={showTrailerModal}

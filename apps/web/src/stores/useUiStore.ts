@@ -4,11 +4,13 @@ export type ThemeType = 'default' | 'midnight' | 'neon' | 'emerald';
 
 interface UiState {
   sidebarOpen: boolean;
+  sidebarCollapsed: boolean;
   viewMode: 'grid' | 'list';
   theme: ThemeType;
   cinemaMode: boolean;
   hideMoviesWithoutMetadata: boolean;
   toggleSidebar: () => void;
+  toggleSidebarCollapsed: () => void;
   setSidebarOpen: (open: boolean) => void;
   setViewMode: (mode: 'grid' | 'list') => void;
   setTheme: (theme: ThemeType) => void;
@@ -58,11 +60,13 @@ const getInitialHideMoviesWithoutMetadata = () => {
 
 export const useUiStore = create<UiState>((set) => ({
   sidebarOpen: false,
+  sidebarCollapsed: false,
   viewMode: 'grid',
   theme: initialTheme,
   cinemaMode: false,
   hideMoviesWithoutMetadata: getInitialHideMoviesWithoutMetadata(),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setTheme: (theme) => {
