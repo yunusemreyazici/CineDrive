@@ -266,15 +266,43 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/media/gdrive_video_id_100/stream?transcode=audio&start=2028',
+      url: '/api/media/gdrive_video_id_100/stream?transcode=audio&start=2028&session=player_session_2028',
       cookies: { session_id: sessionCookie!.value },
     });
 
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
       expect.any(Readable),
-      { transcodeVideo: true, quality: '1080p', startSeconds: 2028 },
+      {
+        transcodeVideo: true,
+        quality: '1080p',
+        startSeconds: 2028,
+        ownerSessionId: 'player_session_2028',
+      },
     );
+  });
+
+  it('releases the FFmpeg process owned by a player tab', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+    const releaseSpy = vi.spyOn(app.transcodeService, 'releaseOwner').mockReturnValue(true);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/media/transcode/release?session=player_session_2028',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ stopped: true });
+    expect(releaseSpy).toHaveBeenCalledWith('player_session_2028');
   });
 
   it('rejects an unknown transcode quality profile', async () => {

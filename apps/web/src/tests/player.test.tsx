@@ -205,7 +205,7 @@ describe('Player Components Unit Tests', () => {
     );
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
+      `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0&session=${hlsSessionId}`,
     );
   });
 
@@ -242,13 +242,13 @@ describe('Player Components Unit Tests', () => {
     fireEvent.keyDown(window, { key: '5' });
 
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
+      `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0&session=${hlsSessionId}`,
     );
     act(() => {
       vi.advanceTimersByTime(400);
     });
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=500',
+      `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=500&session=${hlsSessionId}`,
     );
   });
 
@@ -409,6 +409,38 @@ describe('Player Components Unit Tests', () => {
     userAgentSpy.mockRestore();
   });
 
+  it('releases the active Chrome compatibility encoder on pagehide', () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'audio',
+          reason: 'mkv:h264:dts',
+          analyzed: true,
+        },
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/media/transcode/release?session=${hlsSessionId}`,
+      expect.objectContaining({ method: 'POST', keepalive: true }),
+    );
+  });
+
   it('releases every superseded HLS stream during Safari back-forward stress', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
@@ -501,7 +533,7 @@ describe('Player Components Unit Tests', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Ses / Safari Uyum Modu' }));
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
+      `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0&session=${hlsSessionId}`,
     );
 
     fireEvent.canPlay(video);
@@ -531,13 +563,13 @@ describe('Player Components Unit Tests', () => {
     );
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=1080p&start=0',
+      `/api/media/gdrive_interstellar_file/stream?transcode=full&quality=1080p&start=0&session=${hlsSessionId}`,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Görüntü Kalitesi' }));
     fireEvent.click(screen.getByRole('button', { name: /720p/ }));
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p&start=0',
+      `/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p&start=0&session=${hlsSessionId}`,
     );
   });
 

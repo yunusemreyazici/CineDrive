@@ -417,9 +417,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}&session=${hlsSessionId}`
       : `/api/media/${targetDriveFileId}/stream${
           playbackMode === 'audio'
-            ? `?transcode=audio&start=${hlsStartOffset}`
+            ? `?transcode=audio&start=${hlsStartOffset}&session=${hlsSessionId}`
             : playbackMode === 'full'
-              ? `?transcode=full&quality=${effectiveQuality}&start=${hlsStartOffset}`
+              ? `?transcode=full&quality=${effectiveQuality}&start=${hlsStartOffset}&session=${hlsSessionId}`
               : ''
         }`
     : '';
@@ -480,6 +480,26 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       releaseStream();
     };
   }, [hlsSessionId, hlsStartOffset, playbackMode, targetDriveFileId]);
+
+  React.useEffect(() => {
+    if (playbackMode !== 'audio' && playbackMode !== 'full') return;
+
+    const releaseStream = () => {
+      void fetch(`/api/media/transcode/release?session=${hlsSessionId}`, {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+      }).catch(() => {
+        // The request close handler remains a fallback for abrupt exits.
+      });
+    };
+
+    window.addEventListener('pagehide', releaseStream);
+    return () => {
+      window.removeEventListener('pagehide', releaseStream);
+      releaseStream();
+    };
+  }, [hlsSessionId, playbackMode, targetDriveFileId]);
 
   React.useLayoutEffect(() => {
     suppressNextEpisodeUntilRef.current = Date.now() + 20_000;

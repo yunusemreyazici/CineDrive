@@ -21,6 +21,7 @@ const QUALITY_PROFILES: Record<
 
 export class TranscodeService {
   private readonly activeSessions = new Set<string>();
+  private readonly ownerSessions = new Map<string, { id: string; kill: () => void }>();
   private readonly maxActiveSessions: number;
 
   constructor() {
@@ -50,9 +51,20 @@ export class TranscodeService {
       transcodeVideo?: boolean;
       quality?: TranscodeQuality;
       startSeconds?: number;
+      ownerSessionId?: string;
     } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
+    const ownerSessionId = options.ownerSessionId;
+    if (ownerSessionId && !/^[a-zA-Z0-9_-]{8,128}$/.test(ownerSessionId)) {
+      throw new Error('INVALID_TRANSCODE_SESSION');
+    }
+
+    // A player tab owns at most one fragmented-MP4 FFmpeg process. Replace
+    // the previous process before checking capacity so rapid seeks and source
+    // changes cannot strand encoders or reject their own replacement.
+    ownerSessionId && this.ownerSessions.get(ownerSessionId)?.kill();
+
     if (this.activeSessions.size >= this.maxActiveSessions) {
       throw new Error('TRANSCODE_CAPACITY_REACHED');
     }
@@ -89,6 +101,9 @@ export class TranscodeService {
       if (closed) return;
       closed = true;
       this.activeSessions.delete(sessionId);
+      if (ownerSessionId && this.ownerSessions.get(ownerSessionId)?.id === sessionId) {
+        this.ownerSessions.delete(ownerSessionId);
+      }
     };
 
     const inputOptions = [
@@ -138,8 +153,29 @@ export class TranscodeService {
       onAbort(kill);
     }
 
+    if (ownerSessionId) {
+      this.ownerSessions.set(ownerSessionId, { id: sessionId, kill });
+    }
     command.pipe(outputStream, { end: true });
 
     return { stream: outputStream, kill };
+  }
+
+  public releaseOwner(ownerSessionId: string) {
+    if (!/^[a-zA-Z0-9_-]{8,128}$/.test(ownerSessionId)) {
+      throw new Error('INVALID_TRANSCODE_SESSION');
+    }
+    const owned = this.ownerSessions.get(ownerSessionId);
+    if (!owned) return false;
+    owned.kill();
+    return true;
+  }
+
+  public shutdown() {
+    for (const owned of [...this.ownerSessions.values()]) {
+      owned.kill();
+    }
+    this.ownerSessions.clear();
+    this.activeSessions.clear();
   }
 }

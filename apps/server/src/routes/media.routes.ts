@@ -222,6 +222,18 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
     const requestedQuality = (request.query as Record<string, string>)?.quality;
     const requestedStart = (request.query as Record<string, string>)?.start;
+    const requestedSession = (request.query as Record<string, string>)?.session;
+    const ownerSessionId = requestedSession ? parseHlsSession(requestedSession) : undefined;
+    if (requestedSession && !ownerSessionId) {
+      cleanupListeners();
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_TRANSCODE_SESSION',
+          message: 'Geçersiz transcode oynatma oturumu.',
+          requestId: request.id,
+        },
+      });
+    }
     const startSeconds = requestedStart === undefined ? 0 : Number(requestedStart);
     if (!Number.isFinite(startSeconds) || startSeconds < 0) {
       cleanupListeners();
@@ -280,6 +292,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
             startSeconds,
+            ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
 
@@ -394,6 +407,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
             startSeconds,
+            ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
 
@@ -470,6 +484,15 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       throw err;
     }
   };
+
+  fastify.post<{
+    Querystring: { session?: string };
+  }>('/transcode/release', async (request, reply) => {
+    const sessionId = parseHlsSession(request.query.session);
+    if (!sessionId) return reply.status(400).send();
+    const stopped = fastify.transcodeService.releaseOwner(sessionId);
+    return reply.status(200).send({ stopped });
+  });
 
   // Native Safari HLS playlist. Segments are generated once and then reused.
   fastify.get<{

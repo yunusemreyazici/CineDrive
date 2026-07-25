@@ -54,7 +54,10 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('localScanService', localScanService);
   fastify.decorate('hlsService', hlsService);
   fastify.decorate('playerTelemetryService', playerTelemetryService);
-  fastify.addHook('onClose', async () => hlsService.shutdown());
+  fastify.addHook('onClose', async () => {
+    hlsService.shutdown();
+    transcodeService.shutdown();
+  });
 
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();
