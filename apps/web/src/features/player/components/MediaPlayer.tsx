@@ -102,6 +102,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryAttemptsRef = useRef(0);
   const recoveryPositionRef = useRef<number | null>(null);
+  const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
+  const suppressNextEpisodeUntilRef = useRef(0);
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -380,6 +382,41 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }`
     : '';
 
+  React.useLayoutEffect(() => {
+    suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
+  }, [videoSourceUrl]);
+
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video || resumeAfterSourceChangeRef.current !== playbackMode) return;
+
+    let cancelled = false;
+    const resume = () => {
+      if (
+        cancelled ||
+        resumeAfterSourceChangeRef.current !== playbackMode
+      ) {
+        return;
+      }
+
+      video
+        .play()
+        .catch(() => {
+          // Keep listening for the next readiness event.
+        });
+    };
+
+    video.addEventListener('canplay', resume);
+    const resumeTimers = [0, 250, 1_000, 2_500].map((delay) =>
+      setTimeout(resume, delay),
+    );
+    return () => {
+      cancelled = true;
+      resumeTimers.forEach(clearTimeout);
+      video.removeEventListener('canplay', resume);
+    };
+  }, [playbackMode, videoSourceUrl]);
+
   // Playback Progress Sync Hook
   const { saveProgress } = usePlaybackProgress({
     mediaItemId: media.id,
@@ -463,6 +500,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         typeof video.webkitAudioDecodedByteCount === 'number' &&
         video.webkitAudioDecodedByteCount === 0
       ) {
+        suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
+        resumeAfterSourceChangeRef.current = 'audio';
         setPlaybackMode('audio');
       }
     }, 6000);
@@ -495,12 +534,25 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     const reportedDuration = analyzedDuration || videoRef.current.duration;
     if (!Number.isFinite(reportedDuration) || reportedDuration <= 0) return;
+    if (Date.now() < suppressNextEpisodeUntilRef.current) return;
 
     // Trigger next episode overlay when 15s remaining or 94% completion
-    const remainingSeconds = reportedDuration - videoRef.current.currentTime;
-    const percentage = (videoRef.current.currentTime / reportedDuration) * 100;
+    const playbackPosition = videoRef.current.currentTime;
     if (
-      (remainingSeconds <= 15 || percentage >= 94) &&
+      !Number.isFinite(playbackPosition) ||
+      playbackPosition < 30 ||
+      playbackPosition > reportedDuration + 1
+    ) {
+      return;
+    }
+
+    const remainingSeconds = reportedDuration - playbackPosition;
+    const percentage = (playbackPosition / reportedDuration) * 100;
+    const isNearEnd =
+      (remainingSeconds >= 0 && remainingSeconds <= 15) ||
+      (percentage >= 94 && percentage <= 100);
+    if (
+      isNearEnd &&
       !showNextEpisodeModal &&
       !nextEpisodeDismissedRef.current &&
       nextEpisode
@@ -549,6 +601,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
               : null;
         if (!nextQuality) return;
 
+        suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
         setConnectionMessage(`Başlangıç akışı ${nextQuality} kalitesinde yeniden hazırlanıyor`);
         setAdaptiveQuality(nextQuality);
       }, STALL_RECOVERY_DELAY_MS);
@@ -577,6 +630,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [clearStallRecoveryTimer, effectiveQuality, playbackMode, qualityPreference]);
 
   const handlePlaying = useCallback(() => {
+    if (resumeAfterSourceChangeRef.current === playbackMode) {
+      resumeAfterSourceChangeRef.current = null;
+    }
     setIsBuffering(false);
     setConnectionMessage(null);
     clearStallRecoveryTimer();
@@ -585,9 +641,27 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     stablePlaybackTimerRef.current = setTimeout(() => {
       stallRecoveryAttemptsRef.current = 0;
     }, 30_000);
+  }, [clearStallRecoveryTimer, playbackMode]);
+
+  const handleCanPlayReady = useCallback(() => {
+    setIsBuffering(false);
+    clearStallRecoveryTimer();
   }, [clearStallRecoveryTimer]);
 
   const handleVideoEnded = () => {
+    const video = videoRef.current;
+    const reportedDuration = analyzedDuration || duration || video?.duration || 0;
+    const playbackPosition = video?.currentTime || 0;
+    if (
+      Date.now() < suppressNextEpisodeUntilRef.current ||
+      !Number.isFinite(reportedDuration) ||
+      reportedDuration <= 0 ||
+      !Number.isFinite(playbackPosition) ||
+      playbackPosition < reportedDuration - 15
+    ) {
+      return;
+    }
+
     saveProgress(true);
     if (nextEpisode && autoPlayNext && !nextEpisodeDismissedRef.current) {
       setShowNextEpisodeModal(true);
@@ -742,7 +816,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         onWaiting={handleWaiting}
         onStalled={handleWaiting}
         onPlaying={handlePlaying}
-        onCanPlay={handlePlaying}
+        onCanPlay={handleCanPlayReady}
         onProgress={updateBufferedTime}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
@@ -751,9 +825,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           // Safari reports unsupported containers/codecs as a generic media
           // error. Retry once with full H.264/AAC compatibility transcoding;
           // if that also fails, show the actionable player error.
-          if (playbackMode === 'direct') {
+          if (playbackMode === 'direct' || playbackMode === 'audio') {
+            const fallbackMode: PlaybackMode = isSafari ? 'hls' : 'full';
+            suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
+            resumeAfterSourceChangeRef.current = isPlaying ? fallbackMode : null;
             setErrorState(null);
-            setPlaybackMode(isSafari ? 'hls' : 'full');
+            setPlaybackMode(fallbackMode);
             return;
           }
 
@@ -854,6 +931,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           effectiveQuality={effectiveQuality}
           showQualityControl={playbackMode === 'full'}
           onSelectQuality={(quality) => {
+            suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
             setQualityPreference(quality);
             if (quality === 'auto') setAdaptiveQuality(automaticQuality);
             try {
@@ -862,17 +940,21 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
               // The preference remains valid for the current session.
             }
           }}
-          onToggleTranscode={() =>
-            setPlaybackMode((current) =>
-              current === 'direct'
-                ? recommendedPlaybackMode === 'direct'
-                  ? isSafari
-                    ? 'hls'
-                    : 'audio'
-                  : recommendedPlaybackMode
-                : 'direct',
-            )
-          }
+          onToggleTranscode={() => {
+            const video = videoRef.current;
+            const compatibilityMode: PlaybackMode =
+              recommendedPlaybackMode === 'direct'
+                ? isSafari
+                  ? 'hls'
+                  : 'audio'
+                : recommendedPlaybackMode;
+            const nextMode: PlaybackMode =
+              playbackMode === compatibilityMode ? 'direct' : compatibilityMode;
+            suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
+            resumeAfterSourceChangeRef.current =
+              isPlaying || Boolean(video && !video.paused) ? nextMode : null;
+            setPlaybackMode(nextMode);
+          }}
           onTogglePlay={togglePlay}
           onSkipBackward={skipBackward}
           onSkipForward={skipForward}

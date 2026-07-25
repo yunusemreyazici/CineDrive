@@ -45,7 +45,7 @@ export class TranscodeService {
    * Incompatible surround audio (AC3/EAC3/DTS) is converted to stereo AAC (-c:a aac -ac 2).
    */
   public createTranscodedStream(
-    inputStream: Readable,
+    input: Readable | string,
     options: {
       transcodeVideo?: boolean;
       quality?: TranscodeQuality;
@@ -65,28 +65,22 @@ export class TranscodeService {
       ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`]
       : [];
     const videoOptions = options.transcodeVideo
-      ? process.platform === 'darwin'
-        ? [
-            '-c:v h264_videotoolbox',
-            '-b:v', profile.bitrate,
-            '-maxrate', profile.maxrate,
-            '-bufsize', profile.bufsize,
-            '-profile:v high',
-            '-level:v 4.1',
-            '-pix_fmt yuv420p',
-            '-g 50',
-            ...scaleOptions,
-          ]
-        : [
-            '-c:v libx264',
-            '-preset veryfast',
-            '-b:v', profile.bitrate,
-            '-maxrate', profile.maxrate,
-            '-bufsize', profile.bufsize,
-            '-pix_fmt yuv420p',
-            '-g 50',
-            ...scaleOptions,
-          ]
+      ? [
+          // VideoToolbox can accept the command and emit an MP4 header before
+          // failing with kVTVideoEncoderMalfunctionErr (-12908). That leaves
+          // browsers with a ready-looking, zero-duration stream. libx264's
+          // low-latency profile is deterministic and remains comfortably
+          // faster than real time for the compatibility resolutions.
+          '-c:v libx264',
+          '-preset ultrafast',
+          '-tune zerolatency',
+          '-b:v', profile.bitrate,
+          '-maxrate', profile.maxrate,
+          '-bufsize', profile.bufsize,
+          '-pix_fmt yuv420p',
+          '-g 50',
+          ...scaleOptions,
+        ]
       : ['-c:v copy'];
 
     let closed = false;
@@ -96,7 +90,7 @@ export class TranscodeService {
       this.activeSessions.delete(sessionId);
     };
 
-    const command = ffmpeg(inputStream)
+    const command = ffmpeg(input)
       .inputOptions([
         // Keep a modest lead over playback so Safari's buffer grows instead of
         // draining on small encode/load spikes. This remains tightly bounded,

@@ -188,6 +188,28 @@ describe('Player Components Unit Tests', () => {
     );
   });
 
+  it('resumes playback after switching to compatibility mode', async () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'paused', { configurable: true, value: false });
+    const playSpy = vi.spyOn(video, 'play').mockResolvedValue();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ses / Safari Uyum Modu' }));
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio',
+    );
+
+    fireEvent.canPlay(video);
+    await waitFor(() => expect(playSpy).toHaveBeenCalled());
+  });
+
   it('adds the selected quality profile to a full transcode request', () => {
     const plannedMovie: MediaItemType = {
       ...mockMovie,
@@ -218,6 +240,34 @@ describe('Player Components Unit Tests', () => {
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
       '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p',
+    );
+  });
+
+  it('does not replace a required full Chrome compatibility plan with audio-only mode', () => {
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mp4:hevc:eac3',
+          analyzed: true,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ses / Safari Uyum Modu' }));
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream',
     );
   });
 
@@ -270,6 +320,9 @@ describe('Player Components Unit Tests', () => {
       configurable: true,
       value: 95,
     });
+    const dateNowSpy = vi
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() + 21_000);
 
     fireEvent.timeUpdate(video);
     expect(screen.getByText('Sonraki Bölüm')).toBeInTheDocument();
@@ -278,6 +331,55 @@ describe('Player Components Unit Tests', () => {
     expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
 
     fireEvent.timeUpdate(video);
+    expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
+    dateNowSpy.mockRestore();
+  });
+
+  it('ignores impossible transient timestamps while a transcode source changes', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockSeries} episodeId="episode_1" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'duration', {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      value: 10_000,
+    });
+
+    fireEvent.timeUpdate(video);
+    expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
+  });
+
+  it('suppresses the next episode overlay during a compatibility source change', () => {
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={mockSeries} episodeId="episode_1" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'duration', {
+      configurable: true,
+      value: 100,
+    });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      value: 95,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ses / Safari Uyum Modu' }));
+    fireEvent.timeUpdate(video);
+    fireEvent.ended(video);
     expect(screen.queryByText('Sonraki Bölüm')).not.toBeInTheDocument();
   });
 

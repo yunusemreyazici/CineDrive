@@ -232,9 +232,10 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('X-Transcode-Quality', transcodeQuality);
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
-        const localReadStream = fs.createReadStream(driveFile.localFilePath);
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
-          localReadStream,
+          // A local MP4 must remain seekable. Feeding it through a ReadStream
+          // turns it into a pipe, and FFmpeg cannot revisit MP4 sample offsets.
+          driveFile.localFilePath,
           { transcodeVideo: shouldTranscodeVideo, quality: transcodeQuality },
         );
 
