@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
@@ -12,6 +12,8 @@ import {
   useContinueWatchingQuery,
   useFavoritesQuery,
 } from '../hooks/useApi';
+
+const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
 
 interface HomeSectionProps {
   title: string;
@@ -49,21 +51,56 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items }) => {
 };
 
 export const HomePage: React.FC = () => {
+  const [featuredId, setFeaturedId] = useState<string | null>(null);
   const { data: mediaData, isLoading: isMediaLoading } = useMediaListQuery({ limit: 30 });
   const { data: continueWatching } = useContinueWatchingQuery();
   const { data: favorites } = useFavoritesQuery();
 
   const allMedia = mediaData?.media || [];
-  const featuredItem =
-    allMedia.find(
+  const featuredItem = allMedia.find((media) => media.id === featuredId);
+  const movies = allMedia.filter((m) => m.type === 'movie');
+  const series = allMedia.filter((m) => m.type === 'series');
+
+  useLayoutEffect(() => {
+    if (featuredId || allMedia.length === 0) return;
+
+    const richCandidates = allMedia.filter(
       (media) =>
         Boolean(media.backdropUrl || media.backdropDriveFileId) &&
         Boolean(media.overview),
-    ) ||
-    allMedia.find((media) => Boolean(media.backdropUrl || media.backdropDriveFileId)) ||
-    allMedia[0];
-  const movies = allMedia.filter((m) => m.type === 'movie');
-  const series = allMedia.filter((m) => m.type === 'series');
+    );
+    const visualCandidates = allMedia.filter((media) =>
+      Boolean(media.backdropUrl || media.backdropDriveFileId),
+    );
+    const candidates =
+      richCandidates.length > 0
+        ? richCandidates
+        : visualCandidates.length > 0
+          ? visualCandidates
+          : allMedia;
+
+    let lastFeaturedId: string | null = null;
+    try {
+      lastFeaturedId = window.sessionStorage.getItem(LAST_FEATURED_MEDIA_KEY);
+    } catch {
+      // Storage erişimi kapalıysa rastgele seçim yine çalışmaya devam eder.
+    }
+
+    const freshCandidates =
+      candidates.length > 1
+        ? candidates.filter((media) => media.id !== lastFeaturedId)
+        : candidates;
+    const selected =
+      freshCandidates[Math.floor(Math.random() * freshCandidates.length)] || candidates[0];
+    if (!selected) return;
+
+    setFeaturedId(selected.id);
+    try {
+      window.sessionStorage.setItem(LAST_FEATURED_MEDIA_KEY, selected.id);
+    } catch {
+      // Seçimi kalıcılaştırmak kritik değildir.
+    }
+  }, [allMedia, featuredId]);
 
   if (isMediaLoading) {
     return (
