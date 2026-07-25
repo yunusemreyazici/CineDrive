@@ -205,7 +205,50 @@ describe('Player Components Unit Tests', () => {
     );
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio',
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
+    );
+  });
+
+  it('restarts the Chrome audio compatibility stream at the seek position', () => {
+    vi.useFakeTimers();
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'audio',
+          reason: 'mkv:h264:dts',
+          analyzed: true,
+        },
+        technicalMetadata: {
+          mediaDuration: 1000,
+          mediaHeight: 1080,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    const video = container.querySelector('video')!;
+    vi.spyOn(video, 'play').mockResolvedValue();
+    fireEvent.loadedMetadata(video);
+    fireEvent.keyDown(window, { key: '5' });
+
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
+    );
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(video.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=500',
     );
   });
 
@@ -458,7 +501,7 @@ describe('Player Components Unit Tests', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Ses / Safari Uyum Modu' }));
     expect(video.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=audio',
+      '/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0',
     );
 
     fireEvent.canPlay(video);
@@ -488,13 +531,13 @@ describe('Player Components Unit Tests', () => {
     );
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=1080p',
+      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=1080p&start=0',
     );
     fireEvent.click(screen.getByRole('button', { name: 'Görüntü Kalitesi' }));
     fireEvent.click(screen.getByRole('button', { name: /720p/ }));
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p',
+      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p&start=0',
     );
   });
 

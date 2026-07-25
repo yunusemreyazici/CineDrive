@@ -200,7 +200,7 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.body).toBe('transcoded-fragment');
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
       expect.any(Readable),
-      { transcodeVideo: false, quality: '1080p' },
+      { transcodeVideo: false, quality: '1080p', startSeconds: 0 },
     );
     expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
       'mock-access-token',
@@ -238,13 +238,42 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
       expect.any(Readable),
-      { transcodeVideo: true, quality: '1080p' },
+      { transcodeVideo: true, quality: '1080p', startSeconds: 0 },
     );
     expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
       'mock-access-token',
       'gdrive_video_id_100',
       undefined,
       expect.any(AbortSignal),
+    );
+  });
+
+  it('restarts compatibility transcoding at the requested seek position', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+    app.transcodeService.createTranscodedStream = vi.fn().mockReturnValue({
+      stream: Readable.from(Buffer.from('seeked-transcoded-fragment')),
+      kill: vi.fn(),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_video_id_100/stream?transcode=audio&start=2028',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
+      expect.any(Readable),
+      { transcodeVideo: true, quality: '1080p', startSeconds: 2028 },
     );
   });
 

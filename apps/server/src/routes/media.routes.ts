@@ -221,6 +221,18 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
     const requestedQuality = (request.query as Record<string, string>)?.quality;
+    const requestedStart = (request.query as Record<string, string>)?.start;
+    const startSeconds = requestedStart === undefined ? 0 : Number(requestedStart);
+    if (!Number.isFinite(startSeconds) || startSeconds < 0) {
+      cleanupListeners();
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_TRANSCODE_START',
+          message: 'Geçersiz transcode başlangıç zamanı.',
+          requestId: request.id,
+        },
+      });
+    }
     const validQualities = new Set<TranscodeQuality>(['original', '1080p', '720p', '480p']);
     if (requestedQuality && !validQualities.has(requestedQuality as TranscodeQuality)) {
       cleanupListeners();
@@ -238,7 +250,9 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       transcodeMode === '1' ||
       transcodeMode === 'audio' ||
       transcodeMode === 'full';
-    const shouldTranscodeVideo = transcodeMode === 'full';
+    // A restarted stream must decode from the exact requested timestamp.
+    // Copying H.264 would begin at an earlier keyframe and desynchronize audio.
+    const shouldTranscodeVideo = transcodeMode === 'full' || startSeconds > 0;
 
     // 5. Handle Local File Streaming (Direct Disk Stream)
     if (driveFile.storageType === 'local' && driveFile.localFilePath) {
@@ -262,7 +276,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           // A local MP4 must remain seekable. Feeding it through a ReadStream
           // turns it into a pipe, and FFmpeg cannot revisit MP4 sample offsets.
           driveFile.localFilePath,
-          { transcodeVideo: shouldTranscodeVideo, quality: transcodeQuality },
+          {
+            transcodeVideo: shouldTranscodeVideo,
+            quality: transcodeQuality,
+            startSeconds,
+          },
         );
 
         request.raw.on('close', () => {
@@ -372,7 +390,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           driveStreamRes.stream,
-          { transcodeVideo: shouldTranscodeVideo, quality: transcodeQuality },
+          {
+            transcodeVideo: shouldTranscodeVideo,
+            quality: transcodeQuality,
+            startSeconds,
+          },
         );
 
         request.raw.on('close', () => {

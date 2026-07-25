@@ -194,6 +194,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(recommendedPlaybackMode);
   const [hlsStartOffset, setHlsStartOffset] = useState(0);
   const useTranscode = playbackMode !== 'direct';
+  const playbackTimelineOffset = useTranscode ? hlsStartOffset : 0;
   const automaticQuality = chooseAutoQuality(analyzedHeight);
   const [adaptiveQuality, setAdaptiveQuality] = useState(automaticQuality);
   const effectiveQuality = qualityPreference === 'auto' ? adaptiveQuality : qualityPreference;
@@ -261,7 +262,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   React.useEffect(() => {
     if (!videoRef.current) return;
-    const timelineOffset = playbackMode === 'hls' ? hlsStartOffset : 0;
+    const timelineOffset = playbackTimelineOffset;
 
     const tracks = Array.from(videoRef.current.textTracks);
     tracks.forEach((track) => {
@@ -284,7 +285,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         });
       }
     });
-  }, [hlsStartOffset, playbackMode, subtitleDelay, subtitleTrackLoadVersion]);
+  }, [playbackTimelineOffset, subtitleDelay, subtitleTrackLoadVersion]);
 
   // Z & X Keyboard Hotkeys for live subtitle delay adjustment
   React.useEffect(() => {
@@ -416,9 +417,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}&session=${hlsSessionId}`
       : `/api/media/${targetDriveFileId}/stream${
           playbackMode === 'audio'
-            ? '?transcode=audio'
+            ? `?transcode=audio&start=${hlsStartOffset}`
             : playbackMode === 'full'
-              ? `?transcode=full&quality=${effectiveQuality}`
+              ? `?transcode=full&quality=${effectiveQuality}&start=${hlsStartOffset}`
               : ''
         }`
     : '';
@@ -545,7 +546,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const recoveryPosition = recoveryPositionRef.current;
       recoveryPositionRef.current = null;
       video.currentTime =
-        playbackMode === 'hls' ? Math.max(0, recoveryPosition - hlsStartOffset) : recoveryPosition;
+        useTranscode ? Math.max(0, recoveryPosition - hlsStartOffset) : recoveryPosition;
       video.play().catch(() => {});
       return;
     }
@@ -596,10 +597,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       ) {
         suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
         resumeAfterSourceChangeRef.current = 'audio';
+        setHlsStartOffset(Math.floor(currentTime));
         setPlaybackMode('audio');
       }
     }, 6000);
-  }, [clearAudioCompatibilityCheck, isMuted, useTranscode, volume]);
+  }, [clearAudioCompatibilityCheck, currentTime, isMuted, useTranscode, volume]);
 
   const seekToAbsoluteTime = useCallback(
     (requestedTime: number, shouldPlay = true) => {
@@ -611,7 +613,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       );
       seekStartedAtRef.current = performance.now();
 
-      if (playbackMode !== 'hls') {
+      if (playbackMode === 'direct') {
         if (pendingHlsSeekTimerRef.current) {
           clearTimeout(pendingHlsSeekTimerRef.current);
           pendingHlsSeekTimerRef.current = null;
@@ -623,13 +625,15 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       const localTarget = targetTime - hlsStartOffset;
       let isInCurrentWindow = false;
-      for (let index = 0; index < video.seekable.length; index++) {
-        if (
-          localTarget >= video.seekable.start(index) &&
-          localTarget <= video.seekable.end(index)
-        ) {
-          isInCurrentWindow = true;
-          break;
+      if (playbackMode === 'hls') {
+        for (let index = 0; index < video.seekable.length; index++) {
+          if (
+            localTarget >= video.seekable.start(index) &&
+            localTarget <= video.seekable.end(index)
+          ) {
+            isInCurrentWindow = true;
+            break;
+          }
         }
       }
 
@@ -682,14 +686,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const playbackPosition =
-      videoRef.current.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0);
+      videoRef.current.currentTime + playbackTimelineOffset;
     setCurrentTime(playbackPosition);
 
     // Calculate buffered range
     if (videoRef.current.buffered.length > 0) {
       setBufferedTime(
         videoRef.current.buffered.end(videoRef.current.buffered.length - 1) +
-          (playbackMode === 'hls' ? hlsStartOffset : 0),
+          playbackTimelineOffset,
       );
     }
 
@@ -726,11 +730,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const start = video.buffered.start(index);
       const end = video.buffered.end(index);
       if (video.currentTime >= start && video.currentTime <= end) {
-        setBufferedTime(end + (playbackMode === 'hls' ? hlsStartOffset : 0));
+        setBufferedTime(end + playbackTimelineOffset);
         return;
       }
     }
-  }, [hlsStartOffset, playbackMode]);
+  }, [playbackTimelineOffset]);
 
   const clearStallRecoveryTimer = useCallback(() => {
     if (!stallRecoveryTimerRef.current) return;
@@ -779,13 +783,19 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       stallRecoveryAttemptsRef.current += 1;
       recoveryPositionRef.current =
-        video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0);
+        video.currentTime + playbackTimelineOffset;
       setConnectionMessage(
         `Bağlantı yeniden kuruluyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
       );
       video.load();
     }, STALL_RECOVERY_DELAY_MS);
-  }, [clearStallRecoveryTimer, effectiveQuality, hlsStartOffset, playbackMode, qualityPreference]);
+  }, [
+    clearStallRecoveryTimer,
+    effectiveQuality,
+    playbackMode,
+    playbackTimelineOffset,
+    qualityPreference,
+  ]);
 
   const handlePlaying = useCallback(() => {
     const now = performance.now();
@@ -823,7 +833,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const video = videoRef.current;
     const reportedDuration = analyzedDuration || duration || video?.duration || 0;
     const playbackPosition =
-      (video?.currentTime || 0) + (playbackMode === 'hls' ? hlsStartOffset : 0);
+      (video?.currentTime || 0) + playbackTimelineOffset;
     if (
       Date.now() < suppressNextEpisodeUntilRef.current ||
       !Number.isFinite(reportedDuration) ||
@@ -860,14 +870,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const skipBackward = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    seekToAbsoluteTime(video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) - 10);
-  }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
+    seekToAbsoluteTime(video.currentTime + playbackTimelineOffset - 10);
+  }, [playbackTimelineOffset, seekToAbsoluteTime]);
 
   const skipForward = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    seekToAbsoluteTime(video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) + 10);
-  }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
+    seekToAbsoluteTime(video.currentTime + playbackTimelineOffset + 10);
+  }, [playbackTimelineOffset, seekToAbsoluteTime]);
 
   const toggleMute = useCallback(() => {
     if (!videoRef.current) return;
@@ -1004,6 +1014,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             const fallbackMode: PlaybackMode = isSafari ? 'hls' : 'full';
             suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
             resumeAfterSourceChangeRef.current = isPlaying ? fallbackMode : null;
+            setHlsStartOffset(Math.floor(currentTime));
             setErrorState(null);
             setPlaybackMode(fallbackMode);
             return;
@@ -1131,9 +1142,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
             resumeAfterSourceChangeRef.current =
               isPlaying || Boolean(video && !video.paused) ? nextMode : null;
-            if (nextMode === 'hls') {
+            if (nextMode !== 'direct') {
               setHlsStartOffset(Math.floor(currentTime));
-            } else if (playbackMode === 'hls') {
+            } else if (playbackMode !== 'direct') {
               recoveryPositionRef.current = currentTime;
               setHlsStartOffset(0);
             }

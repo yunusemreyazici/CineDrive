@@ -49,6 +49,7 @@ export class TranscodeService {
     options: {
       transcodeVideo?: boolean;
       quality?: TranscodeQuality;
+      startSeconds?: number;
     } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
@@ -90,15 +91,23 @@ export class TranscodeService {
       this.activeSessions.delete(sessionId);
     };
 
-    const command = ffmpeg(input)
-      .inputOptions([
+    const inputOptions = [
+      ...(options.startSeconds && options.startSeconds > 0
+        ? ['-ss', options.startSeconds.toString()]
+        : []),
         // Keep a modest lead over playback so Safari's buffer grows instead of
         // draining on small encode/load spikes. This remains tightly bounded,
         // unlike an unrestricted pipe that consumed hundreds of MB per second.
-        '-readrate', '1.25',
-        '-probesize', '65536',
-        '-analyzeduration', '0',
-      ])
+      '-readrate',
+      '1.25',
+      '-probesize',
+      '65536',
+      '-analyzeduration',
+      '0',
+    ];
+
+    const command = ffmpeg(input)
+      .inputOptions(inputOptions)
       .outputOptions([
         ...videoOptions,
         '-c:a aac',
