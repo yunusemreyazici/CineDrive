@@ -7,6 +7,7 @@ import {
   getBufferedAheadSeconds,
   MediaPlayer,
   normalizeSubtitleTrack,
+  serializeSubtitleCuesToVtt,
   togglePlayerFullscreen,
 } from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
@@ -122,6 +123,18 @@ Sonraki cümle`);
     expect(findActiveSubtitleCue(cues, 1925)?.text).toContain('Türkçe');
     expect(findActiveSubtitleCue(cues, 1928)).toBeUndefined();
     expect(findActiveSubtitleCue(cues, 1928.5, -0.5)?.text).toBe('Sonraki cümle');
+  });
+
+  it('serializes downloaded subtitle cues into a native fullscreen WebVTT track', () => {
+    expect(
+      serializeSubtitleCuesToVtt([
+        {
+          startTime: 62.125,
+          endTime: 65.5,
+          text: 'Mobil tam ekran altyazısı',
+        },
+      ]),
+    ).toContain('00:01:02.125 --> 00:01:05.500\nMobil tam ekran altyazısı');
   });
 
   beforeEach(() => {

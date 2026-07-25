@@ -12,7 +12,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
-import { findActiveSubtitleCue, parseWebVttCues } from '../utils/subtitleCues';
+import { findActiveSubtitleCue, parseWebVttCues, type SubtitleCue } from '../utils/subtitleCues';
 import type {
   MediaItemType,
   EpisodeType,
@@ -59,6 +59,41 @@ export const alignSubtitleCueToPlaybackTimeline = (
   };
 };
 
+const formatWebVttTimestamp = (seconds: number) => {
+  const totalMilliseconds = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(totalMilliseconds / 3_600_000);
+  const minutes = Math.floor((totalMilliseconds % 3_600_000) / 60_000);
+  const wholeSeconds = Math.floor((totalMilliseconds % 60_000) / 1000);
+  const milliseconds = totalMilliseconds % 1000;
+
+  return `${hours.toString().padStart(2, '0')}:${minutes
+    .toString()
+    .padStart(2, '0')}:${wholeSeconds.toString().padStart(2, '0')}.${milliseconds
+    .toString()
+    .padStart(3, '0')}`;
+};
+
+export const serializeSubtitleCuesToVtt = (cues: SubtitleCue[]) =>
+  `WEBVTT\n\n${cues
+    .map(
+      (cue, index) =>
+        `${index + 1}\n${formatWebVttTimestamp(cue.startTime)} --> ${formatWebVttTimestamp(
+          cue.endTime,
+        )}\n${cue.text}`,
+    )
+    .join('\n\n')}\n`;
+
+const getNativeSubtitleSource = (subtitle: SubtitleTrackType) => {
+  if (subtitle.url) return subtitle.url;
+  if (subtitle.src) return subtitle.src;
+  if (subtitle.cues?.length) {
+    return `data:text/vtt;charset=utf-8,${encodeURIComponent(
+      serializeSubtitleCuesToVtt(subtitle.cues),
+    )}`;
+  }
+  return `/api/media/${subtitle.id}/subtitle`;
+};
+
 export const getBufferedAheadSeconds = (video: HTMLVideoElement) => {
   for (let index = 0; index < video.buffered.length; index++) {
     const start = video.buffered.start(index);
@@ -81,10 +116,7 @@ type WebkitFullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
 };
 
-export const togglePlayerFullscreen = async (
-  video: HTMLVideoElement,
-  container: HTMLElement,
-) => {
+export const togglePlayerFullscreen = async (video: HTMLVideoElement, container: HTMLElement) => {
   const fullscreenDocument = document as WebkitFullscreenDocument;
   const webkitVideo = video as WebkitFullscreenVideo;
 
@@ -254,6 +286,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     Record<string, SubtitleTrackType['cues']>
   >({});
   const [subtitleTrackLoadVersion, setSubtitleTrackLoadVersion] = useState(0);
+  const [isNativeVideoFullscreen, setIsNativeVideoFullscreen] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [qualityPreference, setQualityPreference] =
@@ -339,7 +372,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   });
   const subtitleAvailabilityKey = availableSubtitles.map((subtitle) => subtitle.id).join('|');
   const subtitlePreferenceKey = `${SUBTITLE_PREFERENCE_STORAGE_KEY}:${subtitleOwnerId}`;
-  const nativeSubtitles = resolvedSubtitles.filter((subtitle) => !subtitle.cues?.length);
+  // iPhone Safari displays only the native video layer in fullscreen. Keep
+  // every subtitle source as a real text track so downloaded and locally
+  // uploaded subtitles remain visible there as well.
+  const nativeSubtitles = resolvedSubtitles;
   const activeOverlaySubtitle = resolvedSubtitles.find(
     (subtitle) =>
       subtitle.cues?.length &&
@@ -464,12 +500,41 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     tracks.forEach((track, idx) => {
       const sub = nativeSubtitles[idx];
       if (sub && (sub.id === activeSubtitleId || (sub.isDefault && !activeSubtitleId))) {
-        track.mode = 'showing';
+        // Cue-backed subtitles use the styled HTML overlay inline, but iPhone
+        // native fullscreen can only display a showing native text track.
+        track.mode = sub.cues?.length && !isNativeVideoFullscreen ? 'hidden' : 'showing';
       } else {
         track.mode = 'disabled';
       }
     });
-  }, [activeSubtitleId, nativeSubtitles, subtitleTrackLoadVersion]);
+  }, [activeSubtitleId, isNativeVideoFullscreen, nativeSubtitles, subtitleTrackLoadVersion]);
+
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleNativeFullscreenStart = () => {
+      // Change the mode synchronously while Safari is entering its native
+      // player; waiting for a React render can be too late on some iPhones.
+      Array.from(video.textTracks).forEach((track, index) => {
+        const subtitle = nativeSubtitles[index];
+        track.mode =
+          subtitle &&
+          (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId))
+            ? 'showing'
+            : 'disabled';
+      });
+      setIsNativeVideoFullscreen(true);
+    };
+    const handleNativeFullscreenEnd = () => setIsNativeVideoFullscreen(false);
+    video.addEventListener('webkitbeginfullscreen', handleNativeFullscreenStart);
+    video.addEventListener('webkitendfullscreen', handleNativeFullscreenEnd);
+
+    return () => {
+      video.removeEventListener('webkitbeginfullscreen', handleNativeFullscreenStart);
+      video.removeEventListener('webkitendfullscreen', handleNativeFullscreenEnd);
+    };
+  }, [activeSubtitleId, nativeSubtitles]);
 
   // Native Safari HLS restarts its media timeline at zero after an absolute
   // seek. Keep subtitle cues on that local timeline while preserving the
@@ -1318,7 +1383,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         {nativeSubtitles.map((sub) => (
           <track
             key={sub.id}
-            src={(sub as unknown as { url?: string }).url || `/api/media/${sub.id}/subtitle`}
+            src={getNativeSubtitleSource(sub)}
             kind="subtitles"
             srcLang={sub.language}
             label={sub.label || (sub.language || 'und').toUpperCase()}
@@ -1328,7 +1393,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         ))}
       </video>
 
-      {activeOverlayCue && (
+      {activeOverlayCue && !isNativeVideoFullscreen && (
         <div
           className="pointer-events-none absolute inset-x-4 bottom-36 z-30 flex justify-center text-center sm:bottom-24"
           data-testid="subtitle-overlay"
