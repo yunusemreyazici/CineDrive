@@ -13,10 +13,7 @@ import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOve
 import { PlayerError } from '../features/player/components/PlayerError';
 import { SubtitleMenu } from '../features/player/components/SubtitleMenu';
 import type { MediaItemType } from '../types/media';
-import {
-  findActiveSubtitleCue,
-  parseWebVttCues,
-} from '../features/player/utils/subtitleCues';
+import { findActiveSubtitleCue, parseWebVttCues } from '../features/player/utils/subtitleCues';
 
 describe('Player Components Unit Tests', () => {
   const hlsSessionId = '00000000-0000-4000-8000-000000000000';
@@ -160,13 +157,7 @@ Sonraki cümle`);
     const onResume = vi.fn();
     const onRestart = vi.fn();
 
-    render(
-      <ResumeOverlay
-        savedPositionSeconds={1250}
-        onResume={onResume}
-        onRestart={onRestart}
-      />,
-    );
+    render(<ResumeOverlay savedPositionSeconds={1250} onResume={onResume} onRestart={onRestart} />);
 
     expect(screen.getByText(/kaldığın yerden devam et/i)).toBeInTheDocument();
     expect(screen.getByText(/baştan başlat/i)).toBeInTheDocument();
@@ -301,9 +292,7 @@ Sonraki cümle`);
 
     const video = container.querySelector('video');
     expect(video).not.toBeNull();
-    expect(video?.getAttribute('src')).toBe(
-      '/api/media/gdrive_interstellar_file/stream',
-    );
+    expect(video?.getAttribute('src')).toBe('/api/media/gdrive_interstellar_file/stream');
 
     fireEvent.error(video!);
 
@@ -481,12 +470,18 @@ Sonraki cümle`);
     const video = container.querySelector('video')!;
     vi.spyOn(video, 'play').mockResolvedValue();
     vi.spyOn(video, 'pause').mockImplementation(() => {});
+    Object.defineProperty(video, 'seekable', {
+      configurable: true,
+      value: {
+        length: 1,
+        start: () => 0,
+        end: () => 1000,
+      },
+    });
     fireEvent.loadedMetadata(video);
     expect(screen.getByText('İzlemeye Devam Et')).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }));
     act(() => {
       vi.advanceTimersByTime(400);
     });
@@ -497,6 +492,68 @@ Sonraki cümle`);
     fireEvent.loadedMetadata(video);
     expect(screen.queryByText('İzlemeye Devam Et')).not.toBeInTheDocument();
     userAgentSpy.mockRestore();
+  });
+
+  it('loads a persisted server subtitle into the reliable overlay renderer', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url) === '/api/media/persisted-sharp-subtitle/subtitle') {
+        return new Response('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nKalıcı Türkçe altyazı', {
+          status: 200,
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
+    const seriesWithPersistedSubtitle: MediaItemType = {
+      ...mockSeries,
+      series: {
+        ...mockSeries.series!,
+        seasons: mockSeries.series!.seasons.map((season) => ({
+          ...season,
+          episodes: season.episodes.map((episode) =>
+            episode.id === 'episode_1'
+              ? {
+                  ...episode,
+                  subtitles: [
+                    {
+                      id: 'persisted-sharp-subtitle',
+                      languageCode: 'tr',
+                      languageLabel: 'Türkçe (OpenSubtitles)',
+                      forced: false,
+                      hearingImpaired: false,
+                      isDefault: true,
+                      url: '/api/media/persisted-sharp-subtitle/subtitle',
+                    },
+                  ],
+                }
+              : episode,
+          ),
+        })),
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={seriesWithPersistedSubtitle} episodeId="episode_1" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/media/persisted-sharp-subtitle/subtitle',
+        expect.objectContaining({ credentials: 'include' }),
+      ),
+    );
+
+    const video = container.querySelector('video')!;
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      value: 1.5,
+    });
+    fireEvent.timeUpdate(video);
+
+    expect(await screen.findByText('Kalıcı Türkçe altyazı')).toBeInTheDocument();
   });
 
   it('uses the active episode progress instead of another series progress row', () => {
@@ -586,9 +643,7 @@ Sonraki cümle`);
     vi.spyOn(video, 'pause').mockImplementation(() => {});
     fireEvent.loadedMetadata(video);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Kaldığın Yerden Devam Et/ }));
     act(() => {
       vi.advanceTimersByTime(400);
     });
@@ -687,11 +742,7 @@ Sonraki cümle`);
       .mockReturnValue(
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
       );
-    const createPlannedMovie = (
-      id: string,
-      driveFileId: string,
-      title: string,
-    ): MediaItemType => ({
+    const createPlannedMovie = (id: string, driveFileId: string, title: string): MediaItemType => ({
       ...mockMovie,
       id,
       title,
@@ -706,16 +757,8 @@ Sonraki cümle`);
         },
       },
     });
-    const firstMovie = createPlannedMovie(
-      'media_first',
-      'first_drive_file',
-      'First Movie',
-    );
-    const secondMovie = createPlannedMovie(
-      'media_second',
-      'second_drive_file',
-      'Second Movie',
-    );
+    const firstMovie = createPlannedMovie('media_first', 'first_drive_file', 'First Movie');
+    const secondMovie = createPlannedMovie('media_second', 'second_drive_file', 'Second Movie');
 
     const { rerender, unmount } = render(
       <QueryClientProvider client={queryClient}>
@@ -750,8 +793,9 @@ Sonraki cümle`);
         `/api/media/second_drive_file/hls/release?start=0&session=${hlsSessionId}`,
       ]),
     );
-    expect(releaseUrls.filter((url) => url.includes('first_drive_file')).length)
-      .toBeGreaterThanOrEqual(2);
+    expect(
+      releaseUrls.filter((url) => url.includes('first_drive_file')).length,
+    ).toBeGreaterThanOrEqual(2);
     userAgentSpy.mockRestore();
   });
 
@@ -887,9 +931,7 @@ Sonraki cümle`);
       configurable: true,
       value: 95,
     });
-    const dateNowSpy = vi
-      .spyOn(Date, 'now')
-      .mockReturnValue(Date.now() + 21_000);
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 21_000);
 
     fireEvent.timeUpdate(video);
     expect(screen.getByText('Sonraki Bölüm')).toBeInTheDocument();
@@ -988,13 +1030,35 @@ Sonraki cümle`);
     fireEvent.click(screen.getByText('Taboo.S01E02.tr.srt'));
 
     await waitFor(() =>
-      expect(onSelectOpenSubtitle).toHaveBeenCalledWith(
-        456,
-        'Türkçe (OpenSubtitles)',
-        'tr',
-      ),
+      expect(onSelectOpenSubtitle).toHaveBeenCalledWith(456, 'Türkçe (OpenSubtitles)', 'tr'),
     );
     expect(onClose).toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+
+  it('renders a duplicated subtitle id only once and keeps single selection', () => {
+    render(
+      <SubtitleMenu
+        mediaId="media_series_test"
+        subtitles={[
+          {
+            id: 'same-subtitle',
+            language: 'tr',
+            label: 'Türkçe (OpenSubtitles)',
+          },
+          {
+            id: 'same-subtitle',
+            language: 'tr',
+            label: 'Türkçe (OpenSubtitles)',
+            cues: [{ startTime: 0, endTime: 1, text: 'Merhaba' }],
+          },
+        ]}
+        activeSubtitleId="same-subtitle"
+        onSelectSubtitle={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('Türkçe (OpenSubtitles)')).toHaveLength(1);
   });
 });

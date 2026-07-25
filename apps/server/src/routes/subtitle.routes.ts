@@ -123,6 +123,10 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       episodeNum,
       langList,
       user?.opensubtitlesApiKey || undefined,
+      {
+        tmdbId: mediaItem.tmdbId,
+        imdbId: mediaItem.imdbId,
+      },
     );
 
     return reply.status(200).send(result);
@@ -207,10 +211,9 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
       const subtitleOwnerId = targetEpisode?.id || mediaItem.id;
       const syntheticDriveFileId = `opensub_${numericFileId}_${subtitleOwnerId}`;
-      const safeLabel = label?.trim().slice(0, 200) || `${languageCode.toUpperCase()} (OpenSubtitles)`;
-      const safeLanguage = /^[a-z]{2,3}$/i.test(languageCode)
-        ? languageCode.toLowerCase()
-        : 'tr';
+      const safeLabel =
+        label?.trim().slice(0, 200) || `${languageCode.toUpperCase()} (OpenSubtitles)`;
+      const safeLanguage = /^[a-z]{2,3}$/i.test(languageCode) ? languageCode.toLowerCase() : 'tr';
 
       const driveFile = await fastify.prisma.driveFile.upsert({
         where: { googleDriveFileId: syntheticDriveFileId },
@@ -251,9 +254,14 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       await fs.mkdir(cacheDir, { recursive: true });
       const cacheHash = crypto
         .createHash('sha256')
-        .update(`${syntheticDriveFileId}_1970_nochecksum_v1`)
+        .update(`${syntheticDriveFileId}_1970_nochecksum_v2`)
         .digest('hex');
-      await fs.writeFile(path.join(cacheDir, `${cacheHash}.vtt`), vttContent, 'utf-8');
+      const cacheFilePath = path.join(cacheDir, `${cacheHash}.vtt`);
+      await fs.writeFile(cacheFilePath, vttContent, 'utf-8');
+      await fastify.prisma.driveFile.update({
+        where: { id: driveFile.id },
+        data: { localFilePath: cacheFilePath },
+      });
 
       return reply.status(200).send({
         subtitleTrack: {
@@ -338,6 +346,10 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       episodeNumber,
       [language],
       user?.opensubtitlesApiKey || undefined,
+      {
+        tmdbId: mediaItem.tmdbId,
+        imdbId: mediaItem.imdbId,
+      },
     );
 
     if (!searchRes.results || searchRes.results.length === 0 || !searchRes.results[0]) {
@@ -405,6 +417,10 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
     const cacheFilePath = path.join(CACHE_DIR, `${cacheHash}.vtt`);
     await fs.writeFile(cacheFilePath, vttContent, 'utf-8').catch(() => {});
+    await fastify.prisma.driveFile.update({
+      where: { id: driveFile.id },
+      data: { localFilePath: cacheFilePath },
+    });
 
     return reply.status(200).send({
       message: 'Altyazı başarıyla indirildi ve veritabanına kaydedildi.',

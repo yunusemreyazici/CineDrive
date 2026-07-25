@@ -53,21 +53,28 @@ export class SubtitleService {
     // 3. Generate safe SHA-256 cache filename (prevents Path Traversal)
     const modifiedTime = track.driveFile.modifiedTime?.toISOString() || '1970';
     const checksum = track.driveFile.md5Checksum || 'nochecksum';
-    const cacheHash = crypto
-      .createHash('sha256')
-      .update(`${track.driveFile.googleDriveFileId}_${modifiedTime}_${checksum}_v2`)
-      .digest('hex');
-
-    const cacheFilePath = path.join(CACHE_DIR, `${cacheHash}.vtt`);
+    const createCachePath = (version: 'v1' | 'v2') => {
+      const cacheHash = crypto
+        .createHash('sha256')
+        .update(`${track.driveFile.googleDriveFileId}_${modifiedTime}_${checksum}_${version}`)
+        .digest('hex');
+      return path.join(CACHE_DIR, `${cacheHash}.vtt`);
+    };
+    const cacheFilePath = createCachePath('v2');
 
     // 4. Try reading from Disk Cache
-    try {
-      const cachedContent = await fs.readFile(cacheFilePath, 'utf-8');
-      if (cachedContent) {
-        return cachedContent;
+    for (const candidatePath of [cacheFilePath, createCachePath('v1')]) {
+      try {
+        const cachedContent = await fs.readFile(candidatePath, 'utf-8');
+        if (cachedContent) {
+          if (candidatePath !== cacheFilePath) {
+            fs.writeFile(cacheFilePath, cachedContent, 'utf-8').catch(() => {});
+          }
+          return cachedContent;
+        }
+      } catch {
+        // Try the next cache generation before retrieving the source file.
       }
-    } catch {
-      // Cache miss or read error, proceed to fetch & convert
     }
 
     let rawContent: string;

@@ -16,6 +16,11 @@ export interface OpenSubtitlesSearchResult {
   releaseName?: string;
 }
 
+export interface OpenSubtitlesSearchIdentifiers {
+  tmdbId?: number | null;
+  imdbId?: string | null;
+}
+
 export class OpenSubtitlesService {
   /**
    * Searches OpenSubtitles v1 API for subtitles matching title, season, and episode
@@ -26,6 +31,7 @@ export class OpenSubtitlesService {
     episodeNumber?: number,
     languages: string[] = ['tr', 'en'],
     apiKey?: string,
+    identifiers: OpenSubtitlesSearchIdentifiers = {},
   ): Promise<{ results: OpenSubtitlesSearchResult[]; message?: string }> {
     try {
       const activeApiKey = apiKey || process.env.OPENSUBTITLES_API_KEY;
@@ -43,15 +49,25 @@ export class OpenSubtitlesService {
         .replace(/\s+/g, ' ')
         .trim();
 
-      const normalizedLanguages = [...new Set(
-        languages
-          .map((language) => language.trim().toLowerCase())
-          .filter((language) => /^[a-z]{2,3}$/.test(language)),
-      )];
+      const normalizedLanguages = [
+        ...new Set(
+          languages
+            .map((language) => language.trim().toLowerCase())
+            .filter((language) => /^[a-z]{2,3}$/.test(language)),
+        ),
+      ];
       const params = new URLSearchParams({
-        query: cleanTitle,
         languages: (normalizedLanguages.length ? normalizedLanguages : ['tr', 'en']).join(','),
       });
+      const normalizedImdbId = identifiers.imdbId?.replace(/^tt/i, '').trim();
+
+      if (Number.isSafeInteger(identifiers.tmdbId) && Number(identifiers.tmdbId) > 0) {
+        params.set('tmdb_id', String(identifiers.tmdbId));
+      } else if (normalizedImdbId && /^\d+$/.test(normalizedImdbId)) {
+        params.set('imdb_id', normalizedImdbId);
+      } else {
+        params.set('query', cleanTitle);
+      }
 
       if (
         Number.isInteger(seasonNumber) &&
@@ -75,6 +91,15 @@ export class OpenSubtitlesService {
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
           return { results: [], message: 'INVALID_API_KEY' };
+        }
+        if (res.status === 400 || res.status === 422) {
+          return { results: [], message: 'INVALID_SEARCH' };
+        }
+        if (res.status === 429) {
+          return { results: [], message: 'RATE_LIMITED' };
+        }
+        if (res.status >= 500) {
+          return { results: [], message: 'SERVICE_UNAVAILABLE' };
         }
         return { results: [], message: 'API_ERROR' };
       }
@@ -105,15 +130,20 @@ export class OpenSubtitlesService {
         for (const file of item.attributes?.files || []) {
           if (file.file_id > 0 && !seenFileIds.has(file.file_id)) {
             seenFileIds.add(file.file_id);
-          results.push({
-            id: String(file.file_id),
-            fileId: file.file_id,
-            filename: file.file_name || item.attributes?.release || 'Altyazı',
-            languageName: item.attributes?.language === 'tr' ? 'Türkçe' : item.attributes?.language === 'en' ? 'İngilizce' : (item.attributes?.language || 'Türkçe'),
-            languageCode: item.attributes?.language || 'tr',
-            downloadCount: item.attributes?.download_count || 0,
-            releaseName: item.attributes?.release,
-          });
+            results.push({
+              id: String(file.file_id),
+              fileId: file.file_id,
+              filename: file.file_name || item.attributes?.release || 'Altyazı',
+              languageName:
+                item.attributes?.language === 'tr'
+                  ? 'Türkçe'
+                  : item.attributes?.language === 'en'
+                    ? 'İngilizce'
+                    : item.attributes?.language || 'Türkçe',
+              languageCode: item.attributes?.language || 'tr',
+              downloadCount: item.attributes?.download_count || 0,
+              releaseName: item.attributes?.release,
+            });
           }
         }
       }
@@ -131,7 +161,10 @@ export class OpenSubtitlesService {
   /**
    * Downloads subtitle file from OpenSubtitles v1 API by fileId and converts to WebVTT format
    */
-  public async downloadAndConvertSubtitle(fileId: number | string, apiKey?: string): Promise<string> {
+  public async downloadAndConvertSubtitle(
+    fileId: number | string,
+    apiKey?: string,
+  ): Promise<string> {
     const activeApiKey = apiKey || process.env.OPENSUBTITLES_API_KEY;
 
     if (!activeApiKey) {

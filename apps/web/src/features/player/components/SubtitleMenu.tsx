@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import {
-  Check,
-  Plus,
-  Search,
-  Loader2,
-  Clock,
-  Download,
-} from 'lucide-react';
+import { Check, Plus, Search, Loader2, Clock, Download } from 'lucide-react';
 import type { SubtitleTrackType } from '../types/player';
 import { usePlayerStore } from '../stores/usePlayerStore';
 
@@ -46,6 +39,9 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [downloadingFileId, setDownloadingFileId] = useState<number | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const uniqueSubtitles = Array.from(
+    new Map(subtitles.map((subtitle) => [subtitle.id, subtitle])).values(),
+  );
 
   const {
     subtitleDelay,
@@ -85,12 +81,14 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
         const errorMessages: Record<string, string> = {
           NO_API_KEY: 'OpenSubtitles API anahtarı ayarlanmamış.',
           INVALID_API_KEY: 'OpenSubtitles API anahtarı geçersiz.',
+          INVALID_SEARCH: 'OpenSubtitles bu başlıkla arama yapamadı.',
+          RATE_LIMITED: 'OpenSubtitles arama kotası doldu. Biraz sonra tekrar deneyin.',
+          SERVICE_UNAVAILABLE: 'OpenSubtitles servisine şu anda ulaşılamıyor.',
           API_ERROR: 'OpenSubtitles servisi geçici olarak yanıt vermiyor.',
           SEARCH_FAILED: 'OpenSubtitles araması zaman aşımına uğradı.',
         };
         setSearchError(
-          (data.message && errorMessages[data.message]) ||
-            'Uygun altyazı bulunamadı.',
+          (data.message && errorMessages[data.message]) || 'Uygun altyazı bulunamadı.',
         );
       }
     } catch {
@@ -171,14 +169,16 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               onClose();
             }}
             className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl font-medium transition-colors ${
-              activeSubtitleId === null ? 'bg-brand-600/20 text-brand-400' : 'text-zinc-300 hover:bg-zinc-800'
+              activeSubtitleId === null
+                ? 'bg-brand-600/20 text-brand-400'
+                : 'text-zinc-300 hover:bg-zinc-800'
             }`}
           >
             <span>Altyazı Kapalı</span>
             {activeSubtitleId === null && <Check className="w-3.5 h-3.5" />}
           </button>
 
-          {subtitles.map((sub) => (
+          {uniqueSubtitles.map((sub) => (
             <button
               key={sub.id}
               onClick={() => {
@@ -186,7 +186,9 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
                 onClose();
               }}
               className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-xl font-medium transition-colors ${
-                activeSubtitleId === sub.id ? 'bg-brand-600/20 text-brand-400' : 'text-zinc-300 hover:bg-zinc-800'
+                activeSubtitleId === sub.id
+                  ? 'bg-brand-600/20 text-brand-400'
+                  : 'text-zinc-300 hover:bg-zinc-800'
               }`}
             >
               <span className="truncate">{sub.label}</span>
@@ -198,7 +200,12 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
             <label className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 font-medium cursor-pointer transition-colors">
               <Plus className="w-3.5 h-3.5 text-brand-400" />
               <span>Altyazı Dosyası Yükle (.srt/.vtt)</span>
-              <input type="file" accept=".srt,.vtt" onChange={handleFileChange} className="hidden" />
+              <input
+                type="file"
+                accept=".srt,.vtt"
+                onChange={handleFileChange}
+                className="hidden"
+              />
             </label>
           </div>
         </div>
@@ -214,7 +221,11 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               disabled={isSearching}
               className="text-[11px] text-brand-400 hover:underline flex items-center gap-1"
             >
-              {isSearching ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              {isSearching ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Search className="w-3 h-3" />
+              )}
               <span>Yenile</span>
             </button>
           </div>
@@ -230,27 +241,28 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
             <p className="text-xs text-zinc-400 text-center py-4">{searchError}</p>
           )}
 
-          {!isSearching && searchResults.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => handleDownloadSubtitle(item)}
-              className="flex items-center justify-between p-2 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 cursor-pointer transition-colors border border-zinc-800/80 group"
-            >
-              <div className="min-w-0 flex-1 pr-2">
-                <p className="text-xs font-semibold text-zinc-200 truncate group-hover:text-brand-300">
-                  {item.filename}
-                </p>
-                <p className="text-[10px] text-zinc-400">{item.languageName}</p>
+          {!isSearching &&
+            searchResults.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => handleDownloadSubtitle(item)}
+                className="flex items-center justify-between p-2 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 cursor-pointer transition-colors border border-zinc-800/80 group"
+              >
+                <div className="min-w-0 flex-1 pr-2">
+                  <p className="text-xs font-semibold text-zinc-200 truncate group-hover:text-brand-300">
+                    {item.filename}
+                  </p>
+                  <p className="text-[10px] text-zinc-400">{item.languageName}</p>
+                </div>
+                <button className="p-1.5 bg-brand-600/20 text-brand-400 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors">
+                  {downloadingFileId === item.fileId ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                </button>
               </div>
-              <button className="p-1.5 bg-brand-600/20 text-brand-400 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors">
-                {downloadingFileId === item.fileId ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5" />
-                )}
-              </button>
-            </div>
-          ))}
+            ))}
         </div>
       )}
 
@@ -302,9 +314,13 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           <div className="p-2 bg-zinc-900/60 border border-zinc-800/60 rounded-xl text-[10px] text-zinc-400 flex items-center justify-between">
             <span>Klavye Kısayolları:</span>
             <div className="flex items-center gap-1 font-mono text-zinc-300">
-              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px]">Z</kbd>
+              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px]">
+                Z
+              </kbd>
               <span>(-0.1s)</span>
-              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] ml-1">X</kbd>
+              <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] ml-1">
+                X
+              </kbd>
               <span>(+0.1s)</span>
             </div>
           </div>
@@ -343,7 +359,9 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               ].map((style) => (
                 <button
                   key={style.key}
-                  onClick={() => setSubtitleBgColor(style.key as 'black' | 'shadow' | 'transparent')}
+                  onClick={() =>
+                    setSubtitleBgColor(style.key as 'black' | 'shadow' | 'transparent')
+                  }
                   className={`py-1.5 text-[11px] font-semibold rounded-xl transition-colors ${
                     subtitleBgColor === style.key
                       ? 'bg-brand-600 text-white'

@@ -56,7 +56,9 @@ describe('Subtitle API Integration Tests', () => {
     });
 
     vi.spyOn(app.googleOAuthService, 'getValidAccessToken').mockResolvedValue('mock-access-token');
-    vi.spyOn(app.subtitleService['googleOAuthService'], 'getValidAccessToken').mockResolvedValue('mock-access-token');
+    vi.spyOn(app.subtitleService['googleOAuthService'], 'getValidAccessToken').mockResolvedValue(
+      'mock-access-token',
+    );
     vi.spyOn(app.subtitleService['driveService'], 'getFileTextContent').mockResolvedValue(`1
 00:00:01,000 --> 00:00:04,000
 Test altyazı metni
@@ -150,10 +152,7 @@ Test altyazı metni
         },
       },
     });
-    vi.spyOn(
-      OpenSubtitlesService.prototype,
-      'downloadAndConvertSubtitle',
-    ).mockResolvedValue(`WEBVTT
+    vi.spyOn(OpenSubtitlesService.prototype, 'downloadAndConvertSubtitle').mockResolvedValue(`WEBVTT
 
 00:00:01.000 --> 00:00:04.000
 Kalıcı altyazı`);
@@ -184,13 +183,22 @@ Kalıcı altyazı`);
     const body = JSON.parse(response.body);
     expect(body.subtitleTrack.label).toBe('Türkçe Kalıcı');
     expect(body.vttContent).toContain('Kalıcı altyazı');
-    await expect(
-      app.prisma.subtitleTrack.findUnique({
-        where: { id: body.subtitleTrack.id },
-      }),
-    ).resolves.toMatchObject({
+    const persistedTrack = await app.prisma.subtitleTrack.findUnique({
+      where: { id: body.subtitleTrack.id },
+      include: { driveFile: true },
+    });
+    expect(persistedTrack).toMatchObject({
       mediaItemId: 'media_sub_persist',
       language: 'tr',
     });
+    expect(persistedTrack?.driveFile.localFilePath).toContain('subtitle_cache');
+
+    const persistedResponse = await app.inject({
+      method: 'GET',
+      url: body.subtitleTrack.url,
+      cookies: { session_id: sessionCookie!.value },
+    });
+    expect(persistedResponse.statusCode).toBe(200);
+    expect(persistedResponse.body).toContain('Kalıcı altyazı');
   });
 });

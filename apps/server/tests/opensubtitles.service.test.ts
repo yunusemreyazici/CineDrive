@@ -57,12 +57,41 @@ describe('OpenSubtitlesService', () => {
     expect(result.results.map((item) => item.fileId)).toEqual([201, 101, 102]);
   });
 
+  it('uses TMDB id instead of a too-short title when metadata is available', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await service.searchSubtitles('Oz', 6, 4, ['tr'], 'test-key', {
+      tmdbId: 3322,
+    });
+
+    const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestedUrl.searchParams.get('tmdb_id')).toBe('3322');
+    expect(requestedUrl.searchParams.has('query')).toBe(false);
+    expect(requestedUrl.searchParams.get('season_number')).toBe('6');
+    expect(requestedUrl.searchParams.get('episode_number')).toBe('4');
+  });
+
+  it('reports rate limiting separately from service failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ message: 'rate limited' }), { status: 429 }),
+    );
+
+    const result = await service.searchSubtitles('Taboo', 1, 1, ['tr'], 'test-key');
+
+    expect(result).toEqual({ results: [], message: 'RATE_LIMITED' });
+  });
+
   it('rejects an invalid file id before calling OpenSubtitles', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
-    await expect(
-      service.downloadAndConvertSubtitle('not-a-number', 'test-key'),
-    ).rejects.toThrow('INVALID_SUBTITLE_FILE_ID');
+    await expect(service.downloadAndConvertSubtitle('not-a-number', 'test-key')).rejects.toThrow(
+      'INVALID_SUBTITLE_FILE_ID',
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -114,8 +143,8 @@ describe('OpenSubtitlesService', () => {
         }),
       );
 
-    await expect(
-      service.downloadAndConvertSubtitle(123, 'test-key'),
-    ).rejects.toThrow('SUBTITLE_FILE_TOO_LARGE');
+    await expect(service.downloadAndConvertSubtitle(123, 'test-key')).rejects.toThrow(
+      'SUBTITLE_FILE_TOO_LARGE',
+    );
   });
 });

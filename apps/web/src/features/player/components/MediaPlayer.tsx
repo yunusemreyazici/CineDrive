@@ -85,8 +85,7 @@ export const normalizeSubtitleTrack = (
       apiSubtitle.languageLabel ||
       (language === 'und' ? 'Bilinmeyen Dil' : language.toUpperCase()),
     isForced: playerSubtitle.isForced ?? apiSubtitle.forced ?? false,
-    isHearingImpaired:
-      playerSubtitle.isHearingImpaired ?? apiSubtitle.hearingImpaired ?? false,
+    isHearingImpaired: playerSubtitle.isHearingImpaired ?? apiSubtitle.hearingImpaired ?? false,
     isDefault: subtitle.isDefault ?? false,
     url: subtitle.url,
     src: playerSubtitle.src,
@@ -183,6 +182,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const nextEpisodeDismissedRef = useRef(false);
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
+  const [persistedSubtitleCues, setPersistedSubtitleCues] = useState<
+    Record<string, SubtitleTrackType['cues']>
+  >({});
   const [subtitleTrackLoadVersion, setSubtitleTrackLoadVersion] = useState(0);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [qualityPreference, setQualityPreference] =
@@ -225,9 +227,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       currentSeasonNum = activeEp.seasonNumber;
       currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
-      serverSubtitles = (activeEp.subtitles || media.subtitles || []).map(
-        normalizeSubtitleTrack,
-      );
+      serverSubtitles = (activeEp.subtitles || media.subtitles || []).map(normalizeSubtitleTrack);
     }
   }
 
@@ -258,11 +258,20 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setAdaptiveQuality(automaticQuality);
   }, [automaticQuality, recommendedPlaybackMode, targetDriveFileId]);
 
-  const availableSubtitles = [...serverSubtitles, ...customSubtitles];
   const subtitleOwnerId = activeEpisodeId || media.id;
+  const availableSubtitles = Array.from(
+    new Map(
+      [...serverSubtitles, ...customSubtitles].map((subtitle) => [subtitle.id, subtitle]),
+    ).values(),
+  );
+  const resolvedSubtitles = availableSubtitles.map((subtitle) => {
+    const persistedCues = persistedSubtitleCues[subtitle.id];
+    return persistedCues?.length ? { ...subtitle, cues: persistedCues } : subtitle;
+  });
+  const subtitleAvailabilityKey = availableSubtitles.map((subtitle) => subtitle.id).join('|');
   const subtitlePreferenceKey = `${SUBTITLE_PREFERENCE_STORAGE_KEY}:${subtitleOwnerId}`;
-  const nativeSubtitles = availableSubtitles.filter((subtitle) => !subtitle.cues?.length);
-  const activeOverlaySubtitle = availableSubtitles.find(
+  const nativeSubtitles = resolvedSubtitles.filter((subtitle) => !subtitle.cues?.length);
+  const activeOverlaySubtitle = resolvedSubtitles.find(
     (subtitle) =>
       subtitle.cues?.length &&
       (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId)),
@@ -272,6 +281,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     : undefined;
 
   const createdUrlsRef = useRef<string[]>([]);
+
+  React.useEffect(() => {
+    setCustomSubtitles([]);
+    setPersistedSubtitleCues({});
+  }, [subtitleOwnerId]);
 
   const selectSubtitle = useCallback(
     (subtitleId: string | null) => {
@@ -307,7 +321,50 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     const defaultSubtitle = availableSubtitles.find((subtitle) => subtitle.isDefault);
     setActiveSubtitleId(defaultSubtitle?.id || null);
-  }, [subtitlePreferenceKey, setActiveSubtitleId]);
+  }, [setActiveSubtitleId, subtitleAvailabilityKey, subtitlePreferenceKey]);
+
+  const selectedPersistedSubtitle = availableSubtitles.find(
+    (subtitle) => subtitle.id === activeSubtitleId && !subtitle.cues?.length,
+  );
+  const selectedPersistedSubtitleId = selectedPersistedSubtitle?.id;
+  const selectedPersistedSubtitleUrl = selectedPersistedSubtitle?.url;
+  const selectedPersistedSubtitleLoaded = Boolean(
+    selectedPersistedSubtitleId && persistedSubtitleCues[selectedPersistedSubtitleId]?.length,
+  );
+
+  React.useEffect(() => {
+    if (
+      !selectedPersistedSubtitleId ||
+      !selectedPersistedSubtitleUrl ||
+      selectedPersistedSubtitleLoaded
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void fetch(selectedPersistedSubtitleUrl, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Subtitle fetch failed');
+        return response.text();
+      })
+      .then((vttText) => {
+        const cues = parseWebVttCues(vttText);
+        if (!cues.length) throw new Error('Subtitle file has no valid cues');
+        setPersistedSubtitleCues((current) => ({
+          ...current,
+          [selectedPersistedSubtitleId]: cues,
+        }));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setConnectionMessage('Kayıtlı altyazı yüklenemedi');
+      });
+
+    return () => controller.abort();
+  }, [selectedPersistedSubtitleId, selectedPersistedSubtitleLoaded, selectedPersistedSubtitleUrl]);
 
   // Revoke object URLs on unmount to prevent browser memory leaks
   React.useEffect(() => {
@@ -660,8 +717,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (recoveryPositionRef.current !== null) {
       const recoveryPosition = recoveryPositionRef.current;
       recoveryPositionRef.current = null;
-      video.currentTime =
-        useTranscode ? Math.max(0, recoveryPosition - hlsStartOffset) : recoveryPosition;
+      video.currentTime = useTranscode
+        ? Math.max(0, recoveryPosition - hlsStartOffset)
+        : recoveryPosition;
       video.play().catch(() => {});
       return;
     }
@@ -719,7 +777,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [clearAudioCompatibilityCheck, currentTime, isMuted, useTranscode, volume]);
 
   const seekToAbsoluteTime = useCallback(
-    (requestedTime: number, shouldPlay = true) => {
+    (requestedTime: number, shouldPlay = true, forceSourceReload = false) => {
       const video = videoRef.current;
       if (!video || !Number.isFinite(requestedTime)) return;
       const targetTime = Math.max(
@@ -752,7 +810,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }
       }
 
-      if (isInCurrentWindow) {
+      if (isInCurrentWindow && !forceSourceReload) {
         if (pendingHlsSeekTimerRef.current) {
           clearTimeout(pendingHlsSeekTimerRef.current);
           pendingHlsSeekTimerRef.current = null;
@@ -790,7 +848,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleResumeClick = () => {
     if (activeProgress?.positionSeconds) {
-      seekToAbsoluteTime(activeProgress.positionSeconds);
+      seekToAbsoluteTime(activeProgress.positionSeconds, true, playbackMode !== 'direct');
     }
     setShowResumeModal(false);
   };
@@ -803,17 +861,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const localPlaybackTime = videoRef.current.currentTime;
-    const playbackPosition =
-      localPlaybackTime + playbackTimelineOffset;
+    const playbackPosition = localPlaybackTime + playbackTimelineOffset;
     setCurrentTime(playbackPosition);
 
     // Safari can emit a transient waiting/stalled event while it still has a
     // healthy forward buffer, and may not emit a matching playing event.
     // Advancing media time is authoritative proof that playback is not stuck.
-    if (
-      !videoRef.current.paused &&
-      localPlaybackTime > lastTimeUpdateRef.current + 0.01
-    ) {
+    if (!videoRef.current.paused && localPlaybackTime > lastTimeUpdateRef.current + 0.01) {
       setIsBuffering(false);
       setConnectionMessage(null);
       if (stallRecoveryTimerRef.current) {
@@ -927,8 +981,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
 
       stallRecoveryAttemptsRef.current += 1;
-      recoveryPositionRef.current =
-        video.currentTime + playbackTimelineOffset;
+      recoveryPositionRef.current = video.currentTime + playbackTimelineOffset;
       setConnectionMessage(
         `Bağlantı yeniden kuruluyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
       );
@@ -987,8 +1040,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleVideoEnded = () => {
     const video = videoRef.current;
     const reportedDuration = analyzedDuration || duration || video?.duration || 0;
-    const playbackPosition =
-      (video?.currentTime || 0) + playbackTimelineOffset;
+    const playbackPosition = (video?.currentTime || 0) + playbackTimelineOffset;
     if (
       Date.now() < suppressNextEpisodeUntilRef.current ||
       !Number.isFinite(reportedDuration) ||
@@ -1211,8 +1263,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             className="whitespace-pre-line rounded-md px-3 py-1.5 font-semibold leading-snug text-white"
             style={{
               fontSize: `${subtitleFontSize}%`,
-              backgroundColor:
-                subtitleBgColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'transparent',
+              backgroundColor: subtitleBgColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'transparent',
               textShadow:
                 subtitleBgColor === 'shadow'
                   ? '2px 2px 4px rgba(0, 0, 0, 0.95), -2px -2px 4px rgba(0, 0, 0, 0.95)'
@@ -1289,7 +1340,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           volume={volume}
           isMuted={isMuted}
           playbackSpeed={playbackSpeed}
-          subtitles={availableSubtitles}
+          subtitles={resolvedSubtitles}
           activeSubtitleId={activeSubtitleId}
           hasPreviousEpisode={!!previousEpisode}
           hasNextEpisode={!!nextEpisode}
