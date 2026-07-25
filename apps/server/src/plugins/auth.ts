@@ -10,6 +10,7 @@ import { TranscodeService } from '../services/transcode.service.js';
 import { LocalScanService } from '../services/local-scan.service.js';
 import { HlsService } from '../services/hls.service.js';
 import { PlayerTelemetryService } from '../services/player-telemetry.service.js';
+import { PreviewService } from '../services/preview.service.js';
 import type { UserDto } from '@cinedrive/shared';
 
 declare module 'fastify' {
@@ -28,6 +29,7 @@ declare module 'fastify' {
     localScanService: LocalScanService;
     hlsService: HlsService;
     playerTelemetryService: PlayerTelemetryService;
+    previewService: PreviewService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -43,6 +45,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const localScanService = new LocalScanService(fastify.prisma);
   const hlsService = new HlsService();
   const playerTelemetryService = new PlayerTelemetryService();
+  const previewService = new PreviewService();
 
   fastify.decorate('authService', authService);
   fastify.decorate('googleOAuthService', googleOAuthService);
@@ -54,6 +57,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('localScanService', localScanService);
   fastify.decorate('hlsService', hlsService);
   fastify.decorate('playerTelemetryService', playerTelemetryService);
+  fastify.decorate('previewService', previewService);
   fastify.addHook('onClose', async () => {
     hlsService.shutdown();
     transcodeService.shutdown();

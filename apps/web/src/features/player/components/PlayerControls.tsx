@@ -25,6 +25,7 @@ import { QualityMenu, type QualityPreference } from './QualityMenu';
 
 interface PlayerControlsProps {
   mediaId?: string;
+  previewDriveFileId?: string;
   seasonNumber?: number;
   episodeNumber?: number;
   isPlaying: boolean;
@@ -62,6 +63,7 @@ interface PlayerControlsProps {
 
 export const PlayerControls: React.FC<PlayerControlsProps> = ({
   mediaId,
+  previewDriveFileId,
   seasonNumber,
   episodeNumber,
   isPlaying,
@@ -151,6 +153,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
         currentTime={currentTime}
         duration={duration}
         bufferedTime={bufferedTime}
+        previewDriveFileId={previewDriveFileId}
         onSeek={onSeek}
       />
 

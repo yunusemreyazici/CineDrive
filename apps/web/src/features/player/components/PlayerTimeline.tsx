@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface PlayerTimelineProps {
   currentTime: number;
   duration: number;
   bufferedTime?: number;
+  previewDriveFileId?: string;
   onSeek: (time: number) => void;
 }
 
@@ -11,11 +12,26 @@ export const PlayerTimeline: React.FC<PlayerTimelineProps> = ({
   currentTime,
   duration,
   bufferedTime = 0,
+  previewDriveFileId,
   onSeek,
 }) => {
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<number>(0);
+  const [previewTime, setPreviewTime] = useState<number | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  useEffect(() => {
+    if (hoverTime === null || !previewDriveFileId) {
+      setPreviewTime(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setPreviewFailed(false);
+      setPreviewTime(Math.floor(hoverTime / 10) * 10);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [hoverTime, previewDriveFileId]);
 
   const calculateTimeFromEvent = (e: React.MouseEvent | React.TouchEvent) => {
     if (!progressBarRef.current || duration <= 0) return 0;
@@ -40,6 +56,7 @@ export const PlayerTimeline: React.FC<PlayerTimelineProps> = ({
 
   const handleMouseLeave = () => {
     setHoverTime(null);
+    setPreviewTime(null);
   };
 
   const handleClick = (e: React.MouseEvent) => {
@@ -88,10 +105,26 @@ export const PlayerTimeline: React.FC<PlayerTimelineProps> = ({
       {/* Hover Time Tooltip */}
       {hoverTime !== null && (
         <div
-          className="absolute bottom-5 -translate-x-1/2 px-2 py-1 bg-zinc-900/90 border border-zinc-700 text-[11px] font-bold text-white rounded-md backdrop-blur-md pointer-events-none"
-          style={{ left: `${hoverPosition}px` }}
+          className="pointer-events-none absolute bottom-5 z-40 w-44 -translate-x-1/2 overflow-hidden rounded-lg border border-white/15 bg-zinc-950/95 shadow-2xl backdrop-blur-md"
+          style={{
+            left: `${Math.max(88, Math.min(hoverPosition, (progressBarRef.current?.clientWidth || 0) - 88))}px`,
+          }}
         >
-          {formatTime(hoverTime)}
+          {previewDriveFileId && previewTime !== null && !previewFailed ? (
+            <img
+              src={`/api/media/${encodeURIComponent(previewDriveFileId)}/preview?time=${previewTime}`}
+              alt=""
+              className="aspect-video w-full bg-zinc-900 object-cover"
+              onError={() => setPreviewFailed(true)}
+            />
+          ) : (
+            <div className="flex aspect-video w-full items-center justify-center bg-zinc-900 text-[10px] font-medium text-zinc-500">
+              {previewDriveFileId && !previewFailed ? 'Önizleme hazırlanıyor…' : 'Önizleme yok'}
+            </div>
+          )}
+          <div className="px-2.5 py-1.5 text-center text-[11px] font-bold text-white">
+            {formatTime(hoverTime)}
+          </div>
         </div>
       )}
     </div>

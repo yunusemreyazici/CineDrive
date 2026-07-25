@@ -1279,6 +1279,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       >
         <PlayerControls
           mediaId={media.id}
+          previewDriveFileId={targetDriveFileId || undefined}
           seasonNumber={currentSeasonNum}
           episodeNumber={currentEpisodeNum}
           isPlaying={isPlaying}
