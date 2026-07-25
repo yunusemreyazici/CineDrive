@@ -9,3 +9,4 @@ coverage
 build
 .agents
 apps/server/data/hls_cache/
+apps/server/data/subtitle_cache/

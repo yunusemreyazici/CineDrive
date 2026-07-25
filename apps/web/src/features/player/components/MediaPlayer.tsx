@@ -18,6 +18,7 @@ import type {
   EpisodeType,
   PlaybackMode,
   PlaybackPlanType,
+  SubtitleItemType,
 } from '../../../types/media';
 import type { QualityPreference } from './QualityMenu';
 
@@ -38,6 +39,7 @@ const STALL_RECOVERY_DELAY_MS = 12_000;
 const MAX_STALL_RECOVERY_ATTEMPTS = 2;
 const HLS_SEEK_DEBOUNCE_MS = 400;
 const QUALITY_STORAGE_KEY = 'cinedrive-player-quality-v1';
+const SUBTITLE_PREFERENCE_STORAGE_KEY = 'cinedrive-subtitle-preference-v1';
 
 const createHlsSessionId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -66,6 +68,30 @@ export const getBufferedAheadSeconds = (video: HTMLVideoElement) => {
     }
   }
   return 0;
+};
+
+export const normalizeSubtitleTrack = (
+  subtitle: SubtitleItemType | SubtitleTrackType,
+): SubtitleTrackType => {
+  const apiSubtitle = subtitle as SubtitleItemType;
+  const playerSubtitle = subtitle as SubtitleTrackType;
+  const language = playerSubtitle.language || apiSubtitle.languageCode || 'und';
+
+  return {
+    id: subtitle.id,
+    language,
+    label:
+      playerSubtitle.label ||
+      apiSubtitle.languageLabel ||
+      (language === 'und' ? 'Bilinmeyen Dil' : language.toUpperCase()),
+    isForced: playerSubtitle.isForced ?? apiSubtitle.forced ?? false,
+    isHearingImpaired:
+      playerSubtitle.isHearingImpaired ?? apiSubtitle.hearingImpaired ?? false,
+    isDefault: subtitle.isDefault ?? false,
+    url: subtitle.url,
+    src: playerSubtitle.src,
+    cues: playerSubtitle.cues,
+  };
 };
 
 const getQualityStorage = () => {
@@ -176,13 +202,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let playbackPlan: PlaybackPlanType | undefined;
   let analyzedDuration: number | undefined;
   let analyzedHeight: number | undefined;
+  let activeProgress = media.progress || null;
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
     playbackPlan = media.movie.playbackPlan;
     analyzedDuration = media.movie.technicalMetadata?.mediaDuration;
     analyzedHeight = media.movie.technicalMetadata?.mediaHeight;
-    serverSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
+    serverSubtitles = (media.subtitles || []).map(normalizeSubtitleTrack);
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
     currentEpisodeIndex = episodeId ? episodes.findIndex((e) => e.id === episodeId) : 0;
@@ -190,6 +217,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
     if (activeEp) {
       activeEpisodeId = activeEp.id;
+      activeProgress = activeEp.playbackProgresses?.[0] || media.progress || null;
       targetDriveFileId = activeEp.driveFileId;
       playbackPlan = activeEp.playbackPlan;
       analyzedDuration = activeEp.technicalMetadata?.mediaDuration;
@@ -197,9 +225,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       currentSeasonNum = activeEp.seasonNumber;
       currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
-      serverSubtitles = (activeEp.subtitles ||
-        media.subtitles ||
-        []) as unknown as SubtitleTrackType[];
+      serverSubtitles = (activeEp.subtitles || media.subtitles || []).map(
+        normalizeSubtitleTrack,
+      );
     }
   }
 
@@ -231,6 +259,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [automaticQuality, recommendedPlaybackMode, targetDriveFileId]);
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
+  const subtitleOwnerId = activeEpisodeId || media.id;
+  const subtitlePreferenceKey = `${SUBTITLE_PREFERENCE_STORAGE_KEY}:${subtitleOwnerId}`;
   const nativeSubtitles = availableSubtitles.filter((subtitle) => !subtitle.cues?.length);
   const activeOverlaySubtitle = availableSubtitles.find(
     (subtitle) =>
@@ -242,6 +272,42 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     : undefined;
 
   const createdUrlsRef = useRef<string[]>([]);
+
+  const selectSubtitle = useCallback(
+    (subtitleId: string | null) => {
+      setActiveSubtitleId(subtitleId);
+      try {
+        window.localStorage.setItem(subtitlePreferenceKey, subtitleId || 'off');
+      } catch {
+        // The in-memory selection still works when storage is unavailable.
+      }
+    },
+    [setActiveSubtitleId, subtitlePreferenceKey],
+  );
+
+  React.useEffect(() => {
+    let storedPreference: string | null = null;
+    try {
+      storedPreference = window.localStorage.getItem(subtitlePreferenceKey);
+    } catch {
+      // Fall back to the server default.
+    }
+
+    if (storedPreference === 'off') {
+      setActiveSubtitleId(null);
+      return;
+    }
+    if (
+      storedPreference &&
+      availableSubtitles.some((subtitle) => subtitle.id === storedPreference)
+    ) {
+      setActiveSubtitleId(storedPreference);
+      return;
+    }
+
+    const defaultSubtitle = availableSubtitles.find((subtitle) => subtitle.isDefault);
+    setActiveSubtitleId(defaultSubtitle?.id || null);
+  }, [subtitlePreferenceKey, setActiveSubtitleId]);
 
   // Revoke object URLs on unmount to prevent browser memory leaks
   React.useEffect(() => {
@@ -375,7 +441,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       };
 
       setCustomSubtitles((prev) => [...prev, customTrack]);
-      setActiveSubtitleId(customTrack.id);
+      selectSubtitle(customTrack.id);
     } catch {
       // Subtitle parse error handled silently
     }
@@ -385,26 +451,34 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const res = await fetch('/api/media/subtitles/opensubtitles/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId }),
+      body: JSON.stringify({
+        fileId,
+        mediaId: media.id,
+        episodeId: activeEpisodeId,
+        label,
+        languageCode,
+      }),
     });
 
     if (!res.ok) throw new Error('Download failed');
-    const vttText = await res.text();
+    const result = (await res.json()) as {
+      subtitleTrack: SubtitleTrackType;
+      vttContent: string;
+    };
+    const vttText = result.vttContent;
     const cues = parseWebVttCues(vttText);
     if (!cues.length) throw new Error('Downloaded subtitle has no valid cues');
 
     const openSubTrack: SubtitleTrackType = {
-      id: `opensub_${Date.now()}`,
-      language: languageCode,
-      label,
-      isForced: false,
-      isHearingImpaired: false,
-      isDefault: false,
+      ...result.subtitleTrack,
       cues,
     };
 
-    setCustomSubtitles((prev) => [...prev, openSubTrack]);
-    setActiveSubtitleId(openSubTrack.id);
+    setCustomSubtitles((prev) => [
+      ...prev.filter((subtitle) => subtitle.id !== openSubTrack.id),
+      openSubTrack,
+    ]);
+    selectSubtitle(openSubTrack.id);
   };
 
   const cueStyle = `
@@ -593,8 +667,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     }
 
     // Check if saved resume position exists (> 15s and not completed)
-    const savedPos = media.progress?.positionSeconds || 0;
-    const isCompleted = media.progress?.completed;
+    const savedPos = activeProgress?.positionSeconds || 0;
+    const isCompleted = activeProgress?.completed;
 
     const shouldOfferResume =
       !resumePromptHandledRef.current &&
@@ -715,8 +789,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   );
 
   const handleResumeClick = () => {
-    if (media.progress?.positionSeconds) {
-      seekToAbsoluteTime(media.progress.positionSeconds);
+    if (activeProgress?.positionSeconds) {
+      seekToAbsoluteTime(activeProgress.positionSeconds);
     }
     setShowResumeModal(false);
   };
@@ -1004,7 +1078,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     onTogglePiP: togglePiP,
     onToggleSubtitles: () => {
       const firstSub = availableSubtitles[0];
-      setActiveSubtitleId(activeSubtitleId ? null : firstSub ? firstSub.id : null);
+      selectSubtitle(activeSubtitleId ? null : firstSub ? firstSub.id : null);
     },
     onSeekPercent: (percent) => {
       if (duration > 0) seekToAbsoluteTime((percent / 100) * duration);
@@ -1121,7 +1195,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             src={(sub as unknown as { url?: string }).url || `/api/media/${sub.id}/subtitle`}
             kind="subtitles"
             srcLang={sub.language}
-            label={sub.label || sub.language.toUpperCase()}
+            label={sub.label || (sub.language || 'und').toUpperCase()}
             default={activeSubtitleId === sub.id || (sub.isDefault && !activeSubtitleId)}
             onLoad={() => setSubtitleTrackLoadVersion((version) => version + 1)}
           />
@@ -1161,7 +1235,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       {/* Overlays */}
       {showResumeModal && (
         <ResumeOverlay
-          savedPositionSeconds={media.progress?.positionSeconds || 0}
+          savedPositionSeconds={activeProgress?.positionSeconds || 0}
           onResume={handleResumeClick}
           onRestart={handleRestartClick}
         />
@@ -1266,7 +1340,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             setPlaybackSpeed(speed);
             if (videoRef.current) videoRef.current.playbackRate = speed;
           }}
-          onSelectSubtitle={setActiveSubtitleId}
+          onSelectSubtitle={selectSubtitle}
           onUploadCustomSubtitle={handleCustomSubtitleUpload}
           onSelectOpenSubtitle={handleSelectOpenSubtitle}
           onTogglePiP={togglePiP}

@@ -26,6 +26,14 @@ export type HlsServiceOptions = {
   maxActiveJobs?: number;
 };
 
+export type HlsInput =
+  | string
+  | Readable
+  | {
+      url: string;
+      inputOptions?: string[];
+    };
+
 export type HlsCacheStats = {
   activeJobs: number;
   queuedJobs: number;
@@ -85,6 +93,7 @@ type ProcessRegistryEntry = {
 
 type PendingSlot = {
   id: string;
+  cacheKey: string;
   familyKey: string;
   sessionId?: string;
   priority: number;
@@ -133,7 +142,7 @@ export class HlsService {
 
   public async ensureHls(
     cacheKey: string,
-    inputFactory: () => Promise<string | Readable>,
+    inputFactory: () => Promise<HlsInput>,
     startSeconds = 0,
     familyKey = cacheKey,
     sessionId?: string,
@@ -172,7 +181,7 @@ export class HlsService {
 
   private async startHls(
     cacheKey: string,
-    inputFactory: () => Promise<string | Readable>,
+    inputFactory: () => Promise<HlsInput>,
     startSeconds: number,
     familyKey: string,
     sessionId: string | undefined,
@@ -219,6 +228,7 @@ export class HlsService {
 
     this.drainPendingSlots();
     const reservationId = await this.reserveSlot(
+      cacheKey,
       familyKey,
       sessionId,
       startSeconds > 0 ? 2 : 1,
@@ -251,19 +261,24 @@ export class HlsService {
         // request to start this cache first. Discard the duplicate source.
         job = this.jobs.get(cacheKey);
         if (job) {
-          if (typeof input !== 'string') input.destroy();
+          if (typeof input !== 'string' && !('url' in input)) input.destroy();
           await job.ready;
           return playlistPath;
         }
         if (sessionId && !this.leases.get(cacheKey)?.has(sessionId)) {
-          if (typeof input !== 'string') input.destroy();
+          if (typeof input !== 'string' && !('url' in input)) input.destroy();
           throw new Error('HLS_CLIENT_RELEASED');
         }
 
         fs.mkdirSync(outputDir, { recursive: true });
         this.touchCache(outputDir);
         this.enforceFamilyCacheLimit(familyKey, cacheKey);
-        const probedCodecs = typeof input === 'string' ? this.probeLocalCodecs(input) : null;
+        const isRemoteUrlInput = typeof input === 'object' && 'url' in input;
+        const inputSource = isRemoteUrlInput ? input.url : input;
+        const probedCodecs =
+          typeof inputSource === 'string' && !isRemoteUrlInput
+            ? this.probeLocalCodecs(inputSource)
+            : null;
         const normalizedVideoCodec = sourceVideoCodec?.toLowerCase() || probedCodecs?.video || '';
         // Although recent Safari versions can decode many HEVC files directly,
         // some hvc1 sources still fail after they are remuxed as fragmented HLS.
@@ -273,10 +288,11 @@ export class HlsService {
         const videoOptions = this.videoOptions(normalizedVideoCodec, accurateSeekRequired);
         const profile =
           normalizedVideoCodec === 'h264' && !accurateSeekRequired ? 'video-copy-aac' : 'h264-aac';
-        const command = ffmpeg(input)
+        const command = ffmpeg(inputSource)
           // Generate a modest buffer ahead of playback instead of racing through
           // a multi-GB source and duplicating the whole file immediately.
           .inputOptions([
+            ...(isRemoteUrlInput ? input.inputOptions || [] : []),
             ...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
             '-readrate',
             '2',
@@ -510,7 +526,7 @@ export class HlsService {
       throw new Error('INVALID_HLS_SESSION');
     }
     this.blockedSessions.delete(this.sessionKey(cacheKey, sessionId));
-    this.cancelPendingSlots(sessionId);
+    this.cancelPendingSlots(sessionId, cacheKey);
     const sessions = this.leases.get(cacheKey);
     if (!sessions) return false;
 
@@ -657,6 +673,7 @@ export class HlsService {
   }
 
   private reserveSlot(
+    cacheKey: string,
     familyKey: string,
     sessionId: string | undefined,
     priority: number,
@@ -673,6 +690,7 @@ export class HlsService {
     return new Promise<string>((resolve, reject) => {
       this.pendingSlots.push({
         id: crypto.randomUUID(),
+        cacheKey,
         familyKey,
         sessionId,
         priority,
@@ -686,10 +704,15 @@ export class HlsService {
     });
   }
 
-  private cancelPendingSlots(sessionId: string) {
+  private cancelPendingSlots(sessionId: string, cacheKey?: string) {
     for (let index = this.pendingSlots.length - 1; index >= 0; index -= 1) {
       const pending = this.pendingSlots[index]!;
-      if (pending.sessionId !== sessionId) continue;
+      if (
+        pending.sessionId !== sessionId ||
+        (cacheKey !== undefined && pending.cacheKey !== cacheKey)
+      ) {
+        continue;
+      }
       this.pendingSlots.splice(index, 1);
       pending.reject(new Error('HLS_REQUEST_SUPERSEDED'));
     }

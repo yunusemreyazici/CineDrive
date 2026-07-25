@@ -132,9 +132,13 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{
     Body: {
       fileId?: number | string;
+      mediaId?: string;
+      episodeId?: string;
+      label?: string;
+      languageCode?: string;
     };
   }>('/subtitles/opensubtitles/download', async (request, reply) => {
-    const { fileId } = request.body;
+    const { fileId, mediaId, episodeId, label, languageCode = 'tr' } = request.body;
     const userId = request.user!.id;
 
     const numericFileId = typeof fileId === 'number' ? fileId : Number(fileId);
@@ -149,7 +153,50 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      const user = await fastify.prisma.user.findUnique({ where: { id: userId } });
+      const [user, mediaItem, targetEpisode] = await Promise.all([
+        fastify.prisma.user.findUnique({ where: { id: userId } }),
+        mediaId
+          ? fastify.prisma.mediaItem.findUnique({
+              where: { id: mediaId },
+              include: { movie: true },
+            })
+          : null,
+        episodeId
+          ? fastify.prisma.episode.findFirst({
+              where: { id: episodeId, ...(mediaId ? { mediaItemId: mediaId } : {}) },
+            })
+          : null,
+      ]);
+
+      if (
+        !mediaId ||
+        !mediaItem ||
+        (episodeId && !targetEpisode) ||
+        (mediaItem.type === 'series' && !targetEpisode)
+      ) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'Altyazının bağlanacağı medya veya bölüm bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const sourceDriveFileId = targetEpisode?.driveFileId || mediaItem.movie?.driveFileId;
+      const sourceDriveFile = sourceDriveFileId
+        ? await fastify.prisma.driveFile.findUnique({ where: { id: sourceDriveFileId } })
+        : null;
+      if (!sourceDriveFile) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_FILE_NOT_FOUND',
+            message: 'Altyazının bağlanacağı video dosyası bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
       const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
       const openSubtitlesService = new OpenSubtitlesService();
 
@@ -158,9 +205,68 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
         user?.opensubtitlesApiKey || undefined,
       );
 
-      reply.status(200);
-      reply.header('Content-Type', 'text/vtt; charset=utf-8');
-      return reply.send(vttContent);
+      const subtitleOwnerId = targetEpisode?.id || mediaItem.id;
+      const syntheticDriveFileId = `opensub_${numericFileId}_${subtitleOwnerId}`;
+      const safeLabel = label?.trim().slice(0, 200) || `${languageCode.toUpperCase()} (OpenSubtitles)`;
+      const safeLanguage = /^[a-z]{2,3}$/i.test(languageCode)
+        ? languageCode.toLowerCase()
+        : 'tr';
+
+      const driveFile = await fastify.prisma.driveFile.upsert({
+        where: { googleDriveFileId: syntheticDriveFileId },
+        update: {
+          size: BigInt(Buffer.byteLength(vttContent, 'utf-8')),
+          status: 'active',
+        },
+        create: {
+          googleDriveFileId: syntheticDriveFileId,
+          libraryId: sourceDriveFile.libraryId,
+          storageType: 'local',
+          name: `${syntheticDriveFileId}.vtt`,
+          mimeType: 'text/vtt',
+          size: BigInt(Buffer.byteLength(vttContent, 'utf-8')),
+          status: 'active',
+        },
+      });
+
+      const subtitleTrack = await fastify.prisma.subtitleTrack.upsert({
+        where: { driveFileId: driveFile.id },
+        update: {
+          language: safeLanguage,
+          label: safeLabel,
+          mediaItemId: targetEpisode ? null : mediaItem.id,
+          episodeId: targetEpisode?.id || null,
+        },
+        create: {
+          mediaItemId: targetEpisode ? undefined : mediaItem.id,
+          episodeId: targetEpisode?.id,
+          driveFileId: driveFile.id,
+          language: safeLanguage,
+          label: safeLabel,
+          sourceFormat: 'vtt',
+        },
+      });
+
+      const cacheDir = path.resolve(process.cwd(), 'data', 'subtitle_cache');
+      await fs.mkdir(cacheDir, { recursive: true });
+      const cacheHash = crypto
+        .createHash('sha256')
+        .update(`${syntheticDriveFileId}_1970_nochecksum_v1`)
+        .digest('hex');
+      await fs.writeFile(path.join(cacheDir, `${cacheHash}.vtt`), vttContent, 'utf-8');
+
+      return reply.status(200).send({
+        subtitleTrack: {
+          id: subtitleTrack.id,
+          language: subtitleTrack.language,
+          label: subtitleTrack.label || subtitleTrack.language.toUpperCase(),
+          isForced: subtitleTrack.isForced,
+          isHearingImpaired: subtitleTrack.isHearingImpaired,
+          isDefault: subtitleTrack.isDefault,
+          url: `/api/media/${syntheticDriveFileId}/subtitle`,
+        },
+        vttContent,
+      });
     } catch (err: unknown) {
       fastify.log.error({ err, requestId: request.id }, 'OpenSubtitles download failed');
       return reply.status(500).send({

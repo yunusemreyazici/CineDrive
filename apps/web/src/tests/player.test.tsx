@@ -6,6 +6,7 @@ import {
   alignSubtitleCueToPlaybackTimeline,
   getBufferedAheadSeconds,
   MediaPlayer,
+  normalizeSubtitleTrack,
 } from '../features/player/components/MediaPlayer';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
 import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOverlay';
@@ -44,6 +45,37 @@ describe('Player Components Unit Tests', () => {
     });
 
     expect(getBufferedAheadSeconds(video)).toBe(15);
+  });
+
+  it('normalizes API subtitle fields before rendering native tracks', () => {
+    expect(
+      normalizeSubtitleTrack({
+        id: 'persisted-subtitle',
+        languageCode: 'tr',
+        languageLabel: 'Türkçe Kalıcı',
+        forced: false,
+        hearingImpaired: false,
+        isDefault: false,
+        url: '/api/media/persisted-subtitle/subtitle',
+      }),
+    ).toMatchObject({
+      id: 'persisted-subtitle',
+      language: 'tr',
+      label: 'Türkçe Kalıcı',
+      isForced: false,
+      isHearingImpaired: false,
+    });
+
+    expect(
+      normalizeSubtitleTrack({
+        id: 'unknown-subtitle',
+        language: '',
+        label: '',
+      }),
+    ).toMatchObject({
+      language: 'und',
+      label: 'Bilinmeyen Dil',
+    });
   });
 
   it('parses OpenSubtitles WebVTT cues and finds them on the absolute playback timeline', () => {
@@ -465,6 +497,55 @@ Sonraki cümle`);
     fireEvent.loadedMetadata(video);
     expect(screen.queryByText('İzlemeye Devam Et')).not.toBeInTheDocument();
     userAgentSpy.mockRestore();
+  });
+
+  it('uses the active episode progress instead of another series progress row', () => {
+    const seriesWithEpisodeProgress: MediaItemType = {
+      ...mockSeries,
+      progress: {
+        positionSeconds: 3,
+        durationSeconds: 2726,
+        percentage: 0.1,
+        completed: false,
+      },
+      series: {
+        ...mockSeries.series!,
+        seasons: mockSeries.series!.seasons.map((season) => ({
+          ...season,
+          episodes: season.episodes.map((episode) =>
+            episode.id === 'episode_1'
+              ? {
+                  ...episode,
+                  playbackProgresses: [
+                    {
+                      positionSeconds: 1107,
+                      durationSeconds: 2754,
+                      percentage: 40.2,
+                      completed: false,
+                    },
+                  ],
+                  technicalMetadata: { mediaDuration: 2754 },
+                }
+              : episode,
+          ),
+        })),
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={seriesWithEpisodeProgress} episodeId="episode_1" />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    const video = container.querySelector('video')!;
+    vi.spyOn(video, 'pause').mockImplementation(() => {});
+    fireEvent.loadedMetadata(video);
+
+    expect(
+      screen.getByRole('button', { name: 'Kaldığın Yerden Devam Et (18:27)' }),
+    ).toBeInTheDocument();
   });
 
   it('resumes playback after loading a saved position in audio compatibility mode', () => {

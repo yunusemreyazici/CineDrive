@@ -542,11 +542,16 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             request.user!.id,
             driveFile.library?.googleConnectionId || undefined,
           );
-          const response = await fastify.driveService.createMediaStream(
-            accessToken,
-            driveFile.googleDriveFileId || '',
-          );
-          return response.stream;
+          const googleDriveFileId = encodeURIComponent(driveFile.googleDriveFileId || '');
+          return {
+            url: `https://www.googleapis.com/drive/v3/files/${googleDriveFileId}?alt=media&supportsAllDrives=true`,
+            inputOptions: [
+              '-headers',
+              `Authorization: Bearer ${accessToken}\r\n`,
+              '-rw_timeout',
+              '15000000',
+            ],
+          };
         },
         startSeconds,
         hlsCacheKey(driveFile),

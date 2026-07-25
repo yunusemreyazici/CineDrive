@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
+import { OpenSubtitlesService } from '../src/services/opensubtitles.service';
 
 describe('Subtitle API Integration Tests', () => {
   let app: FastifyInstance;
@@ -11,6 +12,9 @@ describe('Subtitle API Integration Tests', () => {
     await app.ready();
 
     // Clean up old test records
+    await app.prisma.mediaItem.deleteMany({
+      where: { id: 'media_sub_persist' },
+    });
     await app.prisma.subtitleTrack.deleteMany({
       where: { driveFileId: 'db_sub_file_1' },
     });
@@ -116,5 +120,77 @@ Test altyazı metni
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it('persists a manually selected OpenSubtitles file on the media item', async () => {
+    const library = await app.prisma.library.findFirstOrThrow({
+      where: { rootFolderId: 'test_sub_root' },
+    });
+    const videoFile = await app.prisma.driveFile.create({
+      data: {
+        id: 'db_video_sub_persist',
+        libraryId: library.id,
+        googleDriveFileId: 'gdrive_video_sub_persist',
+        name: 'Persistent.Subtitle.Movie.mkv',
+        mimeType: 'video/x-matroska',
+        status: 'active',
+      },
+    });
+    await app.prisma.mediaItem.create({
+      data: {
+        id: 'media_sub_persist',
+        type: 'movie',
+        title: 'Persistent Subtitle Movie',
+        normalizedTitle: 'persistent-subtitle-movie',
+        movie: {
+          create: {
+            id: 'movie_sub_persist',
+            driveFileId: videoFile.id,
+          },
+        },
+      },
+    });
+    vi.spyOn(
+      OpenSubtitlesService.prototype,
+      'downloadAndConvertSubtitle',
+    ).mockResolvedValue(`WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Kalıcı altyazı`);
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/media/subtitles/opensubtitles/download',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        fileId: 987654,
+        mediaId: 'media_sub_persist',
+        label: 'Türkçe Kalıcı',
+        languageCode: 'tr',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.subtitleTrack.label).toBe('Türkçe Kalıcı');
+    expect(body.vttContent).toContain('Kalıcı altyazı');
+    await expect(
+      app.prisma.subtitleTrack.findUnique({
+        where: { id: body.subtitleTrack.id },
+      }),
+    ).resolves.toMatchObject({
+      mediaItemId: 'media_sub_persist',
+      language: 'tr',
+    });
   });
 });

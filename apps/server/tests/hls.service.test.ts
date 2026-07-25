@@ -243,6 +243,7 @@ describe('HlsService cache management', () => {
     const internals = service as unknown as {
       jobs: Map<string, unknown>;
       reserveSlot: (
+        cacheKey: string,
         familyKey: string,
         sessionId: string,
         priority: number,
@@ -273,13 +274,13 @@ describe('HlsService cache management', () => {
     const order: string[] = [];
     let seekReservation = '';
     const normal = internals
-      .reserveSlot('normal-family', 'normal_session', 1, 'Normal Film', 0)
+      .reserveSlot('normal-cache', 'normal-family', 'normal_session', 1, 'Normal Film', 0)
       .then((reservationId) => {
         order.push('normal');
         internals.releaseReservation(reservationId);
       });
     const seek = internals
-      .reserveSlot('seek-family', 'seek_session', 2, 'Seek Film', 300)
+      .reserveSlot('seek-cache', 'seek-family', 'seek_session', 2, 'Seek Film', 300)
       .then((reservationId) => {
         order.push('seek');
         seekReservation = reservationId;
@@ -300,6 +301,71 @@ describe('HlsService cache management', () => {
     await normal;
     expect(order).toEqual(['seek', 'normal']);
     internals.releaseReservation(seekReservation);
+    service.shutdown();
+  });
+
+  it('does not cancel a queued seek when Safari releases the previous HLS window', async () => {
+    const service = createService(1024);
+    const idleTimerOne = setInterval(() => {}, 60_000);
+    const idleTimerTwo = setInterval(() => {}, 60_000);
+    idleTimerOne.unref();
+    idleTimerTwo.unref();
+    const internals = service as unknown as {
+      jobs: Map<string, unknown>;
+      leases: Map<string, Set<string>>;
+      reserveSlot: (
+        cacheKey: string,
+        familyKey: string,
+        sessionId: string,
+        priority: number,
+        mediaName: string,
+        startSeconds: number,
+      ) => Promise<string>;
+      drainPendingSlots: () => void;
+      releaseReservation: (reservationId: string) => void;
+    };
+    const fakeJob = (id: string, idleTimer: NodeJS.Timeout) => ({
+      id,
+      command: { kill: vi.fn() },
+      ready: Promise.resolve(),
+      familyKey: id,
+      mediaName: id,
+      pid: null,
+      startSeconds: 0,
+      startedAt: Date.now(),
+      lastAccessAt: Date.now(),
+      idleTimer,
+      profile: 'video-copy-aac',
+      lastRequestedSegment: -1,
+      isPaused: false,
+    });
+    internals.jobs.set('busy-one', fakeJob('busy-one', idleTimerOne));
+    internals.jobs.set('busy-two', fakeJob('busy-two', idleTimerTwo));
+    internals.leases.set('law-order-at-0', new Set(['safari_session']));
+
+    let reservation = '';
+    const queuedSeek = internals
+      .reserveSlot(
+        'law-order-at-900',
+        'law-order',
+        'safari_session',
+        2,
+        'Law & Order',
+        900,
+      )
+      .then((reservationId) => {
+        reservation = reservationId;
+      });
+
+    expect(service.getQueue()).toHaveLength(1);
+    service.releaseHls('law-order-at-0', 'safari_session');
+    expect(service.getQueue()).toHaveLength(1);
+
+    internals.jobs.delete('busy-one');
+    internals.drainPendingSlots();
+    await queuedSeek;
+    expect(reservation).not.toBe('');
+    internals.releaseReservation(reservation);
     service.shutdown();
   });
 
