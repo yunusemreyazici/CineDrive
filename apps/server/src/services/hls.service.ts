@@ -33,6 +33,7 @@ export type HlsCacheStats = {
 type HlsJob = {
   command: FfmpegCommand;
   ready: Promise<void>;
+  familyKey: string;
   lastAccessAt: number;
   idleTimer: NodeJS.Timeout;
 };
@@ -69,6 +70,7 @@ export class HlsService {
     cacheKey: string,
     inputFactory: () => Promise<string | Readable>,
     startSeconds = 0,
+    familyKey = cacheKey,
   ) {
     const outputDir = this.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
@@ -84,6 +86,21 @@ export class HlsService {
     if (this.isComplete(playlistPath)) {
       this.touchCache(outputDir);
       return playlistPath;
+    }
+
+    // Seeking creates a new cache key for the requested timestamp. The old
+    // encoder for the same episode must not keep occupying a transcode slot
+    // for another 45 seconds, otherwise a couple of seeks can exhaust the
+    // global capacity and Safari receives a 500 response.
+    for (const [activeKey, activeJob] of this.jobs) {
+      if (activeKey === cacheKey || activeJob.familyKey !== familyKey) continue;
+      clearInterval(activeJob.idleTimer);
+      this.jobs.delete(activeKey);
+      try {
+        activeJob.command.kill('SIGKILL');
+      } catch {
+        // Process may already have exited.
+      }
     }
 
     if (this.jobs.size >= this.maxActiveJobs) {
@@ -215,7 +232,13 @@ export class HlsService {
       }, 5_000);
       idleTimer.unref();
 
-      job = { command, ready, lastAccessAt: Date.now(), idleTimer };
+      job = {
+        command,
+        ready,
+        familyKey,
+        lastAccessAt: Date.now(),
+        idleTimer,
+      };
       this.jobs.set(cacheKey, job);
     }
 

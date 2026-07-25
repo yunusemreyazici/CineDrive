@@ -482,6 +482,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             return response.stream;
           },
           startSeconds,
+          hlsCacheKey(driveFile),
         );
         const assetQuery = `?start=${startSeconds}`;
         const playlist = fs
