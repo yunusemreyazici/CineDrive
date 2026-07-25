@@ -1,15 +1,52 @@
 import React from 'react';
-import { Play, Film, Tv, Heart, History } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
-import { MediaCard } from '../components/media/MediaCard';
+import { HomeMediaCard } from '../components/media/HomeMediaCard';
 import { ContinueWatchingCard } from '../components/media/ContinueWatchingCard';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
+import type { MediaItemType } from '../types/media';
 import {
   useMediaListQuery,
   useContinueWatchingQuery,
   useFavoritesQuery,
 } from '../hooks/useApi';
+
+interface HomeSectionProps {
+  title: string;
+  href: string;
+  items: MediaItemType[];
+}
+
+const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items }) => {
+  if (items.length === 0) return null;
+
+  return (
+    <section className="space-y-5">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="font-display text-xl font-bold tracking-tight text-white md:text-2xl">
+            {title}
+          </h2>
+          <div className="mt-2 h-px w-10 bg-brand-500" />
+        </div>
+        <Link
+          to={href}
+          className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
+        >
+          Tümünü gör
+          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
+        {items.slice(0, 6).map((media) => (
+          <HomeMediaCard key={media.id} media={media} />
+        ))}
+      </div>
+    </section>
+  );
+};
 
 export const HomePage: React.FC = () => {
   const { data: mediaData, isLoading: isMediaLoading } = useMediaListQuery({ limit: 30 });
@@ -17,7 +54,14 @@ export const HomePage: React.FC = () => {
   const { data: favorites } = useFavoritesQuery();
 
   const allMedia = mediaData?.media || [];
-  const featuredItem = allMedia[0];
+  const featuredItem =
+    allMedia.find(
+      (media) =>
+        Boolean(media.backdropUrl || media.backdropDriveFileId) &&
+        Boolean(media.overview),
+    ) ||
+    allMedia.find((media) => Boolean(media.backdropUrl || media.backdropDriveFileId)) ||
+    allMedia[0];
   const movies = allMedia.filter((m) => m.type === 'movie');
   const series = allMedia.filter((m) => m.type === 'series');
 
@@ -46,94 +90,38 @@ export const HomePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-12">
-      {/* Featured Hero */}
+    <div className="space-y-14 pb-10 md:space-y-16">
       {featuredItem && <FeaturedHero media={featuredItem} />}
 
-      {/* Continue Watching Section */}
       {continueWatching && continueWatching.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-brand-600/20 text-brand-400 rounded-xl">
-              <Play className="w-5 h-5 fill-current" />
+        <section className="space-y-5">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl font-bold tracking-tight text-white md:text-2xl">
+                İzlemeye Devam Et
+              </h2>
+              <div className="mt-2 h-px w-10 bg-brand-500" />
             </div>
-            <h3 className="text-xl font-bold font-display text-white">İzlemeye Devam Et</h3>
+            <Link
+              to="/history"
+              className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
+            >
+              Geçmişi aç
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
+            </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {continueWatching.map((item) => (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {continueWatching.slice(0, 4).map((item) => (
               <ContinueWatchingCard key={item.id} item={item} />
             ))}
           </div>
         </section>
       )}
 
-      {/* Recently Added Section */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl">
-              <History className="w-5 h-5" />
-            </div>
-            <h3 className="text-xl font-bold font-display text-white">Son Eklenenler</h3>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {allMedia.slice(0, 6).map((media) => (
-            <MediaCard key={media.id} media={media} />
-          ))}
-        </div>
-      </section>
-
-      {/* Movies Section */}
-      {movies.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl">
-              <Film className="w-5 h-5" />
-            </div>
-            <h3 className="text-xl font-bold font-display text-white">Filmler</h3>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {movies.slice(0, 6).map((media) => (
-              <MediaCard key={media.id} media={media} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Series Section */}
-      {series.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
-              <Tv className="w-5 h-5" />
-            </div>
-            <h3 className="text-xl font-bold font-display text-white">Diziler</h3>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {series.slice(0, 6).map((media) => (
-              <MediaCard key={media.id} media={media} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Favorites Section */}
-      {favorites && favorites.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-rose-500/10 text-rose-400 rounded-xl">
-              <Heart className="w-5 h-5 fill-current" />
-            </div>
-            <h3 className="text-xl font-bold font-display text-white">Favorileriniz</h3>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {favorites.slice(0, 6).map((media) => (
-              <MediaCard key={media.id} media={media} />
-            ))}
-          </div>
-        </section>
-      )}
+      <HomeSection title="Son Eklenenler" href="/library" items={allMedia} />
+      <HomeSection title="Filmler" href="/movies" items={movies} />
+      <HomeSection title="Diziler" href="/series" items={series} />
+      <HomeSection title="Favorileriniz" href="/favorites" items={favorites || []} />
     </div>
   );
 };

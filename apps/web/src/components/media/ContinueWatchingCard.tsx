@@ -42,7 +42,7 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
   return (
     <div
       onClick={handlePlayClick}
-      className="group relative bg-zinc-900 border border-zinc-800/80 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:border-brand-500/50 hover:shadow-xl hover:shadow-brand-500/10 flex flex-col"
+      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-zinc-900/70 transition duration-300 hover:-translate-y-1 hover:border-brand-500/45 hover:shadow-[0_20px_48px_rgba(0,0,0,0.35)]"
     >
       {/* 16:9 Landscape Media Image Container */}
       <div className="relative aspect-video w-full bg-zinc-950 overflow-hidden">
@@ -60,20 +60,13 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
         )}
 
         {/* Dark Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-transparent" />
 
         {/* Center Hover Play Button */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-brand-600/90 text-white flex items-center justify-center shadow-lg shadow-brand-500/30 transform transition-all duration-300 group-hover:scale-110 group-hover:bg-brand-500">
-            <Play className="w-6 h-6 fill-current ml-0.5" />
+        <div className="absolute bottom-3 right-3 flex items-center justify-center">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-brand-400/50 bg-zinc-950/75 text-brand-400 shadow-lg backdrop-blur-md transition group-hover:bg-brand-600 group-hover:text-white">
+            <Play className="h-4 w-4 translate-x-px fill-current" />
           </div>
-        </div>
-
-        {/* Top Type Badge */}
-        <div className="absolute top-2.5 left-2.5">
-          <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-bold text-zinc-300 border border-white/10 uppercase tracking-wider">
-            {media.type === 'movie' ? 'Film' : 'Dizi'}
-          </span>
         </div>
 
         {/* Progress Bar along the bottom of the image */}
@@ -86,9 +79,9 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
       </div>
 
       {/* Card Details Body */}
-      <div className="p-3.5 flex flex-col justify-between flex-1 space-y-1.5">
+      <div className="flex flex-1 flex-col justify-between space-y-2 p-3.5">
         <div>
-          <h4 className="text-sm font-bold text-white font-display truncate group-hover:text-brand-400 transition-colors">
+          <h4 className="truncate text-sm font-semibold text-white transition-colors group-hover:text-brand-400">
             {media.title}
           </h4>
 
@@ -97,7 +90,7 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
           )}
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1 font-mono">
+        <div className="flex items-center justify-between pt-1 text-[11px] text-zinc-400">
           <span className="flex items-center gap-1 text-zinc-400">
             <Clock className="w-3 h-3 text-brand-400" />
             {remainingMins > 0 ? `${remainingMins} dk kaldı` : 'Neredeyse bitti'}
