@@ -68,13 +68,23 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Classify resolution
       const fileNameLower = file.name.toLowerCase();
-      if (fileNameLower.includes('2160p') || fileNameLower.includes('4k') || sizeNum > 8 * 1024 * 1024 * 1024) {
+      if (
+        fileNameLower.includes('2160p') ||
+        fileNameLower.includes('4k') ||
+        sizeNum > 8 * 1024 * 1024 * 1024
+      ) {
         resolutionStats.k4.count++;
         resolutionStats.k4.sizeBytes += sizeNum;
-      } else if (fileNameLower.includes('1080p') || (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)) {
+      } else if (
+        fileNameLower.includes('1080p') ||
+        (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)
+      ) {
         resolutionStats.p1080.count++;
         resolutionStats.p1080.sizeBytes += sizeNum;
-      } else if (fileNameLower.includes('720p') || (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)) {
+      } else if (
+        fileNameLower.includes('720p') ||
+        (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)
+      ) {
         resolutionStats.p720.count++;
         resolutionStats.p720.sizeBytes += sizeNum;
       } else {
@@ -218,8 +228,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       map.set(key, (map.get(key) || 0) + 1);
     };
     const normalizeContainer = (value?: string | null) =>
-      value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] ||
-      value;
+      value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] || value;
 
     for (const file of files) {
       const plan = buildPlaybackPlan(file);
@@ -262,11 +271,46 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       runtime: {
         hls: fastify.hlsService.getStats(),
         transcode: fastify.transcodeService.getStats(),
+        playerTelemetry: fastify.playerTelemetryService.getStats(),
       },
       failures,
     };
 
     return reply.status(200).send(response);
+  });
+
+  fastify.post<{
+    Body: {
+      mediaId?: string;
+      driveFileId?: string;
+      browser?: 'safari' | 'chromium' | 'other';
+      playbackMode?: PlaybackMode;
+      event?: 'first-frame' | 'stall' | 'seek-recovery' | 'error';
+      durationMs?: number;
+    };
+  }>('/player-telemetry', async (request, reply) => {
+    const body = request.body || {};
+    if (
+      !body.mediaId ||
+      !body.driveFileId ||
+      !body.browser ||
+      !body.playbackMode ||
+      !body.event ||
+      (body.durationMs !== undefined &&
+        (!Number.isFinite(body.durationMs) || body.durationMs < 0 || body.durationMs > 10 * 60_000))
+    ) {
+      return reply.status(400).send();
+    }
+    fastify.playerTelemetryService.record({
+      mediaId: body.mediaId,
+      driveFileId: body.driveFileId,
+      browser: body.browser,
+      playbackMode: body.playbackMode,
+      event: body.event,
+      durationMs: body.durationMs === undefined ? undefined : Math.round(body.durationMs),
+      occurredAt: Date.now(),
+    });
+    return reply.status(202).send();
   });
 
   fastify.post<{ Params: { jobId: string } }>(

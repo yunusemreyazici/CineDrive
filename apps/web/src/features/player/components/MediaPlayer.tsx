@@ -27,7 +27,10 @@ interface MediaPlayerProps {
 
 const isSafariBrowser = () => {
   if (typeof navigator === 'undefined') return false;
-  return /Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(navigator.userAgent);
+  return (
+    /Safari/i.test(navigator.userAgent) &&
+    !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(navigator.userAgent)
+  );
 };
 
 const STALL_RECOVERY_DELAY_MS = 12_000;
@@ -50,10 +53,7 @@ const getQualityStorage = () => {
 
 const initialQualityPreference = (): QualityPreference => {
   const stored = getQualityStorage()?.getItem(QUALITY_STORAGE_KEY);
-  return stored === 'original' ||
-    stored === '1080p' ||
-    stored === '720p' ||
-    stored === '480p'
+  return stored === 'original' || stored === '1080p' || stored === '720p' || stored === '480p'
     ? stored
     : 'auto';
 };
@@ -70,8 +70,7 @@ const chooseAutoQuality = (sourceHeight?: number) => {
   let quality: '1080p' | '720p' | '480p' =
     connection?.saveData || connection?.effectiveType === '2g'
       ? '480p'
-      : connection?.effectiveType === '3g' ||
-          (deviceMemory !== undefined && deviceMemory <= 4)
+      : connection?.effectiveType === '3g' || (deviceMemory !== undefined && deviceMemory <= 4)
         ? '720p'
         : '1080p';
 
@@ -113,6 +112,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
   const resumePromptHandledRef = useRef(false);
   const suppressNextEpisodeUntilRef = useRef(0);
+  const sourceStartedAtRef = useRef(performance.now());
+  const firstFrameReportedRef = useRef(false);
+  const stallStartedAtRef = useRef<number | null>(null);
+  const seekStartedAtRef = useRef<number | null>(null);
 
   // Local Media & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -126,9 +129,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
-  const [qualityPreference, setQualityPreference] = useState<QualityPreference>(
-    initialQualityPreference,
-  );
+  const [qualityPreference, setQualityPreference] =
+    useState<QualityPreference>(initialQualityPreference);
 
   const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
 
@@ -152,9 +154,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     serverSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
-    currentEpisodeIndex = episodeId
-      ? episodes.findIndex((e) => e.id === episodeId)
-      : 0;
+    currentEpisodeIndex = episodeId ? episodes.findIndex((e) => e.id === episodeId) : 0;
 
     const activeEp = episodes[currentEpisodeIndex < 0 ? 0 : currentEpisodeIndex];
     if (activeEp) {
@@ -165,23 +165,21 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       currentSeasonNum = activeEp.seasonNumber;
       currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
-      serverSubtitles = (activeEp.subtitles || media.subtitles || []) as unknown as SubtitleTrackType[];
+      serverSubtitles = (activeEp.subtitles ||
+        media.subtitles ||
+        []) as unknown as SubtitleTrackType[];
     }
   }
 
   const recommendedPlaybackMode: PlaybackMode = isSafari
     ? playbackPlan?.safari || 'direct'
     : playbackPlan?.chromium || 'direct';
-  const [playbackMode, setPlaybackMode] =
-    useState<PlaybackMode>(recommendedPlaybackMode);
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(recommendedPlaybackMode);
   const [hlsStartOffset, setHlsStartOffset] = useState(0);
   const useTranscode = playbackMode !== 'direct';
   const automaticQuality = chooseAutoQuality(analyzedHeight);
   const [adaptiveQuality, setAdaptiveQuality] = useState(automaticQuality);
-  const effectiveQuality =
-    qualityPreference === 'auto'
-      ? adaptiveQuality
-      : qualityPreference;
+  const effectiveQuality = qualityPreference === 'auto' ? adaptiveQuality : qualityPreference;
 
   React.useEffect(() => {
     if (pendingHlsSeekTimerRef.current) {
@@ -265,7 +263,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
         return;
       }
 
@@ -296,7 +297,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (!targetDriveFileId) {
       setErrorState({
         code: 'STREAM_FAILED',
-        message: 'Bu içerik için bağlı bir Google Drive video dosyası bulunamadı. Lütfen kütüphaneyi yeniden tarayın.',
+        message:
+          'Bu içerik için bağlı bir Google Drive video dosyası bulunamadı. Lütfen kütüphaneyi yeniden tarayın.',
         isRetryable: false,
       });
     }
@@ -329,11 +331,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     }
   };
 
-  const handleSelectOpenSubtitle = async (
-    fileId: number,
-    label: string,
-    languageCode: string,
-  ) => {
+  const handleSelectOpenSubtitle = async (fileId: number, label: string, languageCode: string) => {
     const res = await fetch('/api/media/subtitles/opensubtitles/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -363,11 +361,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const cueStyle = `
     ::cue {
       font-size: ${subtitleFontSize}%;
-      background-color: ${
-        subtitleBgColor === 'black'
-          ? 'rgba(0, 0, 0, 0.85)'
-          : 'transparent'
-      };
+      background-color: ${subtitleBgColor === 'black' ? 'rgba(0, 0, 0, 0.85)' : 'transparent'};
       text-shadow: ${
         subtitleBgColor === 'shadow'
           ? '2px 2px 4px rgba(0, 0, 0, 0.9), -2px -2px 4px rgba(0, 0, 0, 0.9)'
@@ -402,6 +396,40 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }`
     : '';
 
+  const reportTelemetry = useCallback(
+    (event: 'first-frame' | 'stall' | 'seek-recovery' | 'error', durationMs?: number) => {
+      if (!targetDriveFileId) return;
+      const browser = isSafari
+        ? 'safari'
+        : /Chrome|Chromium|CriOS|Edg/i.test(navigator.userAgent)
+          ? 'chromium'
+          : 'other';
+      void fetch('/api/insights/player-telemetry', {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaId: media.id,
+          driveFileId: targetDriveFileId,
+          browser,
+          playbackMode,
+          event,
+          durationMs,
+        }),
+      }).catch(() => {
+        // QoE measurements must never affect playback.
+      });
+    },
+    [isSafari, media.id, playbackMode, targetDriveFileId],
+  );
+
+  React.useEffect(() => {
+    sourceStartedAtRef.current = performance.now();
+    firstFrameReportedRef.current = false;
+    stallStartedAtRef.current = null;
+  }, [videoSourceUrl]);
+
   React.useEffect(() => {
     if (playbackMode !== 'hls' || !targetDriveFileId) return;
 
@@ -435,24 +463,17 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     let cancelled = false;
     const resume = () => {
-      if (
-        cancelled ||
-        resumeAfterSourceChangeRef.current !== playbackMode
-      ) {
+      if (cancelled || resumeAfterSourceChangeRef.current !== playbackMode) {
         return;
       }
 
-      video
-        .play()
-        .catch(() => {
-          // Keep listening for the next readiness event.
-        });
+      video.play().catch(() => {
+        // Keep listening for the next readiness event.
+      });
     };
 
     video.addEventListener('canplay', resume);
-    const resumeTimers = [0, 250, 1_000, 2_500].map((delay) =>
-      setTimeout(resume, delay),
-    );
+    const resumeTimers = [0, 250, 1_000, 2_500].map((delay) => setTimeout(resume, delay));
     return () => {
       cancelled = true;
       resumeTimers.forEach(clearTimeout);
@@ -497,9 +518,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const recoveryPosition = recoveryPositionRef.current;
       recoveryPositionRef.current = null;
       video.currentTime =
-        playbackMode === 'hls'
-          ? Math.max(0, recoveryPosition - hlsStartOffset)
-          : recoveryPosition;
+        playbackMode === 'hls' ? Math.max(0, recoveryPosition - hlsStartOffset) : recoveryPosition;
       video.play().catch(() => {});
       return;
     }
@@ -536,8 +555,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     audioCompatibilityTimerRef.current = setTimeout(() => {
       const video = videoRef.current as
-        | (HTMLVideoElement & { webkitAudioDecodedByteCount?: number })
-        | null;
+        (HTMLVideoElement & { webkitAudioDecodedByteCount?: number }) | null;
 
       // Chromium can play the video track of AC-3/E-AC-3/DTS files without
       // raising a media error. In that state the picture advances but no audio
@@ -564,6 +582,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         0,
         duration > 0 ? Math.min(duration, requestedTime) : requestedTime,
       );
+      seekStartedAtRef.current = performance.now();
 
       if (playbackMode !== 'hls') {
         if (pendingHlsSeekTimerRef.current) {
@@ -636,8 +655,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     const playbackPosition =
-      videoRef.current.currentTime +
-      (playbackMode === 'hls' ? hlsStartOffset : 0);
+      videoRef.current.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0);
     setCurrentTime(playbackPosition);
 
     // Calculate buffered range
@@ -664,14 +682,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const remainingSeconds = reportedDuration - playbackPosition;
     const percentage = (playbackPosition / reportedDuration) * 100;
     const isNearEnd =
-      (remainingSeconds >= 0 && remainingSeconds <= 15) ||
-      (percentage >= 94 && percentage <= 100);
-    if (
-      isNearEnd &&
-      !showNextEpisodeModal &&
-      !nextEpisodeDismissedRef.current &&
-      nextEpisode
-    ) {
+      (remainingSeconds >= 0 && remainingSeconds <= 15) || (percentage >= 94 && percentage <= 100);
+    if (isNearEnd && !showNextEpisodeModal && !nextEpisodeDismissedRef.current && nextEpisode) {
       saveProgress(true);
       if (autoPlayNext) {
         setShowNextEpisodeModal(true);
@@ -687,9 +699,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       const start = video.buffered.start(index);
       const end = video.buffered.end(index);
       if (video.currentTime >= start && video.currentTime <= end) {
-        setBufferedTime(
-          end + (playbackMode === 'hls' ? hlsStartOffset : 0),
-        );
+        setBufferedTime(end + (playbackMode === 'hls' ? hlsStartOffset : 0));
         return;
       }
     }
@@ -702,6 +712,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, []);
 
   const handleWaiting = useCallback(() => {
+    if (stallStartedAtRef.current === null) {
+      stallStartedAtRef.current = performance.now();
+    }
     setIsBuffering(true);
     clearStallRecoveryTimer();
 
@@ -745,15 +758,22 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       );
       video.load();
     }, STALL_RECOVERY_DELAY_MS);
-  }, [
-    clearStallRecoveryTimer,
-    effectiveQuality,
-    hlsStartOffset,
-    playbackMode,
-    qualityPreference,
-  ]);
+  }, [clearStallRecoveryTimer, effectiveQuality, hlsStartOffset, playbackMode, qualityPreference]);
 
   const handlePlaying = useCallback(() => {
+    const now = performance.now();
+    if (!firstFrameReportedRef.current) {
+      firstFrameReportedRef.current = true;
+      reportTelemetry('first-frame', now - sourceStartedAtRef.current);
+    }
+    if (stallStartedAtRef.current !== null) {
+      reportTelemetry('stall', now - stallStartedAtRef.current);
+      stallStartedAtRef.current = null;
+    }
+    if (seekStartedAtRef.current !== null) {
+      reportTelemetry('seek-recovery', now - seekStartedAtRef.current);
+      seekStartedAtRef.current = null;
+    }
     if (resumeAfterSourceChangeRef.current === playbackMode) {
       resumeAfterSourceChangeRef.current = null;
     }
@@ -765,7 +785,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     stablePlaybackTimerRef.current = setTimeout(() => {
       stallRecoveryAttemptsRef.current = 0;
     }, 30_000);
-  }, [clearStallRecoveryTimer, playbackMode]);
+  }, [clearStallRecoveryTimer, playbackMode, reportTelemetry]);
 
   const handleCanPlayReady = useCallback(() => {
     setIsBuffering(false);
@@ -776,8 +796,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const video = videoRef.current;
     const reportedDuration = analyzedDuration || duration || video?.duration || 0;
     const playbackPosition =
-      (video?.currentTime || 0) +
-      (playbackMode === 'hls' ? hlsStartOffset : 0);
+      (video?.currentTime || 0) + (playbackMode === 'hls' ? hlsStartOffset : 0);
     if (
       Date.now() < suppressNextEpisodeUntilRef.current ||
       !Number.isFinite(reportedDuration) ||
@@ -814,17 +833,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const skipBackward = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    seekToAbsoluteTime(
-      video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) - 10,
-    );
+    seekToAbsoluteTime(video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) - 10);
   }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
 
   const skipForward = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    seekToAbsoluteTime(
-      video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) + 10,
-    );
+    seekToAbsoluteTime(video.currentTime + (playbackMode === 'hls' ? hlsStartOffset : 0) + 10);
   }, [hlsStartOffset, playbackMode, seekToAbsoluteTime]);
 
   const toggleMute = useCallback(() => {
@@ -954,6 +969,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleVideoEnded}
         onError={() => {
+          reportTelemetry('error');
           // Safari reports unsupported containers/codecs as a generic media
           // error. Retry once with full H.264/AAC compatibility transcoding;
           // if that also fails, show the actionable player error.
@@ -974,7 +990,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         }}
         onClick={togglePlay}
         className={`w-full h-full object-contain cursor-pointer transition-all duration-500 ${
-          cinemaMode ? 'scale-[0.94] rounded-2xl shadow-[0_0_100px_rgba(245,158,11,0.2)] border border-amber-500/20' : ''
+          cinemaMode
+            ? 'scale-[0.94] rounded-2xl shadow-[0_0_100px_rgba(245,158,11,0.2)] border border-amber-500/20'
+            : ''
         }`}
         playsInline
       >
@@ -1111,7 +1129,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           onSelectOpenSubtitle={handleSelectOpenSubtitle}
           onTogglePiP={togglePiP}
           onToggleFullscreen={toggleFullscreen}
-          onPreviousEpisode={previousEpisode ? () => handleEpisodeChange(previousEpisode.id) : undefined}
+          onPreviousEpisode={
+            previousEpisode ? () => handleEpisodeChange(previousEpisode.id) : undefined
+          }
           onNextEpisode={nextEpisode ? () => handleEpisodeChange(nextEpisode.id) : undefined}
         />
       </div>

@@ -122,6 +122,9 @@ describe('HlsService cache management', () => {
       startedAt: Date.now(),
       lastAccessAt: Date.now(),
       idleTimer,
+      profile: 'video-copy-aac',
+      lastRequestedSegment: -1,
+      isPaused: false,
     });
     (
       service as unknown as {
@@ -160,6 +163,7 @@ describe('HlsService cache management', () => {
       startedAt: Date.now(),
       lastAccessAt: Date.now(),
       idleTimer: replacementTimer,
+      profile: 'h264-aac',
     });
     internals.leases.set(cacheKey, new Set(['replacement_session']));
 
@@ -191,6 +195,9 @@ describe('HlsService cache management', () => {
       startedAt: Date.now() - 5_000,
       lastAccessAt: Date.now(),
       idleTimer,
+      profile: 'video-copy-aac',
+      lastRequestedSegment: -1,
+      isPaused: false,
     });
     internals.leases.set('observable-cache', new Set(['viewer_one', 'viewer_two']));
 
@@ -202,6 +209,9 @@ describe('HlsService cache management', () => {
         pid: 4321,
         startSeconds: 125,
         viewerCount: 2,
+        profile: 'video-copy-aac',
+        bufferLeadSeconds: 0,
+        isPaused: false,
       }),
     ]);
     expect(service.stopJob('observable-job')).toBe(true);
@@ -232,7 +242,13 @@ describe('HlsService cache management', () => {
     idleTimerTwo.unref();
     const internals = service as unknown as {
       jobs: Map<string, unknown>;
-      reserveSlot: (familyKey: string, sessionId: string, priority: number) => Promise<string>;
+      reserveSlot: (
+        familyKey: string,
+        sessionId: string,
+        priority: number,
+        mediaName: string,
+        startSeconds: number,
+      ) => Promise<string>;
       drainPendingSlots: () => void;
       releaseReservation: (reservationId: string) => void;
     };
@@ -247,6 +263,9 @@ describe('HlsService cache management', () => {
       startedAt: Date.now(),
       lastAccessAt: Date.now(),
       idleTimer,
+      profile: 'video-copy-aac',
+      lastRequestedSegment: -1,
+      isPaused: false,
     });
     internals.jobs.set('active-one', fakeJob('active-one', idleTimerOne));
     internals.jobs.set('active-two', fakeJob('active-two', idleTimerTwo));
@@ -254,17 +273,24 @@ describe('HlsService cache management', () => {
     const order: string[] = [];
     let seekReservation = '';
     const normal = internals
-      .reserveSlot('normal-family', 'normal_session', 1)
+      .reserveSlot('normal-family', 'normal_session', 1, 'Normal Film', 0)
       .then((reservationId) => {
         order.push('normal');
         internals.releaseReservation(reservationId);
       });
-    const seek = internals.reserveSlot('seek-family', 'seek_session', 2).then((reservationId) => {
-      order.push('seek');
-      seekReservation = reservationId;
-    });
+    const seek = internals
+      .reserveSlot('seek-family', 'seek_session', 2, 'Seek Film', 300)
+      .then((reservationId) => {
+        order.push('seek');
+        seekReservation = reservationId;
+      });
 
     internals.jobs.delete('active-one');
+    expect(service.getQueue()[0]).toMatchObject({
+      mediaName: 'Seek Film',
+      startSeconds: 300,
+      priority: 'seek',
+    });
     internals.drainPendingSlots();
     await seek;
     expect(order).toEqual(['seek']);
@@ -280,13 +306,42 @@ describe('HlsService cache management', () => {
   it('copies H.264 video and only fully encodes incompatible video codecs', () => {
     const service = createService(1024);
     const internals = service as unknown as {
-      videoOptions: (videoCodec: string) => string[];
+      videoOptions: (videoCodec: string, accurateSeekRequired?: boolean) => string[];
     };
 
     expect(internals.videoOptions('h264')).toEqual(['-c:v copy']);
     expect(internals.videoOptions('hevc')).toEqual(
       expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
     );
+    expect(internals.videoOptions('h264', true)).toEqual(
+      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
+    );
     expect(internals.videoOptions('')).toContain('-c:v libx264');
+  });
+
+  it('deduplicates concurrent starts for the same HLS cache', async () => {
+    const service = createService(1024);
+    let rejectInput!: (error: Error) => void;
+    const inputFactory = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectInput = reject;
+        }),
+    );
+
+    const first = service.ensureHls('shared-cache', inputFactory, 0, 'shared-family', 'viewer_one');
+    await vi.waitFor(() => expect(inputFactory).toHaveBeenCalledOnce());
+    const second = service.ensureHls(
+      'shared-cache',
+      inputFactory,
+      0,
+      'shared-family',
+      'viewer_two',
+    );
+
+    rejectInput(new Error('SOURCE_FAILED'));
+    await expect(first).rejects.toThrow('SOURCE_FAILED');
+    await expect(second).rejects.toThrow('SOURCE_FAILED');
+    expect(inputFactory).toHaveBeenCalledOnce();
   });
 });

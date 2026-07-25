@@ -94,6 +94,7 @@ export interface MediaHealthDto {
   runtime: {
     hls: {
       activeJobs: number;
+      queuedJobs: number;
       cacheBytes: number;
       cacheEntries: number;
       maxCacheBytes: number;
@@ -107,11 +108,40 @@ export interface MediaHealthDto {
         startedAt: string;
         lastAccessAt: string;
         viewerCount: number;
+        profile: 'video-copy-aac' | 'h264-aac';
+        bufferLeadSeconds: number;
+        isPaused: boolean;
+      }>;
+      queue: Array<{
+        id: string;
+        mediaName: string;
+        startSeconds: number;
+        priority: 'seek' | 'normal';
+        queuedAt: string;
+        waitMs: number;
       }>;
     };
     transcode: {
       activeSessions: number;
       maxActiveSessions: number;
+    };
+    playerTelemetry: {
+      sampleCount: number;
+      firstFrameAverageMs: number;
+      stallCount: number;
+      stallAverageMs: number;
+      seekCount: number;
+      seekRecoveryAverageMs: number;
+      errorCount: number;
+      recent: Array<{
+        mediaId: string;
+        driveFileId: string;
+        browser: 'safari' | 'chromium' | 'other';
+        playbackMode: 'direct' | 'audio' | 'hls' | 'full';
+        event: 'first-frame' | 'stall' | 'seek-recovery' | 'error';
+        durationMs?: number;
+        occurredAt: number;
+      }>;
     };
   };
   failures: Array<{

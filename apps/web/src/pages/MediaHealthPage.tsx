@@ -5,6 +5,7 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Database,
   Loader2,
   RefreshCw,
@@ -17,10 +18,7 @@ import { apiClient, parseApiError } from '../api/client';
 const formatBytes = (bytes: number) => {
   if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const index = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${(bytes / 1024 ** index).toFixed(index > 2 ? 1 : 0)} ${units[index]}`;
 };
 
@@ -41,9 +39,7 @@ const Distribution = ({
   const maximum = Math.max(...items.map((item) => item.count), 1);
   return (
     <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-      <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-300">
-        {title}
-      </h2>
+      <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-300">{title}</h2>
       <div className="space-y-3">
         {items.slice(0, 8).map((item) => (
           <div key={item.name}>
@@ -176,7 +172,10 @@ export const MediaHealthPage: React.FC = () => {
           ['Analiz Bekliyor', data.pendingVideos, Activity, 'text-amber-400'],
           ['Hatalı Dosya', data.failedVideos, AlertTriangle, 'text-red-400'],
         ].map(([label, value, Icon, color]) => (
-          <div key={String(label)} className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <div
+            key={String(label)}
+            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"
+          >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 {String(label)}
@@ -220,10 +219,32 @@ export const MediaHealthPage: React.FC = () => {
             <Server className="h-5 w-5 text-brand-400" /> HLS çalışma durumu
           </h2>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">Aktif işler <strong className="float-right text-white">{data.runtime.hls.activeJobs}/{data.runtime.hls.maxActiveJobs}</strong></p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">Cache <strong className="float-right text-white">{formatBytes(data.runtime.hls.cacheBytes)}</strong></p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">Cache girdisi <strong className="float-right text-white">{data.runtime.hls.cacheEntries}</strong></p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">Kota <strong className="float-right text-white">{formatBytes(data.runtime.hls.maxCacheBytes)}</strong></p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Aktif işler{' '}
+              <strong className="float-right text-white">
+                {data.runtime.hls.activeJobs}/{data.runtime.hls.maxActiveJobs}
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Kuyruk{' '}
+              <strong className="float-right text-white">{data.runtime.hls.queuedJobs}</strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Cache{' '}
+              <strong className="float-right text-white">
+                {formatBytes(data.runtime.hls.cacheBytes)}
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Cache girdisi{' '}
+              <strong className="float-right text-white">{data.runtime.hls.cacheEntries}</strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Kota{' '}
+              <strong className="float-right text-white">
+                {formatBytes(data.runtime.hls.maxCacheBytes)}
+              </strong>
+            </p>
           </div>
         </div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
@@ -233,7 +254,8 @@ export const MediaHealthPage: React.FC = () => {
           <p className="mt-6 text-4xl font-black text-white">
             {data.runtime.transcode.activeSessions}
             <span className="text-lg font-medium text-zinc-500">
-              {' '}/ {data.runtime.transcode.maxActiveSessions}
+              {' '}
+              / {data.runtime.transcode.maxActiveSessions}
             </span>
           </p>
           <p className="mt-2 text-sm text-zinc-500">Aktif audio/full uyumluluk oturumları</p>
@@ -267,6 +289,7 @@ export const MediaHealthPage: React.FC = () => {
                   <th className="px-3 py-3 font-semibold">Medya</th>
                   <th className="px-3 py-3 font-semibold">PID</th>
                   <th className="px-3 py-3 font-semibold">Başlangıç</th>
+                  <th className="px-3 py-3 font-semibold">Profil</th>
                   <th className="px-3 py-3 font-semibold">İzleyici</th>
                   <th className="px-3 py-3 font-semibold">Son erişim</th>
                   <th className="px-3 py-3 text-right font-semibold">İşlem</th>
@@ -288,6 +311,13 @@ export const MediaHealthPage: React.FC = () => {
                     </td>
                     <td className="px-3 py-3 text-zinc-400">
                       {job.startSeconds ? `${job.startSeconds} sn` : 'Baştan'}
+                    </td>
+                    <td className="px-3 py-3 text-xs font-semibold text-sky-300">
+                      <p>{job.profile === 'video-copy-aac' ? 'Video copy + AAC' : 'H.264 + AAC'}</p>
+                      <p className="mt-1 font-normal text-zinc-500">
+                        {job.isPaused ? 'Tampon dolu · bekliyor' : 'Üretiyor'} ·{' '}
+                        {job.bufferLeadSeconds} sn önde
+                      </p>
                     </td>
                     <td className="px-3 py-3 text-zinc-400">{job.viewerCount}</td>
                     <td className="px-3 py-3 text-zinc-400">
@@ -315,6 +345,84 @@ export const MediaHealthPage: React.FC = () => {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-bold text-white">
+              <Clock className="h-5 w-5 text-amber-400" /> HLS bekleme kuyruğu
+            </h2>
+            <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
+              {data.runtime.hls.queue.length} bekleyen
+            </span>
+          </div>
+          {data.runtime.hls.queue.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">Bekleyen oynatma isteği yok.</p>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {data.runtime.hls.queue.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 rounded-xl bg-zinc-950 p-3 text-sm"
+                >
+                  <span className="w-7 text-center font-black text-zinc-500">{index + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-zinc-200">{item.mediaName}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {item.priority === 'seek' ? 'Seek öncelikli' : 'Normal'} ·{' '}
+                      {Math.round(item.waitMs / 1000)} sn
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <h2 className="flex items-center gap-2 font-bold text-white">
+            <Activity className="h-5 w-5 text-emerald-400" /> Oynatma kalitesi
+          </h2>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              İlk kare
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.firstFrameAverageMs} ms
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Donma
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.stallCount}
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Ort. donma
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.stallAverageMs} ms
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Seek toparlanma
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.seekRecoveryAverageMs} ms
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Hata
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.errorCount}
+              </strong>
+            </p>
+            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
+              Örnek
+              <strong className="float-right text-white">
+                {data.runtime.playerTelemetry.sampleCount}
+              </strong>
+            </p>
+          </div>
+        </div>
       </section>
 
       {analysisMessage ? (

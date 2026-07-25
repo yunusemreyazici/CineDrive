@@ -11,7 +11,7 @@ if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 const READY_SEGMENT_COUNT = 3;
 const WAIT_TIMEOUT_MS = 45_000;
 const IDLE_JOB_TIMEOUT_MS = 45_000;
-const CACHE_VERSION = 'safari-h264-v6';
+const CACHE_VERSION = 'safari-h264-v7';
 const DEFAULT_CACHE_BYTES = 20 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_ACTIVE_JOBS = 2;
 const MAX_FAMILY_CACHE_ENTRIES = 3;
@@ -28,11 +28,13 @@ export type HlsServiceOptions = {
 
 export type HlsCacheStats = {
   activeJobs: number;
+  queuedJobs: number;
   cacheBytes: number;
   cacheEntries: number;
   maxCacheBytes: number;
   maxActiveJobs: number;
   jobs: HlsJobInfo[];
+  queue: HlsQueueInfo[];
 };
 
 type HlsJob = {
@@ -46,6 +48,9 @@ type HlsJob = {
   startedAt: number;
   lastAccessAt: number;
   idleTimer: NodeJS.Timeout;
+  profile: 'video-copy-aac' | 'h264-aac';
+  lastRequestedSegment: number;
+  isPaused: boolean;
 };
 
 export type HlsJobInfo = {
@@ -57,6 +62,18 @@ export type HlsJobInfo = {
   startedAt: string;
   lastAccessAt: string;
   viewerCount: number;
+  profile: 'video-copy-aac' | 'h264-aac';
+  bufferLeadSeconds: number;
+  isPaused: boolean;
+};
+
+export type HlsQueueInfo = {
+  id: string;
+  mediaName: string;
+  startSeconds: number;
+  priority: 'seek' | 'normal';
+  queuedAt: string;
+  waitMs: number;
 };
 
 type ProcessRegistryEntry = {
@@ -72,6 +89,8 @@ type PendingSlot = {
   sessionId?: string;
   priority: number;
   queuedAt: number;
+  mediaName: string;
+  startSeconds: number;
   resolve: (reservationId: string) => void;
   reject: (error: Error) => void;
 };
@@ -87,6 +106,7 @@ export class HlsService {
   private readonly processRegistry = new Map<string, ProcessRegistryEntry>();
   private readonly pendingSlots: PendingSlot[] = [];
   private readonly reservedSlots = new Set<string>();
+  private readonly inflightStarts = new Map<string, Promise<string>>();
 
   constructor(options: HlsServiceOptions = {}) {
     this.cacheRoot = options.cacheRoot || path.resolve(process.cwd(), 'data/hls_cache');
@@ -119,6 +139,45 @@ export class HlsService {
     sessionId?: string,
     mediaName = cacheKey,
     sourceVideoCodec?: string | null,
+  ) {
+    const inflight = this.inflightStarts.get(cacheKey);
+    if (inflight) {
+      if (sessionId) {
+        if (this.isSessionBlocked(cacheKey, sessionId)) {
+          throw new Error('HLS_JOB_STOPPED');
+        }
+        this.acquireLease(cacheKey, sessionId);
+      }
+      return inflight;
+    }
+
+    const start = this.startHls(
+      cacheKey,
+      inputFactory,
+      startSeconds,
+      familyKey,
+      sessionId,
+      mediaName,
+      sourceVideoCodec,
+    );
+    this.inflightStarts.set(cacheKey, start);
+    try {
+      return await start;
+    } finally {
+      if (this.inflightStarts.get(cacheKey) === start) {
+        this.inflightStarts.delete(cacheKey);
+      }
+    }
+  }
+
+  private async startHls(
+    cacheKey: string,
+    inputFactory: () => Promise<string | Readable>,
+    startSeconds: number,
+    familyKey: string,
+    sessionId: string | undefined,
+    mediaName: string,
+    sourceVideoCodec: string | null | undefined,
   ) {
     if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
       throw new Error('HLS_JOB_STOPPED');
@@ -159,7 +218,13 @@ export class HlsService {
     }
 
     this.drainPendingSlots();
-    const reservationId = await this.reserveSlot(familyKey, sessionId, startSeconds > 0 ? 2 : 1);
+    const reservationId = await this.reserveSlot(
+      familyKey,
+      sessionId,
+      startSeconds > 0 ? 2 : 1,
+      mediaName,
+      startSeconds,
+    );
 
     try {
       if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
@@ -204,11 +269,18 @@ export class HlsService {
         // some hvc1 sources still fail after they are remuxed as fragmented HLS.
         // Keep H.264 zero-copy, but make every other codec deterministic for the
         // Safari compatibility path.
-        const videoOptions = this.videoOptions(normalizedVideoCodec);
+        const accurateSeekRequired = startSeconds > 0;
+        const videoOptions = this.videoOptions(normalizedVideoCodec, accurateSeekRequired);
+        const profile =
+          normalizedVideoCodec === 'h264' && !accurateSeekRequired ? 'video-copy-aac' : 'h264-aac';
         const command = ffmpeg(input)
           // Generate a modest buffer ahead of playback instead of racing through
           // a multi-GB source and duplicating the whole file immediately.
-          .inputOptions([...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []), '-readrate 2'])
+          .inputOptions([
+            ...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
+            '-readrate',
+            '2',
+          ])
           .outputOptions([
             '-map 0:v:0',
             '-map 0:a:0?',
@@ -305,8 +377,19 @@ export class HlsService {
           const activeJob = this.jobs.get(cacheKey);
           if (activeJob && Date.now() - activeJob.lastAccessAt >= IDLE_JOB_TIMEOUT_MS) {
             activeJob.command.kill('SIGKILL');
+            return;
           }
-        }, 5_000);
+          if (activeJob?.pid) {
+            const producedSegments = this.countSegments(outputDir);
+            const requestedSegments = Math.max(0, activeJob.lastRequestedSegment + 1);
+            const leadSeconds = (producedSegments - requestedSegments) * 4;
+            if (leadSeconds >= 24 && !activeJob.isPaused) {
+              this.setJobPaused(activeJob, true);
+            } else if (leadSeconds <= 12 && activeJob.isPaused) {
+              this.setJobPaused(activeJob, false);
+            }
+          }
+        }, 1_000);
         idleTimer.unref();
 
         job = {
@@ -320,6 +403,9 @@ export class HlsService {
           startedAt,
           lastAccessAt: Date.now(),
           idleTimer,
+          profile,
+          lastRequestedSegment: -1,
+          isPaused: false,
         };
         this.jobs.set(cacheKey, job);
         this.consumeReservation(reservationId);
@@ -337,7 +423,14 @@ export class HlsService {
       throw new Error('INVALID_HLS_ASSET');
     }
     const job = this.jobs.get(cacheKey);
-    if (job) job.lastAccessAt = Date.now();
+    if (job) {
+      job.lastAccessAt = Date.now();
+      const segment = assetName.match(/^segment-(\d{6})\.m4s$/);
+      if (segment) {
+        job.lastRequestedSegment = Math.max(job.lastRequestedSegment, Number(segment[1]));
+        if (job.isPaused) this.setJobPaused(job, false);
+      }
+    }
     const cacheDir = this.getCacheDir(cacheKey);
     this.touchCache(cacheDir);
     return path.join(cacheDir, assetName);
@@ -347,11 +440,13 @@ export class HlsService {
     const entries = this.cacheEntries();
     return {
       activeJobs: this.jobs.size,
+      queuedJobs: this.pendingSlots.length,
       cacheBytes: entries.reduce((total, entry) => total + entry.size, 0),
       cacheEntries: entries.length,
       maxCacheBytes: this.maxCacheBytes,
       maxActiveJobs: this.maxActiveJobs,
       jobs: this.getJobs(),
+      queue: this.getQueue(),
     };
   }
 
@@ -366,8 +461,28 @@ export class HlsService {
         startedAt: new Date(job.startedAt).toISOString(),
         lastAccessAt: new Date(job.lastAccessAt).toISOString(),
         viewerCount: this.leases.get(cacheKey)?.size || 0,
+        profile: job.profile,
+        bufferLeadSeconds: Math.max(
+          0,
+          (this.countSegments(this.getCacheDir(cacheKey)) -
+            Math.max(0, job.lastRequestedSegment + 1)) *
+            4,
+        ),
+        isPaused: job.isPaused,
       }))
       .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  }
+
+  public getQueue(): HlsQueueInfo[] {
+    const now = Date.now();
+    return this.pendingSlots.map((pending) => ({
+      id: pending.id,
+      mediaName: pending.mediaName,
+      startSeconds: pending.startSeconds,
+      priority: pending.priority > 1 ? 'seek' : 'normal',
+      queuedAt: new Date(pending.queuedAt).toISOString(),
+      waitMs: now - pending.queuedAt,
+    }));
   }
 
   public stopJob(jobId: string) {
@@ -480,6 +595,7 @@ export class HlsService {
       pending.reject(new Error('HLS_SERVICE_SHUTDOWN'));
     }
     this.reservedSlots.clear();
+    this.inflightStarts.clear();
   }
 
   private acquireLease(cacheKey: string, sessionId: string) {
@@ -495,8 +611,8 @@ export class HlsService {
     return `${cacheKey}:${sessionId}`;
   }
 
-  private videoOptions(videoCodec: string) {
-    if (videoCodec === 'h264') return ['-c:v copy'];
+  private videoOptions(videoCodec: string, accurateSeekRequired = false) {
+    if (videoCodec === 'h264' && !accurateSeekRequired) return ['-c:v copy'];
     return [
       '-c:v libx264',
       '-preset ultrafast',
@@ -509,6 +625,24 @@ export class HlsService {
       '-pix_fmt yuv420p',
       '-force_key_frames expr:gte(t,n_forced*4)',
     ];
+  }
+
+  private countSegments(outputDir: string) {
+    try {
+      return fs.readdirSync(outputDir).filter((name) => /^segment-\d{6}\.m4s$/.test(name)).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  private setJobPaused(job: HlsJob, paused: boolean) {
+    if (!job.pid || job.isPaused === paused) return;
+    try {
+      process.kill(job.pid, paused ? 'SIGSTOP' : 'SIGCONT');
+      job.isPaused = paused;
+    } catch {
+      // The encoder may have exited between the health check and signal.
+    }
   }
 
   private isSessionBlocked(cacheKey: string, sessionId: string) {
@@ -526,6 +660,8 @@ export class HlsService {
     familyKey: string,
     sessionId: string | undefined,
     priority: number,
+    mediaName: string,
+    startSeconds: number,
   ): Promise<string> {
     if (this.jobs.size + this.reservedSlots.size < this.maxActiveJobs) {
       const reservationId = crypto.randomUUID();
@@ -541,6 +677,8 @@ export class HlsService {
         sessionId,
         priority,
         queuedAt: Date.now(),
+        mediaName,
+        startSeconds,
         resolve,
         reject,
       });
