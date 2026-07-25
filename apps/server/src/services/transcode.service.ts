@@ -7,6 +7,18 @@ if (ffmpegPath) {
   ffmpeg.setFfmpegPath(ffmpegPath);
 }
 
+export type TranscodeQuality = 'original' | '1080p' | '720p' | '480p';
+
+const QUALITY_PROFILES: Record<
+  TranscodeQuality,
+  { bitrate: string; maxrate: string; bufsize: string; height?: number }
+> = {
+  original: { bitrate: '7M', maxrate: '8M', bufsize: '16M' },
+  '1080p': { bitrate: '5M', maxrate: '6M', bufsize: '12M', height: 1080 },
+  '720p': { bitrate: '3M', maxrate: '4M', bufsize: '8M', height: 720 },
+  '480p': { bitrate: '1500k', maxrate: '2M', bufsize: '4M', height: 480 },
+};
+
 export class TranscodeService {
   private readonly activeSessions = new Set<string>();
   private readonly maxActiveSessions: number;
@@ -34,7 +46,10 @@ export class TranscodeService {
    */
   public createTranscodedStream(
     inputStream: Readable,
-    options: { transcodeVideo?: boolean } = {},
+    options: {
+      transcodeVideo?: boolean;
+      quality?: TranscodeQuality;
+    } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
     if (this.activeSessions.size >= this.maxActiveSessions) {
@@ -44,24 +59,33 @@ export class TranscodeService {
     const sessionId = randomUUID();
     this.activeSessions.add(sessionId);
     const outputStream = new PassThrough();
+    const quality = options.quality || '1080p';
+    const profile = QUALITY_PROFILES[quality];
+    const scaleOptions = profile.height
+      ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`]
+      : [];
     const videoOptions = options.transcodeVideo
       ? process.platform === 'darwin'
         ? [
             '-c:v h264_videotoolbox',
-            '-b:v 5M',
-            '-maxrate 6M',
-            '-bufsize 12M',
+            '-b:v', profile.bitrate,
+            '-maxrate', profile.maxrate,
+            '-bufsize', profile.bufsize,
             '-profile:v high',
             '-level:v 4.1',
             '-pix_fmt yuv420p',
             '-g 50',
+            ...scaleOptions,
           ]
         : [
             '-c:v libx264',
             '-preset veryfast',
-            '-crf 23',
+            '-b:v', profile.bitrate,
+            '-maxrate', profile.maxrate,
+            '-bufsize', profile.bufsize,
             '-pix_fmt yuv420p',
             '-g 50',
+            ...scaleOptions,
           ]
       : ['-c:v copy'];
 

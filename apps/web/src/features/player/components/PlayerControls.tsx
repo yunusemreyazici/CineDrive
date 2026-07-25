@@ -14,12 +14,14 @@ import {
   SkipForward,
   Sparkles,
   Radio,
+  MonitorUp,
 } from 'lucide-react';
 import { PlayerTimeline } from './PlayerTimeline';
 import { SubtitleMenu } from './SubtitleMenu';
 import { PlaybackSpeedMenu } from './PlaybackSpeedMenu';
 import { useUiStore } from '../../../stores/useUiStore';
 import type { SubtitleTrackType } from '../types/player';
+import { QualityMenu, type QualityPreference } from './QualityMenu';
 
 interface PlayerControlsProps {
   mediaId?: string;
@@ -37,6 +39,10 @@ interface PlayerControlsProps {
   hasPreviousEpisode?: boolean;
   hasNextEpisode?: boolean;
   useTranscode?: boolean;
+  qualityPreference?: QualityPreference;
+  effectiveQuality?: Exclude<QualityPreference, 'auto'>;
+  showQualityControl?: boolean;
+  onSelectQuality?: (quality: QualityPreference) => void;
   onToggleTranscode?: () => void;
   onTogglePlay: () => void;
   onSkipBackward: () => void;
@@ -70,6 +76,10 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   hasPreviousEpisode,
   hasNextEpisode,
   useTranscode = false,
+  qualityPreference = 'auto',
+  effectiveQuality = '1080p',
+  showQualityControl = false,
+  onSelectQuality,
   onToggleTranscode,
   onTogglePlay,
   onSkipBackward,
@@ -88,6 +98,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 }) => {
   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const { cinemaMode, toggleCinemaMode } = useUiStore();
   const bufferAhead = Math.max(0, bufferedTime - currentTime);
 
@@ -125,6 +136,15 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           onClose={() => setSpeedMenuOpen(false)}
         />
       )}
+
+      {qualityMenuOpen && onSelectQuality ? (
+        <QualityMenu
+          currentQuality={qualityPreference}
+          effectiveQuality={effectiveQuality}
+          onSelectQuality={onSelectQuality}
+          onClose={() => setQualityMenuOpen(false)}
+        />
+      ) : null}
 
       {/* Scrubbing Timeline */}
       <PlayerTimeline
@@ -245,6 +265,21 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               <Radio className="w-5 h-5" />
             </button>
           )}
+
+          {showQualityControl && onSelectQuality ? (
+            <button
+              onClick={() => {
+                setQualityMenuOpen(!qualityMenuOpen);
+                setSpeedMenuOpen(false);
+                setSubtitleMenuOpen(false);
+              }}
+              aria-label="Görüntü Kalitesi"
+              title={`Görüntü kalitesi: ${qualityPreference === 'auto' ? `Otomatik (${effectiveQuality})` : qualityPreference}`}
+              className="rounded-xl p-2 text-zinc-400 transition-colors hover:text-white"
+            >
+              <MonitorUp className="h-5 w-5" />
+            </button>
+          ) : null}
 
           <button
             onClick={() => {

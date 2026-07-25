@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10,6 +10,10 @@ import { SubtitleMenu } from '../features/player/components/SubtitleMenu';
 import type { MediaItemType } from '../types/media';
 
 describe('Player Components Unit Tests', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -181,6 +185,39 @@ describe('Player Components Unit Tests', () => {
 
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
       '/api/media/gdrive_interstellar_file/stream?transcode=audio',
+    );
+  });
+
+  it('adds the selected quality profile to a full transcode request', () => {
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'full',
+          reason: 'mkv:hevc:eac3',
+          analyzed: true,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=1080p',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Görüntü Kalitesi' }));
+    fireEvent.click(screen.getByRole('button', { name: /720p/ }));
+
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(
+      '/api/media/gdrive_interstellar_file/stream?transcode=full&quality=720p',
     );
   });
 

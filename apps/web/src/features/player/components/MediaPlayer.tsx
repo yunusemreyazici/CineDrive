@@ -18,6 +18,7 @@ import type {
   PlaybackMode,
   PlaybackPlanType,
 } from '../../../types/media';
+import type { QualityPreference } from './QualityMenu';
 
 interface MediaPlayerProps {
   media: MediaItemType;
@@ -31,6 +32,47 @@ const isSafariBrowser = () => {
 
 const STALL_RECOVERY_DELAY_MS = 12_000;
 const MAX_STALL_RECOVERY_ATTEMPTS = 2;
+const QUALITY_STORAGE_KEY = 'cinedrive-player-quality-v1';
+
+const getQualityStorage = () => {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+const initialQualityPreference = (): QualityPreference => {
+  const stored = getQualityStorage()?.getItem(QUALITY_STORAGE_KEY);
+  return stored === 'original' ||
+    stored === '1080p' ||
+    stored === '720p' ||
+    stored === '480p'
+    ? stored
+    : 'auto';
+};
+
+const chooseAutoQuality = (sourceHeight?: number) => {
+  const connection = (
+    navigator as Navigator & {
+      connection?: { effectiveType?: string; saveData?: boolean };
+      deviceMemory?: number;
+    }
+  ).connection;
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+
+  let quality: '1080p' | '720p' | '480p' =
+    connection?.saveData || connection?.effectiveType === '2g'
+      ? '480p'
+      : connection?.effectiveType === '3g' ||
+          (deviceMemory !== undefined && deviceMemory <= 4)
+        ? '720p'
+        : '1080p';
+
+  if (sourceHeight && sourceHeight <= 480) quality = '480p';
+  else if (sourceHeight && sourceHeight <= 720 && quality === '1080p') quality = '720p';
+  return quality;
+};
 
 export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) => {
   const navigate = useNavigate();
@@ -73,6 +115,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
   const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [qualityPreference, setQualityPreference] = useState<QualityPreference>(
+    initialQualityPreference,
+  );
 
   const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
 
@@ -86,11 +131,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   let currentEpisodeNum: number | undefined = undefined;
   let playbackPlan: PlaybackPlanType | undefined;
   let analyzedDuration: number | undefined;
+  let analyzedHeight: number | undefined;
 
   if (media.type === 'movie' && media.movie) {
     targetDriveFileId = media.movie.driveFileId;
     playbackPlan = media.movie.playbackPlan;
     analyzedDuration = media.movie.technicalMetadata?.mediaDuration;
+    analyzedHeight = media.movie.technicalMetadata?.mediaHeight;
     serverSubtitles = (media.subtitles || []) as unknown as SubtitleTrackType[];
   } else if (media.type === 'series' && media.series) {
     episodes = media.series.seasons.flatMap((s) => s.episodes);
@@ -103,6 +150,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       targetDriveFileId = activeEp.driveFileId;
       playbackPlan = activeEp.playbackPlan;
       analyzedDuration = activeEp.technicalMetadata?.mediaDuration;
+      analyzedHeight = activeEp.technicalMetadata?.mediaHeight;
       currentSeasonNum = activeEp.seasonNumber;
       currentEpisodeNum = activeEp.episodeNumber;
       titleDisplay = `${media.title} - ${activeEp.seasonNumber}x${activeEp.episodeNumber < 10 ? `0${activeEp.episodeNumber}` : activeEp.episodeNumber} ${activeEp.title}`;
@@ -116,6 +164,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [playbackMode, setPlaybackMode] =
     useState<PlaybackMode>(recommendedPlaybackMode);
   const useTranscode = playbackMode !== 'direct';
+  const automaticQuality = chooseAutoQuality(analyzedHeight);
+  const [adaptiveQuality, setAdaptiveQuality] = useState(automaticQuality);
+  const effectiveQuality =
+    qualityPreference === 'auto'
+      ? adaptiveQuality
+      : qualityPreference;
 
   React.useEffect(() => {
     setPlaybackMode(recommendedPlaybackMode);
@@ -123,7 +177,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     stallRecoveryAttemptsRef.current = 0;
     recoveryPositionRef.current = null;
     setConnectionMessage(null);
-  }, [recommendedPlaybackMode, targetDriveFileId]);
+    setAdaptiveQuality(automaticQuality);
+  }, [automaticQuality, recommendedPlaybackMode, targetDriveFileId]);
 
   const availableSubtitles = [...serverSubtitles, ...customSubtitles];
 
@@ -320,7 +375,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           playbackMode === 'audio'
             ? '?transcode=audio'
             : playbackMode === 'full'
-              ? '?transcode=full'
+              ? `?transcode=full&quality=${effectiveQuality}`
               : ''
         }`
     : '';
@@ -481,6 +536,25 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setIsBuffering(true);
     clearStallRecoveryTimer();
 
+    if (playbackMode === 'full' && qualityPreference === 'auto') {
+      stallRecoveryTimerRef.current = setTimeout(() => {
+        const video = videoRef.current;
+        if (!video || video.paused || video.currentTime >= 10) return;
+
+        const nextQuality =
+          effectiveQuality === 'original' || effectiveQuality === '1080p'
+            ? '720p'
+            : effectiveQuality === '720p'
+              ? '480p'
+              : null;
+        if (!nextQuality) return;
+
+        setConnectionMessage(`Başlangıç akışı ${nextQuality} kalitesinde yeniden hazırlanıyor`);
+        setAdaptiveQuality(nextQuality);
+      }, STALL_RECOVERY_DELAY_MS);
+      return;
+    }
+
     if (playbackMode !== 'direct' && playbackMode !== 'hls') return;
 
     stallRecoveryTimerRef.current = setTimeout(() => {
@@ -500,7 +574,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       );
       video.load();
     }, STALL_RECOVERY_DELAY_MS);
-  }, [clearStallRecoveryTimer, playbackMode]);
+  }, [clearStallRecoveryTimer, effectiveQuality, playbackMode, qualityPreference]);
 
   const handlePlaying = useCallback(() => {
     setIsBuffering(false);
@@ -776,6 +850,18 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           hasPreviousEpisode={!!previousEpisode}
           hasNextEpisode={!!nextEpisode}
           useTranscode={useTranscode}
+          qualityPreference={qualityPreference}
+          effectiveQuality={effectiveQuality}
+          showQualityControl={playbackMode === 'full'}
+          onSelectQuality={(quality) => {
+            setQualityPreference(quality);
+            if (quality === 'auto') setAdaptiveQuality(automaticQuality);
+            try {
+              getQualityStorage()?.setItem(QUALITY_STORAGE_KEY, quality);
+            } catch {
+              // The preference remains valid for the current session.
+            }
+          }}
           onToggleTranscode={() =>
             setPlaybackMode((current) =>
               current === 'direct'

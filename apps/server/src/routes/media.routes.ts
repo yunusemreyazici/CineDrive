@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import type { TranscodeQuality } from '../services/transcode.service.js';
 
 // Browsers commonly request `bytes=N-`. Forwarding that request unchanged makes
 // Google Drive send the entire remainder of a multi-GB file until the browser
@@ -188,6 +189,24 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.on('error', cleanupListeners);
 
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
+    const requestedQuality = (request.query as Record<string, string>)?.quality;
+    const validQualities = new Set<TranscodeQuality>([
+      'original',
+      '1080p',
+      '720p',
+      '480p',
+    ]);
+    if (requestedQuality && !validQualities.has(requestedQuality as TranscodeQuality)) {
+      cleanupListeners();
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_TRANSCODE_QUALITY',
+          message: 'Geçersiz transcode kalite profili.',
+          requestId: request.id,
+        },
+      });
+    }
+    const transcodeQuality = (requestedQuality || '1080p') as TranscodeQuality;
     const isTranscode =
       transcodeMode === 'true' ||
       transcodeMode === '1' ||
@@ -210,12 +229,13 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (isTranscode) {
         reply.header('Content-Type', 'video/mp4');
+        reply.header('X-Transcode-Quality', transcodeQuality);
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
         const localReadStream = fs.createReadStream(driveFile.localFilePath);
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           localReadStream,
-          { transcodeVideo: shouldTranscodeVideo },
+          { transcodeVideo: shouldTranscodeVideo, quality: transcodeQuality },
         );
 
         request.raw.on('close', () => {
@@ -314,6 +334,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         // Content-Length headers through makes Safari reject the response.
         reply.status(200);
         reply.header('Content-Type', 'video/mp4');
+        reply.header('X-Transcode-Quality', transcodeQuality);
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
         if (isHeadRequest) {
@@ -323,7 +344,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           driveStreamRes.stream,
-          { transcodeVideo: shouldTranscodeVideo },
+          { transcodeVideo: shouldTranscodeVideo, quality: transcodeQuality },
         );
 
         request.raw.on('close', () => {

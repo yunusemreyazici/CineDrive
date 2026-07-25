@@ -200,7 +200,7 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.body).toBe('transcoded-fragment');
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
       expect.any(Readable),
-      { transcodeVideo: false },
+      { transcodeVideo: false, quality: '1080p' },
     );
     expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
       'mock-access-token',
@@ -238,7 +238,7 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
       expect.any(Readable),
-      { transcodeVideo: true },
+      { transcodeVideo: true, quality: '1080p' },
     );
     expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
       'mock-access-token',
@@ -246,6 +246,27 @@ describe('Video Media Streaming API Integration Tests', () => {
       undefined,
       expect.any(AbortSignal),
     );
+  });
+
+  it('rejects an unknown transcode quality profile', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media/gdrive_video_id_100/stream?transcode=full&quality=8k',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('INVALID_TRANSCODE_QUALITY');
   });
 
   it('GET /api/media/:fileId/stream with invalid Range should return 416 Range Not Satisfiable', async () => {
