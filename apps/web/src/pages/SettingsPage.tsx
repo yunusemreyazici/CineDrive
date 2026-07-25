@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Settings,
@@ -21,6 +21,8 @@ import {
   Folder,
   EyeOff,
   Activity,
+  Search,
+  ChevronRight,
 } from 'lucide-react';
 import {
   useSessionQuery,
@@ -39,21 +41,49 @@ import {
   useUpdateOpenSubtitlesSettingsMutation,
 } from '../hooks/useApi';
 import { useUiStore, type ThemeType } from '../stores/useUiStore';
-import { MediaManagerPage } from './MediaManagerPage';
-import { InsightsPage } from './InsightsPage';
-import { MediaHealthPage } from './MediaHealthPage';
+
+const MediaManagerPage = React.lazy(() =>
+  import('./MediaManagerPage').then((module) => ({ default: module.MediaManagerPage })),
+);
+const InsightsPage = React.lazy(() =>
+  import('./InsightsPage').then((module) => ({ default: module.InsightsPage })),
+);
+const MediaHealthPage = React.lazy(() =>
+  import('./MediaHealthPage').then((module) => ({ default: module.MediaHealthPage })),
+);
 
 type SettingsTab = 'general' | 'manage' | 'storage' | 'health';
 
 const settingsTabs: Array<{
   id: SettingsTab;
   label: string;
+  description: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { id: 'general', label: 'Genel', icon: Settings },
-  { id: 'manage', label: 'Veri Yönetimi', icon: Database },
-  { id: 'storage', label: 'Depolama Analizi', icon: HardDrive },
-  { id: 'health', label: 'Medya Sağlığı', icon: Activity },
+  { id: 'general', label: 'Genel', description: 'Hesap, bağlantılar ve tercihler', icon: Settings },
+  { id: 'manage', label: 'Veri Yönetimi', description: 'İçerikleri düzenleyin ve temizleyin', icon: Database },
+  { id: 'storage', label: 'Depolama Analizi', description: 'Alan kullanımını ve tekrarları görün', icon: HardDrive },
+  { id: 'health', label: 'Medya Sağlığı', description: 'Oynatma ve analiz durumunu izleyin', icon: Activity },
+];
+
+const settingsSearchItems: Array<{
+  label: string;
+  description: string;
+  tab: SettingsTab;
+  targetId?: string;
+}> = [
+  { label: 'Profil Bilgileri', description: 'Ad ve e-posta', tab: 'general', targetId: 'settings-profile' },
+  { label: 'Güvenlik ve Şifre', description: 'Hesap şifresini değiştirin', tab: 'general', targetId: 'settings-security' },
+  { label: 'Görünüm ve Temalar', description: 'Arayüz renk temasını seçin', tab: 'general', targetId: 'settings-appearance' },
+  { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin', tab: 'general', targetId: 'settings-visibility' },
+  { label: 'Google Drive', description: 'Bağlı Google hesapları', tab: 'general', targetId: 'settings-google' },
+  { label: 'Kütüphane Taraması', description: 'Medya taramasını başlatın', tab: 'general', targetId: 'settings-scan' },
+  { label: 'Yerel Kütüphane', description: 'Yerel klasörleri yönetin', tab: 'general', targetId: 'settings-local-library' },
+  { label: 'OpenSubtitles', description: 'Altyazı servisi ayarları', tab: 'general', targetId: 'settings-opensubtitles' },
+  { label: 'Veritabanı', description: 'Kütüphane verilerini temizleyin', tab: 'general', targetId: 'settings-database' },
+  { label: 'Veri Yönetimi', description: 'Toplu içerik işlemleri', tab: 'manage' },
+  { label: 'Depolama Analizi', description: 'Alan ve mükerrer dosyalar', tab: 'storage' },
+  { label: 'Medya Sağlığı', description: 'Oynatma uyumluluğu ve HLS işleri', tab: 'health' },
 ];
 
 const isSettingsTab = (value: string | null): value is SettingsTab =>
@@ -61,65 +91,133 @@ const isSettingsTab = (value: string | null): value is SettingsTab =>
 
 export const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [settingsSearch, setSettingsSearch] = useState('');
   const requestedTab = searchParams.get('tab');
   const activeTab: SettingsTab = isSettingsTab(requestedTab) ? requestedTab : 'general';
+  const normalizedSearch = settingsSearch.trim().toLocaleLowerCase('tr-TR');
+  const searchResults = useMemo(
+    () => normalizedSearch
+      ? settingsSearchItems.filter((item) =>
+          `${item.label} ${item.description}`.toLocaleLowerCase('tr-TR').includes(normalizedSearch),
+        ).slice(0, 6)
+      : [],
+    [normalizedSearch],
+  );
 
   const selectTab = (tab: SettingsTab) => {
     setSearchParams(tab === 'general' ? {} : { tab });
   };
 
+  const openSearchResult = (item: (typeof settingsSearchItems)[number]) => {
+    selectTab(item.tab);
+    setSettingsSearch('');
+    const targetId = item.targetId;
+    if (targetId) {
+      window.setTimeout(() => {
+        document.getElementById(targetId)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 80);
+    }
+  };
+
   return (
-    <div className="settings-compact space-y-4">
-      <div className="flex items-center gap-3 border-b border-zinc-800/60 pb-4">
-        <div className="rounded-xl border border-brand-500/30 bg-brand-600/20 p-2.5 text-brand-400">
-          <Settings className="h-5 w-5" />
-        </div>
+    <div className="settings-compact">
+      <header className="mb-5 flex flex-col gap-4 border-b border-zinc-800/70 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">Ayarlar</h2>
           <p className="mt-0.5 text-xs text-zinc-400">
-            Sistem, kütüphane ve medya araçlarını tek yerden yönetin
+            CineDrive deneyimini, bağlantıları ve medya araçlarını yönetin
           </p>
         </div>
-      </div>
 
-      <div
-        role="tablist"
-        aria-label="Ayar bölümleri"
-        className="scrollbar-none flex gap-1.5 overflow-x-auto rounded-xl border border-zinc-800/70 bg-zinc-950/50 p-1.5"
-      >
-        {settingsTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+        <div className="relative w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            value={settingsSearch}
+            onChange={(event) => setSettingsSearch(event.target.value)}
+            placeholder="Ayarlarda ara"
+            aria-label="Ayarlarda ara"
+            className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950/80 pl-9 pr-3 text-xs text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-brand-500/70"
+          />
+          {normalizedSearch ? (
+            <div className="absolute right-0 top-12 z-30 w-full min-w-72 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60">
+              {searchResults.length > 0 ? searchResults.map((item) => (
+                <button
+                  key={`${item.tab}-${item.label}`}
+                  type="button"
+                  onClick={() => openSearchResult(item)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-900"
+                >
+                  <span>
+                    <span className="block text-xs font-semibold text-zinc-100">{item.label}</span>
+                    <span className="mt-0.5 block text-[11px] text-zinc-500">{item.description}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
+                </button>
+              )) : (
+                <p className="px-3 py-4 text-center text-xs text-zinc-500">Eşleşen ayar bulunamadı.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </header>
 
-          return (
+      <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/25 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-visible">
+        <aside
+          role="tablist"
+          aria-label="Ayar bölümleri"
+          className="scrollbar-none flex gap-1 overflow-x-auto border-b border-zinc-800/80 bg-zinc-950/60 p-2 lg:sticky lg:top-24 lg:block lg:min-h-[calc(100vh-10rem)] lg:space-y-1 lg:self-start lg:border-b-0 lg:border-r lg:p-3"
+        >
+          {settingsTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+
+            return (
             <button
               key={tab.id}
               type="button"
               role="tab"
               aria-selected={isActive}
               onClick={() => selectTab(tab.id)}
-              className={`flex min-w-max items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
+              className={`group flex min-w-max items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all lg:w-full ${
                 isActive
-                  ? 'border-brand-500/40 bg-brand-600/20 text-brand-300 shadow-lg shadow-brand-500/10'
+                  ? 'border-brand-500/30 bg-brand-500/10 text-brand-300'
                   : 'border-transparent text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100'
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {tab.label}
+              <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-brand-400' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+              <span>
+                <span className="block text-xs font-semibold">{tab.label}</span>
+                <span className="mt-0.5 hidden text-[10px] font-normal leading-4 text-zinc-500 lg:block">
+                  {tab.description}
+                </span>
+              </span>
             </button>
-          );
-        })}
-      </div>
+            );
+          })}
+        </aside>
 
-      <div role="tabpanel" className={activeTab === 'general' ? '' : 'settings-tool'}>
-        {activeTab === 'general' ? <GeneralSettingsContent /> : null}
-        {activeTab === 'manage' ? <MediaManagerPage /> : null}
-        {activeTab === 'storage' ? <InsightsPage /> : null}
-        {activeTab === 'health' ? <MediaHealthPage /> : null}
+        <div role="tabpanel" className={`min-w-0 p-3 md:p-5 ${activeTab === 'general' ? '' : 'settings-tool'}`}>
+          {activeTab === 'general' ? <GeneralSettingsContent /> : null}
+          <Suspense fallback={<SettingsToolFallback />}>
+            {activeTab === 'manage' ? <MediaManagerPage /> : null}
+            {activeTab === 'storage' ? <InsightsPage /> : null}
+            {activeTab === 'health' ? <MediaHealthPage /> : null}
+          </Suspense>
+        </div>
       </div>
     </div>
   );
 };
+
+const SettingsToolFallback: React.FC = () => (
+  <div className="flex min-h-72 items-center justify-center gap-2 text-xs text-zinc-500">
+    <Loader2 className="h-5 w-5 animate-spin text-brand-400" />
+    Bölüm yükleniyor…
+  </div>
+);
 
 const GeneralSettingsContent: React.FC = () => {
   const { data: googleStatus, isLoading: isGoogleLoading } = useGoogleStatusQuery();
@@ -162,7 +260,7 @@ const GeneralSettingsContent: React.FC = () => {
       <LibraryVisibilitySettingsCard />
 
       {/* Google Drive OAuth Section */}
-      <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div id="settings-google" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl">
@@ -254,7 +352,7 @@ const GeneralSettingsContent: React.FC = () => {
       </div>
 
       {/* Library Scanning Section */}
-      <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+      <div id="settings-scan" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-brand-600/20 text-brand-400 rounded-xl">
@@ -338,7 +436,7 @@ const LibraryVisibilitySettingsCard: React.FC = () => {
   );
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-5">
+    <div id="settings-visibility" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-5">
       <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
         <div className="p-2.5 bg-violet-500/10 text-violet-400 rounded-xl">
           <EyeOff className="w-5 h-5" />
@@ -415,7 +513,7 @@ const ThemeSettingsCard: React.FC = () => {
   ];
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+    <div id="settings-appearance" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
       <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
         <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl">
           <Palette className="w-5 h-5" />
@@ -501,7 +599,7 @@ const LocalLibrarySettingsCard: React.FC = () => {
   };
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+    <div id="settings-local-library" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
       <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl">
@@ -649,7 +747,7 @@ const OpenSubtitlesSettingsCard: React.FC = () => {
   };
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+    <div id="settings-opensubtitles" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
       <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl">
@@ -763,7 +861,7 @@ const DatabaseManagementCard: React.FC = () => {
 
   return (
     <>
-      <div className="bg-rose-500/5 border border-rose-500/20 rounded-3xl p-6 md:p-8 space-y-6">
+      <div id="settings-database" className="scroll-mt-24 bg-rose-500/5 border border-rose-500/20 rounded-3xl p-6 md:p-8 space-y-6">
         <div className="flex items-center justify-between border-b border-rose-500/20 pb-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-rose-500/20 text-rose-400 rounded-xl">
@@ -884,7 +982,7 @@ const UserProfileCard: React.FC = () => {
   };
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+    <div id="settings-profile" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
       <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-brand-600/20 text-brand-400 rounded-xl">
@@ -1006,7 +1104,7 @@ const UserPasswordChangeCard: React.FC = () => {
   };
 
   return (
-    <div className="bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
+    <div id="settings-security" className="scroll-mt-24 bg-zinc-900/40 border border-zinc-800/60 rounded-3xl p-6 md:p-8 space-y-6">
       <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-rose-500/10 text-rose-400 rounded-xl">

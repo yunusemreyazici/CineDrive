@@ -58,6 +58,15 @@
   [data-theme='emerald'] body {
     @apply bg-zinc-950 text-emerald-100;
   }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: rgb(244 244 245);
+    caret-color: rgb(244 244 245);
+    box-shadow: 0 0 0 1000px rgb(9 9 11) inset;
+    transition: background-color 9999s ease-out 0s;
+  }
 }
 
 @layer components {
@@ -68,6 +77,8 @@
   .settings-general > * {
     padding: 1rem !important;
     border-radius: 1rem !important;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 280px;
   }
 
   .settings-general > * [class~='pb-4'] {
@@ -110,16 +121,4 @@
     height: 1.25rem;
   }
 
-  @media (min-width: 1280px) {
-    .settings-general {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: start;
-    }
-
-    .settings-general > :nth-child(5),
-    .settings-general > :nth-child(7),
-    .settings-general > :nth-child(8) {
-      grid-column: 1 / -1;
-    }
-  }
 }
