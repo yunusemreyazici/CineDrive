@@ -4,7 +4,13 @@ import { HardDrive, Files, Copy, Film } from 'lucide-react';
 import type { StorageInsightsDto, DuplicateFileDto } from '@cinedrive/shared';
 import { apiClient } from '../api/client';
 import { ErrorState } from '../components/common/ErrorState';
-import { SettingsButton, SettingsCard, SettingsStatus } from './settings/SettingsCard';
+import {
+  SettingsButton,
+  SettingsCard,
+  SettingsMeter,
+  SettingsMetric,
+  SettingsStatus,
+} from './settings/SettingsCard';
 import { t } from '../i18n';
 
 const formatBytes = (bytes: number): string => {
@@ -22,19 +28,6 @@ interface LargestFile {
   libraryName: string;
   googleDriveFileId: string;
 }
-
-/** Label, value and a one-line explanation — the settings summary rhythm. */
-const Metric: React.FC<{ label: string; value: string; hint: string }> = ({
-  label,
-  value,
-  hint,
-}) => (
-  <div>
-    <p className="text-xs text-zinc-500">{label}</p>
-    <p className="mt-1 font-display text-xl font-semibold text-white">{value}</p>
-    <p className="mt-1 text-xs leading-relaxed text-zinc-500">{hint}</p>
-  </div>
-);
 
 export const InsightsPage: React.FC = () => {
   const {
@@ -100,22 +93,22 @@ export const InsightsPage: React.FC = () => {
         }
       >
         <div className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric
+          <SettingsMetric
             label={t.insights.totalSize}
             value={formatBytes(totalSizeBytes)}
             hint={t.insights.totalSizeHint}
           />
-          <Metric
+          <SettingsMetric
             label={t.insights.fileCount}
             value={t.insights.itemCount(totalFiles)}
             hint={t.insights.fileCountHint}
           />
-          <Metric
+          <SettingsMetric
             label={t.insights.averageSize}
             value={formatBytes(averageSizeBytes)}
             hint={t.insights.averageSizeHint}
           />
-          <Metric
+          <SettingsMetric
             label={t.insights.duplicates}
             value={t.insights.itemCount(duplicates.length)}
             hint={t.insights.duplicatesHint}
@@ -130,28 +123,17 @@ export const InsightsPage: React.FC = () => {
         width="full"
       >
         <ul className="space-y-3.5">
-          {resolutionRows.map((row) => {
-            // A distribution is about proportion, so each row carries its own
-            // share of the total rather than four differently coloured chips.
-            const share = totalSizeBytes > 0 ? (row.sizeBytes / totalSizeBytes) * 100 : 0;
-
-            return (
-              <li key={row.key}>
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-[13px] font-medium text-zinc-200">{row.label}</span>
-                  <span className="text-xs text-zinc-500">
-                    {t.insights.fileUnit(row.count)} · {formatBytes(row.sizeBytes)}
-                  </span>
-                </div>
-                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800">
-                  <div
-                    className="h-full rounded-full bg-brand-500/70"
-                    style={{ width: `${share}%` }}
-                  />
-                </div>
-              </li>
-            );
-          })}
+          {resolutionRows.map((row) => (
+            <li key={row.key}>
+              {/* Share of the total, so the bars answer "how much of my
+                  library is this?" rather than just naming the categories. */}
+              <SettingsMeter
+                label={row.label}
+                value={`${t.insights.fileUnit(row.count)} · ${formatBytes(row.sizeBytes)}`}
+                share={totalSizeBytes > 0 ? (row.sizeBytes / totalSizeBytes) * 100 : 0}
+              />
+            </li>
+          ))}
         </ul>
       </SettingsCard>
 

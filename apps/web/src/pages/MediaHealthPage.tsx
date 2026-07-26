@@ -1,19 +1,17 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { MediaHealthDto } from '@cinedrive/shared';
+import { Activity, AlertTriangle, Clock, Film, RefreshCw, RotateCw, Server, Square } from 'lucide-react';
+import { apiClient } from '../api/client';
+import { ErrorState } from '../components/common/ErrorState';
+import { toast } from '../stores/useToastStore';
 import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Database,
-  Loader2,
-  RefreshCw,
-  RotateCw,
-  Server,
-  Square,
-} from 'lucide-react';
-import { apiClient, parseApiError } from '../api/client';
+  SettingsButton,
+  SettingsCard,
+  SettingsMeter,
+  SettingsMetric,
+  SettingsStatus,
+} from './settings/SettingsCard';
 import { t } from '../i18n';
 
 const formatBytes = (bytes: number) => {
@@ -23,118 +21,81 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024 ** index).toFixed(index > 2 ? 1 : 0)} ${units[index]}`;
 };
 
-const modeLabels = {
+const MODE_LABELS = {
   direct: t.mediaHealth.modeDirect,
-  audio: 'Ses uyumu',
-  hls: 'HLS',
+  audio: t.mediaHealth.modeAudio,
+  hls: t.mediaHealth.modeHls,
   full: t.mediaHealth.modeFull,
 };
 
-const Distribution = ({
-  title,
-  items,
-}: {
-  title: string;
-  items: Array<{ name: string; count: number }>;
-}) => {
+/** Counts compared against the largest of the set, not against a total. */
+const Distribution: React.FC<{ items: Array<{ name: string; count: number }> }> = ({ items }) => {
   const maximum = Math.max(...items.map((item) => item.count), 1);
+
   return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-      <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-300">{title}</h2>
-      <div className="space-y-3">
-        {items.slice(0, 8).map((item) => (
-          <div key={item.name}>
-            <div className="mb-1 flex justify-between text-xs">
-              <span className="font-semibold uppercase text-zinc-300">{item.name}</span>
-              <span className="text-zinc-500">{item.count}</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-brand-500"
-                style={{ width: `${(item.count / maximum) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="space-y-3">
+      {items.slice(0, 8).map((item) => (
+        <SettingsMeter
+          key={item.name}
+          label={item.name}
+          value={String(item.count)}
+          share={(item.count / maximum) * 100}
+        />
+      ))}
+    </div>
   );
 };
 
 export const MediaHealthPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const [analysisMessage, setAnalysisMessage] = React.useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
-  const { data, isLoading, isError, refetch, isFetching } = useQuery<MediaHealthDto>({
+
+  const { data, isLoading, error, refetch, isFetching } = useQuery<MediaHealthDto>({
     queryKey: ['media-health'],
-    queryFn: async () => {
-      const response = await apiClient.get<MediaHealthDto>('/insights/media-health');
-      return response.data;
-    },
+    queryFn: async () => (await apiClient.get<MediaHealthDto>('/insights/media-health')).data,
     refetchInterval: 5_000,
   });
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['media-health'] });
+
+  // Feedback used to render as a banner wedged between two sections, far from
+  // the button that caused it. The app already has one place for this.
   const reanalyze = useMutation({
-    mutationFn: async (driveFileId: string) => {
-      try {
-        const response = await apiClient.post<{ message: string }>(
-          `/insights/media-health/${driveFileId}/reanalyze`,
-        );
-        return response.data;
-      } catch (error) {
-        throw parseApiError(error);
-      }
-    },
-    onMutate: () => setAnalysisMessage(null),
+    mutationFn: async (driveFileId: string) =>
+      (await apiClient.post<{ message: string }>(`/insights/media-health/${driveFileId}/reanalyze`))
+        .data,
     onSuccess: (result) => {
-      setAnalysisMessage({ type: 'success', text: result.message });
-      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+      toast.success(result.message);
+      invalidate();
     },
-    onError: (error: { message?: string }) => {
-      setAnalysisMessage({
-        type: 'error',
-        text: error.message || 'Medya yeniden analiz edilemedi.',
-      });
-      queryClient.invalidateQueries({ queryKey: ['media-health'] });
-    },
-  });
-  const stopHlsJob = useMutation({
-    mutationFn: async (jobId: string) => {
-      const response = await apiClient.post<{ stopped: boolean }>(
-        `/insights/media-health/hls/${jobId}/stop`,
-      );
-      return response.data;
-    },
-    onSuccess: () => {
-      setAnalysisMessage({
-        type: 'success',
-        text: t.mediaHealth.jobStopped,
-      });
-      queryClient.invalidateQueries({ queryKey: ['media-health'] });
-    },
-    onError: (error) => {
-      setAnalysisMessage({
-        type: 'error',
-        text: parseApiError(error).message,
-      });
-      queryClient.invalidateQueries({ queryKey: ['media-health'] });
+    onError: (mutationError) => {
+      toast.fromError(mutationError, t.mediaHealth.reanalyzeFailed);
+      invalidate();
     },
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-[420px] items-center justify-center gap-3 text-zinc-400">
-        <Loader2 className="h-6 w-6 animate-spin text-brand-400" />
-        {t.mediaHealth.loading}
-      </div>
-    );
+  const stopHlsJob = useMutation({
+    mutationFn: async (jobId: string) =>
+      (await apiClient.post<{ stopped: boolean }>(`/insights/media-health/hls/${jobId}/stop`)).data,
+    onSuccess: () => {
+      toast.success(t.mediaHealth.jobStopped);
+      invalidate();
+    },
+    onError: (mutationError) => {
+      toast.fromError(mutationError);
+      invalidate();
+    },
+  });
+
+  if (error) {
+    return <ErrorState error={error} title={t.mediaHealth.loadFailed} onRetry={() => refetch()} />;
   }
 
-  if (isError || !data) {
+  if (isLoading || !data) {
     return (
-      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
-        {t.mediaHealth.loadFailed}
+      <div className="space-y-3" aria-busy="true" aria-label={t.mediaHealth.loading}>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="h-24 animate-pulse rounded-lg bg-zinc-900/60" />
+        ))}
       </div>
     );
   }
@@ -143,204 +104,197 @@ export const MediaHealthPage: React.FC = () => {
     ? Math.round((data.analyzedVideos / data.totalVideos) * 100)
     : 0;
 
+  const { hls, transcode, playerTelemetry } = data.runtime;
+
   return (
-    <div className="space-y-4 animate-fade-in">
-      <header className="flex flex-col gap-4 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="flex items-center gap-3 text-xl font-extrabold text-white">
-            <Activity className="h-8 w-8 text-brand-400" />
-            {t.mediaHealth.title}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {t.mediaHealth.subtitle}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-60"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          Yenile
-        </button>
-      </header>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ['Toplam Video', data.totalVideos, Database, 'text-sky-400'],
-          [t.mediaHealth.analysisComplete, `${analyzedPercent}%`, CheckCircle2, 'text-emerald-400'],
-          ['Analiz Bekliyor', data.pendingVideos, Activity, 'text-amber-400'],
-          [t.mediaHealth.failedFiles, data.failedVideos, AlertTriangle, 'text-red-400'],
-        ].map(([label, value, Icon, color]) => (
-          <div
-            key={String(label)}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"
+    <div>
+      <SettingsCard
+        id="health-summary"
+        title={t.mediaHealth.analysisSummary}
+        description={t.mediaHealth.subtitle}
+        icon={Activity}
+        width="full"
+        action={
+          <SettingsButton
+            variant="secondary"
+            icon={RefreshCw}
+            onClick={() => refetch()}
+            isLoading={isFetching}
+            loadingLabel={t.mediaHealth.refresh}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                {String(label)}
-              </span>
-              {React.createElement(Icon as typeof Activity, {
-                className: `h-5 w-5 ${String(color)}`,
-              })}
+            {t.mediaHealth.refresh}
+          </SettingsButton>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-4">
+            <SettingsMetric label={t.mediaHealth.totalVideos} value={data.totalVideos} />
+            <SettingsMetric
+              label={t.mediaHealth.analysisComplete}
+              value={`%${analyzedPercent}`}
+            />
+            <SettingsMetric label={t.mediaHealth.pendingVideos} value={data.pendingVideos} />
+            <SettingsMetric
+              label={t.mediaHealth.failedFiles}
+              value={
+                // The only number here that is bad news when it is not zero.
+                <span className={data.failedVideos > 0 ? 'text-rose-400' : undefined}>
+                  {data.failedVideos}
+                </span>
+              }
+            />
+          </div>
+
+          <div className="h-1 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className="h-full rounded-full bg-brand-500/70"
+              style={{ width: `${analyzedPercent}%` }}
+            />
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        id="health-playback-plan"
+        title={t.mediaHealth.playbackPlans}
+        description={t.mediaHealth.playbackPlansHint}
+        icon={Film}
+        width="full"
+      >
+        <div className="grid gap-6 lg:grid-cols-2">
+          {(['safari', 'chromium'] as const).map((browser) => (
+            <div key={browser}>
+              <h4 className="text-[13px] font-medium capitalize text-zinc-300">
+                {t.mediaHealth.playbackPlan(browser)}
+              </h4>
+              <dl className="mt-3 grid grid-cols-4 gap-4">
+                {Object.entries(data.playback[browser]).map(([mode, count]) => (
+                  <div key={mode}>
+                    <dt className="truncate text-xs text-zinc-500">
+                      {MODE_LABELS[mode as keyof typeof MODE_LABELS]}
+                    </dt>
+                    <dd className="mt-0.5 text-[13px] font-medium text-zinc-100">{count}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
-            <p className="mt-3 text-3xl font-black text-white">{String(value)}</p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </SettingsCard>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        {(['safari', 'chromium'] as const).map((browser) => (
-          <div key={browser} className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-            <h2 className="mb-4 font-bold capitalize text-white">{t.mediaHealth.playbackPlan(browser)}</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {Object.entries(data.playback[browser]).map(([mode, count]) => (
-                <div key={mode} className="rounded-xl bg-zinc-950 p-3">
-                  <p className="text-xs text-zinc-500">
-                    {modeLabels[mode as keyof typeof modeLabels]}
-                  </p>
-                  <p className="mt-1 text-xl font-bold text-zinc-100">{count}</p>
-                </div>
-              ))}
+      <SettingsCard
+        id="health-codecs"
+        title={t.mediaHealth.codecDistribution}
+        icon={Film}
+        width="full"
+      >
+        <div className="grid gap-6 lg:grid-cols-3">
+          {[
+            { title: t.mediaHealth.videoCodec, items: data.codecs.video },
+            { title: t.mediaHealth.audioCodec, items: data.codecs.audio },
+            { title: t.mediaHealth.container, items: data.codecs.containers },
+          ].map((group) => (
+            <div key={group.title}>
+              <h4 className="mb-3 text-[13px] font-medium text-zinc-300">{group.title}</h4>
+              <Distribution items={group.items} />
             </div>
-          </div>
-        ))}
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Distribution title="Video codec" items={data.codecs.video} />
-        <Distribution title="Ses codec" items={data.codecs.audio} />
-        <Distribution title="Container" items={data.codecs.containers} />
-      </div>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 className="flex items-center gap-2 font-bold text-white">
-            <Server className="h-5 w-5 text-brand-400" /> {t.mediaHealth.hlsStatus}
-          </h2>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              {t.mediaHealth.activeJobs}{' '}
-              <strong className="float-right text-white">
-                {data.runtime.hls.activeJobs}/{data.runtime.hls.maxActiveJobs}
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Kuyruk{' '}
-              <strong className="float-right text-white">{data.runtime.hls.queuedJobs}</strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Cache{' '}
-              <strong className="float-right text-white">
-                {formatBytes(data.runtime.hls.cacheBytes)}
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Cache girdisi{' '}
-              <strong className="float-right text-white">{data.runtime.hls.cacheEntries}</strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Kota{' '}
-              <strong className="float-right text-white">
-                {formatBytes(data.runtime.hls.maxCacheBytes)}
-              </strong>
-            </p>
-          </div>
+          ))}
         </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 className="flex items-center gap-2 font-bold text-white">
-            <Activity className="h-5 w-5 text-sky-400" /> {t.mediaHealth.liveTranscode}
-          </h2>
-          <p className="mt-6 text-4xl font-black text-white">
-            {data.runtime.transcode.activeSessions}
-            <span className="text-lg font-medium text-zinc-500">
-              {' '}
-              / {data.runtime.transcode.maxActiveSessions}
-            </span>
-          </p>
-          <p className="mt-2 text-sm text-zinc-500">{t.mediaHealth.liveTranscodeHint}</p>
-        </div>
-      </section>
+      </SettingsCard>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="flex items-center gap-2 font-bold text-white">
-              <Server className="h-5 w-5 text-brand-400" /> {t.mediaHealth.activeHlsJobs}
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              {t.mediaHealth.activeHlsJobsHint}
-            </p>
-          </div>
-          <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
-            {t.mediaHealth.jobCount(data.runtime.hls.jobs.length)}
-          </span>
+      <SettingsCard
+        id="health-runtime"
+        title={t.mediaHealth.hlsStatus}
+        icon={Server}
+        width="full"
+      >
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-6">
+          <SettingsMetric
+            label={t.mediaHealth.activeJobs}
+            value={`${hls.activeJobs}/${hls.maxActiveJobs}`}
+          />
+          <SettingsMetric label={t.mediaHealth.queueLabel} value={hls.queuedJobs} />
+          <SettingsMetric label={t.mediaHealth.cacheLabel} value={formatBytes(hls.cacheBytes)} />
+          <SettingsMetric label={t.mediaHealth.cacheEntries} value={hls.cacheEntries} />
+          <SettingsMetric label={t.mediaHealth.quotaLabel} value={formatBytes(hls.maxCacheBytes)} />
+          <SettingsMetric
+            label={t.mediaHealth.liveTranscode}
+            value={`${transcode.activeSessions}/${transcode.maxActiveSessions}`}
+            hint={t.mediaHealth.liveTranscodeHint}
+          />
         </div>
+      </SettingsCard>
 
-        {data.runtime.hls.jobs.length === 0 ? (
-          <p className="mt-5 rounded-xl border border-dashed border-zinc-800 p-5 text-center text-sm text-zinc-500">
-            {t.mediaHealth.noActiveJobs}
-          </p>
+      <SettingsCard
+        id="health-jobs"
+        title={t.mediaHealth.activeHlsJobs}
+        description={t.mediaHealth.activeHlsJobsHint}
+        icon={Server}
+        width="full"
+        action={
+          <SettingsStatus tone={hls.jobs.length > 0 ? 'ok' : 'neutral'}>
+            {t.mediaHealth.jobCount(hls.jobs.length)}
+          </SettingsStatus>
+        }
+      >
+        {hls.jobs.length === 0 ? (
+          <p className="text-[13px] text-zinc-500">{t.mediaHealth.noActiveJobs}</p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="text-xs uppercase tracking-wider text-zinc-500">
-                <tr className="border-b border-zinc-800">
-                  <th className="px-3 py-3 font-semibold">Medya</th>
-                  <th className="px-3 py-3 font-semibold">PID</th>
-                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnStart}</th>
-                  <th className="px-3 py-3 font-semibold">Profil</th>
-                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnViewer}</th>
-                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnLastAccess}</th>
-                  <th className="px-3 py-3 text-right font-semibold">{t.mediaHealth.columnAction}</th>
+          <div className="overflow-x-auto border-y border-zinc-800/60">
+            <table className="w-full min-w-[720px] text-left">
+              <thead>
+                <tr className="border-b border-zinc-800/60 text-xs font-medium text-zinc-500">
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnMedia}</th>
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnPid}</th>
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnStart}</th>
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnProfile}</th>
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnViewer}</th>
+                  <th className="py-2.5 pr-4">{t.mediaHealth.columnLastAccess}</th>
+                  <th className="py-2.5 pl-4 text-right">{t.mediaHealth.columnAction}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-800/80">
-                {data.runtime.hls.jobs.map((job) => (
+              <tbody className="divide-y divide-zinc-800/50">
+                {hls.jobs.map((job) => (
                   <tr key={job.id}>
-                    <td className="max-w-sm px-3 py-3">
-                      <p className="truncate font-semibold text-zinc-200" title={job.mediaName}>
+                    <td className="max-w-xs py-3 pr-4">
+                      <p className="truncate text-[13px] text-zinc-200" title={job.mediaName}>
                         {job.mediaName}
                       </p>
-                      <p className="mt-1 font-mono text-[11px] text-zinc-600">
-                        {job.id.slice(0, 8)}
-                      </p>
+                      <p className="mt-0.5 font-mono text-xs text-zinc-600">{job.id.slice(0, 8)}</p>
                     </td>
-                    <td className="px-3 py-3 font-mono text-zinc-300">
+                    <td className="py-3 pr-4 font-mono text-xs text-zinc-400">
                       {job.pid ?? t.mediaHealth.pidPending}
                     </td>
-                    <td className="px-3 py-3 text-zinc-400">
+                    <td className="py-3 pr-4 text-xs text-zinc-400">
                       {job.startSeconds
                         ? t.mediaHealth.startSeconds(job.startSeconds)
                         : t.mediaHealth.fromBeginning}
                     </td>
-                    <td className="px-3 py-3 text-xs font-semibold text-sky-300">
-                      <p>{job.profile === 'video-copy-aac' ? 'Video copy + AAC' : 'H.264 + AAC'}</p>
-                      <p className="mt-1 font-normal text-zinc-500">
+                    <td className="py-3 pr-4 text-xs">
+                      <p className="text-zinc-300">
+                        {job.profile === 'video-copy-aac'
+                          ? t.mediaHealth.profileVideoCopy
+                          : t.mediaHealth.profileFullEncode}
+                      </p>
+                      <p className="mt-0.5 text-zinc-500">
                         {job.isPaused ? t.mediaHealth.paused : t.mediaHealth.producing} ·{' '}
                         {t.mediaHealth.bufferLead(job.bufferLeadSeconds)}
                       </p>
                     </td>
-                    <td className="px-3 py-3 text-zinc-400">{job.viewerCount}</td>
-                    <td className="px-3 py-3 text-zinc-400">
+                    <td className="py-3 pr-4 text-xs text-zinc-400">{job.viewerCount}</td>
+                    <td className="py-3 pr-4 text-xs text-zinc-400">
                       {new Date(job.lastAccessAt).toLocaleTimeString('tr-TR')}
                     </td>
-                    <td className="px-3 py-3 text-right">
-                      <button
-                        type="button"
+                    <td className="py-3 pl-4 text-right">
+                      <SettingsButton
+                        variant="danger"
+                        icon={Square}
                         onClick={() => stopHlsJob.mutate(job.id)}
-                        disabled={stopHlsJob.isPending}
+                        isLoading={stopHlsJob.isPending && stopHlsJob.variables === job.id}
                         aria-label={t.mediaHealth.stopJob(job.mediaName)}
-                        className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-50"
                       >
-                        {stopHlsJob.isPending && stopHlsJob.variables === job.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Square className="h-3.5 w-3.5 fill-current" />
-                        )}
-                        Durdur
-                      </button>
+                        {t.mediaHealth.stop}
+                      </SettingsButton>
                     </td>
                   </tr>
                 ))}
@@ -348,131 +302,112 @@ export const MediaHealthPage: React.FC = () => {
             </table>
           </div>
         )}
-      </section>
+      </SettingsCard>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-bold text-white">
-              <Clock className="h-5 w-5 text-amber-400" /> {t.mediaHealth.waitQueue}
-            </h2>
-            <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
-              {data.runtime.hls.queue.length} bekleyen
-            </span>
-          </div>
-          {data.runtime.hls.queue.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-500">{t.mediaHealth.emptyQueue}</p>
-          ) : (
-            <div className="mt-4 space-y-2">
-              {data.runtime.hls.queue.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 rounded-xl bg-zinc-950 p-3 text-sm"
-                >
-                  <span className="w-7 text-center font-black text-zinc-500">{index + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-zinc-200">{item.mediaName}</p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {item.priority === 'seek' ? t.mediaHealth.prioritySeek : t.mediaHealth.priorityNormal} ·{' '}
-                      {Math.round(item.waitMs / 1000)} sn
-                    </p>
-                  </div>
+      <SettingsCard
+        id="health-queue"
+        title={t.mediaHealth.waitQueue}
+        icon={Clock}
+        width="full"
+        action={
+          hls.queue.length > 0 ? (
+            <SettingsStatus tone="warning">
+              {t.mediaHealth.waitingCount(hls.queue.length)}
+            </SettingsStatus>
+          ) : undefined
+        }
+      >
+        {hls.queue.length === 0 ? (
+          <p className="text-[13px] text-zinc-500">{t.mediaHealth.emptyQueue}</p>
+        ) : (
+          <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
+            {hls.queue.map((item, index) => (
+              <li key={item.id} className="flex items-center gap-3 py-3">
+                <span className="w-5 shrink-0 text-right font-mono text-xs text-zinc-600">
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] text-zinc-200">{item.mediaName}</p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {item.priority === 'seek'
+                      ? t.mediaHealth.prioritySeek
+                      : t.mediaHealth.priorityNormal}{' '}
+                    · {t.mediaHealth.waitSeconds(Math.round(item.waitMs / 1000))}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SettingsCard>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <h2 className="flex items-center gap-2 font-bold text-white">
-            <Activity className="h-5 w-5 text-emerald-400" /> Oynatma kalitesi
-          </h2>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              {t.mediaHealth.firstFrame}
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.firstFrameAverageMs} ms
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Donma
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.stallCount}
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Ort. donma
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.stallAverageMs} ms
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Seek toparlanma
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.seekRecoveryAverageMs} ms
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Hata
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.errorCount}
-              </strong>
-            </p>
-            <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              {t.mediaHealth.sample}
-              <strong className="float-right text-white">
-                {data.runtime.playerTelemetry.sampleCount}
-              </strong>
-            </p>
-          </div>
+      <SettingsCard
+        id="health-telemetry"
+        title={t.mediaHealth.playbackQuality}
+        icon={Activity}
+        width="full"
+      >
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5 lg:grid-cols-6">
+          <SettingsMetric
+            label={t.mediaHealth.firstFrame}
+            value={t.mediaHealth.milliseconds(playerTelemetry.firstFrameAverageMs)}
+          />
+          <SettingsMetric label={t.mediaHealth.stallCount} value={playerTelemetry.stallCount} />
+          <SettingsMetric
+            label={t.mediaHealth.stallAverage}
+            value={t.mediaHealth.milliseconds(playerTelemetry.stallAverageMs)}
+          />
+          <SettingsMetric
+            label={t.mediaHealth.seekRecovery}
+            value={t.mediaHealth.milliseconds(playerTelemetry.seekRecoveryAverageMs)}
+          />
+          <SettingsMetric
+            label={t.mediaHealth.errorCount}
+            value={
+              <span className={playerTelemetry.errorCount > 0 ? 'text-rose-400' : undefined}>
+                {playerTelemetry.errorCount}
+              </span>
+            }
+          />
+          <SettingsMetric label={t.mediaHealth.sample} value={playerTelemetry.sampleCount} />
         </div>
-      </section>
-
-      {analysisMessage ? (
-        <div
-          role="status"
-          className={`rounded-xl border px-4 py-3 text-sm ${
-            analysisMessage.type === 'success'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-              : 'border-red-500/30 bg-red-500/10 text-red-200'
-          }`}
-        >
-          {analysisMessage.text}
-        </div>
-      ) : null}
+      </SettingsCard>
 
       {data.failures.length > 0 ? (
-        <section className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
-          <h2 className="mb-4 flex items-center gap-2 font-bold text-red-200">
-            <AlertTriangle className="h-5 w-5" /> {t.mediaHealth.analysisErrors}
-          </h2>
-          <div className="divide-y divide-zinc-800">
+        <SettingsCard
+          id="health-failures"
+          title={t.mediaHealth.analysisErrors}
+          icon={AlertTriangle}
+          tone="danger"
+          width="full"
+          action={
+            <SettingsStatus tone="warning">
+              {t.mediaHealth.failureCount(data.failures.length)}
+            </SettingsStatus>
+          }
+        >
+          <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
             {data.failures.map((failure) => (
-              <div key={failure.id} className="flex items-center gap-4 py-3">
+              <li key={failure.id} className="flex items-center gap-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-zinc-200">{failure.name}</p>
-                  <p className="mt-1 truncate text-xs text-zinc-500">
+                  <p className="truncate text-[13px] text-zinc-200">{failure.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">
                     {failure.libraryName} · {failure.error}
                   </p>
                 </div>
-                <button
-                  type="button"
+                <SettingsButton
+                  variant="secondary"
+                  icon={RotateCw}
                   onClick={() => reanalyze.mutate(failure.id)}
-                  disabled={reanalyze.isPending}
+                  isLoading={reanalyze.isPending && reanalyze.variables === failure.id}
                   aria-label={t.mediaHealth.reanalyze(failure.name)}
-                  className="flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-brand-500/50 hover:text-white disabled:cursor-wait disabled:opacity-50"
                 >
-                  {reanalyze.isPending && reanalyze.variables === failure.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCw className="h-3.5 w-3.5" />
-                  )}
-                  Tekrar Analiz Et
-                </button>
-              </div>
+                  {t.mediaHealth.reanalyzeAction}
+                </SettingsButton>
+              </li>
             ))}
-          </div>
-        </section>
+          </ul>
+        </SettingsCard>
       ) : null}
     </div>
   );

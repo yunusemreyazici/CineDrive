@@ -216,6 +216,48 @@ export const SettingsStatus: React.FC<SettingsStatusProps> = ({ tone, icon: Icon
   </span>
 );
 
+interface SettingsMetricProps {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}
+
+/** A single number with its name and, optionally, what it means. */
+export const SettingsMetric: React.FC<SettingsMetricProps> = ({ label, value, hint }) => (
+  <div>
+    <p className="text-xs text-zinc-500">{label}</p>
+    <p className="mt-1 font-display text-xl font-semibold text-white">{value}</p>
+    {hint && <p className="mt-1 text-xs leading-relaxed text-zinc-500">{hint}</p>}
+  </div>
+);
+
+interface SettingsMeterProps {
+  label: string;
+  value: string;
+  /** 0–100. */
+  share: number;
+}
+
+/**
+ * A labelled proportional bar. Distributions were previously drawn as a row of
+ * differently coloured chips, which said what the categories were but never how
+ * they compared.
+ */
+export const SettingsMeter: React.FC<SettingsMeterProps> = ({ label, value, share }) => (
+  <div>
+    <div className="flex items-baseline justify-between gap-4">
+      <span className="truncate text-[13px] font-medium text-zinc-200">{label}</span>
+      <span className="shrink-0 text-xs text-zinc-500">{value}</span>
+    </div>
+    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-zinc-800">
+      <div
+        className="h-full rounded-full bg-brand-500/70"
+        style={{ width: `${Math.max(0, Math.min(100, share))}%` }}
+      />
+    </div>
+  </div>
+);
+
 interface SettingsChoiceProps {
   selected: boolean;
   onSelect: () => void;

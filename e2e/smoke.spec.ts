@@ -88,7 +88,11 @@ test.describe('CineDrive smoke', () => {
 
     await page.getByRole('tab', { name: new RegExp(tr.settings.tabs.health.label) }).click();
     await expect(page).toHaveURL(/tab=health/);
-    await expect(page.getByRole('heading', { name: tr.mediaHealth.title })).toBeVisible();
+    // The panel no longer repeats the tab's own name as a page title; its
+    // first section heading is what identifies the screen.
+    await expect(
+      page.getByRole('heading', { name: tr.mediaHealth.analysisSummary }),
+    ).toBeVisible();
   });
 
   test('shows the not found page for an unknown route', async ({ page }) => {
