@@ -623,17 +623,32 @@ export const tr = {
 
   insights: {
     loading: 'Depolama ve Kota Analizi Hesaplanıyor...',
+    summary: 'Depolama Özeti',
     subtitle:
       'Google Drive kütüphanelerindeki dosya boyutları, çözünürlük dağılımları ve mükerrer içerikler.',
+    refresh: 'Yenile',
+    loadFailed: 'Depolama analizi yüklenemedi.',
+    totalSize: 'Toplam Alan',
     totalSizeHint: 'Tüm taranan kütüphanelerdeki toplam veri',
     fileCount: 'Dosya Sayısı',
     fileCountHint: 'Aktif medya dosyası',
+    averageSize: 'Ortalama Boyut',
     averageSizeHint: 'Dosya başına düşen ortalama boyut',
     duplicates: 'Mükerrer Dosyalar',
     duplicatesHint: 'Aynı isimde veya MD5 özetinde dosyalar',
     resolutionDistribution: 'Çözünürlük Dağılımı',
+    resolutionLabels: {
+      k4: '4K Ultra HD',
+      p1080: '1080p Full HD',
+      p720: '720p HD',
+      sd: 'SD (480p)',
+    },
     duplicateList: 'Mükerrer (Tekrarlayan) Dosyalar',
+    duplicatesDetected: (count: number) => `${count} adet tespit edildi`,
     largestFiles: 'En Yüksek Boyutlu 10 Medya Dosyası',
+    itemCount: (count: number) => `${count} adet`,
+    fileUnit: (count: number) => `${count} dosya`,
+    shareOfTotal: (percent: number) => `Toplamın %${percent}'i`,
   },
 
   mediaManager: {
@@ -653,7 +668,9 @@ export const tr = {
     columnContent: 'İçerik',
     columnType: 'Tür',
     columnYear: 'Yıl',
+    columnRating: 'Puan',
     columnAction: 'İşlem',
+    selectRow: (title: string) => `${title} içeriğini seç`,
     goToDetail: 'Detay Sayfasına Git',
     selectedSuffix: 'İçerik Seçildi',
     cancelSelection: 'Seçimi İptal Et',
