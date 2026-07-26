@@ -4,6 +4,7 @@ import { Menu, Search, User, LogOut, Settings, Dices } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
 import { useSessionQuery, useLogoutMutation } from '../../hooks/useApi';
 import { RandomPickerModal } from '../media/RandomPickerModal';
+import { SearchDialog } from '../search/SearchDialog';
 import { t } from '../../i18n';
 
 export const Navbar: React.FC = () => {
@@ -12,10 +13,9 @@ export const Navbar: React.FC = () => {
   const { data: session } = useSessionQuery();
   const logoutMutation = useLogoutMutation();
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showRandomModal, setShowRandomModal] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -23,7 +23,7 @@ export const Navbar: React.FC = () => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase('tr-TR') === 'k') {
         event.preventDefault();
-        searchInputRef.current?.focus();
+        setSearchOpen(true);
       }
     };
     window.addEventListener('keydown', handleShortcut);
@@ -58,13 +58,6 @@ export const Navbar: React.FC = () => {
     };
   }, [userMenuOpen]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/library?search=${encodeURIComponent(searchQuery.trim())}`);
-    }
-  };
-
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: () => navigate('/login'),
@@ -86,23 +79,32 @@ export const Navbar: React.FC = () => {
         </button>
       </div>
 
-      {/* Middle section: Global Search Bar */}
-      <form onSubmit={handleSearchSubmit} className="hidden w-full max-w-xl sm:block">
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input
-            type="text"
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t.nav.searchPlaceholder}
-            className="h-10 w-full rounded-xl border border-white/[0.08] bg-[#111214] pl-10 pr-14 text-sm text-zinc-100 placeholder-zinc-500 transition-all focus:border-brand-500/60 focus:outline-none focus:ring-2 focus:ring-brand-500/15"
-          />
-          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-500">
-            ⌘ K
-          </kbd>
-        </div>
-      </form>
+      {/*
+        A button, not a text field: what looked like an input did nothing until
+        Enter, and the ⌘K it advertised only moved focus into it.
+      */}
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        className="hidden h-10 w-full max-w-xl items-center gap-3 rounded-xl border border-white/[0.08] bg-[#111214] px-3.5 text-sm text-zinc-500 transition-colors hover:border-white/[0.14] hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:flex"
+      >
+        <Search className="h-4 w-4 shrink-0" />
+        <span className="flex-1 text-left">{t.nav.searchPlaceholder}</span>
+        <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px]">
+          ⌘ K
+        </kbd>
+      </button>
+
+      {/* Below `sm` the search field was hidden outright, which left phones
+          with no way to search the library at all. */}
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        aria-label={t.nav.openSearch}
+        className="ml-auto rounded-lg p-2 text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:hidden"
+      >
+        <Search className="h-5 w-5" />
+      </button>
 
       {/* Right section: Ne Izlesem button & User profile & Menu */}
       <div className="flex items-center gap-3">
@@ -166,6 +168,8 @@ export const Navbar: React.FC = () => {
           )}
         </div>
       </div>
+
+      {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
 
       <RandomPickerModal
         isOpen={showRandomModal}

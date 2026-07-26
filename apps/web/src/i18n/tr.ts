@@ -63,6 +63,7 @@ export const tr = {
     signOut: 'Çıkış Yap',
     defaultUser: 'Kullanıcı',
     searchPlaceholder: 'Film, dizi veya başlık ara...',
+    openSearch: 'Aramayı aç',
     randomPickTitle: 'Rastgele İçerik Önerisi Al',
     randomPickLabel: 'Ne İzlesem?',
   },
@@ -131,6 +132,19 @@ export const tr = {
     emptyDescription:
       'Beğendiğiniz filmleri ve dizileri kalbe tıklayarak favorilerinize ekleyebilirsiniz.',
     loadFailed: 'Favoriler Yüklenemedi',
+  },
+
+  search: {
+    dialogLabel: 'Kütüphanede ara',
+    placeholder: 'Film veya dizi ara…',
+    hint: 'Aramak için yazmaya başlayın.',
+    searching: 'Aranıyor…',
+    noResults: (query: string) => `“${query}” için sonuç bulunamadı.`,
+    resultCount: (count: number) => `${count} sonuç`,
+    seeAll: 'Tüm sonuçları kütüphanede gör',
+    navigateHint: 'gezin',
+    openHint: 'aç',
+    closeHint: 'kapat',
   },
 
   filters: {
