@@ -103,7 +103,17 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const { cinemaMode, toggleCinemaMode } = useUiStore();
-  const bufferAhead = Math.max(0, bufferedTime - currentTime);
+
+  /**
+   * Every control in the bar shares this. They previously mixed `p-2` with
+   * `rounded-xl p-2`, so hover and focus shapes differed from button to
+   * button — and none of them showed a focus ring at all, which left keyboard
+   * users unable to see where they were.
+   */
+  const controlClasses =
+    'shrink-0 rounded-lg p-2 text-zinc-300 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black';
+  const activeControlClasses =
+    'shrink-0 rounded-lg p-2 text-brand-300 bg-brand-500/20 transition-colors hover:bg-brand-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black';
 
   const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
@@ -166,21 +176,21 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             <button
               onClick={onPreviousEpisode}
               aria-label={t.player.controls.previousEpisode}
-              className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
+              className={`${controlClasses} hidden sm:block`}
             >
-              <SkipBack className="w-5 h-5 fill-current" />
+              <SkipBack className="h-5 w-5 fill-current" />
             </button>
           )}
 
           <button
             onClick={onTogglePlay}
-            aria-label={isPlaying ? 'Duraklat' : 'Oynat'}
-            className="shrink-0 rounded-full bg-brand-600 p-2.5 text-white shadow-lg shadow-brand-500/30 transition-transform hover:bg-brand-500 active:scale-95 sm:p-3"
+            aria-label={isPlaying ? t.player.controls.pause : t.player.controls.play}
+            className={`${controlClasses} text-white`}
           >
             {isPlaying ? (
-              <Pause className="w-5 h-5 fill-current" />
+              <Pause className="h-6 w-6 fill-current" />
             ) : (
-              <Play className="w-5 h-5 fill-current translate-x-0.5" />
+              <Play className="h-6 w-6 fill-current" />
             )}
           </button>
 
@@ -188,26 +198,26 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             <button
               onClick={onNextEpisode}
               aria-label={t.player.controls.nextEpisode}
-              className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
+              className={`${controlClasses} hidden sm:block`}
             >
-              <SkipForward className="w-5 h-5 fill-current" />
+              <SkipForward className="h-5 w-5 fill-current" />
             </button>
           )}
 
           <button
             onClick={onSkipBackward}
             aria-label={t.player.controls.skipBackward}
-            className="p-2 text-zinc-400 hover:text-white transition-colors"
+            className={controlClasses}
           >
-            <RotateCcw className="w-5 h-5" />
+            <RotateCcw className="h-5 w-5" />
           </button>
 
           <button
             onClick={onSkipForward}
             aria-label={t.player.controls.skipForward}
-            className="p-2 text-zinc-400 hover:text-white transition-colors"
+            className={controlClasses}
           >
-            <RotateCw className="w-5 h-5" />
+            <RotateCw className="h-5 w-5" />
           </button>
 
           {/* Volume Control Group */}
@@ -215,12 +225,12 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
             <button
               onClick={onToggleMute}
               aria-label={isMuted ? t.player.controls.unmute : t.player.controls.mute}
-              className="p-2 text-zinc-400 hover:text-white transition-colors"
+              className={controlClasses}
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="w-5 h-5 text-rose-400" />
+                <VolumeX className="h-5 w-5" />
               ) : (
-                <Volume2 className="w-5 h-5" />
+                <Volume2 className="h-5 w-5" />
               )}
             </button>
             <input
@@ -230,23 +240,18 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               step={0.05}
               value={isMuted ? 0 : volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              aria-label="Ses Seviyesi"
-              className="hidden h-1 w-16 cursor-pointer rounded-lg bg-zinc-800 accent-brand-500 opacity-75 transition-opacity group-hover:opacity-100 sm:block"
+              aria-label={t.player.controls.volume}
+              // Widens on hover *and* on focus, so reaching it with the
+              // keyboard does not leave an invisible slider under the cursor.
+              className="hidden h-1 w-0 cursor-pointer rounded-lg bg-zinc-700 accent-brand-500 opacity-0 transition-all duration-200 focus-visible:w-20 focus-visible:opacity-100 group-focus-within:w-20 group-focus-within:opacity-100 group-hover:w-20 group-hover:opacity-100 sm:block"
             />
           </div>
 
           {/* Time Display */}
-          <div className="ml-1 whitespace-nowrap font-display text-[11px] font-medium text-zinc-400 sm:ml-2 sm:text-xs">
-            <span>{formatTime(currentTime)}</span>
+          <div className="ml-1 whitespace-nowrap font-display text-xs font-medium tabular-nums text-zinc-300 sm:ml-2">
+            {formatTime(currentTime)}
             <span className="mx-1 text-zinc-600">/</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-          <div
-            className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-500"
-            title={t.player.controls.bufferTitle}
-          >
-            <Radio className="h-3.5 w-3.5" />
-            {t.player.controls.bufferReady(Math.floor(bufferAhead))}
+            <span className="text-zinc-500">{formatTime(duration)}</span>
           </div>
         </div>
 
@@ -258,11 +263,9 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               setSpeedMenuOpen(false);
             }}
             aria-label={t.player.controls.subtitleMenu}
-            className={`p-2 rounded-xl transition-colors ${
-              activeSubtitleId ? 'text-brand-400 bg-brand-600/20' : 'text-zinc-400 hover:text-white'
-            }`}
+            className={activeSubtitleId ? activeControlClasses : controlClasses}
           >
-            <Subtitles className="w-5 h-5" />
+            <Subtitles className="h-5 w-5" />
           </button>
 
           {onToggleTranscode && (
@@ -274,11 +277,9 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
                   ? t.player.controls.transcodeActive
                   : t.player.controls.transcodeEnable
               }
-              className={`p-2 rounded-xl transition-colors ${
-                useTranscode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
-              }`}
+              className={useTranscode ? activeControlClasses : controlClasses}
             >
-              <Radio className="w-5 h-5" />
+              <Radio className="h-5 w-5" />
             </button>
           )}
 
@@ -295,7 +296,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
                   ? t.player.controls.qualityAutoValue(effectiveQuality)
                   : qualityPreference,
               )}
-              className="rounded-xl p-2 text-zinc-400 transition-colors hover:text-white"
+              className={controlClasses}
             >
               <MonitorUp className="h-5 w-5" />
             </button>
@@ -307,36 +308,35 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               setSubtitleMenuOpen(false);
             }}
             aria-label={t.player.controls.speedMenu}
-            className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors"
+            className={controlClasses}
           >
-            <Gauge className="w-5 h-5" />
+            <Gauge className="h-5 w-5" />
           </button>
 
           <button
             onClick={onTogglePiP}
-            aria-label="Picture in Picture"
-            className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors hidden sm:block"
+            aria-label={t.player.controls.pictureInPicture}
+            className={`${controlClasses} hidden sm:block`}
           >
-            <PictureInPicture2 className="w-5 h-5" />
+            <PictureInPicture2 className="h-5 w-5" />
           </button>
 
           <button
             onClick={toggleCinemaMode}
-            aria-label="Sinema Modu"
+            aria-label={t.player.controls.cinemaMode}
+            aria-pressed={cinemaMode}
             title={t.player.controls.cinemaLights}
-            className={`p-2 rounded-xl transition-colors hidden sm:block ${
-              cinemaMode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
-            }`}
+            className={`${cinemaMode ? activeControlClasses : controlClasses} hidden sm:block`}
           >
-            <Sparkles className="w-5 h-5" />
+            <Sparkles className="h-5 w-5" />
           </button>
 
           <button
             onClick={onToggleFullscreen}
-            aria-label="Tam Ekran"
-            className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors"
+            aria-label={t.player.controls.fullscreen}
+            className={controlClasses}
           >
-            <Maximize className="w-5 h-5" />
+            <Maximize className="h-5 w-5" />
           </button>
         </div>
       </div>

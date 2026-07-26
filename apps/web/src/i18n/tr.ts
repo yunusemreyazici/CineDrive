@@ -287,6 +287,13 @@ export const tr = {
     },
 
     controls: {
+      play: 'Oynat',
+      pause: 'Duraklat',
+      volume: 'Ses Seviyesi',
+      pictureInPicture: 'Görüntü İçinde Görüntü',
+      fullscreen: 'Tam Ekran',
+      exitFullscreen: 'Tam Ekrandan Çık',
+      cinemaMode: 'Sinema Modu',
       previousEpisode: 'Önceki Bölüm',
       nextEpisode: 'Sonraki Bölüm',
       skipBackward: '10 Saniye Geri',
