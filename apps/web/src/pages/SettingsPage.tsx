@@ -1,14 +1,26 @@
 import React, { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, Search, ChevronRight } from 'lucide-react';
-import { GeneralSettingsTab } from './settings/GeneralSettingsTab';
+import { ProfileSection } from './settings/sections/ProfileSection';
+import { SecuritySection } from './settings/sections/SecuritySection';
+import {
+  AppearanceSection,
+  LanguageSection,
+  LibraryVisibilitySection,
+} from './settings/sections/AppearanceSection';
+import { GoogleDriveSection } from './settings/sections/GoogleDriveSection';
+import { LibraryScanSection } from './settings/sections/LibraryScanSection';
+import { LocalLibrarySection } from './settings/sections/LocalLibrarySection';
+import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
+import { DatabaseSection, DatabaseStatsSection } from './settings/sections/DatabaseSection';
+import { AboutSection } from './settings/sections/AboutSection';
 import { t } from '../i18n';
 import {
-  SETTINGS_TABS,
+  SETTINGS_GROUPS,
   SETTINGS_SEARCH_ITEMS,
-  isSettingsTab,
+  resolvePane,
+  type SettingsPane,
   type SettingsSearchItem,
-  type SettingsTab,
 } from './settings/settingsNavigation';
 
 const MediaManagerPage = React.lazy(() =>
@@ -22,8 +34,6 @@ const MediaHealthPage = React.lazy(() =>
 );
 
 const MAX_SEARCH_RESULTS = 6;
-/** Long enough for the tab to render before we scroll to the anchor. */
-const SCROLL_TO_SECTION_DELAY_MS = 80;
 
 const SettingsToolFallback: React.FC = () => (
   <div className="flex min-h-72 items-center justify-center gap-2 text-xs text-zinc-500">
@@ -32,12 +42,34 @@ const SettingsToolFallback: React.FC = () => (
   </div>
 );
 
+/** The maintenance tools are heavy pages; only the visible one is mounted. */
+const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
+  profile: <ProfileSection />,
+  security: <SecuritySection />,
+  appearance: <AppearanceSection />,
+  language: <LanguageSection />,
+  visibility: <LibraryVisibilitySection />,
+  google: <GoogleDriveSection />,
+  scan: <LibraryScanSection />,
+  localLibrary: <LocalLibrarySection />,
+  openSubtitles: <OpenSubtitlesSection />,
+  manage: <MediaManagerPage />,
+  storage: <InsightsPage />,
+  health: <MediaHealthPage />,
+  database: (
+    <>
+      <DatabaseStatsSection />
+      <DatabaseSection />
+    </>
+  ),
+  about: <AboutSection />,
+};
+
 export const SettingsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [settingsSearch, setSettingsSearch] = useState('');
 
-  const requestedTab = searchParams.get('tab');
-  const activeTab: SettingsTab = isSettingsTab(requestedTab) ? requestedTab : 'general';
+  const activePane = resolvePane(searchParams.get('tab'));
   const normalizedSearch = settingsSearch.trim().toLocaleLowerCase('tr-TR');
 
   const searchResults = useMemo(
@@ -52,30 +84,23 @@ export const SettingsPage: React.FC = () => {
     [normalizedSearch],
   );
 
-  const selectTab = (tab: SettingsTab) => {
-    setSearchParams(tab === 'general' ? {} : { tab });
+  const selectPane = (pane: SettingsPane) => {
+    setSearchParams(pane === 'profile' ? {} : { tab: pane });
   };
 
   const openSearchResult = (item: SettingsSearchItem) => {
-    selectTab(item.tab);
+    selectPane(item.pane);
     setSettingsSearch('');
-    if (!item.targetId) return;
-
-    window.setTimeout(() => {
-      document
-        .getElementById(item.targetId!)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, SCROLL_TO_SECTION_DELAY_MS);
   };
 
   return (
     <div>
       <header className="mb-5 flex flex-col gap-4 border-b border-zinc-800/70 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">{t.settings.title}</h2>
-          <p className="mt-0.5 text-xs text-zinc-400">
-            {t.settings.subtitle}
-          </p>
+          <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
+            {t.settings.title}
+          </h2>
+          <p className="mt-0.5 text-sm text-zinc-400">{t.settings.subtitle}</p>
         </div>
 
         <div className="relative w-full sm:w-72">
@@ -85,23 +110,23 @@ export const SettingsPage: React.FC = () => {
             onChange={(event) => setSettingsSearch(event.target.value)}
             placeholder={t.settings.searchLabel}
             aria-label={t.settings.searchLabel}
-            className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950/80 pl-9 pr-3 text-xs text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-brand-500/70"
+            className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-950/80 pl-9 pr-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-brand-500/70"
           />
           {normalizedSearch ? (
             <div className="absolute right-0 top-12 z-30 w-full min-w-72 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60">
               {searchResults.length > 0 ? (
                 searchResults.map((item) => (
                   <button
-                    key={`${item.tab}-${item.label}`}
+                    key={item.pane}
                     type="button"
                     onClick={() => openSearchResult(item)}
                     className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-900 focus:outline-none focus-visible:bg-zinc-900"
                   >
                     <span>
-                      <span className="block text-xs font-semibold text-zinc-100">
+                      <span className="block text-[13px] font-medium text-zinc-100">
                         {item.label}
                       </span>
-                      <span className="mt-0.5 block text-[11px] text-zinc-500">
+                      <span className="mt-0.5 block text-xs text-zinc-500">
                         {item.description}
                       </span>
                     </span>
@@ -118,53 +143,48 @@ export const SettingsPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/25 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:overflow-visible">
-        <div
-          role="tablist"
+      <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/25 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:overflow-visible">
+        <nav
           aria-label={t.settings.sectionsLabel}
-          className="scrollbar-none flex gap-1 overflow-x-auto border-b border-zinc-800/80 bg-zinc-950/60 p-2 lg:sticky lg:top-24 lg:block lg:min-h-[calc(100vh-10rem)] lg:space-y-1 lg:self-start lg:border-b-0 lg:border-r lg:p-3"
+          className="scrollbar-none flex gap-4 overflow-x-auto border-b border-zinc-800/80 bg-zinc-950/60 p-2 lg:sticky lg:top-24 lg:block lg:min-h-[calc(100vh-10rem)] lg:self-start lg:border-b-0 lg:border-r lg:p-3"
         >
-          {SETTINGS_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+          {SETTINGS_GROUPS.map((group) => (
+            <div key={group.id} className="shrink-0 lg:mb-4 lg:shrink">
+              <p className="hidden px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-600 lg:block">
+                {group.label}
+              </p>
+              <ul className="flex gap-1 lg:block lg:space-y-0.5">
+                {group.panes.map((pane) => {
+                  const Icon = pane.icon;
+                  const isActive = activePane === pane.id;
 
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls="settings-tabpanel"
-                onClick={() => selectTab(tab.id)}
-                className={`group flex min-w-max items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 lg:w-full ${
-                  isActive
-                    ? 'border-brand-500/30 bg-brand-500/10 text-brand-300'
-                    : 'border-transparent text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100'
-                }`}
-              >
-                <Icon
-                  className={`h-5 w-5 shrink-0 ${
-                    isActive ? 'text-brand-400' : 'text-zinc-500 group-hover:text-zinc-300'
-                  }`}
-                />
-                <span>
-                  <span className="block text-xs font-semibold">{tab.label}</span>
-                  <span className="mt-0.5 hidden text-[10px] font-normal leading-4 text-zinc-500 lg:block">
-                    {tab.description}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                  return (
+                    <li key={pane.id}>
+                      <button
+                        type="button"
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => selectPane(pane.id)}
+                        className={`flex w-full min-w-max items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                          isActive
+                            ? 'bg-brand-500/10 font-medium text-brand-300'
+                            : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100'
+                        }`}
+                      >
+                        <Icon
+                          className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-400' : 'text-zinc-500'}`}
+                        />
+                        {pane.label}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
 
-        <div id="settings-tabpanel" role="tabpanel" className="min-w-0 p-4 md:px-7 md:py-5">
-          {activeTab === 'general' ? <GeneralSettingsTab /> : null}
-          <Suspense fallback={<SettingsToolFallback />}>
-            {activeTab === 'manage' ? <MediaManagerPage /> : null}
-            {activeTab === 'storage' ? <InsightsPage /> : null}
-            {activeTab === 'health' ? <MediaHealthPage /> : null}
-          </Suspense>
+        <div className="min-w-0 p-4 md:px-7 md:py-5">
+          <Suspense fallback={<SettingsToolFallback />}>{PANE_CONTENT[activePane]}</Suspense>
         </div>
       </div>
     </div>

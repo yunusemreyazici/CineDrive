@@ -81,20 +81,31 @@ test.describe('CineDrive smoke', () => {
       .toMatchObject({ readyState: 4, error: null });
   });
 
-  test('renders the settings sections and switches tabs', async ({ page }) => {
+  test('navigates between settings panes', async ({ page }) => {
     await signIn(page);
     await page.goto('/settings');
 
+    // One destination per pane now: the profile opens first and Google Drive
+    // lives behind its own rail entry rather than further down one long scroll.
     await expect(page.getByRole('heading', { name: tr.settings.profile.title })).toBeVisible();
+    await expect(page.getByRole('heading', { name: tr.settings.google.title })).toHaveCount(0);
+
+    await page.getByRole('button', { name: tr.settings.search.google.label, exact: true }).click();
+    await expect(page).toHaveURL(/tab=google/);
     await expect(page.getByRole('heading', { name: tr.settings.google.title })).toBeVisible();
 
-    await page.getByRole('tab', { name: new RegExp(tr.settings.tabs.health.label) }).click();
+    await page.getByRole('button', { name: tr.settings.search.health.label, exact: true }).click();
     await expect(page).toHaveURL(/tab=health/);
-    // The panel no longer repeats the tab's own name as a page title; its
-    // first section heading is what identifies the screen.
     await expect(
       page.getByRole('heading', { name: tr.mediaHealth.analysisSummary }),
     ).toBeVisible();
+  });
+
+  test('keeps old ?tab=general links working', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/settings?tab=general');
+
+    await expect(page.getByRole('heading', { name: tr.settings.profile.title })).toBeVisible();
   });
 
   test('shows the not found page for an unknown route', async ({ page }) => {

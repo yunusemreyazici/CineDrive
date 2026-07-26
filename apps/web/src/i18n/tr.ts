@@ -479,6 +479,14 @@ export const tr = {
     sectionsLabel: 'Ayar bölümleri',
     sectionLoading: 'Bölüm yükleniyor…',
 
+    groups: {
+      account: 'Hesap',
+      interface: 'Arayüz',
+      libraries: 'Kütüphaneler',
+      maintenance: 'Bakım',
+      other: 'Diğer',
+    },
+
     profile: {
       title: 'Profil Bilgileri',
       description: 'Görüntülenen isim ve hesap detayları',

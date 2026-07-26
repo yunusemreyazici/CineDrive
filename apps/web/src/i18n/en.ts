@@ -476,6 +476,14 @@ export const en: Translations = {
     sectionsLabel: 'Setting sections',
     sectionLoading: 'Loading section…',
 
+    groups: {
+      account: 'Account',
+      interface: 'Interface',
+      libraries: 'Libraries',
+      maintenance: 'Maintenance',
+      other: 'Other',
+    },
+
     profile: {
       title: 'Profile',
       description: 'Display name and account details',
