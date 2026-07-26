@@ -25,6 +25,7 @@ import {
   getNativeSubtitleSource,
 } from '../utils/subtitleTracks';
 import { findActiveSubtitleCue } from '../utils/subtitleCues';
+import { t } from '../../../i18n';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
 import type { MediaItemType, PlaybackMode } from '../../../types/media';
 
@@ -204,7 +205,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     setErrorState({
       code: 'STREAM_FAILED',
       message:
-        'Bu içerik için bağlı bir Google Drive video dosyası bulunamadı. Lütfen kütüphaneyi yeniden tarayın.',
+        t.player.noDriveFile,
       isRetryable: false,
     });
   }, [active.driveFileId]);
@@ -224,7 +225,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const handleHlsUnsupported = useCallback(() => {
     setErrorState({
       code: 'STREAM_FAILED',
-      message: 'Bu tarayıcı uyumlu HLS oynatmayı desteklemiyor.',
+      message: t.player.hlsUnsupported,
       isRetryable: true,
     });
   }, []);
@@ -345,7 +346,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       const next = parseFloat((subtitleDelay + (key === 'z' ? -0.1 : 0.1)).toFixed(1));
       setSubtitleDelay(next);
-      setDelayToast(`Altyazı Zamanlaması: ${next > 0 ? `+${next}s` : `${next}s`}`);
+      setDelayToast(t.player.subtitleDelay(next > 0 ? `+${next}s` : `${next}s`));
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -433,7 +434,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setBufferedTime(targetTime);
       setIsBuffering(true);
       setConnectionMessage(
-        `${Math.floor(targetTime / 60)}:${String(Math.floor(targetTime % 60)).padStart(2, '0')} konumundan akış hazırlanıyor`,
+        t.player.preparingFrom(
+          `${Math.floor(targetTime / 60)}:${String(Math.floor(targetTime % 60)).padStart(2, '0')}`,
+        ),
       );
 
       clearTimer(pendingSeekTimerRef);
@@ -463,7 +466,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (video.error) {
       setErrorState({
         code: 'STREAM_FAILED',
-        message: 'Video akışı başlatılamadı.',
+        message: t.player.streamStartFailed,
         isRetryable: true,
       });
       return;
@@ -629,13 +632,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
         if (stalledVideo.currentTime < 10 && nextQuality) {
           suppressNextEpisode();
-          setConnectionMessage(`Başlangıç akışı ${nextQuality} kalitesinde yeniden hazırlanıyor`);
+          setConnectionMessage(t.player.requalifying(nextQuality));
           dispatchSource({ type: 'setAdaptiveQuality', quality: nextQuality });
           return;
         }
 
         recoveryPositionRef.current = stalledVideo.currentTime + timelineOffset;
-        setConnectionMessage('Akış yeniden bağlanıyor');
+        setConnectionMessage(t.player.reconnecting);
         dispatchSource({
           type: 'seekTo',
           offsetSeconds: Math.floor(recoveryPositionRef.current),
@@ -649,7 +652,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
       if (source.playbackMode === 'audio' || source.playbackMode === 'full') {
         setConnectionMessage(
-          `Akış yeniden bağlanıyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+          t.player.reconnectingAttempt(
+            stallRecoveryAttemptsRef.current,
+            MAX_STALL_RECOVERY_ATTEMPTS,
+          ),
         );
         dispatchSource({
           type: 'seekTo',
@@ -659,7 +665,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
 
       setConnectionMessage(
-        `Bağlantı yeniden kuruluyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+        t.player.reestablishing(
+          stallRecoveryAttemptsRef.current,
+          MAX_STALL_RECOVERY_ATTEMPTS,
+        ),
       );
       stalledVideo.load();
     }, STALL_RECOVERY_DELAY_MS);
@@ -744,7 +753,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setErrorState(null);
       setIsBuffering(true);
       setConnectionMessage(
-        `Mobil akış yeniden deneniyor (${sourceErrorRecoveryAttemptsRef.current}/${MAX_SOURCE_ERROR_RETRIES})`,
+        t.player.mobileRetry(
+          sourceErrorRecoveryAttemptsRef.current,
+          MAX_SOURCE_ERROR_RETRIES,
+        ),
       );
 
       clearTimer(sourceErrorRecoveryTimerRef);
@@ -766,7 +778,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     setErrorState({
       code: 'STREAM_FAILED',
-      message: 'Video akışı sunucudan alınırken hata oluştu.',
+      message: t.player.streamFailed,
       isRetryable: true,
     });
   }, [
@@ -813,7 +825,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       if (err.name !== 'NotSupportedError') return;
       setErrorState({
         code: 'CODEC_NOT_SUPPORTED',
-        message: 'Bu videonun biçimi tarayıcınız tarafından doğrudan desteklenmiyor.',
+        message: t.player.codecUnsupported,
         isRetryable: false,
       });
     });
@@ -844,7 +856,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     setFullscreenError(null);
     void togglePlayerFullscreen(video, container).catch(() => {
-      setFullscreenError('Bu tarayıcı tam ekran video oynatmayı desteklemiyor.');
+      setFullscreenError(t.player.fullscreenUnsupported);
     });
   }, []);
 
@@ -967,7 +979,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             navigate(`/media/${media.id}`);
           }}
           className="rounded-full bg-zinc-900/80 p-2.5 text-white backdrop-blur-md transition-colors hover:bg-zinc-800 sm:p-3"
-          aria-label="Geri Dön"
+          aria-label={t.player.goBack}
         >
           <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
@@ -982,7 +994,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 px-6 py-5 backdrop-blur-md">
             <Loader2 className="h-10 w-10 animate-spin text-brand-500" />
             <span className="text-xs font-semibold text-zinc-300">
-              {connectionMessage || 'Akış tamponlanıyor…'}
+              {connectionMessage || t.player.buffering}
             </span>
           </div>
         </div>

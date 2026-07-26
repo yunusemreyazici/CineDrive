@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MediaCard } from '../components/media/MediaCard';
 import type { MediaItemType } from '../types/media';
+import { t } from '../i18n';
 
 describe('MediaCard Component', () => {
   const queryClient = new QueryClient({
@@ -40,21 +41,21 @@ describe('MediaCard Component', () => {
     const titleElements = screen.getAllByText('Inception');
     expect(titleElements.length).toBeGreaterThan(0);
     expect(screen.getByText('2010')).toBeInTheDocument();
-    expect(screen.getByText('Film')).toBeInTheDocument();
+    expect(screen.getByText(t.common.movie)).toBeInTheDocument();
   });
 
   it('exposes the card as a keyboard-reachable link to the detail page', () => {
     renderCard();
 
-    const detailLink = screen.getByRole('link', { name: /Inception detaylarını aç/ });
+    const detailLink = screen.getByRole('link', { name: t.mediaCard.openDetails(mockMovie.title) });
     expect(detailLink).toHaveAttribute('href', '/media/media_movie_1');
   });
 
   it('labels the action buttons with the media title', () => {
     renderCard();
 
-    expect(screen.getByRole('button', { name: 'Inception oynat' })).toBeInTheDocument();
-    const favorite = screen.getByRole('button', { name: 'Inception favorilere ekle' });
+    expect(screen.getByRole('button', { name: t.mediaCard.play(mockMovie.title) })).toBeInTheDocument();
+    const favorite = screen.getByRole('button', { name: t.mediaCard.addFavorite(mockMovie.title) });
     expect(favorite).toHaveAttribute('aria-pressed', 'false');
   });
 

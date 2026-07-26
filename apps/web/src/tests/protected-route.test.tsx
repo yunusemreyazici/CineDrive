@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProtectedRoute } from '../routes/ProtectedRoute';
+import { t } from '../i18n';
 
 describe('ProtectedRoute Component', () => {
   const queryClient = new QueryClient({
@@ -22,6 +23,6 @@ describe('ProtectedRoute Component', () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText('Oturum Doğrulanıyor...')).toBeInTheDocument();
+    expect(screen.getByText(t.auth.verifyingSession)).toBeInTheDocument();
   });
 });

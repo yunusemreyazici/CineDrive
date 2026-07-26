@@ -19,6 +19,7 @@ import {
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { toast } from '../stores/useToastStore';
+import { t } from '../i18n';
 
 type HistoryFilterType = 'all' | 'movie' | 'series';
 type DurationFilter = 'all' | 'short' | 'medium' | 'long';
@@ -37,14 +38,14 @@ export const HistoryPage: React.FC = () => {
   const handleClearAllHistory = async () => {
     if (
       !window.confirm(
-        'Tüm izleme geçmişiniz ve kaldığınız yer bilgileri silinecek. Devam etmek istiyor musunuz?',
+        t.history.clearConfirm,
       )
     )
       return;
 
     clearHistoryMutation.mutate(undefined, {
-      onSuccess: () => toast.success('İzleme geçmişi temizlendi.'),
-      onError: (error) => toast.fromError(error, 'Geçmiş temizlenemedi.'),
+      onSuccess: () => toast.success(t.history.cleared),
+      onError: (error) => toast.fromError(error, t.history.clearFailed),
     });
   };
 
@@ -54,9 +55,9 @@ export const HistoryPage: React.FC = () => {
     const diffMs = now.getTime() - date.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return 'Bugün';
-    if (diffDays === 1) return 'Dün';
-    if (diffDays < 7) return `${diffDays} gün önce`;
+    if (diffDays === 0) return t.history.today;
+    if (diffDays === 1) return t.history.yesterday;
+    if (diffDays < 7) return t.history.daysAgo(diffDays);
 
     return date.toLocaleDateString('tr-TR', {
       day: 'numeric',
@@ -87,10 +88,10 @@ export const HistoryPage: React.FC = () => {
           </div>
           <div>
             <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">
-              İzleme Geçmişi
+              {t.history.title}
             </h2>
             <p className="text-sm text-zinc-400 mt-0.5">
-              Daha önce izlediğiniz tüm içeriklerin kaydı
+              {t.history.subtitle}
             </p>
           </div>
         </div>
@@ -102,36 +103,36 @@ export const HistoryPage: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-colors self-start sm:self-auto"
           >
             <Trash2 className="w-4 h-4" />
-            {clearHistoryMutation.isPending ? 'Geçmiş Temizleniyor…' : 'Tüm Geçmişi Temizle'}
+            {clearHistoryMutation.isPending ? t.history.clearing : t.history.clearAll}
           </button>
         )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="space-y-1.5 text-xs text-zinc-400">
-          <span className="font-semibold">İzlenen süre</span>
+          <span className="font-semibold">{t.history.watchedDuration}</span>
           <select
             value={durationFilter}
             onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}
             className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
           >
-            <option value="all">Tüm süreler</option>
-            <option value="short">15 dakikadan az</option>
-            <option value="medium">15–45 dakika</option>
-            <option value="long">45 dakika ve üzeri</option>
+            <option value="all">{t.history.allDurations}</option>
+            <option value="short">{t.history.durationShort}</option>
+            <option value="medium">{t.history.durationMedium}</option>
+            <option value="long">{t.history.durationLong}</option>
           </select>
         </label>
         <label className="space-y-1.5 text-xs text-zinc-400">
-          <span className="font-semibold">Cihaz</span>
+          <span className="font-semibold">{t.history.device}</span>
           <select
             value={deviceFilter}
             onChange={(event) => setDeviceFilter(event.target.value as DeviceFilter)}
             className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
           >
-            <option value="all">Tüm cihazlar</option>
-            <option value="desktop">Bilgisayar</option>
-            <option value="tablet">Tablet</option>
-            <option value="mobile">Telefon</option>
+            <option value="all">{t.history.allDevices}</option>
+            <option value="desktop">{t.history.deviceDesktop}</option>
+            <option value="tablet">{t.history.deviceTablet}</option>
+            <option value="mobile">{t.history.deviceMobile}</option>
           </select>
         </label>
         <div className="flex items-end">
@@ -146,7 +147,7 @@ export const HistoryPage: React.FC = () => {
                 : 'border-zinc-800 bg-zinc-900 text-zinc-400'
             }`}
           >
-            Yalnızca bölümler
+            {t.history.episodesOnly}
           </button>
         </div>
       </div>
@@ -154,9 +155,9 @@ export const HistoryPage: React.FC = () => {
       {/* Filter Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {[
-          { id: 'all', label: 'Tümü', icon: History },
-          { id: 'movie', label: 'Filmler', icon: Film },
-          { id: 'series', label: 'Diziler', icon: Tv },
+          { id: 'all', label: t.common.all, icon: History },
+          { id: 'movie', label: t.common.movies, icon: Film },
+          { id: 'series', label: t.common.seriesPlural, icon: Tv },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
@@ -184,12 +185,12 @@ export const HistoryPage: React.FC = () => {
           ))}
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="Geçmiş Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.history.loadFailed} onRetry={() => void refetch()} />
       ) : filteredItems.length === 0 ? (
         <EmptyState
-          title="İzleme Geçmişi Boş"
-          description="Henüz izlediğiniz bir içerik bulunmuyor. Medya kütüphanesinden izlemeye başlayabilirsiniz."
-          actionLabel="Kütüphaneyi Keşfet"
+          title={t.history.emptyTitle}
+          description={t.history.emptyDescription}
+          actionLabel={t.history.exploreLibrary}
           onAction={() => navigate('/library')}
         />
       ) : (
@@ -274,10 +275,10 @@ export const HistoryPage: React.FC = () => {
                       : `/watch/${item.mediaItem.id}`
                   }
                   className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold"
-                  aria-label="İzlemeye Devam Et"
+                  aria-label={t.history.resume}
                 >
                   <Play className="w-4 h-4 fill-current" />
-                  <span>İzle</span>
+                  <span>{t.history.watch}</span>
                 </a>
 
                 <button

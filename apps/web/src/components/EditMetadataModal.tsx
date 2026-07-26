@@ -3,6 +3,7 @@ import { Save, Film, Calendar, FileText, Image, Star, Loader2 } from 'lucide-rea
 import type { MediaItemType } from '../types/media';
 import { useUpdateMediaMetadataMutation } from '../hooks/useApi';
 import { Modal } from './common/Modal';
+import { t } from '../i18n';
 
 interface EditMetadataModalProps {
   media: MediaItemType;
@@ -54,7 +55,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
       const msg =
         err && typeof err === 'object' && 'message' in err
           ? String(err.message)
-          : 'Metadata güncellenirken bir hata oluştu.';
+          : t.metadataEditor.updateFailed;
       setErrorMsg(msg);
     }
   };
@@ -63,8 +64,8 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Metadata Düzenle"
-      description="İçerik başlığı, açıklaması ve görsellerini güncelleyin"
+      title={t.mediaDetail.editTitle}
+      description={t.metadataEditor.description}
       icon={
         <div className="rounded-xl bg-brand-600/20 p-2.5 text-brand-400">
           <Film className="h-5 w-5" />
@@ -85,7 +86,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
         <div>
           <label htmlFor={`${fieldId}-title`} className={LABEL_CLASSES}>
             <Film className="h-3.5 w-3.5 text-brand-400" />
-            İçerik Başlığı
+            {t.metadataEditor.title}
           </label>
           <input
             id={`${fieldId}-title`}
@@ -94,7 +95,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
             onChange={(e) => setTitle(e.target.value)}
             required
             className={FIELD_CLASSES}
-            placeholder="Örn: Inception"
+            placeholder={t.metadataEditor.titlePlaceholder}
           />
         </div>
 
@@ -103,7 +104,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
           <div>
             <label htmlFor={`${fieldId}-year`} className={LABEL_CLASSES}>
               <Calendar className="h-3.5 w-3.5 text-brand-400" />
-              Yapım Yılı
+              {t.metadataEditor.year}
             </label>
             <input
               id={`${fieldId}-year`}
@@ -111,14 +112,14 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
               value={year}
               onChange={(e) => setYear(e.target.value)}
               className={FIELD_CLASSES}
-              placeholder="Örn: 2010"
+              placeholder={t.metadataEditor.yearPlaceholder}
             />
           </div>
 
           <div>
             <label htmlFor={`${fieldId}-rating`} className={LABEL_CLASSES}>
               <Star className="h-3.5 w-3.5 text-amber-400" />
-              IMDb / Puan (0-10)
+              {t.metadataEditor.rating}
             </label>
             <input
               id={`${fieldId}-rating`}
@@ -129,7 +130,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
               value={voteAverage}
               onChange={(e) => setVoteAverage(e.target.value)}
               className={FIELD_CLASSES}
-              placeholder="Örn: 8.8"
+              placeholder={t.metadataEditor.ratingPlaceholder}
             />
           </div>
         </div>
@@ -138,7 +139,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
         <div>
           <label htmlFor={`${fieldId}-overview`} className={LABEL_CLASSES}>
             <FileText className="h-3.5 w-3.5 text-brand-400" />
-            Özet / Açıklama
+            {t.metadataEditor.overview}
           </label>
           <textarea
             id={`${fieldId}-overview`}
@@ -146,7 +147,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
             value={overview}
             onChange={(e) => setOverview(e.target.value)}
             className={`${FIELD_CLASSES} resize-none`}
-            placeholder="Film veya dizi özetini girin..."
+            placeholder={t.metadataEditor.overviewPlaceholder}
           />
         </div>
 
@@ -154,7 +155,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
         <div>
           <label htmlFor={`${fieldId}-poster`} className={LABEL_CLASSES}>
             <Image className="h-3.5 w-3.5 text-brand-400" />
-            Afiş (Poster) Görsel URL
+            {t.metadataEditor.posterUrl}
           </label>
           <input
             id={`${fieldId}-poster`}
@@ -170,7 +171,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
         <div>
           <label htmlFor={`${fieldId}-backdrop`} className={LABEL_CLASSES}>
             <Image className="h-3.5 w-3.5 text-brand-400" />
-            Arka Plan (Backdrop) Görsel URL
+            {t.metadataEditor.backdropUrl}
           </label>
           <input
             id={`${fieldId}-backdrop`}
@@ -189,7 +190,7 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
             onClick={onClose}
             className="rounded-xl bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-zinc-300 transition-all hover:bg-zinc-700"
           >
-            İptal
+            {t.common.cancel}
           </button>
           <button
             type="submit"
@@ -199,12 +200,12 @@ export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
             {updateMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Kaydediliyor...
+                {t.common.saving}
               </>
             ) : (
               <>
                 <Save className="h-4 w-4" />
-                Değişiklikleri Kaydet
+                {t.metadataEditor.saveChanges}
               </>
             )}
           </button>

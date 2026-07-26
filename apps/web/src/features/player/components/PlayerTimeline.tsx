@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { t } from '../../../i18n';
 
 interface PlayerTimelineProps {
   currentTime: number;
@@ -110,7 +111,7 @@ export const PlayerTimeline: React.FC<PlayerTimelineProps> = ({
       // and announced with its position rather than as an anonymous div.
       role="slider"
       tabIndex={0}
-      aria-label="Oynatma konumu"
+      aria-label={t.player.seekLabel}
       aria-valuemin={0}
       aria-valuemax={Math.max(0, Math.round(duration))}
       aria-valuenow={Math.round(currentTime)}
@@ -162,7 +163,7 @@ export const PlayerTimeline: React.FC<PlayerTimelineProps> = ({
             />
           ) : (
             <div className="flex aspect-video w-full items-center justify-center bg-zinc-900 text-[10px] font-medium text-zinc-500">
-              {previewDriveFileId && !previewFailed ? 'Önizleme hazırlanıyor…' : 'Önizleme yok'}
+              {previewDriveFileId && !previewFailed ? t.player.preview.loading : t.player.preview.unavailable}
             </div>
           )}
           <div className="px-2.5 py-1.5 text-center text-[11px] font-bold text-white">

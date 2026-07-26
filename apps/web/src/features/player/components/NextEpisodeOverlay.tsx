@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Play, X, FastForward } from 'lucide-react';
+import { t } from '../../../i18n';
 
 interface NextEpisodeOverlayProps {
   nextEpisodeTitle: string;
@@ -48,7 +49,7 @@ export const NextEpisodeOverlay: React.FC<NextEpisodeOverlayProps> = ({
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1.5 px-2.5 py-1 bg-brand-600/20 border border-brand-500/30 text-brand-400 text-[11px] font-bold rounded-lg uppercase tracking-wide">
             <FastForward className="w-3 h-3" />
-            Sonraki Bölüm
+            {t.player.nextEpisode.badge}
           </span>
 
           <button
@@ -90,7 +91,7 @@ export const NextEpisodeOverlay: React.FC<NextEpisodeOverlayProps> = ({
               </p>
             ) : (
               <p className="text-[11px] text-zinc-400">
-                Sezon {seasonNumber} • Bölüm {episodeNumber}
+                {t.player.nextEpisode.seasonEpisode(seasonNumber, episodeNumber)}
               </p>
             )}
           </div>

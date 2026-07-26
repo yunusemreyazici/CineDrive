@@ -14,6 +14,7 @@ import {
   Square,
 } from 'lucide-react';
 import { apiClient, parseApiError } from '../api/client';
+import { t } from '../i18n';
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -23,10 +24,10 @@ const formatBytes = (bytes: number) => {
 };
 
 const modeLabels = {
-  direct: 'Doğrudan',
+  direct: t.mediaHealth.modeDirect,
   audio: 'Ses uyumu',
   hls: 'HLS',
-  full: 'Tam dönüşüm',
+  full: t.mediaHealth.modeFull,
 };
 
 const Distribution = ({
@@ -108,7 +109,7 @@ export const MediaHealthPage: React.FC = () => {
     onSuccess: () => {
       setAnalysisMessage({
         type: 'success',
-        text: 'HLS işi ve bağlı FFmpeg süreci durduruldu.',
+        text: t.mediaHealth.jobStopped,
       });
       queryClient.invalidateQueries({ queryKey: ['media-health'] });
     },
@@ -125,7 +126,7 @@ export const MediaHealthPage: React.FC = () => {
     return (
       <div className="flex min-h-[420px] items-center justify-center gap-3 text-zinc-400">
         <Loader2 className="h-6 w-6 animate-spin text-brand-400" />
-        Medya sağlığı hesaplanıyor…
+        {t.mediaHealth.loading}
       </div>
     );
   }
@@ -133,7 +134,7 @@ export const MediaHealthPage: React.FC = () => {
   if (isError || !data) {
     return (
       <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
-        Medya sağlığı bilgileri alınamadı.
+        {t.mediaHealth.loadFailed}
       </div>
     );
   }
@@ -148,10 +149,10 @@ export const MediaHealthPage: React.FC = () => {
         <div>
           <h1 className="flex items-center gap-3 text-xl font-extrabold text-white">
             <Activity className="h-8 w-8 text-brand-400" />
-            Medya Sağlığı
+            {t.mediaHealth.title}
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Codec uyumluluğu, analiz hataları ve canlı transcode kaynakları.
+            {t.mediaHealth.subtitle}
           </p>
         </div>
         <button
@@ -168,9 +169,9 @@ export const MediaHealthPage: React.FC = () => {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['Toplam Video', data.totalVideos, Database, 'text-sky-400'],
-          ['Analiz Tamamlandı', `${analyzedPercent}%`, CheckCircle2, 'text-emerald-400'],
+          [t.mediaHealth.analysisComplete, `${analyzedPercent}%`, CheckCircle2, 'text-emerald-400'],
           ['Analiz Bekliyor', data.pendingVideos, Activity, 'text-amber-400'],
-          ['Hatalı Dosya', data.failedVideos, AlertTriangle, 'text-red-400'],
+          [t.mediaHealth.failedFiles, data.failedVideos, AlertTriangle, 'text-red-400'],
         ].map(([label, value, Icon, color]) => (
           <div
             key={String(label)}
@@ -192,7 +193,7 @@ export const MediaHealthPage: React.FC = () => {
       <section className="grid gap-4 lg:grid-cols-2">
         {(['safari', 'chromium'] as const).map((browser) => (
           <div key={browser} className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
-            <h2 className="mb-4 font-bold capitalize text-white">{browser} oynatma planı</h2>
+            <h2 className="mb-4 font-bold capitalize text-white">{t.mediaHealth.playbackPlan(browser)}</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {Object.entries(data.playback[browser]).map(([mode, count]) => (
                 <div key={mode} className="rounded-xl bg-zinc-950 p-3">
@@ -216,11 +217,11 @@ export const MediaHealthPage: React.FC = () => {
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
           <h2 className="flex items-center gap-2 font-bold text-white">
-            <Server className="h-5 w-5 text-brand-400" /> HLS çalışma durumu
+            <Server className="h-5 w-5 text-brand-400" /> {t.mediaHealth.hlsStatus}
           </h2>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Aktif işler{' '}
+              {t.mediaHealth.activeJobs}{' '}
               <strong className="float-right text-white">
                 {data.runtime.hls.activeJobs}/{data.runtime.hls.maxActiveJobs}
               </strong>
@@ -249,7 +250,7 @@ export const MediaHealthPage: React.FC = () => {
         </div>
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
           <h2 className="flex items-center gap-2 font-bold text-white">
-            <Activity className="h-5 w-5 text-sky-400" /> Canlı transcode
+            <Activity className="h-5 w-5 text-sky-400" /> {t.mediaHealth.liveTranscode}
           </h2>
           <p className="mt-6 text-4xl font-black text-white">
             {data.runtime.transcode.activeSessions}
@@ -258,7 +259,7 @@ export const MediaHealthPage: React.FC = () => {
               / {data.runtime.transcode.maxActiveSessions}
             </span>
           </p>
-          <p className="mt-2 text-sm text-zinc-500">Aktif audio/full uyumluluk oturumları</p>
+          <p className="mt-2 text-sm text-zinc-500">{t.mediaHealth.liveTranscodeHint}</p>
         </div>
       </section>
 
@@ -266,20 +267,20 @@ export const MediaHealthPage: React.FC = () => {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="flex items-center gap-2 font-bold text-white">
-              <Server className="h-5 w-5 text-brand-400" /> Aktif HLS işleri
+              <Server className="h-5 w-5 text-brand-400" /> {t.mediaHealth.activeHlsJobs}
             </h2>
             <p className="mt-1 text-xs text-zinc-500">
-              PID, medya, izleyici ve son erişim bilgileri.
+              {t.mediaHealth.activeHlsJobsHint}
             </p>
           </div>
           <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
-            {data.runtime.hls.jobs.length} iş
+            {t.mediaHealth.jobCount(data.runtime.hls.jobs.length)}
           </span>
         </div>
 
         {data.runtime.hls.jobs.length === 0 ? (
           <p className="mt-5 rounded-xl border border-dashed border-zinc-800 p-5 text-center text-sm text-zinc-500">
-            Aktif HLS/FFmpeg işi yok.
+            {t.mediaHealth.noActiveJobs}
           </p>
         ) : (
           <div className="mt-4 overflow-x-auto">
@@ -288,11 +289,11 @@ export const MediaHealthPage: React.FC = () => {
                 <tr className="border-b border-zinc-800">
                   <th className="px-3 py-3 font-semibold">Medya</th>
                   <th className="px-3 py-3 font-semibold">PID</th>
-                  <th className="px-3 py-3 font-semibold">Başlangıç</th>
+                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnStart}</th>
                   <th className="px-3 py-3 font-semibold">Profil</th>
-                  <th className="px-3 py-3 font-semibold">İzleyici</th>
-                  <th className="px-3 py-3 font-semibold">Son erişim</th>
-                  <th className="px-3 py-3 text-right font-semibold">İşlem</th>
+                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnViewer}</th>
+                  <th className="px-3 py-3 font-semibold">{t.mediaHealth.columnLastAccess}</th>
+                  <th className="px-3 py-3 text-right font-semibold">{t.mediaHealth.columnAction}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/80">
@@ -307,16 +308,18 @@ export const MediaHealthPage: React.FC = () => {
                       </p>
                     </td>
                     <td className="px-3 py-3 font-mono text-zinc-300">
-                      {job.pid ?? 'hazırlanıyor'}
+                      {job.pid ?? t.mediaHealth.pidPending}
                     </td>
                     <td className="px-3 py-3 text-zinc-400">
-                      {job.startSeconds ? `${job.startSeconds} sn` : 'Baştan'}
+                      {job.startSeconds
+                        ? t.mediaHealth.startSeconds(job.startSeconds)
+                        : t.mediaHealth.fromBeginning}
                     </td>
                     <td className="px-3 py-3 text-xs font-semibold text-sky-300">
                       <p>{job.profile === 'video-copy-aac' ? 'Video copy + AAC' : 'H.264 + AAC'}</p>
                       <p className="mt-1 font-normal text-zinc-500">
-                        {job.isPaused ? 'Tampon dolu · bekliyor' : 'Üretiyor'} ·{' '}
-                        {job.bufferLeadSeconds} sn önde
+                        {job.isPaused ? t.mediaHealth.paused : t.mediaHealth.producing} ·{' '}
+                        {t.mediaHealth.bufferLead(job.bufferLeadSeconds)}
                       </p>
                     </td>
                     <td className="px-3 py-3 text-zinc-400">{job.viewerCount}</td>
@@ -328,7 +331,7 @@ export const MediaHealthPage: React.FC = () => {
                         type="button"
                         onClick={() => stopHlsJob.mutate(job.id)}
                         disabled={stopHlsJob.isPending}
-                        aria-label={`${job.mediaName} HLS işini durdur`}
+                        aria-label={t.mediaHealth.stopJob(job.mediaName)}
                         className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-50"
                       >
                         {stopHlsJob.isPending && stopHlsJob.variables === job.id ? (
@@ -351,14 +354,14 @@ export const MediaHealthPage: React.FC = () => {
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-bold text-white">
-              <Clock className="h-5 w-5 text-amber-400" /> HLS bekleme kuyruğu
+              <Clock className="h-5 w-5 text-amber-400" /> {t.mediaHealth.waitQueue}
             </h2>
             <span className="rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-zinc-300">
               {data.runtime.hls.queue.length} bekleyen
             </span>
           </div>
           {data.runtime.hls.queue.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-500">Bekleyen oynatma isteği yok.</p>
+            <p className="mt-4 text-sm text-zinc-500">{t.mediaHealth.emptyQueue}</p>
           ) : (
             <div className="mt-4 space-y-2">
               {data.runtime.hls.queue.map((item, index) => (
@@ -370,7 +373,7 @@ export const MediaHealthPage: React.FC = () => {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-zinc-200">{item.mediaName}</p>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {item.priority === 'seek' ? 'Seek öncelikli' : 'Normal'} ·{' '}
+                      {item.priority === 'seek' ? t.mediaHealth.prioritySeek : t.mediaHealth.priorityNormal} ·{' '}
                       {Math.round(item.waitMs / 1000)} sn
                     </p>
                   </div>
@@ -386,7 +389,7 @@ export const MediaHealthPage: React.FC = () => {
           </h2>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              İlk kare
+              {t.mediaHealth.firstFrame}
               <strong className="float-right text-white">
                 {data.runtime.playerTelemetry.firstFrameAverageMs} ms
               </strong>
@@ -416,7 +419,7 @@ export const MediaHealthPage: React.FC = () => {
               </strong>
             </p>
             <p className="rounded-xl bg-zinc-950 p-3 text-zinc-400">
-              Örnek
+              {t.mediaHealth.sample}
               <strong className="float-right text-white">
                 {data.runtime.playerTelemetry.sampleCount}
               </strong>
@@ -441,7 +444,7 @@ export const MediaHealthPage: React.FC = () => {
       {data.failures.length > 0 ? (
         <section className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
           <h2 className="mb-4 flex items-center gap-2 font-bold text-red-200">
-            <AlertTriangle className="h-5 w-5" /> Analiz hataları
+            <AlertTriangle className="h-5 w-5" /> {t.mediaHealth.analysisErrors}
           </h2>
           <div className="divide-y divide-zinc-800">
             {data.failures.map((failure) => (
@@ -456,7 +459,7 @@ export const MediaHealthPage: React.FC = () => {
                   type="button"
                   onClick={() => reanalyze.mutate(failure.id)}
                   disabled={reanalyze.isPending}
-                  aria-label={`${failure.name} dosyasını tekrar analiz et`}
+                  aria-label={t.mediaHealth.reanalyze(failure.name)}
                   className="flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-brand-500/50 hover:text-white disabled:cursor-wait disabled:opacity-50"
                 >
                   {reanalyze.isPending && reanalyze.variables === failure.id ? (

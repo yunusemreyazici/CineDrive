@@ -156,6 +156,30 @@ export const tr = {
     yearClassics: '2000 Öncesi (Klasikler)',
     genre: 'Film / Dizi Türü',
     allGenres: 'Tüm Türler',
+    /** Fallback genre list when the API has not reported any. */
+    defaultGenres: [
+      'Aksiyon',
+      'Macera',
+      'Animasyon',
+      'Komedi',
+      'Suç',
+      'Belgesel',
+      'Dram',
+      'Fantezi',
+      'Korku',
+      'Gizem',
+      'Romantik',
+      'Bilim Kurgu',
+      'Gerilim',
+    ],
+  },
+
+  hero: {
+    trailerLabel: (title: string) => `${title} fragmanı`,
+    replayTrailer: 'Fragmanı baştan oynat',
+    unmuteTrailer: 'Fragmanın sesini aç',
+    muteTrailer: 'Fragmanın sesini kapat',
+    toggleFavorite: 'Favoriye Ekle/Çıkar',
   },
 
   notFound: {
@@ -214,6 +238,68 @@ export const tr = {
     requalifying: (quality: string) =>
       `Başlangıç akışı ${quality} kalitesinde yeniden hazırlanıyor`,
     subtitleDelay: (value: string) => `Altyazı Zamanlaması: ${value}`,
+
+    error: {
+      codecTitle: 'Video Biçimi Desteklenmiyor',
+      genericTitle: 'Oynatma Hatası',
+      codecBody:
+        'Bu videonun biçimi tarayıcınız tarafından doğrudan desteklenmiyor. Lütfen aşağıdaki Ses/Safari Uyum Modunu etkinleştirin.',
+      genericBody: 'Video akışı yüklenirken bir hata oluştu.',
+      enableTranscode: 'Ses / Safari Uyum Modunda Oynat',
+      retryDirect: 'Doğrudan Tekrar Dene',
+    },
+
+    resume: {
+      title: 'İzlemeye Devam Et',
+      bodyPrefix: 'Daha önce bu içeriğin',
+      bodySuffix: 'dakikasında kalmıştınız.',
+      continueAt: (timestamp: string) => `Kaldığın Yerden Devam Et (${timestamp})`,
+      restart: 'Baştan Başlat',
+    },
+
+    nextEpisode: {
+      badge: 'Sonraki Bölüm',
+      seasonEpisode: (season: number, episode: number) =>
+        `Sezon ${season} • Bölüm ${episode}`,
+    },
+
+    quality: {
+      heading: 'Görüntü Kalitesi',
+      auto: 'Otomatik',
+      autoDetail: 'Cihaza göre',
+      original: 'Orijinal',
+      originalDetail: 'En yüksek',
+      current: (quality: string) => `Şu an ${quality}`,
+    },
+
+    speed: {
+      heading: 'Oynatma Hızı',
+    },
+
+    preview: {
+      loading: 'Önizleme hazırlanıyor…',
+      unavailable: 'Önizleme yok',
+    },
+
+    controls: {
+      previousEpisode: 'Önceki Bölüm',
+      nextEpisode: 'Sonraki Bölüm',
+      skipBackward: '10 Saniye Geri',
+      skipForward: '10 Saniye İleri',
+      unmute: 'Sesi Aç',
+      mute: 'Sesi Kapat',
+      bufferTitle: 'İndirilen ileri oynatma tamponu',
+      bufferReady: (seconds: number) => `${seconds} sn hazır`,
+      subtitleMenu: 'Altyazı Menüsü',
+      transcodeToggle: 'Ses / Safari Uyum Modu',
+      transcodeActive: 'Ses Uyum Modu (AAC Transcode) Aktif',
+      transcodeEnable: 'Ses / Safari Uyum Modunu Etkinleştir (AAC)',
+      qualityMenu: 'Görüntü Kalitesi',
+      qualityTitle: (value: string) => `Görüntü kalitesi: ${value}`,
+      qualityAutoValue: (effective: string) => `Otomatik (${effective})`,
+      speedMenu: 'Oynatma Hızı',
+      cinemaLights: 'Sinema Işıkları',
+    },
   },
 
   subtitles: {
@@ -228,8 +314,18 @@ export const tr = {
       style: 'Stil',
     },
     off: 'Altyazı Kapalı',
+    upload: 'Altyazı Dosyası Yükle (.srt/.vtt)',
+    openSubtitlesResults: 'OpenSubtitles Sonuçları',
+    searching: 'Altyazılar aranıyor...',
+    searchRequestFailed: 'Arama başarısız',
     delayLabel: 'Gecikme (Zamanlama):',
     customValue: 'Özel Değer (sn):',
+    resetDelay: 'Sıfırla (0.0s)',
+    shortcuts: 'Klavye Kısayolları:',
+    backgroundStyle: 'Arka Plan Stili',
+    styleBlack: 'Siyah Kutu',
+    styleShadow: 'Gölge',
+    styleTransparent: 'Saydam',
     download: (filename: string) => `${filename} altyazısını indir`,
     downloadFailed: 'Altyazı indirilemedi.',
     searchFailed: 'OpenSubtitles altyazı araması gerçekleştirilemedi.',
@@ -275,6 +371,8 @@ export const tr = {
     similar: 'Benzer İçerikler',
     similarByGenre: (genre: string) => `${genre} türündeki yüksek puanlı diğer içerikler`,
     similarGeneric: 'Kütüphanenizdeki benzer içerikler',
+    favoriteAdd: 'Favorilere Ekle',
+    favoriteRemove: 'Favorilerden Çıkar',
   },
 
   metadataEditor: {
@@ -330,6 +428,11 @@ export const tr = {
       'Henüz izlediğiniz bir içerik bulunmuyor. Medya kütüphanesinden izlemeye başlayabilirsiniz.',
     exploreLibrary: 'Kütüphaneyi Keşfet',
     loadFailed: 'Geçmiş Yüklenemedi',
+    today: 'Bugün',
+    yesterday: 'Dün',
+    daysAgo: (days: number) => `${days} gün önce`,
+    resume: 'İzlemeye Devam Et',
+    watch: 'İzle',
   },
 
   settings: {
@@ -517,6 +620,92 @@ export const tr = {
       storage: { label: 'Depolama Analizi', description: 'Alan ve mükerrer dosyalar' },
       health: { label: 'Medya Sağlığı', description: 'Oynatma uyumluluğu ve HLS işleri' },
     },
+  },
+
+  insights: {
+    loading: 'Depolama ve Kota Analizi Hesaplanıyor...',
+    subtitle:
+      'Google Drive kütüphanelerindeki dosya boyutları, çözünürlük dağılımları ve mükerrer içerikler.',
+    totalSizeHint: 'Tüm taranan kütüphanelerdeki toplam veri',
+    fileCount: 'Dosya Sayısı',
+    fileCountHint: 'Aktif medya dosyası',
+    averageSizeHint: 'Dosya başına düşen ortalama boyut',
+    duplicates: 'Mükerrer Dosyalar',
+    duplicatesHint: 'Aynı isimde veya MD5 özetinde dosyalar',
+    resolutionDistribution: 'Çözünürlük Dağılımı',
+    duplicateList: 'Mükerrer (Tekrarlayan) Dosyalar',
+    largestFiles: 'En Yüksek Boyutlu 10 Medya Dosyası',
+  },
+
+  mediaManager: {
+    title: 'Veri Yönetimi & Toplu Silme',
+    subtitle: 'Veritabanındaki medyaları görün, Shift + Tıklama ile çoklu seçin ve kaldırın',
+    totalLabel: 'Toplam:',
+    totalSuffix: 'İçerik',
+    shiftHintTitle: 'Shift + Tıklama İpucu:',
+    shiftHintBefore: 'Bir içeriği seçtikten sonra klavyeden',
+    shiftHintAfter:
+      'tuşuna basılı tutup başka bir içeriğe tıklarsanız, aradaki tüm içerikler otomatik seçilir.',
+    searchPlaceholder: 'İçerik başlığı ile ara...',
+    clearSelection: 'Seçimi Kaldır',
+    selectAll: 'Tümünü Seç',
+    notFoundTitle: 'Medya Bulunamadı',
+    notFoundDescription: 'Arama kriterlerinize uyan hiçbir medya bulunamadı.',
+    columnContent: 'İçerik',
+    columnType: 'Tür',
+    columnYear: 'Yıl',
+    columnAction: 'İşlem',
+    goToDetail: 'Detay Sayfasına Git',
+    selectedSuffix: 'İçerik Seçildi',
+    cancelSelection: 'Seçimi İptal Et',
+    deleteSelected: (count: number) => `Seçilenleri Veritabanından Sil (${count})`,
+    bulkDeleteTitle: 'Toplu Silme Onayı',
+    bulkDeleteSubtitle: 'Veritabanından kaldırılacak',
+    bulkDeleteBodyPrefix: 'Seçtiğiniz',
+    bulkDeleteCount: (count: number) => `${count} adet`,
+    bulkDeleteBodySuffix:
+      'medya içeriği veritabanından silinecektir. Google Drive üzerindeki orijinal dosyalarınıza dokunulmaz. Devam etmek istiyor musunuz?',
+    bulkDeleteConfirm: (count: number) => `Evet, ${count} İçeriği Sil`,
+  },
+
+  mediaHealth: {
+    modeDirect: 'Doğrudan',
+    modeFull: 'Tam dönüşüm',
+    jobStopped: 'HLS işi ve bağlı FFmpeg süreci durduruldu.',
+    loading: 'Medya sağlığı hesaplanıyor…',
+    loadFailed: 'Medya sağlığı bilgileri alınamadı.',
+    title: 'Medya Sağlığı',
+    subtitle: 'Codec uyumluluğu, analiz hataları ve canlı transcode kaynakları.',
+    analysisComplete: 'Analiz Tamamlandı',
+    failedFiles: 'Hatalı Dosya',
+    playbackPlan: (browser: string) => `${browser} oynatma planı`,
+    hlsStatus: 'HLS çalışma durumu',
+    activeJobs: 'Aktif işler',
+    liveTranscode: 'Canlı transcode',
+    liveTranscodeHint: 'Aktif audio/full uyumluluk oturumları',
+    activeHlsJobs: 'Aktif HLS işleri',
+    activeHlsJobsHint: 'PID, medya, izleyici ve son erişim bilgileri.',
+    jobCount: (count: number) => `${count} iş`,
+    noActiveJobs: 'Aktif HLS/FFmpeg işi yok.',
+    columnStart: 'Başlangıç',
+    columnViewer: 'İzleyici',
+    columnLastAccess: 'Son erişim',
+    columnAction: 'İşlem',
+    pidPending: 'hazırlanıyor',
+    startSeconds: (seconds: number) => `${seconds} sn`,
+    fromBeginning: 'Baştan',
+    paused: 'Tampon dolu · bekliyor',
+    producing: 'Üretiyor',
+    bufferLead: (seconds: number) => `${seconds} sn önde`,
+    stopJob: (name: string) => `${name} HLS işini durdur`,
+    waitQueue: 'HLS bekleme kuyruğu',
+    emptyQueue: 'Bekleyen oynatma isteği yok.',
+    prioritySeek: 'Seek öncelikli',
+    priorityNormal: 'Normal',
+    firstFrame: 'İlk kare',
+    sample: 'Örnek',
+    analysisErrors: 'Analiz hataları',
+    reanalyze: (name: string) => `${name} dosyasını tekrar analiz et`,
   },
 
   toast: {

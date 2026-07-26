@@ -6,6 +6,7 @@ import { TrailerModal } from './TrailerModal';
 import { extractYoutubeId } from '../../utils/youtube';
 import { formatMediaTitle } from '../../utils/formatMediaTitle';
 import { getHeroArtworkUrl } from '../../utils/mediaImages';
+import { t } from '../../i18n';
 import type { MediaItemType } from '../../types/media';
 
 interface FeaturedHeroProps {
@@ -110,7 +111,7 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
         <video
           ref={videoRef}
           src={trailerUrl ?? undefined}
-          aria-label={`${title} fragmanı`}
+          aria-label={t.hero.trailerLabel(title)}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${
             ready ? 'opacity-100' : 'opacity-0'
           }`}
@@ -129,7 +130,7 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
         <iframe
           ref={iframeRef}
           src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&loop=1&playlist=${youtubeId}&modestbranding=1&playsinline=1&rel=0&enablejsapi=1`}
-          title={`${title} fragmanı`}
+          title={t.hero.trailerLabel(title)}
           className={`pointer-events-none absolute left-1/2 top-1/2 h-[56.25vw] min-h-full w-[177.78vh] min-w-full -translate-x-1/2 -translate-y-1/2 transition-opacity duration-700 ${
             ready ? 'opacity-100' : 'opacity-0'
           }`}
@@ -146,7 +147,7 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
           <button
             type="button"
             onClick={restart}
-            aria-label="Fragmanı baştan oynat"
+            aria-label={t.hero.replayTrailer}
             className="flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white backdrop-blur-md transition hover:bg-black/70"
           >
             <RotateCcw className="h-4 w-4" />
@@ -154,7 +155,7 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
           <button
             type="button"
             onClick={toggleMute}
-            aria-label={muted ? 'Fragmanın sesini aç' : 'Fragmanın sesini kapat'}
+            aria-label={muted ? t.hero.unmuteTrailer : t.hero.muteTrailer}
             className="flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-black/45 text-white backdrop-blur-md transition hover:bg-black/70"
           >
             {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -226,7 +227,9 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
             className="flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-950/30 transition hover:bg-brand-500 active:scale-[0.98]"
           >
             <Play className="h-4 w-4 fill-current" />
-            {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
+            {media.progress && media.progress.percentage > 0
+              ? t.mediaDetail.resume
+              : t.mediaDetail.play}
           </button>
 
           {media.trailerUrl && (
@@ -254,7 +257,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
                 isFavorite: !!media.isFavorite,
               })
             }
-            aria-label="Favoriye Ekle/Çıkar"
+            aria-label={t.hero.toggleFavorite}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border backdrop-blur-md transition ${
               media.isFavorite
                 ? 'bg-rose-500/20 border-rose-500/40 text-rose-500'

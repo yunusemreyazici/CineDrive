@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../i18n';
 import { useQuery } from '@tanstack/react-query';
 import { HardDrive, Files, Copy, Film, Loader2 } from 'lucide-react';
 import type { StorageInsightsDto, DuplicateFileDto } from '@cinedrive/shared';
@@ -25,7 +26,7 @@ export const InsightsPage: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
-        <p className="text-sm font-medium text-zinc-400">Depolama ve Kota Analizi Hesaplanıyor...</p>
+        <p className="text-sm font-medium text-zinc-400">{t.insights.loading}</p>
       </div>
     );
   }
@@ -54,7 +55,7 @@ export const InsightsPage: React.FC = () => {
             Depolama ve Kota Analizi
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            Google Drive kütüphanelerindeki dosya boyutları, çözünürlük dağılımları ve mükerrer içerikler.
+            {t.insights.subtitle}
           </p>
         </div>
         <button
@@ -75,16 +76,16 @@ export const InsightsPage: React.FC = () => {
           <div className="text-2xl font-extrabold text-white font-display">
             {formatBytes(totalSizeBytes)}
           </div>
-          <p className="text-[11px] text-zinc-500">Tüm taranan kütüphanelerdeki toplam veri</p>
+          <p className="text-[11px] text-zinc-500">{t.insights.totalSizeHint}</p>
         </div>
 
         <div className="p-5 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-2">
           <div className="flex items-center justify-between text-zinc-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Dosya Sayısı</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">{t.insights.fileCount}</span>
             <Files className="w-5 h-5 text-sky-400" />
           </div>
           <div className="text-2xl font-extrabold text-white font-display">{totalFiles} Adet</div>
-          <p className="text-[11px] text-zinc-500">Aktif medya dosyası</p>
+          <p className="text-[11px] text-zinc-500">{t.insights.fileCountHint}</p>
         </div>
 
         <div className="p-5 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-2">
@@ -95,24 +96,24 @@ export const InsightsPage: React.FC = () => {
           <div className="text-2xl font-extrabold text-white font-display">
             {formatBytes(averageSizeBytes)}
           </div>
-          <p className="text-[11px] text-zinc-500">Dosya başına düşen ortalama boyut</p>
+          <p className="text-[11px] text-zinc-500">{t.insights.averageSizeHint}</p>
         </div>
 
         <div className="p-5 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-2">
           <div className="flex items-center justify-between text-zinc-400">
-            <span className="text-xs font-semibold uppercase tracking-wider">Mükerrer Dosyalar</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">{t.insights.duplicates}</span>
             <Copy className="w-5 h-5 text-amber-400" />
           </div>
           <div className="text-2xl font-extrabold text-white font-display">
             {duplicates.length} Adet
           </div>
-          <p className="text-[11px] text-zinc-500">Aynı isimde veya MD5 özetinde dosyalar</p>
+          <p className="text-[11px] text-zinc-500">{t.insights.duplicatesHint}</p>
         </div>
       </div>
 
       {/* Resolution Breakdown */}
       <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-6">
-        <h3 className="text-lg font-bold text-white font-display">Çözünürlük Dağılımı</h3>
+        <h3 className="text-lg font-bold text-white font-display">{t.insights.resolutionDistribution}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* 4K */}
           <div className="p-4 bg-zinc-950/80 border border-zinc-800 rounded-2xl space-y-2">
@@ -166,7 +167,7 @@ export const InsightsPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
               <Copy className="w-5 h-5 text-amber-400" />
-              Mükerrer (Tekrarlayan) Dosyalar
+              {t.insights.duplicateList}
             </h3>
             <span className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full font-medium">
               {duplicates.length} adet tespit edildi
@@ -201,7 +202,7 @@ export const InsightsPage: React.FC = () => {
       <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-4">
         <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
           <Film className="w-5 h-5 text-brand-400" />
-          En Yüksek Boyutlu 10 Medya Dosyası
+          {t.insights.largestFiles}
         </h3>
 
         <div className="divide-y divide-zinc-800 overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950">

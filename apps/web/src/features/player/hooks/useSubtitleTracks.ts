@@ -3,6 +3,7 @@ import { convertSrtToVtt } from '@cinedrive/shared';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { parseWebVttCues } from '../utils/subtitleCues';
 import { normalizeSubtitleTrack } from '../utils/subtitleTracks';
+import { t } from '../../../i18n';
 import type { SubtitleTrackType } from '../types/player';
 import type { SubtitleItemType } from '../../../types/media';
 
@@ -137,7 +138,7 @@ export const useSubtitleTracks = ({
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
-        onLoadError('Kayıtlı altyazı yüklenemedi');
+        onLoadError(t.subtitles.storedLoadFailed);
       });
 
     return () => controller.abort();
@@ -164,7 +165,7 @@ export const useSubtitleTracks = ({
         setCustomSubtitles((prev) => [...prev, customTrack]);
         selectSubtitle(customTrack.id);
       } catch {
-        onLoadError('Altyazı dosyası okunamadı');
+        onLoadError(t.subtitles.fileReadFailed);
       }
     },
     [onLoadError, selectSubtitle],

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, Film } from 'lucide-react';
 import type { PlayerErrorState } from '../types/player';
+import { t } from '../../../i18n';
 
 interface PlayerErrorProps {
   error: PlayerErrorState;
@@ -19,13 +20,13 @@ export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, onEnab
         </div>
 
         <h3 className="text-xl font-bold font-display text-white">
-          {isCodecError ? 'Video Biçimi Desteklenmiyor' : 'Oynatma Hatası'}
+          {isCodecError ? t.player.error.codecTitle : t.player.error.genericTitle}
         </h3>
 
         <p className="text-xs text-zinc-400 leading-relaxed">
           {isCodecError
-            ? 'Bu videonun biçimi tarayıcınız tarafından doğrudan desteklenmiyor. Lütfen aşağıdaki Ses/Safari Uyum Modunu etkinleştirin.'
-            : error.message || 'Video akışı yüklenirken bir hata oluştu.'}
+            ? t.player.error.codecBody
+            : error.message || t.player.error.genericBody}
         </p>
 
         <div className="flex flex-col gap-2 pt-2">
@@ -35,7 +36,7 @@ export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, onEnab
               className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all"
             >
               <RefreshCw className="w-4 h-4" />
-              Ses / Safari Uyum Modunda Oynat
+              {t.player.error.enableTranscode}
             </button>
           )}
 
@@ -44,7 +45,7 @@ export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, onEnab
               onClick={onRetry}
               className="inline-flex items-center justify-center gap-2 px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-xl transition-all"
             >
-              Doğrudan Tekrar Dene
+              {t.player.error.retryDirect}
             </button>
           )}
         </div>

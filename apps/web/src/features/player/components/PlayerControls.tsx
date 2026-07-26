@@ -17,6 +17,7 @@ import {
   MonitorUp,
 } from 'lucide-react';
 import { PlayerTimeline } from './PlayerTimeline';
+import { t } from '../../../i18n';
 import { SubtitleMenu } from './SubtitleMenu';
 import { PlaybackSpeedMenu } from './PlaybackSpeedMenu';
 import { useUiStore } from '../../../stores/useUiStore';
@@ -164,7 +165,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           {hasPreviousEpisode && onPreviousEpisode && (
             <button
               onClick={onPreviousEpisode}
-              aria-label="Önceki Bölüm"
+              aria-label={t.player.controls.previousEpisode}
               className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
             >
               <SkipBack className="w-5 h-5 fill-current" />
@@ -186,7 +187,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           {hasNextEpisode && onNextEpisode && (
             <button
               onClick={onNextEpisode}
-              aria-label="Sonraki Bölüm"
+              aria-label={t.player.controls.nextEpisode}
               className="hidden rounded-xl p-2 text-zinc-400 transition-colors hover:text-white sm:block"
             >
               <SkipForward className="w-5 h-5 fill-current" />
@@ -195,7 +196,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 
           <button
             onClick={onSkipBackward}
-            aria-label="10 Saniye Geri"
+            aria-label={t.player.controls.skipBackward}
             className="p-2 text-zinc-400 hover:text-white transition-colors"
           >
             <RotateCcw className="w-5 h-5" />
@@ -203,7 +204,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
 
           <button
             onClick={onSkipForward}
-            aria-label="10 Saniye İleri"
+            aria-label={t.player.controls.skipForward}
             className="p-2 text-zinc-400 hover:text-white transition-colors"
           >
             <RotateCw className="w-5 h-5" />
@@ -213,7 +214,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           <div className="group flex items-center gap-1 sm:gap-2">
             <button
               onClick={onToggleMute}
-              aria-label={isMuted ? 'Sesi Aç' : 'Sesi Kapat'}
+              aria-label={isMuted ? t.player.controls.unmute : t.player.controls.mute}
               className="p-2 text-zinc-400 hover:text-white transition-colors"
             >
               {isMuted || volume === 0 ? (
@@ -242,10 +243,10 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           </div>
           <div
             className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-500"
-            title="İndirilen ileri oynatma tamponu"
+            title={t.player.controls.bufferTitle}
           >
             <Radio className="h-3.5 w-3.5" />
-            {Math.floor(bufferAhead)} sn hazır
+            {t.player.controls.bufferReady(Math.floor(bufferAhead))}
           </div>
         </div>
 
@@ -256,7 +257,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               setSubtitleMenuOpen(!subtitleMenuOpen);
               setSpeedMenuOpen(false);
             }}
-            aria-label="Altyazı Menüsü"
+            aria-label={t.player.controls.subtitleMenu}
             className={`p-2 rounded-xl transition-colors ${
               activeSubtitleId ? 'text-brand-400 bg-brand-600/20' : 'text-zinc-400 hover:text-white'
             }`}
@@ -267,11 +268,11 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           {onToggleTranscode && (
             <button
               onClick={onToggleTranscode}
-              aria-label="Ses / Safari Uyum Modu"
+              aria-label={t.player.controls.transcodeToggle}
               title={
                 useTranscode
-                  ? 'Ses Uyum Modu (AAC Transcode) Aktif'
-                  : 'Ses / Safari Uyum Modunu Etkinleştir (AAC)'
+                  ? t.player.controls.transcodeActive
+                  : t.player.controls.transcodeEnable
               }
               className={`p-2 rounded-xl transition-colors ${
                 useTranscode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
@@ -288,8 +289,12 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
                 setSpeedMenuOpen(false);
                 setSubtitleMenuOpen(false);
               }}
-              aria-label="Görüntü Kalitesi"
-              title={`Görüntü kalitesi: ${qualityPreference === 'auto' ? `Otomatik (${effectiveQuality})` : qualityPreference}`}
+              aria-label={t.player.controls.qualityMenu}
+              title={t.player.controls.qualityTitle(
+                qualityPreference === 'auto'
+                  ? t.player.controls.qualityAutoValue(effectiveQuality)
+                  : qualityPreference,
+              )}
               className="rounded-xl p-2 text-zinc-400 transition-colors hover:text-white"
             >
               <MonitorUp className="h-5 w-5" />
@@ -301,7 +306,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
               setSpeedMenuOpen(!speedMenuOpen);
               setSubtitleMenuOpen(false);
             }}
-            aria-label="Oynatma Hızı"
+            aria-label={t.player.controls.speedMenu}
             className="p-2 rounded-xl text-zinc-400 hover:text-white transition-colors"
           >
             <Gauge className="w-5 h-5" />
@@ -318,7 +323,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
           <button
             onClick={toggleCinemaMode}
             aria-label="Sinema Modu"
-            title="Sinema Işıkları"
+            title={t.player.controls.cinemaLights}
             className={`p-2 rounded-xl transition-colors hidden sm:block ${
               cinemaMode ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'
             }`}

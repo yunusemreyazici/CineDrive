@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useMediaListQuery, useBatchDeleteMediaMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { t } from '../i18n';
 import type { MediaItemType } from '../types/media';
 
 export const MediaManagerPage: React.FC = () => {
@@ -104,16 +105,18 @@ export const MediaManagerPage: React.FC = () => {
             <Database className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold font-display text-white">Veri Yönetimi & Toplu Silme</h1>
+            <h1 className="text-xl font-bold font-display text-white">{t.mediaManager.title}</h1>
             <p className="text-xs text-zinc-400">
-              Veritabanındaki medyaları görün, Shift + Tıklama ile çoklu seçin ve kaldırın
+              {t.mediaManager.subtitle}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <span className="px-3.5 py-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-xs font-semibold text-zinc-300">
-            Toplam: <strong className="text-brand-400">{allItems.length}</strong> İçerik
+            {t.mediaManager.totalLabel}{' '}
+            <strong className="text-brand-400">{allItems.length}</strong>{' '}
+            {t.mediaManager.totalSuffix}
           </span>
         </div>
       </div>
@@ -122,7 +125,9 @@ export const MediaManagerPage: React.FC = () => {
       <div className="p-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl flex items-center gap-3 text-xs text-zinc-300">
         <Info className="w-5 h-5 text-brand-400 flex-shrink-0" />
         <p>
-          <strong>Shift + Tıklama İpucu:</strong> Bir içeriği seçtikten sonra klavyeden <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-brand-300 font-mono">Shift</kbd> tuşuna basılı tutup başka bir içeriğe tıklarsanız, aradaki tüm içerikler otomatik seçilir.
+          <strong>{t.mediaManager.shiftHintTitle}</strong> {t.mediaManager.shiftHintBefore}{' '}
+          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-brand-300 font-mono">Shift</kbd>{' '}
+          {t.mediaManager.shiftHintAfter}
         </p>
       </div>
 
@@ -135,7 +140,7 @@ export const MediaManagerPage: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="İçerik başlığı ile ara..."
+            placeholder={t.mediaManager.searchPlaceholder}
             className="w-full pl-10 pr-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500 transition-colors"
           />
         </div>
@@ -151,7 +156,7 @@ export const MediaManagerPage: React.FC = () => {
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Tümü
+              {t.common.all}
             </button>
             <button
               onClick={() => setTypeFilter('movie')}
@@ -184,7 +189,7 @@ export const MediaManagerPage: React.FC = () => {
             ) : (
               <Square className="w-4 h-4 text-zinc-500" />
             )}
-            {isAllSelected ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+            {isAllSelected ? t.mediaManager.clearSelection : t.mediaManager.selectAll}
           </button>
         </div>
       </div>
@@ -198,8 +203,8 @@ export const MediaManagerPage: React.FC = () => {
         </div>
       ) : filteredItems.length === 0 ? (
         <EmptyState
-          title="Medya Bulunamadı"
-          description="Arama kriterlerinize uyan hiçbir medya bulunamadı."
+          title={t.mediaManager.notFoundTitle}
+          description={t.mediaManager.notFoundDescription}
         />
       ) : (
         <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-xl">
@@ -208,11 +213,11 @@ export const MediaManagerPage: React.FC = () => {
               <thead className="bg-zinc-900/80 text-zinc-400 font-semibold border-b border-zinc-800">
                 <tr>
                   <th className="p-4 w-12 text-center">#</th>
-                  <th className="p-4">İçerik</th>
-                  <th className="p-4">Tür</th>
-                  <th className="p-4">Yıl</th>
+                  <th className="p-4">{t.mediaManager.columnContent}</th>
+                  <th className="p-4">{t.mediaManager.columnType}</th>
+                  <th className="p-4">{t.mediaManager.columnYear}</th>
                   <th className="p-4">Puan</th>
-                  <th className="p-4 text-right">İşlem</th>
+                  <th className="p-4 text-right">{t.mediaManager.columnAction}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/50 text-zinc-300">
@@ -309,7 +314,7 @@ export const MediaManagerPage: React.FC = () => {
                             navigate(`/media/${item.id}`);
                           }}
                           className="p-2 text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 rounded-xl transition-all"
-                          title="Detay Sayfasına Git"
+                          title={t.mediaManager.goToDetail}
                         >
                           <ExternalLink className="w-4 h-4" />
                         </button>
@@ -330,7 +335,7 @@ export const MediaManagerPage: React.FC = () => {
             <span className="w-6 h-6 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs font-bold">
               {selectedIds.size}
             </span>
-            <span>İçerik Seçildi</span>
+            <span>{t.mediaManager.selectedSuffix}</span>
           </div>
 
           <div className="h-6 w-px bg-zinc-700" />
@@ -340,7 +345,7 @@ export const MediaManagerPage: React.FC = () => {
               onClick={() => setSelectedIds(new Set())}
               className="px-3.5 py-2 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
             >
-              Seçimi İptal Et
+              {t.mediaManager.cancelSelection}
             </button>
 
             <button
@@ -348,7 +353,7 @@ export const MediaManagerPage: React.FC = () => {
               className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all"
             >
               <Trash2 className="w-4 h-4" />
-              Seçilenleri Veritabanından Sil ({selectedIds.size})
+              {t.mediaManager.deleteSelected(selectedIds.size)}
             </button>
           </div>
         </div>
@@ -363,13 +368,15 @@ export const MediaManagerPage: React.FC = () => {
                 <AlertTriangle className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white font-display">Toplu Silme Onayı</h3>
-                <p className="text-xs text-zinc-400">Veritabanından kaldırılacak</p>
+                <h3 className="text-lg font-bold text-white font-display">{t.mediaManager.bulkDeleteTitle}</h3>
+                <p className="text-xs text-zinc-400">{t.mediaManager.bulkDeleteSubtitle}</p>
               </div>
             </div>
 
             <p className="text-sm text-zinc-300 leading-relaxed">
-              Seçtiğiniz <strong className="text-white">{selectedIds.size} adet</strong> medya içeriği veritabanından silinecektir. Google Drive üzerindeki orijinal dosyalarınıza dokunulmaz. Devam etmek istiyor musunuz?
+              {t.mediaManager.bulkDeleteBodyPrefix}{' '}
+              <strong className="text-white">{t.mediaManager.bulkDeleteCount(selectedIds.size)}</strong>{' '}
+              {t.mediaManager.bulkDeleteBodySuffix}
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
@@ -378,7 +385,7 @@ export const MediaManagerPage: React.FC = () => {
                 onClick={() => setShowConfirmModal(false)}
                 className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
               >
-                İptal
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -389,12 +396,12 @@ export const MediaManagerPage: React.FC = () => {
                 {batchDeleteMutation.isPending ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Siliniyor...
+                    {t.mediaDetail.deleting}
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    Evet, {selectedIds.size} İçeriği Sil
+                    {t.mediaManager.bulkDeleteConfirm(selectedIds.size)}
                   </>
                 )}
               </button>

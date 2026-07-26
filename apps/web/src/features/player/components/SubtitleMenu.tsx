@@ -2,6 +2,7 @@ import React, { useId, useState } from 'react';
 import { Check, Plus, Search, Loader2, Clock, Download } from 'lucide-react';
 import type { SubtitleTrackType } from '../types/player';
 import { usePlayerStore } from '../stores/usePlayerStore';
+import { t } from '../../../i18n';
 
 interface OpenSubResult {
   id: string;
@@ -72,28 +73,19 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
       if (episodeNumber !== undefined) url += `&episodeNumber=${episodeNumber}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Arama başarısız');
+      if (!res.ok) throw new Error(t.subtitles.searchRequestFailed);
       const data = (await res.json()) as {
         results: OpenSubResult[];
         message?: string;
       };
       setSearchResults(data.results || []);
       if ((data.results || []).length === 0) {
-        const errorMessages: Record<string, string> = {
-          NO_API_KEY: 'OpenSubtitles API anahtarı ayarlanmamış.',
-          INVALID_API_KEY: 'OpenSubtitles API anahtarı geçersiz.',
-          INVALID_SEARCH: 'OpenSubtitles bu başlıkla arama yapamadı.',
-          RATE_LIMITED: 'OpenSubtitles arama kotası doldu. Biraz sonra tekrar deneyin.',
-          SERVICE_UNAVAILABLE: 'OpenSubtitles servisine şu anda ulaşılamıyor.',
-          API_ERROR: 'OpenSubtitles servisi geçici olarak yanıt vermiyor.',
-          SEARCH_FAILED: 'OpenSubtitles araması zaman aşımına uğradı.',
-        };
         setSearchError(
-          (data.message && errorMessages[data.message]) || 'Uygun altyazı bulunamadı.',
+          (data.message && t.subtitles.searchErrors[data.message]) || t.subtitles.noResults,
         );
       }
     } catch {
-      setSearchError('OpenSubtitles altyazı araması gerçekleştirilemedi.');
+      setSearchError(t.subtitles.searchFailed);
     } finally {
       setIsSearching(false);
     }
@@ -110,7 +102,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
       );
       onClose();
     } catch {
-      setSearchError('Altyazı indirilemedi.');
+      setSearchError(t.subtitles.downloadFailed);
     } finally {
       setDownloadingFileId(null);
     }
@@ -127,7 +119,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               activeTab === 'tracks' ? 'bg-brand-600 text-white' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Altyazılar
+            {t.subtitles.tabs.tracks}
           </button>
           <button
             onClick={() => {
@@ -140,7 +132,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               activeTab === 'search' ? 'bg-brand-600 text-white' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Ara
+            {t.subtitles.tabs.search}
           </button>
           <button
             onClick={() => setActiveTab('sync')}
@@ -148,7 +140,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               activeTab === 'sync' ? 'bg-brand-600 text-white' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Senkron
+            {t.subtitles.tabs.sync}
           </button>
           <button
             onClick={() => setActiveTab('style')}
@@ -156,7 +148,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               activeTab === 'style' ? 'bg-brand-600 text-white' : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Stil
+            {t.subtitles.tabs.style}
           </button>
         </div>
       </div>
@@ -175,7 +167,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
                 : 'text-zinc-300 hover:bg-zinc-800'
             }`}
           >
-            <span>Altyazı Kapalı</span>
+            <span>{t.subtitles.off}</span>
             {activeSubtitleId === null && <Check className="w-3.5 h-3.5" />}
           </button>
 
@@ -200,7 +192,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           <div className="mt-2 pt-2 border-t border-zinc-800/80">
             <label className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 font-medium cursor-pointer transition-colors">
               <Plus className="w-3.5 h-3.5 text-brand-400" />
-              <span>Altyazı Dosyası Yükle (.srt/.vtt)</span>
+              <span>{t.subtitles.upload}</span>
               <input
                 type="file"
                 accept=".srt,.vtt"
@@ -216,7 +208,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
       {activeTab === 'search' && (
         <div className="space-y-2 max-h-60 overflow-y-auto">
           <div className="flex items-center justify-between px-1">
-            <span className="text-[11px] font-bold text-zinc-400">OpenSubtitles Sonuçları</span>
+            <span className="text-[11px] font-bold text-zinc-400">{t.subtitles.openSubtitlesResults}</span>
             <button
               onClick={handleSearchOpenSubtitles}
               disabled={isSearching}
@@ -234,7 +226,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           {isSearching && (
             <div className="flex items-center justify-center py-6 text-zinc-500 text-xs gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
-              <span>Altyazılar aranıyor...</span>
+              <span>{t.subtitles.searching}</span>
             </div>
           )}
 
@@ -248,7 +240,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => handleDownloadSubtitle(item)}
-                aria-label={`${item.filename} altyazısını indir`}
+                aria-label={t.subtitles.download(item.filename)}
                 className="group flex w-full items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-800/50 p-2 text-left transition-colors hover:bg-zinc-800"
               >
                 <span className="min-w-0 flex-1 pr-2">
@@ -275,7 +267,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
               <Clock className="w-3.5 h-3.5 text-brand-400" />
-              <span>Gecikme (Zamanlama):</span>
+              <span>{t.subtitles.delayLabel}</span>
             </div>
             <span className="text-xs font-mono font-bold text-brand-400">
               {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(1)}s` : `${subtitleDelay.toFixed(1)}s`}
@@ -296,7 +288,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
 
           <div className="flex items-center gap-2 pt-1">
             <label htmlFor={`${fieldId}-delay`} className="text-[11px] text-zinc-400 font-medium">
-              Özel Değer (sn):
+              {t.subtitles.customValue}
             </label>
             <input
               id={`${fieldId}-delay`}
@@ -313,12 +305,12 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
               onClick={() => setSubtitleDelay(0)}
               className="flex-1 py-1.5 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs rounded-lg transition-colors font-medium"
             >
-              Sıfırla (0.0s)
+              {t.subtitles.resetDelay}
             </button>
           </div>
 
           <div className="p-2 bg-zinc-900/60 border border-zinc-800/60 rounded-xl text-[10px] text-zinc-400 flex items-center justify-between">
-            <span>Klavye Kısayolları:</span>
+            <span>{t.subtitles.shortcuts}</span>
             <div className="flex items-center gap-1 font-mono text-zinc-300">
               <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px]">
                 Z
@@ -356,12 +348,12 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           </div>
 
           <div>
-            <span className="text-[11px] font-bold text-zinc-400 block mb-1">Arka Plan Stili</span>
+            <span className="text-[11px] font-bold text-zinc-400 block mb-1">{t.subtitles.backgroundStyle}</span>
             <div className="grid grid-cols-3 gap-1.5">
               {[
-                { key: 'black', label: 'Siyah Kutu' },
-                { key: 'shadow', label: 'Gölge' },
-                { key: 'transparent', label: 'Saydam' },
+                { key: 'black', label: t.subtitles.styleBlack },
+                { key: 'shadow', label: t.subtitles.styleShadow },
+                { key: 'transparent', label: t.subtitles.styleTransparent },
               ].map((style) => (
                 <button
                   key={style.key}

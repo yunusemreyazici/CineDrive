@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { apiClient } from '../api/client';
 import { LibraryPage } from '../pages/LibraryPage';
+import { t } from '../i18n';
 import { renderWithProviders } from './helpers/renderWithProviders';
 
 const emptyResponse = {
@@ -26,12 +27,12 @@ describe('LibraryPage', () => {
     renderWithProviders(<LibraryPage />, { route: '/library' });
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText('Kütüphane Yüklenemedi')).toBeInTheDocument();
+    expect(screen.getByText(t.library.loadFailed)).toBeInTheDocument();
     expect(screen.getByText('Sunucu hatası')).toBeInTheDocument();
     // The misleading "no media found" empty state must not appear.
-    expect(screen.queryByText('Medya Bulunamadı')).not.toBeInTheDocument();
+    expect(screen.queryByText(t.library.notFoundTitle)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Tekrar Dene/ }));
+    fireEvent.click(screen.getByRole('button', { name: t.common.retry }));
     await waitFor(() => expect(getSpy.mock.calls.length).toBeGreaterThan(1));
   });
 
@@ -40,7 +41,7 @@ describe('LibraryPage', () => {
 
     renderWithProviders(<LibraryPage />, { route: '/library' });
 
-    expect(await screen.findByText('Medya Bulunamadı')).toBeInTheDocument();
+    expect(await screen.findByText(t.library.notFoundTitle)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -52,7 +53,7 @@ describe('LibraryPage', () => {
     await waitFor(() => expect(getSpy).toHaveBeenCalled());
     const callsAfterMount = getSpy.mock.calls.length;
 
-    const input = screen.getByLabelText('Kütüphanede ara');
+    const input = screen.getByLabelText(t.library.searchLabel);
     for (const value of ['m', 'ma', 'mat', 'matr', 'matri', 'matrix']) {
       fireEvent.change(input, { target: { value } });
     }

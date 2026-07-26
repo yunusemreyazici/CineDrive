@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { Navbar } from '../components/layout/Navbar';
+import { t } from '../i18n';
 import {
   createTestQueryClient,
   renderWithProviders,
@@ -16,7 +17,7 @@ describe('Navbar user menu', () => {
     renderWithProviders(<Navbar />, { queryClient });
   });
 
-  const getTrigger = () => screen.getByRole('button', { name: 'Kullanıcı Menüsü' });
+  const getTrigger = () => screen.getByRole('button', { name: t.nav.userMenu });
 
   it('reports its expanded state', () => {
     const trigger = getTrigger();
@@ -25,7 +26,7 @@ describe('Navbar user menu', () => {
 
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menu', { name: 'Kullanıcı Menüsü' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: t.nav.userMenu })).toBeInTheDocument();
   });
 
   it('closes when the user clicks elsewhere', () => {
@@ -50,7 +51,7 @@ describe('Navbar user menu', () => {
   it('exposes its items as menu items', () => {
     fireEvent.click(getTrigger());
 
-    expect(screen.getByRole('menuitem', { name: /Ayarlar/ })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: /Çıkış Yap/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: t.nav.settings })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: t.nav.signOut })).toBeInTheDocument();
   });
 });

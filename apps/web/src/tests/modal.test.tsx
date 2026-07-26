@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Modal } from '../components/common/Modal';
+import { t } from '../i18n';
 
 const renderModal = (onClose = vi.fn()) => {
   const utils = render(
@@ -63,7 +64,7 @@ describe('Modal', () => {
     const { onClose } = renderModal();
 
     // The backdrop is a real button, so it is reachable and reports a name.
-    const backdrops = screen.getAllByRole('button', { name: 'Kapat' });
+    const backdrops = screen.getAllByRole('button', { name: t.common.close });
     fireEvent.click(backdrops[0]!);
 
     expect(onClose).toHaveBeenCalled();

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppRoutes } from '../routes/AppRoutes';
+import { t } from '../i18n';
 
 const renderAtPath = (path: string) => {
   const queryClient = new QueryClient({
@@ -28,8 +29,8 @@ describe('Unmatched routes', () => {
     renderAtPath('/bilinmeyen-bir-adres');
 
     expect(await screen.findByText('404')).toBeInTheDocument();
-    expect(screen.getByText('Sayfa Bulunamadı')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Kütüphaneye Dön/ })).toBeInTheDocument();
+    expect(screen.getByText(t.notFound.heading)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: t.notFound.backToLibrary })).toBeInTheDocument();
     // The shell stays mounted so the user can navigate away. (The sidebar nav
     // is aria-hidden at mobile widths, so the header is the stable landmark.)
     expect(screen.getByRole('banner')).toBeInTheDocument();
@@ -38,7 +39,7 @@ describe('Unmatched routes', () => {
   it('does not hijack a known route', async () => {
     renderAtPath('/favorites');
 
-    expect(await screen.findByText('Favorilerim')).toBeInTheDocument();
+    expect(await screen.findByText(t.favorites.title)).toBeInTheDocument();
     expect(screen.queryByText('404')).not.toBeInTheDocument();
   });
 });

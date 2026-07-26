@@ -5,6 +5,7 @@ import { Dices, Play, Info, Star, Film, Tv, Sparkles, RefreshCw } from 'lucide-r
 import { apiClient } from '../../api/client';
 import { Modal } from '../common/Modal';
 import { getPosterUrl } from '../../utils/mediaImages';
+import { t } from '../../i18n';
 import type { MediaItemType } from '../../types/media';
 
 interface RandomPickerModalProps {
@@ -48,7 +49,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
     retry: false,
   });
 
-  const error = isError ? 'Kriterlerinize uygun medya bulunamadı.' : null;
+  const error = isError ? t.randomPicker.noMatch : null;
   const rollAgain = () => void refetch();
   const posterUrl = selectedMedia ? getPosterUrl(selectedMedia) : null;
 
@@ -56,8 +57,8 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Ne İzlesem? Zarı 🎲"
-      description="Kararsız kaldığınızda kütüphaneden rastgele öneri alın"
+      title={t.randomPicker.title}
+      description={t.randomPicker.description}
       icon={
         <div className="rounded-2xl border border-brand-500/30 bg-brand-600/20 p-2.5 text-brand-400">
           <Dices className={`h-6 w-6 ${isRolling ? 'animate-spin' : ''}`} />
@@ -75,7 +76,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                   typeFilter === 'all' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                Tümü
+                {t.common.all}
               </button>
               <button
                 onClick={() => setTypeFilter('movie')}
@@ -83,7 +84,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                   typeFilter === 'movie' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                Filmler
+                {t.common.movies}
               </button>
               <button
                 onClick={() => setTypeFilter('series')}
@@ -91,7 +92,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                   typeFilter === 'series' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                Diziler
+                {t.common.seriesPlural}
               </button>
             </div>
 
@@ -103,9 +104,9 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               }}
               className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-300 focus:border-brand-500 focus:outline-none"
             >
-              <option value="all">Tüm IMDb Puanları</option>
-              <option value="7.0">★ 7.0+ Üzeri</option>
-              <option value="8.0">★ 8.0+ Üzeri</option>
+              <option value="all">{t.randomPicker.allRatings}</option>
+              <option value="7.0">{t.randomPicker.rating70}</option>
+              <option value="8.0">{t.randomPicker.rating80}</option>
             </select>
           </div>
 
@@ -115,7 +116,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-brand-500/20 transition-all hover:scale-105 disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRolling ? 'animate-spin' : ''}`} />
-            <span>{isRolling ? 'Zar Atılıyor...' : 'Zar At'}</span>
+            <span>{isRolling ? t.randomPicker.rolling : t.randomPicker.roll}</span>
           </button>
         </div>
 
@@ -127,13 +128,13 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                 <Dices className="w-10 h-10 animate-spin" />
               </div>
               <p className="text-sm font-semibold text-zinc-300 font-display animate-pulse">
-                Kütüphaneden şansınıza özel içerik seçiliyor...
+                {t.randomPicker.picking}
               </p>
             </div>
           ) : error ? (
             <div className="text-center py-8 text-zinc-400 space-y-2">
               <p className="text-sm font-medium text-rose-400">{error}</p>
-              <p className="text-xs text-zinc-500">Lütfen filtre kriterlerini değiştirip tekrar zar atın.</p>
+              <p className="text-xs text-zinc-500">{t.randomPicker.noMatchHint}</p>
             </div>
           ) : selectedMedia ? (
             <div className="w-full flex flex-col md:flex-row items-center gap-6">
@@ -162,7 +163,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               <div className="flex-1 space-y-3 text-center md:text-left">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-brand-600/20 text-brand-400 text-[11px] font-bold uppercase tracking-wider">
                   <Sparkles className="w-3 h-3" />
-                  Sizin İçin Seçilen İçerik
+                  {t.randomPicker.pickedForYou}
                 </div>
 
                 <h4 className="text-2xl font-extrabold text-white font-display">
@@ -171,7 +172,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
 
                 <div className="flex items-center justify-center md:justify-start gap-3 text-xs text-zinc-400 font-medium">
                   <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 uppercase">
-                    {selectedMedia.type === 'movie' ? 'Film' : 'Dizi'}
+                    {selectedMedia.type === 'movie' ? t.common.movie : t.common.series}
                   </span>
                   {selectedMedia.year && <span>{selectedMedia.year}</span>}
                   {selectedMedia.genres && selectedMedia.genres.length > 0 && (
@@ -195,7 +196,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                     className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-brand-500/25 transition-all hover:scale-105"
                   >
                     <Play className="w-4 h-4 fill-current" />
-                    <span>Şimdi Oynat</span>
+                    <span>{t.randomPicker.playNow}</span>
                   </button>
 
                   <button
@@ -206,7 +207,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                     className="flex items-center gap-2 px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold rounded-xl border border-zinc-800 transition-all hover:scale-105"
                   >
                     <Info className="w-4 h-4" />
-                    <span>Detaylar</span>
+                    <span>{t.randomPicker.details}</span>
                   </button>
 
                   <button
@@ -214,7 +215,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                     className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
                   >
                     <Dices className="w-4 h-4 text-brand-400" />
-                    <span>Başka Öner</span>
+                    <span>{t.randomPicker.rollAgain}</span>
                   </button>
                 </div>
               </div>

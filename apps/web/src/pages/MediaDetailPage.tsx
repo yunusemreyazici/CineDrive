@@ -12,6 +12,7 @@ import { TrailerModal } from '../components/media/TrailerModal';
 import { extractYoutubeId } from '../utils/youtube';
 import type { SeasonType, EpisodeType } from '../types/media';
 import { getHeroArtworkUrl, getPosterUrl } from '../utils/mediaImages';
+import { t } from '../i18n';
 
 export const MediaDetailPage: React.FC = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
@@ -43,9 +44,9 @@ export const MediaDetailPage: React.FC = () => {
     if (!media) return;
     try {
       const res = await autoSubtitleMutation.mutateAsync({ mediaId: media.id });
-      toast.success(res.message || 'Altyazı indirildi!');
+      toast.success(res.message || t.mediaDetail.subtitleDownloaded);
     } catch (err: unknown) {
-      toast.fromError(err, 'Altyazı bulunamadı.');
+      toast.fromError(err, t.mediaDetail.subtitleNotFound);
     }
   };
 
@@ -53,10 +54,10 @@ export const MediaDetailPage: React.FC = () => {
     if (!media) return;
     try {
       await deleteMutation.mutateAsync(media.id);
-      toast.success(`${media.title} kütüphaneden kaldırıldı.`);
+      toast.success(t.mediaDetail.removed(media.title));
       navigate('/library');
     } catch (err: unknown) {
-      toast.fromError(err, 'İçerik silinemedi.');
+      toast.fromError(err, t.mediaDetail.deleteFailed);
     }
   };
 
@@ -74,7 +75,7 @@ export const MediaDetailPage: React.FC = () => {
     return (
       <ErrorState
         error={error}
-        title="İçerik Yüklenemedi"
+        title={t.errors.contentLoadFailed}
         onRetry={() => void refetch()}
       />
     );
@@ -83,9 +84,9 @@ export const MediaDetailPage: React.FC = () => {
   if (!media) {
     return (
       <EmptyState
-        title="İçerik Bulunamadı"
-        description="Aradığınız medya dosyası silinmiş veya erişilemiyor olabilir."
-        actionLabel="Kütüphaneye Dön"
+        title={t.mediaDetail.notFoundTitle}
+        description={t.mediaDetail.notFoundDescription}
+        actionLabel={t.mediaDetail.backToLibrary}
         onAction={() => navigate('/library')}
       />
     );
@@ -135,7 +136,7 @@ export const MediaDetailPage: React.FC = () => {
           {/* Metadata Badges (Type, Year, Duration, Rating, Content Rating) */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs text-zinc-300 font-medium mb-3">
             <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 uppercase font-semibold text-zinc-200">
-              {media.type === 'movie' ? 'Film' : 'Dizi'}
+              {media.type === 'movie' ? t.common.movie : t.common.series}
             </span>
 
             {media.voteAverage && (
@@ -156,7 +157,7 @@ export const MediaDetailPage: React.FC = () => {
             {media.duration && (
               <span className="flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" />
-                {Math.round(media.duration / 60)} dk
+                {t.common.minutes(Math.round(media.duration / 60))}
               </span>
             )}
           </div>
@@ -196,7 +197,7 @@ export const MediaDetailPage: React.FC = () => {
               className="flex items-center gap-2.5 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105"
             >
               <Play className="w-5 h-5 fill-current" />
-              {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
+              {media.progress && media.progress.percentage > 0 ? t.mediaDetail.resume : t.mediaDetail.play}
             </button>
 
             {hasTrailer && (
@@ -205,7 +206,7 @@ export const MediaDetailPage: React.FC = () => {
                 className="flex items-center gap-2 px-5 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-white font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
               >
                 <Video className="w-4 h-4 text-brand-400" />
-                Fragman İzle
+                {t.mediaDetail.watchTrailer}
               </button>
             )}
 
@@ -214,17 +215,17 @@ export const MediaDetailPage: React.FC = () => {
               onClick={handleAutoDownloadSubtitle}
               disabled={autoSubtitleMutation.isPending}
               className="flex items-center gap-2 px-4 py-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium text-sm rounded-xl border border-indigo-500/30 backdrop-blur-md transition-all hover:scale-105 disabled:opacity-50"
-              title="OpenSubtitles üzerinden Türkçe altyazı indir ve veritabanına kaydet"
+              title={t.mediaDetail.downloadSubtitleTitle}
             >
               {autoSubtitleMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>Altyazı İndiriliyor...</span>
+                  <span>{t.mediaDetail.downloadingSubtitle}</span>
                 </>
               ) : (
                 <>
                   <Download className="w-4 h-4 text-indigo-400" />
-                  <span>Altyazı İndir</span>
+                  <span>{t.mediaDetail.downloadSubtitle}</span>
                 </>
               )}
             </button>}
@@ -241,7 +242,7 @@ export const MediaDetailPage: React.FC = () => {
                   ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
                   : 'bg-zinc-800/90 border-zinc-700 text-zinc-300 hover:text-white'
               }`}
-              title={media.isFavorite ? 'Favorilerden Çıkar' : 'Favorilere Ekle'}
+              title={media.isFavorite ? t.mediaDetail.favoriteRemove : t.mediaDetail.favoriteAdd}
             >
               <Heart className={`w-5 h-5 ${media.isFavorite ? 'fill-current' : ''}`} />
             </button>
@@ -250,20 +251,20 @@ export const MediaDetailPage: React.FC = () => {
             <button
               onClick={() => setShowEditModal(true)}
               className="flex items-center gap-2 px-4 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
-              title="Metadata Düzenle"
+              title={t.mediaDetail.editTitle}
             >
               <Pencil className="w-4 h-4 text-brand-400" />
-              Düzenle
+              {t.mediaDetail.edit}
             </button>
 
             {/* Delete Item Button */}
             <button
               onClick={() => setShowDeleteConfirmModal(true)}
               className="flex items-center gap-2 px-4 py-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-sm rounded-xl border border-rose-500/30 backdrop-blur-md transition-all hover:scale-105"
-              title="Veritabanından Sil"
+              title={t.mediaDetail.deleteFromDatabase}
             >
               <Trash2 className="w-4 h-4" />
-              Sil
+              {t.common.delete}
             </button>
           </div>
 
@@ -274,7 +275,7 @@ export const MediaDetailPage: React.FC = () => {
       {media.cast && media.cast.length > 0 && (
         <div className="space-y-4 pt-2">
           <h3 className="text-xl font-bold font-display text-white border-b border-zinc-800 pb-3">
-            Oyuncu Kadrosu
+            {t.mediaDetail.cast}
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
             {media.cast.map((actor) => (
@@ -282,7 +283,7 @@ export const MediaDetailPage: React.FC = () => {
                 key={`${actor.name}-${actor.character || ''}`}
                 to={`/person/${encodeURIComponent(actor.name)}`}
                 className="group flex items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-900/60 p-2.5 transition-all hover:border-brand-500/50 hover:bg-brand-600/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                title={`${actor.name} içeriklerini gör`}
+                title={t.mediaDetail.castLink(actor.name)}
               >
                 <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500 group-hover:border-brand-500/50">
                   {actor.profileUrl ? (
@@ -309,7 +310,7 @@ export const MediaDetailPage: React.FC = () => {
       {media.type === 'series' && seasons.length > 0 && (
         <div className="space-y-6 pt-4">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-            <h3 className="text-xl font-bold font-display text-white">Sezonlar ve Bölümler</h3>
+            <h3 className="text-xl font-bold font-display text-white">{t.mediaDetail.seasonsAndEpisodes}</h3>
 
             {/* Season Selector Tabs */}
             <div className="flex items-center gap-2">
@@ -323,7 +324,7 @@ export const MediaDetailPage: React.FC = () => {
                       : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
                   }`}
                 >
-                  Sezon {season.seasonNumber}
+                  {t.mediaDetail.season(season.seasonNumber)}
                 </button>
               ))}
             </div>
@@ -389,7 +390,7 @@ export const MediaDetailPage: React.FC = () => {
                       {episode.duration && (
                         <div className="flex items-center gap-1 text-[11px] text-zinc-500 font-medium">
                           <Clock className="w-3 h-3" />
-                          <span>{Math.round(episode.duration / 60)} dakika</span>
+                          <span>{t.common.minutesLong(Math.round(episode.duration / 60))}</span>
                         </div>
                       )}
                     </div>
@@ -420,12 +421,12 @@ export const MediaDetailPage: React.FC = () => {
               id="similar-media-heading"
               className="text-2xl font-extrabold font-display text-white"
             >
-              Benzer İçerikler
+              {t.mediaDetail.similar}
             </h2>
             <p className="mt-1 text-sm text-zinc-400">
               {primaryGenre
-                ? `${primaryGenre} türündeki yüksek puanlı diğer içerikler`
-                : 'Kütüphanenizdeki benzer içerikler'}
+                ? t.mediaDetail.similarByGenre(primaryGenre)
+                : t.mediaDetail.similarGeneric}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -450,8 +451,8 @@ export const MediaDetailPage: React.FC = () => {
         isOpen={showDeleteConfirmModal}
         onClose={() => setShowDeleteConfirmModal(false)}
         size="sm"
-        title="İçeriği Sil"
-        description="Bu işlem CineDrive veritabanından kaldırılacaktır."
+        title={t.mediaDetail.deleteTitle}
+        description={t.mediaDetail.deleteDescription}
         icon={
           <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
             <AlertTriangle className="h-6 w-6" />
@@ -464,7 +465,7 @@ export const MediaDetailPage: React.FC = () => {
               onClick={() => setShowDeleteConfirmModal(false)}
               className="rounded-xl bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-zinc-300 transition-all hover:bg-zinc-700"
             >
-              İptal
+              {t.common.cancel}
             </button>
             <button
               type="button"
@@ -475,12 +476,12 @@ export const MediaDetailPage: React.FC = () => {
               {deleteMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Siliniyor...
+                  {t.mediaDetail.deleting}
                 </>
               ) : (
                 <>
                   <Trash2 className="h-4 w-4" />
-                  Evet, Sil
+                  {t.mediaDetail.deleteYes}
                 </>
               )}
             </button>
@@ -488,8 +489,8 @@ export const MediaDetailPage: React.FC = () => {
         }
       >
         <p className="p-6 text-sm leading-relaxed text-zinc-300">
-          <strong className="text-white">{media.title}</strong> içerikli medya kaydı veritabanından
-          silinecektir. Google Drive dosyanız silinmez. Devam etmek istiyor musunuz?
+          <strong className="text-white">{media.title}</strong>{' '}
+          {t.mediaDetail.deleteConfirmPrefix} {t.mediaDetail.deleteConfirm}
         </p>
       </Modal>
 

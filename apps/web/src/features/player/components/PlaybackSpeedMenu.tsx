@@ -1,5 +1,6 @@
 import React from 'react';
 import { Gauge, Check } from 'lucide-react';
+import { t } from '../../../i18n';
 
 interface PlaybackSpeedMenuProps {
   currentSpeed: number;
@@ -18,7 +19,7 @@ export const PlaybackSpeedMenu: React.FC<PlaybackSpeedMenuProps> = ({
     <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] right-3 z-50 w-44 rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in duration-150 sm:absolute sm:bottom-16 sm:right-10">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 mb-1 text-xs font-bold text-zinc-400 font-display">
         <Gauge className="w-4 h-4" />
-        Oynatma Hızı
+        {t.player.speed.heading}
       </div>
 
       {SPEEDS.map((speed) => (
