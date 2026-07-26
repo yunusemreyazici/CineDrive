@@ -27,12 +27,19 @@ interface MediaPlayerProps {
   episodeId?: string;
 }
 
-const isSafariBrowser = () => {
-  if (typeof navigator === 'undefined') return false;
-  return (
-    /Safari/i.test(navigator.userAgent) &&
-    !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(navigator.userAgent)
-  );
+export const isSafariBrowser = (
+  userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  platform = typeof navigator === 'undefined' ? '' : navigator.platform,
+  maxTouchPoints = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints,
+) => {
+  // Chrome, Firefox and Edge on iOS are Safari/WebKit under the hood and need
+  // the same native HLS compatibility path. Their branded user-agent tokens
+  // must not route MKV files through the desktop Chromium strategy.
+  const isAppleMobileWebKit =
+    /iPad|iPhone|iPod/i.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
+  if (isAppleMobileWebKit) return true;
+
+  return /Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(userAgent);
 };
 
 const STALL_RECOVERY_DELAY_MS = 12_000;
@@ -256,8 +263,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sourceErrorRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingHlsSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryAttemptsRef = useRef(0);
+  const sourceErrorRecoveryAttemptsRef = useRef(0);
   const recoveryPositionRef = useRef<number | null>(null);
   const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
   const resumePromptHandledRef = useRef(false);
@@ -358,6 +367,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     recoveryPositionRef.current = null;
     setConnectionMessage(null);
     setAdaptiveQuality(automaticQuality);
+    sourceErrorRecoveryAttemptsRef.current = 0;
   }, [automaticQuality, recommendedPlaybackMode, targetDriveFileId]);
 
   const subtitleOwnerId = activeEpisodeId || media.id;
@@ -480,6 +490,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
       if (stallRecoveryTimerRef.current) clearTimeout(stallRecoveryTimerRef.current);
       if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
+      if (sourceErrorRecoveryTimerRef.current) {
+        clearTimeout(sourceErrorRecoveryTimerRef.current);
+      }
       if (pendingHlsSeekTimerRef.current) {
         clearTimeout(pendingHlsSeekTimerRef.current);
       }
@@ -1158,6 +1171,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     }
     setIsBuffering(false);
     setConnectionMessage(null);
+    sourceErrorRecoveryAttemptsRef.current = 0;
     clearStallRecoveryTimer();
 
     if (stablePlaybackTimerRef.current) clearTimeout(stablePlaybackTimerRef.current);
@@ -1363,6 +1377,28 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             setHlsStartOffset(Math.floor(currentTime));
             setErrorState(null);
             setPlaybackMode(fallbackMode);
+            return;
+          }
+
+          if (playbackMode === 'hls' && sourceErrorRecoveryAttemptsRef.current < 2) {
+            sourceErrorRecoveryAttemptsRef.current += 1;
+            setErrorState(null);
+            setIsBuffering(true);
+            setConnectionMessage(
+              `Mobil akış yeniden deneniyor (${sourceErrorRecoveryAttemptsRef.current}/2)`,
+            );
+            if (sourceErrorRecoveryTimerRef.current) {
+              clearTimeout(sourceErrorRecoveryTimerRef.current);
+            }
+            sourceErrorRecoveryTimerRef.current = setTimeout(() => {
+              const video = videoRef.current;
+              if (!video) return;
+              video.load();
+              void video.play().catch(() => {
+                // The retry remains loaded and can still be resumed manually
+                // when the browser requires a fresh user gesture.
+              });
+            }, 1_200);
             return;
           }
 

@@ -19,6 +19,24 @@ afterEach(() => {
 });
 
 describe('HlsService cache management', () => {
+  it('marks the initial mobile playlist ready after its first complete segment', () => {
+    const service = createService(1024);
+    const playlistPath = path.join(service.getCacheDir('mobile-startup'), 'index.m3u8');
+    fs.mkdirSync(path.dirname(playlistPath), { recursive: true });
+    fs.writeFileSync(
+      playlistPath,
+      '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\nsegment-000000.m4s\n',
+    );
+
+    const isReady = (
+      service as unknown as {
+        isReady: (path: string) => boolean;
+      }
+    ).isReady(playlistPath);
+
+    expect(isReady).toBe(true);
+  });
+
   it('does not reuse an interrupted playlist that only contains ENDLIST', async () => {
     const service = createService(1024);
     const staleDirectory = service.getCacheDir('stale');
@@ -345,14 +363,7 @@ describe('HlsService cache management', () => {
 
     let reservation = '';
     const queuedSeek = internals
-      .reserveSlot(
-        'law-order-at-900',
-        'law-order',
-        'safari_session',
-        2,
-        'Law & Order',
-        900,
-      )
+      .reserveSlot('law-order-at-900', 'law-order', 'safari_session', 2, 'Law & Order', 900)
       .then((reservationId) => {
         reservation = reservationId;
       });

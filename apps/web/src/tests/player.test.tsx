@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   alignSubtitleCueToPlaybackTimeline,
   getBufferedAheadSeconds,
+  isSafariBrowser,
   MediaPlayer,
   normalizeSubtitleTrack,
   serializeSubtitleCuesToVtt,
@@ -29,6 +30,23 @@ describe('Player Components Unit Tests', () => {
       startTime: 2.9,
       endTime: 5.4,
     });
+  });
+
+  it('routes every iOS browser through the native WebKit HLS strategy', () => {
+    expect(
+      isSafariBrowser(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/126.0 Mobile/15E148 Safari/604.1',
+        'iPhone',
+        5,
+      ),
+    ).toBe(true);
+    expect(
+      isSafariBrowser(
+        'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36',
+        'Linux armv8l',
+        5,
+      ),
+    ).toBe(false);
   });
 
   it('measures only the buffered range containing the playback head', () => {
@@ -368,6 +386,39 @@ Sonraki cümle`);
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
       `/api/media/gdrive_interstellar_file/stream?transcode=audio&start=0&session=${hlsSessionId}`,
     );
+  });
+
+  it('retries a slow iOS HLS startup before showing a terminal playback error', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/126.0 Mobile/15E148 Safari/604.1',
+    );
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: {
+          safari: 'hls',
+          chromium: 'audio',
+          reason: 'mkv:h264:aac',
+          analyzed: true,
+        },
+      },
+    };
+
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    const video = container.querySelector('video');
+
+    expect(video?.getAttribute('src')).toContain('/hls/index.m3u8');
+    fireEvent.error(video!);
+
+    expect(screen.getByText('Mobil akış yeniden deneniyor (1/2)')).toBeInTheDocument();
+    expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
   });
 
   it('restarts the Chrome audio compatibility stream at the seek position', () => {

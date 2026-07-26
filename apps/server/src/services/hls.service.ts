@@ -8,7 +8,12 @@ import ffmpeg, { type FfmpegCommand } from 'fluent-ffmpeg';
 
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
-const READY_SEGMENT_COUNT = 3;
+// Returning the initial playlist only after three segments made MKV sources
+// wait 10–15 seconds behind a remote Drive connection. Mobile WebKit can
+// abandon the media request before that. A complete first segment plus the
+// fMP4 init file is sufficient for playback while FFmpeg continues filling
+// the EVENT playlist in the background.
+const READY_SEGMENT_COUNT = 1;
 const WAIT_TIMEOUT_MS = 45_000;
 const IDLE_JOB_TIMEOUT_MS = 45_000;
 const CACHE_VERSION = 'safari-h264-v7';
@@ -295,7 +300,11 @@ export class HlsService {
             ...(isRemoteUrlInput ? input.inputOptions || [] : []),
             ...(startSeconds > 0 ? ['-ss', String(startSeconds)] : []),
             '-readrate',
-            '2',
+            // MKV sources often have 8–10 second keyframe intervals, so the
+            // first complete copy-remuxed HLS segment otherwise arrives too
+            // late for mobile WebKit. Burst at 4x for startup; the lead-based
+            // pause below still caps background generation at 24 seconds.
+            '4',
           ])
           .outputOptions([
             '-map 0:v:0',
