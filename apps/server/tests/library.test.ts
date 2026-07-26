@@ -146,6 +146,68 @@ describe('Library API Integration Tests', () => {
     15000,
   );
 
+  it('clearing one library leaves the other library untouched', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+
+    const makeLibrary = async (name: string, title: string) => {
+      const library = await app.prisma.library.create({
+        data: { userId: owner.id, name, rootFolderId: `${name}_root` },
+      });
+      const driveFile = await app.prisma.driveFile.create({
+        data: {
+          libraryId: library.id,
+          googleDriveFileId: `${name}_file`,
+          name: `${title}.mkv`,
+          mimeType: 'video/x-matroska',
+          status: 'active',
+        },
+      });
+      const mediaItem = await app.prisma.mediaItem.create({
+        data: { type: 'movie', title, normalizedTitle: title.toLowerCase() },
+      });
+      await app.prisma.movie.create({
+        data: { mediaItemId: mediaItem.id, driveFileId: driveFile.id },
+      });
+      await app.prisma.favorite.create({
+        data: { userId: owner.id, mediaItemId: mediaItem.id },
+      });
+      return { library, mediaItem };
+    };
+
+    const doomed = await makeLibrary('ClearTargetLib', 'Doomed Movie');
+    const keeper = await makeLibrary('ClearKeeperLib', 'Kept Movie');
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id')!.value;
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/libraries/${doomed.library.id}/clear`,
+      cookies: { session_id: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    // The whole point: this used to be an unfiltered deleteMany.
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: doomed.mediaItem.id } })).toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: keeper.mediaItem.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.favorite.count({ where: { mediaItemId: keeper.mediaItem.id } }),
+    ).toBe(1);
+    expect(await app.prisma.driveFile.count({ where: { libraryId: keeper.library.id } })).toBe(1);
+
+    await app.prisma.library.deleteMany({
+      where: { id: { in: [doomed.library.id, keeper.library.id] } },
+    });
+    await app.prisma.mediaItem.deleteMany({ where: { id: keeper.mediaItem.id } });
+  });
+
   it("a second account can neither list nor address another user's library", async () => {
     const adminLogin = await app.inject({
       method: 'POST',

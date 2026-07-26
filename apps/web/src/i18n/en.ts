@@ -622,7 +622,36 @@ export const en: Translations = {
     database: {
       title: 'Database management',
       description: 'Reset and clean up the library database',
+      statsTitle: 'Database contents',
+      statLibraries: 'Libraries',
+      statFiles: 'Files',
+      statMovies: 'Movies',
+      statSeries: 'Series',
+      statEpisodes: 'Episodes',
+      statSubtitles: 'Subtitles',
+      statHistory: 'History entries',
+      statFavorites: 'Favorites',
+      statScans: 'Scans',
+      statSize: 'Database size',
+      statsFailed: 'The database information could not be loaded.',
+      maintenanceTitle: 'Maintenance',
+      orphanTitle: 'Leftover records',
+      orphanDescription:
+        'Removes media records with no playable file left and scans that never finished. Your files are untouched.',
+      orphanCount: (count: number) => `${count} leftover records`,
+      orphanNone: 'Nothing to clean up.',
+      cleanup: 'Clean up leftovers',
+      cleaningUp: 'Cleaning up…',
+      cleanupDone: (media: number, scans: number) =>
+        `Removed ${media} media records and ${scans} stalled scans.`,
+      cleanupFailed: 'The leftover records could not be cleaned up.',
+      libraryClearTitle: 'Clear library data',
+      libraryClearDescription:
+        'Deletes every scanned record for the selected library. Other libraries and your Google Drive files are unaffected.',
+      librarySelect: 'Library to clear',
       clearTitle: 'Clear the library database',
+      clearedCount: (media: number, files: number) =>
+        `Deleted ${media} media records and ${files} file records.`,
       clearDescription:
         'Deletes every scanned movie, series, episode, subtitle and watch history record from the CineDrive database. The original files in your Google Drive accounts are untouched.',
       clearAction: 'Clear database',

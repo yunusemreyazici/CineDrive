@@ -1,23 +1,126 @@
 import React, { useState } from 'react';
-import { Database, Trash2, AlertTriangle } from 'lucide-react';
-import { useLibrariesQuery, useClearLibraryMutation } from '../../../hooks/useApi';
+import { Database, Trash2, AlertTriangle, Eraser } from 'lucide-react';
+import {
+  useLibrariesQuery,
+  useClearLibraryMutation,
+  useDatabaseStatsQuery,
+  useDatabaseCleanupMutation,
+} from '../../../hooks/useApi';
 import { toast } from '../../../stores/useToastStore';
 import { Modal } from '../../../components/common/Modal';
-import { SettingsButton, SettingsCard, SettingsRow } from '../SettingsCard';
+import {
+  SettingsButton,
+  SettingsCard,
+  SettingsField,
+  SettingsMetric,
+  SettingsRow,
+  SETTINGS_INPUT_CLASSES,
+} from '../SettingsCard';
 import { t } from '../../../i18n';
+
+const formatBytes = (bytes: number) => {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
+};
+
+export const DatabaseStatsSection: React.FC = () => {
+  const { data: stats, error } = useDatabaseStatsQuery();
+  const cleanup = useDatabaseCleanupMutation();
+
+  const handleCleanup = async () => {
+    try {
+      const removed = await cleanup.mutateAsync();
+      toast.success(t.settings.database.cleanupDone(removed.media, removed.staleScans));
+    } catch (cleanupError) {
+      toast.fromError(cleanupError, t.settings.database.cleanupFailed);
+    }
+  };
+
+  return (
+    <SettingsCard
+      id="settings-database-stats"
+      title={t.settings.database.statsTitle}
+      description={t.settings.database.description}
+      icon={Database}
+      width="full"
+    >
+      {error ? (
+        <p className="text-[13px] text-zinc-500">{t.settings.database.statsFailed}</p>
+      ) : !stats ? (
+        <div className="h-16 animate-pulse rounded-lg bg-zinc-900/60" />
+      ) : (
+        <div className="space-y-6">
+          {/* The screen offered destructive actions without ever showing what
+              was in the database they act on. */}
+          <div className="grid grid-cols-3 gap-x-8 gap-y-5 sm:grid-cols-5 lg:grid-cols-9">
+            <SettingsMetric label={t.settings.database.statLibraries} value={stats.libraries} />
+            <SettingsMetric label={t.settings.database.statFiles} value={stats.driveFiles} />
+            <SettingsMetric label={t.settings.database.statMovies} value={stats.movies} />
+            <SettingsMetric label={t.settings.database.statSeries} value={stats.series} />
+            <SettingsMetric label={t.settings.database.statEpisodes} value={stats.episodes} />
+            <SettingsMetric label={t.settings.database.statSubtitles} value={stats.subtitles} />
+            <SettingsMetric label={t.settings.database.statHistory} value={stats.watchHistory} />
+            <SettingsMetric label={t.settings.database.statFavorites} value={stats.favorites} />
+            <SettingsMetric
+              label={t.settings.database.statSize}
+              value={formatBytes(stats.sizeBytes)}
+            />
+          </div>
+
+          <SettingsRow
+            title={t.settings.database.orphanTitle}
+            description={
+              <>
+                {t.settings.database.orphanDescription}{' '}
+                <span className={stats.orphanMedia > 0 ? 'text-amber-400' : undefined}>
+                  {stats.orphanMedia > 0
+                    ? t.settings.database.orphanCount(stats.orphanMedia)
+                    : t.settings.database.orphanNone}
+                </span>
+              </>
+            }
+          >
+            <SettingsButton
+              variant="secondary"
+              icon={Eraser}
+              onClick={handleCleanup}
+              disabled={stats.orphanMedia === 0 && stats.scans === 0}
+              isLoading={cleanup.isPending}
+              loadingLabel={t.settings.database.cleaningUp}
+            >
+              {t.settings.database.cleanup}
+            </SettingsButton>
+          </SettingsRow>
+        </div>
+      )}
+    </SettingsCard>
+  );
+};
 
 export const DatabaseSection: React.FC = () => {
   const { data: libraries } = useLibrariesQuery();
-  const activeLibrary = libraries?.[0];
   const clearLibrary = useClearLibraryMutation();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [selectedLibraryId, setSelectedLibraryId] = useState('');
+
+  // The action used to always target `libraries[0]` while its copy said "the
+  // library database", so which data it removed was never stated.
+  const targetLibrary =
+    libraries?.find((library) => library.id === selectedLibraryId) || libraries?.[0];
 
   const handleClear = async () => {
-    if (!activeLibrary) return;
+    if (!targetLibrary) return;
     try {
-      await clearLibrary.mutateAsync(activeLibrary.id);
+      const result = await clearLibrary.mutateAsync(targetLibrary.id);
       setShowConfirm(false);
-      toast.success(t.settings.database.cleared);
+      toast.success(
+        `${t.settings.database.cleared} ${t.settings.database.clearedCount(
+          result.removed.media,
+          result.removed.files,
+        )}`,
+      );
     } catch (error) {
       toast.fromError(error, t.settings.database.clearFailed);
     }
@@ -28,24 +131,36 @@ export const DatabaseSection: React.FC = () => {
       <SettingsCard
         id="settings-database"
         tone="danger"
-        title={t.settings.database.title}
-        description={t.settings.database.description}
+        title={t.settings.database.libraryClearTitle}
+        description={t.settings.database.libraryClearDescription}
         icon={Database}
       >
-        <SettingsRow
-          title={t.settings.database.clearTitle}
-          description={t.settings.database.clearDescription}
-        >
+        <div className="space-y-4">
+          <SettingsField id="database-library" label={t.settings.database.librarySelect}>
+            <select
+              id="database-library"
+              value={targetLibrary?.id || ''}
+              onChange={(event) => setSelectedLibraryId(event.target.value)}
+              className={SETTINGS_INPUT_CLASSES}
+            >
+              {(libraries || []).map((library) => (
+                <option key={library.id} value={library.id}>
+                  {library.name}
+                </option>
+              ))}
+            </select>
+          </SettingsField>
+
           <SettingsButton
             variant="danger"
             icon={Trash2}
             onClick={() => setShowConfirm(true)}
-            disabled={!activeLibrary}
+            disabled={!targetLibrary}
             isLoading={clearLibrary.isPending}
           >
             {t.settings.database.clearAction}
           </SettingsButton>
-        </SettingsRow>
+        </div>
       </SettingsCard>
 
       <Modal
@@ -53,7 +168,7 @@ export const DatabaseSection: React.FC = () => {
         onClose={() => setShowConfirm(false)}
         size="sm"
         title={t.settings.database.confirmTitle}
-        description={t.settings.database.confirmSubtitle}
+        description={targetLibrary?.name}
         icon={
           <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
             <AlertTriangle className="h-6 w-6" />

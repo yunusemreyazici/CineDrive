@@ -10,7 +10,7 @@ import { GoogleDriveSection } from './sections/GoogleDriveSection';
 import { LibraryScanSection } from './sections/LibraryScanSection';
 import { LocalLibrarySection } from './sections/LocalLibrarySection';
 import { OpenSubtitlesSection } from './sections/OpenSubtitlesSection';
-import { DatabaseSection } from './sections/DatabaseSection';
+import { DatabaseSection, DatabaseStatsSection } from './sections/DatabaseSection';
 import { AboutSection } from './sections/AboutSection';
 
 /**
@@ -29,6 +29,7 @@ export const GeneralSettingsTab: React.FC = () => (
     <LibraryScanSection />
     <LocalLibrarySection />
     <OpenSubtitlesSection />
+    <DatabaseStatsSection />
     <DatabaseSection />
     <AboutSection />
   </div>

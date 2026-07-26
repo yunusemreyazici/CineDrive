@@ -220,12 +220,53 @@ export function useLibraryScansQuery(libraryId?: string) {
   return query;
 }
 
+export interface DatabaseStats {
+  libraries: number;
+  driveFiles: number;
+  movies: number;
+  series: number;
+  episodes: number;
+  subtitles: number;
+  watchHistory: number;
+  favorites: number;
+  scans: number;
+  orphanMedia: number;
+  sizeBytes: number;
+}
+
+export function useDatabaseStatsQuery() {
+  return useQuery({
+    queryKey: ['database-stats'],
+    queryFn: async () =>
+      (await apiClient.get<{ stats: DatabaseStats }>('/settings/database/stats')).data.stats,
+  });
+}
+
+export function useDatabaseCleanupMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (
+        await apiClient.post<{ removed: { media: number; staleScans: number } }>(
+          '/settings/database/cleanup',
+        )
+      ).data.removed,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['database-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+}
+
 export function useClearLibraryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (libraryId: string) => {
       try {
-        const res = await apiClient.delete<{ message: string }>(`/libraries/${libraryId}/clear`);
+        const res = await apiClient.delete<{
+          message: string;
+          removed: { media: number; files: number };
+        }>(`/libraries/${libraryId}/clear`);
         return res.data;
       } catch (err) {
         throw parseApiError(err);

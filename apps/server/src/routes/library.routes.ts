@@ -258,19 +258,45 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    // Delete in sequence to clear all library media data
-    await fastify.prisma.libraryScanError.deleteMany({});
+    /*
+     * Scoped to this library. Every statement here except the two `libraryId`
+     * ones used to be an unfiltered `deleteMany({})`: clearing one library
+     * wiped every media item, subtitle, favourite and watch-history row in the
+     * database — including other libraries' and, now that libraries have
+     * owners, other accounts'.
+     */
+    const mediaIdsInLibrary = await fastify.prisma.mediaItem.findMany({
+      where: {
+        OR: [
+          { movie: { driveFile: { libraryId: id } } },
+          { episodes: { some: { driveFile: { libraryId: id } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    const mediaIds = mediaIdsInLibrary.map((item) => item.id);
+
     await fastify.prisma.libraryScan.deleteMany({ where: { libraryId: id } });
-    await fastify.prisma.subtitleTrack.deleteMany({});
-    await fastify.prisma.playbackProgress.deleteMany({});
-    await fastify.prisma.watchHistory.deleteMany({});
-    await fastify.prisma.favorite.deleteMany({});
-    await fastify.prisma.episode.deleteMany({});
-    await fastify.prisma.season.deleteMany({});
-    await fastify.prisma.series.deleteMany({});
-    await fastify.prisma.movie.deleteMany({});
-    await fastify.prisma.mediaItem.deleteMany({});
-    await fastify.prisma.driveFile.deleteMany({ where: { libraryId: id } });
+
+    if (mediaIds.length > 0) {
+      // Progress, history and favourites are per-user rows about these media
+      // items; the cascade from MediaItem removes them, but doing it first
+      // keeps the intent explicit.
+      await fastify.prisma.playbackProgress.deleteMany({
+        where: { mediaItemId: { in: mediaIds } },
+      });
+      await fastify.prisma.watchHistory.deleteMany({
+        where: { mediaItemId: { in: mediaIds } },
+      });
+      await fastify.prisma.favorite.deleteMany({ where: { mediaItemId: { in: mediaIds } } });
+      await fastify.prisma.mediaItem.deleteMany({ where: { id: { in: mediaIds } } });
+    }
+
+    // Subtitles, episodes, seasons and series follow their DriveFile or their
+    // MediaItem through the schema's cascades.
+    const { count: removedFiles } = await fastify.prisma.driveFile.deleteMany({
+      where: { libraryId: id },
+    });
 
     await fastify.prisma.library.update({
       where: { id },
@@ -279,6 +305,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(200).send({
       message: 'Kütüphane veritabanı başarıyla temizlendi.',
+      removed: { media: mediaIds.length, files: removedFiles },
     });
   });
 };

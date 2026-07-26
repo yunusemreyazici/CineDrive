@@ -626,7 +626,36 @@ export const tr = {
     database: {
       title: 'Veritabanı Yönetimi',
       description: 'Kütüphane veritabanı sıfırlama ve temizlik işlemleri',
+      statsTitle: 'Veritabanı İçeriği',
+      statLibraries: 'Kütüphane',
+      statFiles: 'Dosya',
+      statMovies: 'Film',
+      statSeries: 'Dizi',
+      statEpisodes: 'Bölüm',
+      statSubtitles: 'Altyazı',
+      statHistory: 'İzleme kaydı',
+      statFavorites: 'Favori',
+      statScans: 'Tarama',
+      statSize: 'Veritabanı boyutu',
+      statsFailed: 'Veritabanı bilgileri alınamadı.',
+      maintenanceTitle: 'Bakım',
+      orphanTitle: 'Artık kayıtlar',
+      orphanDescription:
+        'Oynatılacak dosyası kalmayan medya kayıtlarını ve yarıda kalmış taramaları temizler. Dosyalarınıza dokunulmaz.',
+      orphanCount: (count: number) => `${count} artık kayıt`,
+      orphanNone: 'Temizlenecek artık kayıt yok.',
+      cleanup: 'Artıkları Temizle',
+      cleaningUp: 'Temizleniyor...',
+      cleanupDone: (media: number, scans: number) =>
+        `${media} medya kaydı ve ${scans} askıda tarama temizlendi.`,
+      cleanupFailed: 'Artık kayıtlar temizlenemedi.',
+      libraryClearTitle: 'Kütüphane Verisini Temizle',
+      libraryClearDescription:
+        'Seçilen kütüphanenin taranmış tüm kayıtlarını siler. Diğer kütüphaneler ve Google Drive dosyalarınız etkilenmez.',
+      librarySelect: 'Temizlenecek kütüphane',
       clearTitle: 'Kütüphane Veritabanını Temizle',
+      clearedCount: (media: number, files: number) =>
+        `${media} medya kaydı ve ${files} dosya kaydı silindi.`,
       clearDescription:
         'Taranan tüm film, dizi, bölüm, altyazı ve izleme geçmişi verilerini CineDrive veritabanından siler. Google Drive hesaplarınızdaki orijinal dosyalarınıza dokunulmaz.',
       clearAction: 'Veritabanını Temizle',

@@ -1,0 +1,110 @@
+import type { FastifyPluginAsync } from 'fastify';
+import { ownedLibraryFilter } from '../utils/library-access.js';
+
+/**
+ * Maintenance for the library database.
+ *
+ * The settings screen previously offered exactly one action here — "clear
+ * everything" — with no way to see what was in the database or to remove the
+ * rows that accumulate on their own.
+ */
+export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', fastify.authenticate);
+
+  /** Media that no longer has anything playable behind it. */
+  const orphanMediaFilter = {
+    AND: [
+      { movie: { is: null } },
+      { episodes: { none: {} } },
+    ],
+  };
+
+  // GET /api/settings/database/stats
+  fastify.get('/stats', async (request, reply) => {
+    const userId = request.user!.id;
+    const ownedFiles = { library: ownedLibraryFilter(userId) };
+
+    const [
+      libraries,
+      driveFiles,
+      movies,
+      series,
+      episodes,
+      subtitles,
+      watchHistory,
+      favorites,
+      scans,
+      orphanMedia,
+      pageStats,
+    ] = await Promise.all([
+      fastify.prisma.library.count({ where: { userId } }),
+      fastify.prisma.driveFile.count({ where: ownedFiles }),
+      fastify.prisma.mediaItem.count({ where: { type: 'movie' } }),
+      fastify.prisma.mediaItem.count({ where: { type: 'series' } }),
+      fastify.prisma.episode.count(),
+      fastify.prisma.subtitleTrack.count(),
+      fastify.prisma.watchHistory.count({ where: { userId } }),
+      fastify.prisma.favorite.count({ where: { userId } }),
+      fastify.prisma.libraryScan.count({ where: { library: { userId } } }),
+      fastify.prisma.mediaItem.count({ where: orphanMediaFilter }),
+      // Asking SQLite for its own page accounting avoids guessing where the
+      // database file ended up: a relative `file:` URL resolves against the
+      // schema directory, not the working directory.
+      fastify.prisma.$queryRawUnsafe<Array<{ page_count: number; page_size: number }>>(
+        'SELECT (SELECT * FROM pragma_page_count()) AS page_count, (SELECT * FROM pragma_page_size()) AS page_size',
+      ),
+    ]);
+
+    const page = pageStats[0];
+    const sizeBytes = page ? Number(page.page_count) * Number(page.page_size) : 0;
+
+    return reply.status(200).send({
+      stats: {
+        libraries,
+        driveFiles,
+        movies,
+        series,
+        episodes,
+        subtitles,
+        watchHistory,
+        favorites,
+        scans,
+        orphanMedia,
+        sizeBytes,
+      },
+    });
+  });
+
+  // POST /api/settings/database/cleanup
+  fastify.post('/cleanup', async (request, reply) => {
+    // Media rows whose file was removed from Drive — or from a library that was
+    // deleted — survive as records with nothing to play.
+    const { count: removedMedia } = await fastify.prisma.mediaItem.deleteMany({
+      where: orphanMediaFilter,
+    });
+
+    // A scan that died with the process stays "running" forever and blocks the
+    // next one for that library.
+    const stale = await fastify.prisma.libraryScan.findMany({
+      where: { status: 'running', library: { userId: request.user!.id } },
+      select: { id: true, libraryId: true },
+    });
+    const abandoned = stale.filter(
+      (scan) => !fastify.libraryScanService.isScanning(scan.libraryId),
+    );
+
+    if (abandoned.length > 0) {
+      await fastify.prisma.libraryScan.updateMany({
+        where: { id: { in: abandoned.map((scan) => scan.id) } },
+        data: { status: 'failed', completedAt: new Date() },
+      });
+    }
+
+    return reply.status(200).send({
+      removed: {
+        media: removedMedia,
+        staleScans: abandoned.length,
+      },
+    });
+  });
+};

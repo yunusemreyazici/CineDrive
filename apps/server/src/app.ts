@@ -17,6 +17,7 @@ import { playbackRoutes, historyRoutes } from './routes/playback.routes.js';
 import { favoriteRoutes } from './routes/favorite.routes.js';
 import { subtitleRoutes } from './routes/subtitle.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
+import { databaseRoutes } from './routes/database.routes.js';
 import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
@@ -118,6 +119,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(favoriteRoutes, { prefix: '/api/favorites' });
   await app.register(subtitleRoutes, { prefix: '/api/media' });
   await app.register(settingsRoutes, { prefix: '/api/settings' });
+  await app.register(databaseRoutes, { prefix: '/api/settings/database' });
   await app.register(insightsRoutes, { prefix: '/api/insights' });
   // Loopback-only FFmpeg source proxy; authenticated by capability, not session.
   await app.register(internalRoutes, { prefix: '/api/internal' });
