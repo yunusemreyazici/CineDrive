@@ -11,15 +11,16 @@ export const FavoritesPage: React.FC = () => {
   const { data: favorites, isLoading, isError, error, refetch } = useFavoritesQuery();
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
-        <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl">
-          <Heart className="w-6 h-6 fill-current" />
-        </div>
-        <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.favorites.title}</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">{t.favorites.subtitle}</p>
-        </div>
+    <div className="space-y-6">
+      {/* Same header shape as the library and the other collection pages. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
+          {t.favorites.title}
+        </h2>
+        {favorites && favorites.length > 0 && (
+          <span className="text-sm text-zinc-500">{t.library.itemCount(favorites.length)}</span>
+        )}
+        <p className="w-full text-sm text-zinc-400">{t.favorites.subtitle}</p>
       </div>
 
       {isLoading ? (

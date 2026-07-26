@@ -447,6 +447,11 @@ export const tr = {
     daysAgo: (days: number) => `${days} gün önce`,
     resume: 'İzlemeye Devam Et',
     watch: 'İzle',
+    deviceUnknown: 'Bilinmiyor',
+    watchedMinutes: (minutes: number) => `${minutes} dk izlendi`,
+    deleteEntry: (title: string) => `${title} kaydını geçmişten sil`,
+    clearConfirmTitle: 'Geçmişi Temizle',
+    itemCount: (count: number) => `${count} kayıt`,
   },
 
   settings: {

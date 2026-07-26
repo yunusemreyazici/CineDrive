@@ -1,16 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  History,
-  Trash2,
-  Play,
-  Calendar,
-  Film,
-  Tv,
-  Monitor,
-  Smartphone,
-  Tablet,
-} from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Calendar, Film, Monitor, Smartphone, Tablet, Trash2 } from 'lucide-react';
 import {
   useWatchHistoryQuery,
   useDeleteHistoryMutation,
@@ -18,8 +8,13 @@ import {
 } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
+import { Modal } from '../components/common/Modal';
 import { toast } from '../stores/useToastStore';
+import { getPosterUrl } from '../utils/mediaImages';
 import { t } from '../i18n';
+
+const FILTER_SELECT_CLASSES =
+  'rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-200 transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
 
 type HistoryFilterType = 'all' | 'movie' | 'series';
 type DurationFilter = 'all' | 'short' | 'medium' | 'long';
@@ -31,20 +26,20 @@ export const HistoryPage: React.FC = () => {
   const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('all');
   const [episodesOnly, setEpisodesOnly] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const { data: historyItems, isLoading, isError, error, refetch } = useWatchHistoryQuery();
   const deleteHistoryMutation = useDeleteHistoryMutation();
   const clearHistoryMutation = useClearWatchHistoryMutation();
 
-  const handleClearAllHistory = async () => {
-    if (
-      !window.confirm(
-        t.history.clearConfirm,
-      )
-    )
-      return;
-
+  // `window.confirm` blocks the tab with a browser chrome dialog that ignores
+  // the app's focus handling and styling; every other destructive action here
+  // already confirms through the shared Modal.
+  const handleClearAllHistory = () => {
     clearHistoryMutation.mutate(undefined, {
-      onSuccess: () => toast.success(t.history.cleared),
+      onSuccess: () => {
+        setShowClearConfirm(false);
+        toast.success(t.history.cleared);
+      },
       onError: (error) => toast.fromError(error, t.history.clearFailed),
     });
   };
@@ -79,102 +74,90 @@ export const HistoryPage: React.FC = () => {
   });
 
   return (
-    <div className="space-y-8 max-w-6xl">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800/60">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-brand-600/20 border border-brand-500/30 text-brand-400 rounded-2xl">
-            <History className="w-6 h-6" />
-          </div>
-          <div>
-            <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">
-              {t.history.title}
-            </h2>
-            <p className="text-sm text-zinc-400 mt-0.5">
-              {t.history.subtitle}
-            </p>
-          </div>
+    <div className="max-w-6xl space-y-6">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
+          {t.history.title}
+        </h2>
+        {historyItems && historyItems.length > 0 && (
+          <span className="text-sm text-zinc-500">{t.history.itemCount(historyItems.length)}</span>
+        )}
+        <p className="w-full text-sm text-zinc-400">{t.history.subtitle}</p>
+      </div>
+
+      {/* One control row, matching the library. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-zinc-800 p-0.5 text-xs font-medium">
+          {[
+            { id: 'all', label: t.common.all },
+            { id: 'movie', label: t.common.movies },
+            { id: 'series', label: t.common.seriesPlural },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              aria-pressed={activeFilter === tab.id}
+              onClick={() => setActiveFilter(tab.id as HistoryFilterType)}
+              className={`rounded-md px-3 py-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+                activeFilter === tab.id
+                  ? 'bg-zinc-800 text-zinc-100'
+                  : 'text-zinc-500 hover:text-zinc-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
+
+        <select
+          value={durationFilter}
+          onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}
+          aria-label={t.history.watchedDuration}
+          className={FILTER_SELECT_CLASSES}
+        >
+          <option value="all">{t.history.allDurations}</option>
+          <option value="short">{t.history.durationShort}</option>
+          <option value="medium">{t.history.durationMedium}</option>
+          <option value="long">{t.history.durationLong}</option>
+        </select>
+
+        <select
+          value={deviceFilter}
+          onChange={(event) => setDeviceFilter(event.target.value as DeviceFilter)}
+          aria-label={t.history.device}
+          className={FILTER_SELECT_CLASSES}
+        >
+          <option value="all">{t.history.allDevices}</option>
+          <option value="desktop">{t.history.deviceDesktop}</option>
+          <option value="tablet">{t.history.deviceTablet}</option>
+          <option value="mobile">{t.history.deviceMobile}</option>
+        </select>
+
+        {/* Was styled exactly like the two selects beside it, despite toggling. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={episodesOnly}
+          onClick={() => setEpisodesOnly((value) => !value)}
+          className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
+            episodesOnly
+              ? 'border-brand-500/50 bg-brand-500/10 text-brand-300'
+              : 'border-zinc-800 text-zinc-400 hover:text-zinc-100'
+          }`}
+        >
+          {t.history.episodesOnly}
+        </button>
 
         {historyItems && historyItems.length > 0 && (
           <button
-            onClick={handleClearAllHistory}
+            onClick={() => setShowClearConfirm(true)}
             disabled={clearHistoryMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-colors self-start sm:self-auto"
+            className="ml-auto inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-rose-500/10 hover:text-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="h-4 w-4" />
             {clearHistoryMutation.isPending ? t.history.clearing : t.history.clearAll}
           </button>
         )}
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <label className="space-y-1.5 text-xs text-zinc-400">
-          <span className="font-semibold">{t.history.watchedDuration}</span>
-          <select
-            value={durationFilter}
-            onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
-          >
-            <option value="all">{t.history.allDurations}</option>
-            <option value="short">{t.history.durationShort}</option>
-            <option value="medium">{t.history.durationMedium}</option>
-            <option value="long">{t.history.durationLong}</option>
-          </select>
-        </label>
-        <label className="space-y-1.5 text-xs text-zinc-400">
-          <span className="font-semibold">{t.history.device}</span>
-          <select
-            value={deviceFilter}
-            onChange={(event) => setDeviceFilter(event.target.value as DeviceFilter)}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-zinc-200"
-          >
-            <option value="all">{t.history.allDevices}</option>
-            <option value="desktop">{t.history.deviceDesktop}</option>
-            <option value="tablet">{t.history.deviceTablet}</option>
-            <option value="mobile">{t.history.deviceMobile}</option>
-          </select>
-        </label>
-        <div className="flex items-end">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={episodesOnly}
-            onClick={() => setEpisodesOnly((value) => !value)}
-            className={`w-full rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
-              episodesOnly
-                ? 'border-brand-500 bg-brand-600 text-white'
-                : 'border-zinc-800 bg-zinc-900 text-zinc-400'
-            }`}
-          >
-            {t.history.episodesOnly}
-          </button>
-        </div>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {[
-          { id: 'all', label: t.common.all, icon: History },
-          { id: 'movie', label: t.common.movies, icon: Film },
-          { id: 'series', label: t.common.seriesPlural, icon: Tv },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveFilter(tab.id as HistoryFilterType)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
-                activeFilter === tab.id
-                  ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/20'
-                  : 'bg-zinc-900/60 hover:bg-zinc-800 text-zinc-400 border border-zinc-800'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.label}
-            </button>
-          );
-        })}
       </div>
 
       {/* Content Section */}
@@ -194,58 +177,68 @@ export const HistoryPage: React.FC = () => {
           onAction={() => navigate('/library')}
         />
       ) : (
-        <div className="space-y-4">
-          {filteredItems.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center justify-between p-4 bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/60 rounded-2xl transition-all group"
-            >
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="relative w-16 h-20 bg-zinc-950 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-800">
-                  {item.mediaItem.posterUrl ? (
+        <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
+          {filteredItems.map((item) => {
+            const posterUrl = getPosterUrl(item.mediaItem);
+            const watchHref = item.episodeId
+              ? `/watch/${item.mediaItem.id}/${item.episodeId}`
+              : `/watch/${item.mediaItem.id}`;
+
+            return (
+              <li key={item.id} className="group relative flex items-center gap-4 py-3">
+                <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-zinc-900">
+                  {posterUrl ? (
                     <img
-                      src={item.mediaItem.posterUrl}
-                      alt={item.mediaItem.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : item.mediaItem.posterDriveFileId ? (
-                    <img
-                      src={`/api/media/assets/${item.mediaItem.posterDriveFileId}`}
-                      alt={item.mediaItem.title}
-                      className="w-full h-full object-cover"
+                      src={posterUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                      <Film className="w-6 h-6" />
+                    <div className="flex h-full w-full items-center justify-center text-zinc-600">
+                      <Film className="h-5 w-5" />
                     </div>
                   )}
                 </div>
 
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 text-[10px] font-bold text-zinc-300 rounded uppercase">
-                      {item.mediaItem.type === 'movie' ? 'Film' : 'Dizi'}
+                <div className="min-w-0 flex-1">
+                  {/*
+                    The whole row is the link now. It used to be a plain div
+                    with hover styling and a small button as the only way in —
+                    and that button was an `<a href>`, so every "watch" click
+                    reloaded the entire app instead of routing.
+                  */}
+                  <Link
+                    to={watchHref}
+                    className="after:absolute after:inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    <span className="block truncate text-sm font-semibold text-zinc-100 group-hover:text-brand-300">
+                      {item.mediaItem.title}
+                      {item.episode && (
+                        <span className="ml-2 text-xs font-normal text-zinc-400">
+                          {item.episode.seasonNumber}x
+                          {item.episode.episodeNumber < 10
+                            ? `0${item.episode.episodeNumber}`
+                            : item.episode.episodeNumber}{' '}
+                          · {item.episode.title}
+                        </span>
+                      )}
                     </span>
-                    <span className="text-xs text-zinc-400 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                  </Link>
+
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                    <span className="uppercase tracking-wide">
+                      {item.mediaItem.type === 'movie' ? t.common.movie : t.common.series}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
                       {formatFriendlyDate(item.watchedAt)}
                     </span>
-                  </div>
-
-                  <h4 className="text-sm font-bold font-display text-white truncate">
-                    {item.mediaItem.title}
-                    {item.episode && (
-                      <span className="text-zinc-400 font-normal ml-2 text-xs">
-                        {item.episode.seasonNumber}x
-                        {item.episode.episodeNumber < 10
-                          ? `0${item.episode.episodeNumber}`
-                          : item.episode.episodeNumber}{' '}
-                        - {item.episode.title}
-                      </span>
-                    )}
-                  </h4>
-                  <div className="flex items-center gap-3 text-[11px] text-zinc-500">
-                    <span>{Math.max(1, Math.round(item.positionSeconds / 60))} dk izlendi</span>
+                    <span>
+                      {t.history.watchedMinutes(
+                        Math.max(1, Math.round(item.positionSeconds / 60)),
+                      )}
+                    </span>
                     <span className="flex items-center gap-1">
                       {item.deviceType === 'mobile' ? (
                         <Smartphone className="h-3 w-3" />
@@ -255,45 +248,64 @@ export const HistoryPage: React.FC = () => {
                         <Monitor className="h-3 w-3" />
                       )}
                       {item.deviceType === 'mobile'
-                        ? 'Telefon'
+                        ? t.history.deviceMobile
                         : item.deviceType === 'tablet'
-                          ? 'Tablet'
+                          ? t.history.deviceTablet
                           : item.deviceType === 'desktop'
-                            ? 'Bilgisayar'
-                            : 'Bilinmiyor'}
+                            ? t.history.deviceDesktop
+                            : t.history.deviceUnknown}
                     </span>
                   </div>
                 </div>
-              </div>
 
-              {/* Action Group */}
-              <div className="flex items-center gap-3">
-                <a
-                  href={
-                    item.episodeId
-                      ? `/watch/${item.mediaItem.id}/${item.episodeId}`
-                      : `/watch/${item.mediaItem.id}`
-                  }
-                  className="p-3 bg-brand-600/20 hover:bg-brand-600 text-brand-400 hover:text-white border border-brand-500/30 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold"
-                  aria-label={t.history.resume}
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>{t.history.watch}</span>
-                </a>
-
+                {/* Above the stretched link, so it stays clickable. */}
                 <button
                   onClick={() => deleteHistoryMutation.mutate(item.id)}
                   disabled={deleteHistoryMutation.isPending}
-                  className="p-3 bg-zinc-800/60 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 rounded-xl transition-colors"
-                  aria-label="Sil"
+                  className="relative z-10 shrink-0 rounded-md p-2 text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
+                  aria-label={t.history.deleteEntry(item.mediaItem.title)}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="h-4 w-4" />
                 </button>
-              </div>
-            </div>
-          ))}
-        </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
+
+      <Modal
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        size="sm"
+        title={t.history.clearConfirmTitle}
+        icon={
+          <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+        }
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(false)}
+              className="rounded-lg border border-zinc-700 px-3.5 py-2 text-[13px] font-medium text-zinc-200 transition-colors hover:bg-zinc-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              {t.common.cancel}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearAllHistory}
+              disabled={clearHistoryMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3.5 py-2 text-[13px] font-medium text-rose-300 transition-colors hover:bg-rose-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {clearHistoryMutation.isPending ? t.history.clearing : t.history.clearAll}
+            </button>
+          </div>
+        }
+      >
+        <p className="p-6 text-sm leading-relaxed text-zinc-300">{t.history.clearConfirm}</p>
+      </Modal>
     </div>
   );
 };
