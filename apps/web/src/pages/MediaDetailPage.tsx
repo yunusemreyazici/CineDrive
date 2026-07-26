@@ -14,6 +14,14 @@ import type { SeasonType, EpisodeType } from '../types/media';
 import { getHeroArtworkUrl, getPosterUrl } from '../utils/mediaImages';
 import { t } from '../i18n';
 
+/** Everything that is not "play this" shares one quiet treatment. */
+const SECONDARY_ACTION_CLASSES =
+  'flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-600 hover:bg-white/5 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50';
+
+/** Record housekeeping: available, but not competing with playback. */
+const MANAGEMENT_ACTION_CLASSES =
+  'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/5 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950';
+
 export const MediaDetailPage: React.FC = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
@@ -39,6 +47,7 @@ export const MediaDetailPage: React.FC = () => {
   const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
   const [showEditModal, setShowEditModal] = useState<boolean>(false);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
+  const [isOverviewExpanded, setIsOverviewExpanded] = useState<boolean>(false);
 
   const handleAutoDownloadSubtitle = async () => {
     if (!media) return;
@@ -137,20 +146,25 @@ export const MediaDetailPage: React.FC = () => {
         {/* Details Text Container */}
         <div className="relative z-10 flex-1">
           {/* Metadata Badges (Type, Year, Duration, Rating, Content Rating) */}
-          <div className="flex flex-wrap items-center gap-2.5 text-xs text-zinc-300 font-medium mb-3">
-            <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 uppercase font-semibold text-zinc-200">
+          {/*
+            One line of facts, one treatment. These were three different badge
+            styles for the same kind of information, and the content rating was
+            filled rose — the colour this app uses for destructive actions.
+          */}
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] font-medium text-zinc-400">
+            <span className="uppercase tracking-wide text-zinc-300">
               {media.type === 'movie' ? t.common.movie : t.common.series}
             </span>
 
-            {media.voteAverage && (
-              <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold">
-                <Star className="w-3.5 h-3.5 fill-current text-amber-400" />
-                {media.voteAverage.toFixed(1)} / 10
+            {media.voteAverage ? (
+              <span className="flex items-center gap-1 text-zinc-300">
+                <Star className="h-3.5 w-3.5 fill-current text-amber-400" />
+                {media.voteAverage.toFixed(1)}
               </span>
-            )}
+            ) : null}
 
             {media.contentRating && (
-              <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 font-bold">
+              <span className="rounded border border-zinc-600 px-1.5 text-xs text-zinc-300">
                 {media.contentRating}
               </span>
             )}
@@ -159,7 +173,7 @@ export const MediaDetailPage: React.FC = () => {
 
             {media.duration && (
               <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
+                <Clock className="h-3.5 w-3.5" />
                 {t.common.minutes(Math.round(media.duration / 60))}
               </span>
             )}
@@ -188,50 +202,52 @@ export const MediaDetailPage: React.FC = () => {
           )}
 
           {media.overview && (
-            <p className="text-sm text-zinc-300 max-w-2xl leading-relaxed mb-6 line-clamp-4">
-              {media.overview}
-            </p>
+            <div className="mb-6 max-w-2xl">
+              <p
+                className={`text-sm leading-relaxed text-zinc-300 ${
+                  isOverviewExpanded ? '' : 'line-clamp-4'
+                }`}
+              >
+                {media.overview}
+              </p>
+              {/* The summary was clamped with no way to reach the rest of it. */}
+              <button
+                type="button"
+                onClick={() => setIsOverviewExpanded((expanded) => !expanded)}
+                aria-expanded={isOverviewExpanded}
+                className="mt-1 text-[13px] font-medium text-zinc-400 transition-colors hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {isOverviewExpanded ? t.mediaDetail.showLess : t.mediaDetail.showMore}
+              </button>
+            </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-3">
+          {/*
+            Two groups, not one row of six equals. Playing the thing is the
+            reason for this page; editing and deleting the record are
+            housekeeping, and delete used to sit one tab stop from play at the
+            same size and saturation.
+          */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => navigate(`/watch/${media.id}`)}
-              className="flex items-center gap-2.5 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105"
+              className="flex items-center gap-2.5 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             >
-              <Play className="w-5 h-5 fill-current" />
-              {media.progress && media.progress.percentage > 0 ? t.mediaDetail.resume : t.mediaDetail.play}
+              <Play className="h-5 w-5 fill-current" />
+              {media.progress && media.progress.percentage > 0
+                ? t.mediaDetail.resume
+                : t.mediaDetail.play}
             </button>
 
             {hasTrailer && (
               <button
                 onClick={() => setShowTrailerModal(true)}
-                className="flex items-center gap-2 px-5 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-white font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
+                className={SECONDARY_ACTION_CLASSES}
               >
-                <Video className="w-4 h-4 text-brand-400" />
+                <Video className="h-4 w-4" />
                 {t.mediaDetail.watchTrailer}
               </button>
             )}
-
-            {/* Series subtitles must be selected for a concrete episode in the player. */}
-            {media.type === 'movie' && <button
-              onClick={handleAutoDownloadSubtitle}
-              disabled={autoSubtitleMutation.isPending}
-              className="flex items-center gap-2 px-4 py-3 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 font-medium text-sm rounded-xl border border-indigo-500/30 backdrop-blur-md transition-all hover:scale-105 disabled:opacity-50"
-              title={t.mediaDetail.downloadSubtitleTitle}
-            >
-              {autoSubtitleMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                  <span>{t.mediaDetail.downloadingSubtitle}</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4 text-indigo-400" />
-                  <span>{t.mediaDetail.downloadSubtitle}</span>
-                </>
-              )}
-            </button>}
 
             <button
               onClick={() =>
@@ -240,33 +256,52 @@ export const MediaDetailPage: React.FC = () => {
                   isFavorite: !!media.isFavorite,
                 })
               }
-              className={`p-3 rounded-xl border backdrop-blur-md transition-all hover:scale-105 ${
-                media.isFavorite
-                  ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
-                  : 'bg-zinc-800/90 border-zinc-700 text-zinc-300 hover:text-white'
+              aria-pressed={!!media.isFavorite}
+              className={`${SECONDARY_ACTION_CLASSES} ${
+                media.isFavorite ? 'text-rose-400' : ''
               }`}
               title={media.isFavorite ? t.mediaDetail.favoriteRemove : t.mediaDetail.favoriteAdd}
+              aria-label={media.isFavorite ? t.mediaDetail.favoriteRemove : t.mediaDetail.favoriteAdd}
             >
-              <Heart className={`w-5 h-5 ${media.isFavorite ? 'fill-current' : ''}`} />
+              <Heart className={`h-4 w-4 ${media.isFavorite ? 'fill-current' : ''}`} />
             </button>
 
-            {/* Edit Metadata Button */}
+            {/* Series subtitles must be selected for a concrete episode in the player. */}
+            {media.type === 'movie' && (
+              <button
+                onClick={handleAutoDownloadSubtitle}
+                disabled={autoSubtitleMutation.isPending}
+                className={SECONDARY_ACTION_CLASSES}
+                title={t.mediaDetail.downloadSubtitleTitle}
+              >
+                {autoSubtitleMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {autoSubtitleMutation.isPending
+                  ? t.mediaDetail.downloadingSubtitle
+                  : t.mediaDetail.downloadSubtitle}
+              </button>
+            )}
+
+            <span aria-hidden="true" className="mx-1 hidden h-6 w-px bg-white/10 sm:block" />
+
             <button
               onClick={() => setShowEditModal(true)}
-              className="flex items-center gap-2 px-4 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
+              className={MANAGEMENT_ACTION_CLASSES}
               title={t.mediaDetail.editTitle}
             >
-              <Pencil className="w-4 h-4 text-brand-400" />
+              <Pencil className="h-4 w-4" />
               {t.mediaDetail.edit}
             </button>
 
-            {/* Delete Item Button */}
             <button
               onClick={() => setShowDeleteConfirmModal(true)}
-              className="flex items-center gap-2 px-4 py-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-medium text-sm rounded-xl border border-rose-500/30 backdrop-blur-md transition-all hover:scale-105"
+              className={`${MANAGEMENT_ACTION_CLASSES} hover:bg-rose-500/10 hover:text-rose-400`}
               title={t.mediaDetail.deleteFromDatabase}
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="h-4 w-4" />
               {t.common.delete}
             </button>
           </div>

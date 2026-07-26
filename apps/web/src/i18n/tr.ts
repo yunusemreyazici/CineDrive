@@ -360,6 +360,8 @@ export const tr = {
     play: 'Oynat',
     resume: 'Kaldığın Yerden Devam Et',
     watchTrailer: 'Fragman İzle',
+    showMore: 'Devamını oku',
+    showLess: 'Kısalt',
     downloadSubtitle: 'Altyazı İndir',
     downloadingSubtitle: 'Altyazı İndiriliyor...',
     downloadSubtitleTitle: 'OpenSubtitles üzerinden Türkçe altyazı indir ve veritabanına kaydet',
