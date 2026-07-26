@@ -158,7 +158,7 @@ export const SettingsPage: React.FC = () => {
           })}
         </div>
 
-        <div id="settings-tabpanel" role="tabpanel" className="min-w-0 p-3 md:p-5">
+        <div id="settings-tabpanel" role="tabpanel" className="min-w-0 p-4 md:px-7 md:py-5">
           {activeTab === 'general' ? <GeneralSettingsTab /> : null}
           <Suspense fallback={<SettingsToolFallback />}>
             {activeTab === 'manage' ? <MediaManagerPage /> : null}

@@ -9,8 +9,13 @@ import { OpenSubtitlesSection } from './sections/OpenSubtitlesSection';
 import { DatabaseSection } from './sections/DatabaseSection';
 import { AboutSection } from './sections/AboutSection';
 
+/**
+ * Sections carry their own top hairline and vertical rhythm, so this is a plain
+ * column — the gap that used to separate ten bordered cards would now double
+ * the space between two rules.
+ */
 export const GeneralSettingsTab: React.FC = () => (
-  <div className="grid grid-cols-1 gap-4">
+  <div>
     <ProfileSection />
     <SecuritySection />
     <AppearanceSection />

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Database, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Database, Trash2, AlertTriangle } from 'lucide-react';
 import { useLibrariesQuery, useClearLibraryMutation } from '../../../hooks/useApi';
 import { toast } from '../../../stores/useToastStore';
 import { Modal } from '../../../components/common/Modal';
-import { SettingsCard } from '../SettingsCard';
+import { SettingsButton, SettingsCard, SettingsRow } from '../SettingsCard';
 import { t } from '../../../i18n';
 
 export const DatabaseSection: React.FC = () => {
@@ -30,32 +30,22 @@ export const DatabaseSection: React.FC = () => {
         tone="danger"
         title={t.settings.database.title}
         description={t.settings.database.description}
-        icon={
-          <div className="rounded-xl bg-rose-500/20 p-2.5 text-rose-400">
-            <Database className="h-5 w-5" />
-          </div>
-        }
+        icon={Database}
       >
-        <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-          <div className="space-y-1">
-            <h4 className="text-sm font-semibold text-zinc-200">
-              {t.settings.database.clearTitle}
-            </h4>
-            <p className="max-w-xl text-xs leading-relaxed text-zinc-400">
-              {t.settings.database.clearDescription}
-            </p>
-          </div>
-
-          <button
-            type="button"
+        <SettingsRow
+          title={t.settings.database.clearTitle}
+          description={t.settings.database.clearDescription}
+        >
+          <SettingsButton
+            variant="danger"
+            icon={Trash2}
             onClick={() => setShowConfirm(true)}
-            disabled={!activeLibrary || clearLibrary.isPending}
-            className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-rose-600/90 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-rose-500/20 transition-all hover:bg-rose-500 disabled:opacity-40"
+            disabled={!activeLibrary}
+            isLoading={clearLibrary.isPending}
           >
-            <Trash2 className="h-4 w-4" />
             {t.settings.database.clearAction}
-          </button>
-        </div>
+          </SettingsButton>
+        </SettingsRow>
       </SettingsCard>
 
       <Modal
@@ -70,32 +60,19 @@ export const DatabaseSection: React.FC = () => {
           </div>
         }
         footer={
-          <div className="flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setShowConfirm(false)}
-              className="rounded-xl bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-zinc-300 transition-all hover:bg-zinc-700"
-            >
+          <div className="flex items-center justify-end gap-2">
+            <SettingsButton variant="secondary" onClick={() => setShowConfirm(false)}>
               {t.common.cancel}
-            </button>
-            <button
-              type="button"
+            </SettingsButton>
+            <SettingsButton
+              variant="danger"
+              icon={Trash2}
               onClick={handleClear}
-              disabled={clearLibrary.isPending}
-              className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-rose-500/20 transition-all hover:bg-rose-500 disabled:opacity-50"
+              isLoading={clearLibrary.isPending}
+              loadingLabel={t.settings.database.clearing}
             >
-              {clearLibrary.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t.settings.database.clearing}
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-4 w-4" />
-                  {t.settings.database.confirmAction}
-                </>
-              )}
-            </button>
+              {t.settings.database.confirmAction}
+            </SettingsButton>
           </div>
         }
       >

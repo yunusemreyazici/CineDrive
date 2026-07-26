@@ -1,8 +1,17 @@
 import React, { useId, useState } from 'react';
-import { HardDrive, Folder, FolderPlus, RefreshCw, Loader2 } from 'lucide-react';
-import { useLibrariesQuery, useCreateLibraryMutation, useScanLibraryMutation } from '../../../hooks/useApi';
+import { HardDrive, Folder, FolderPlus, RefreshCw } from 'lucide-react';
+import {
+  useLibrariesQuery,
+  useCreateLibraryMutation,
+  useScanLibraryMutation,
+} from '../../../hooks/useApi';
 import { toast } from '../../../stores/useToastStore';
-import { SettingsCard, SettingsField, SETTINGS_INPUT_CLASSES } from '../SettingsCard';
+import {
+  SettingsButton,
+  SettingsCard,
+  SettingsField,
+  SETTINGS_INPUT_CLASSES,
+} from '../SettingsCard';
 import { t } from '../../../i18n';
 
 export const LocalLibrarySection: React.FC = () => {
@@ -50,26 +59,21 @@ export const LocalLibrarySection: React.FC = () => {
       id="settings-local-library"
       title={t.settings.localLibrary.title}
       description={t.settings.localLibrary.description}
-      icon={
-        <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-400">
-          <HardDrive className="h-5 w-5" />
-        </div>
-      }
+      icon={HardDrive}
+      width="full"
     >
-      {localLibraries.length > 0 && (
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold text-zinc-300">{t.settings.localLibrary.existing}</h4>
-          <ul className="grid grid-cols-1 gap-3">
+      <div className="space-y-6">
+        {localLibraries.length > 0 && (
+          <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
             {localLibraries.map((library) => (
-              <li
-                key={library.id}
-                className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Folder className="h-5 w-5 flex-shrink-0 text-emerald-400" />
+              <li key={library.id} className="flex items-center justify-between gap-4 py-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <Folder className="h-4 w-4 shrink-0 text-zinc-500" />
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-bold text-white">{library.name}</p>
-                    <p className="truncate font-mono text-[11px] text-zinc-400">
+                    <p className="truncate text-[13px] font-medium text-zinc-200">
+                      {library.name}
+                    </p>
+                    <p className="truncate font-mono text-xs text-zinc-500">
                       {library.localFolderPath}
                     </p>
                   </div>
@@ -78,67 +82,58 @@ export const LocalLibrarySection: React.FC = () => {
                   type="button"
                   onClick={() => scanLibrary.mutate(library.id)}
                   disabled={scanLibrary.isPending}
-                  className="flex items-center gap-1.5 rounded-xl bg-emerald-600/20 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-all hover:bg-emerald-600 hover:text-white"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-40"
                 >
                   <RefreshCw
                     className={`h-3.5 w-3.5 ${scanLibrary.isPending ? 'animate-spin' : ''}`}
                   />
-                  <span>{t.settings.localLibrary.scanFolder}</span>
+                  {t.settings.localLibrary.scanFolder}
                 </button>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={handleCreate} className="space-y-4">
-        <h4 className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
-          <FolderPlus className="h-4 w-4 text-brand-400" />
-          {t.settings.localLibrary.addNew}
-        </h4>
+        <form onSubmit={handleCreate} className="max-w-xl space-y-4">
+          <h4 className="text-[13px] font-medium text-zinc-300">
+            {t.settings.localLibrary.addNew}
+          </h4>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <SettingsField id={`${fieldId}-name`} label={t.settings.localLibrary.name}>
-            <input
-              id={`${fieldId}-name`}
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t.settings.localLibrary.namePlaceholder}
-              className={SETTINGS_INPUT_CLASSES}
-            />
-          </SettingsField>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <SettingsField id={`${fieldId}-name`} label={t.settings.localLibrary.name}>
+              <input
+                id={`${fieldId}-name`}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t.settings.localLibrary.namePlaceholder}
+                className={SETTINGS_INPUT_CLASSES}
+              />
+            </SettingsField>
 
-          <SettingsField id={`${fieldId}-path`} label={t.settings.localLibrary.path}>
-            <input
-              id={`${fieldId}-path`}
-              type="text"
-              value={localFolderPath}
-              onChange={(e) => setLocalFolderPath(e.target.value)}
-              placeholder={t.settings.localLibrary.pathPlaceholder}
-              className={`${SETTINGS_INPUT_CLASSES} font-mono`}
-            />
-          </SettingsField>
-        </div>
+            <SettingsField id={`${fieldId}-path`} label={t.settings.localLibrary.path}>
+              <input
+                id={`${fieldId}-path`}
+                type="text"
+                value={localFolderPath}
+                onChange={(e) => setLocalFolderPath(e.target.value)}
+                placeholder={t.settings.localLibrary.pathPlaceholder}
+                className={`${SETTINGS_INPUT_CLASSES} font-mono`}
+              />
+            </SettingsField>
+          </div>
 
-        <button
-          type="submit"
-          disabled={createLibrary.isPending || !name.trim() || !localFolderPath.trim()}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:bg-emerald-500 disabled:opacity-40"
-        >
-          {createLibrary.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>{t.settings.localLibrary.creating}</span>
-            </>
-          ) : (
-            <>
-              <FolderPlus className="h-4 w-4" />
-              <span>{t.settings.localLibrary.create}</span>
-            </>
-          )}
-        </button>
-      </form>
+          <SettingsButton
+            type="submit"
+            icon={FolderPlus}
+            disabled={!name.trim() || !localFolderPath.trim()}
+            isLoading={createLibrary.isPending}
+            loadingLabel={t.settings.localLibrary.creating}
+          >
+            {t.settings.localLibrary.create}
+          </SettingsButton>
+        </form>
+      </div>
     </SettingsCard>
   );
 };

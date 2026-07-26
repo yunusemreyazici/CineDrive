@@ -1,8 +1,13 @@
 import React, { useId, useState } from 'react';
-import { Lock, KeyRound, Loader2 } from 'lucide-react';
+import { Lock, KeyRound } from 'lucide-react';
 import { useChangePasswordMutation } from '../../../hooks/useApi';
 import { toast } from '../../../stores/useToastStore';
-import { SettingsCard, SettingsField, SETTINGS_INPUT_CLASSES } from '../SettingsCard';
+import {
+  SettingsButton,
+  SettingsCard,
+  SettingsField,
+  SETTINGS_INPUT_CLASSES,
+} from '../SettingsCard';
 import { t } from '../../../i18n';
 
 const MIN_PASSWORD_LENGTH = 6;
@@ -50,18 +55,10 @@ export const SecuritySection: React.FC = () => {
       id="settings-security"
       title={t.settings.security.title}
       description={t.settings.security.description}
-      icon={
-        <div className="rounded-xl bg-rose-500/10 p-2.5 text-rose-400">
-          <Lock className="h-5 w-5" />
-        </div>
-      }
+      icon={Lock}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <SettingsField
-          id={`${fieldId}-current`}
-          label={t.settings.security.currentPassword}
-          className="max-w-md"
-        >
+        <SettingsField id={`${fieldId}-current`} label={t.settings.security.currentPassword}>
           <div className="relative">
             <KeyRound className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
@@ -76,7 +73,7 @@ export const SecuritySection: React.FC = () => {
           </div>
         </SettingsField>
 
-        <div className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <SettingsField
             id={`${fieldId}-new`}
             label={t.settings.security.newPassword(MIN_PASSWORD_LENGTH)}
@@ -105,22 +102,14 @@ export const SecuritySection: React.FC = () => {
           </SettingsField>
         </div>
 
-        <button
+        <SettingsButton
           type="submit"
-          disabled={
-            changePassword.isPending || !currentPassword || !newPassword || !confirmPassword
-          }
-          className="flex items-center gap-2 rounded-xl bg-rose-600 px-6 py-2.5 text-xs font-semibold text-white shadow-lg shadow-rose-500/20 transition-all hover:bg-rose-500 disabled:opacity-40"
+          disabled={!currentPassword || !newPassword || !confirmPassword}
+          isLoading={changePassword.isPending}
+          loadingLabel={t.settings.security.changing}
         >
-          {changePassword.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>{t.settings.security.changing}</span>
-            </>
-          ) : (
-            <span>{t.settings.security.change}</span>
-          )}
-        </button>
+          {t.settings.security.change}
+        </SettingsButton>
       </form>
     </SettingsCard>
   );

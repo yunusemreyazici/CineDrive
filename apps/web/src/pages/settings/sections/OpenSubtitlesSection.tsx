@@ -1,12 +1,18 @@
 import React, { useId } from 'react';
-import { Settings, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Captions, AlertTriangle } from 'lucide-react';
 import {
   useOpenSubtitlesSettingsQuery,
   useUpdateOpenSubtitlesSettingsMutation,
 } from '../../../hooks/useApi';
 import { useSyncedState } from '../../../hooks/useSyncedState';
 import { toast } from '../../../stores/useToastStore';
-import { SettingsCard, SettingsField, SETTINGS_INPUT_CLASSES } from '../SettingsCard';
+import {
+  SettingsButton,
+  SettingsCard,
+  SettingsField,
+  SettingsStatus,
+  SETTINGS_INPUT_CLASSES,
+} from '../SettingsCard';
 import { t } from '../../../i18n';
 
 export const OpenSubtitlesSection: React.FC = () => {
@@ -39,27 +45,19 @@ export const OpenSubtitlesSection: React.FC = () => {
       id="settings-opensubtitles"
       title={t.settings.openSubtitles.title}
       description={t.settings.openSubtitles.description}
-      icon={
-        <div className="rounded-xl bg-purple-500/10 p-2.5 text-purple-400">
-          <Settings className="h-5 w-5" />
-        </div>
-      }
+      icon={Captions}
       action={
         openSubSettings?.hasApiKey ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
-            <CheckCircle2 className="h-4 w-4" />
-            {t.settings.openSubtitles.apiKeyActive}
-          </span>
+          <SettingsStatus tone="ok">{t.settings.openSubtitles.apiKeyActive}</SettingsStatus>
         ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-400">
-            <AlertTriangle className="h-4 w-4" />
+          <SettingsStatus tone="warning" icon={AlertTriangle}>
             {t.settings.openSubtitles.apiKeyMissing}
-          </span>
+          </SettingsStatus>
         )
       }
     >
       {isLoading ? (
-        <div className="h-24 animate-pulse rounded-xl bg-zinc-800/50" />
+        <div className="h-24 animate-pulse rounded-lg bg-zinc-800/40" />
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
           <SettingsField
@@ -76,20 +74,17 @@ export const OpenSubtitlesSection: React.FC = () => {
             />
           </SettingsField>
 
-          <div className="grid grid-cols-1 gap-4">
-            <SettingsField id={`${fieldId}-username`} label={t.settings.openSubtitles.username}>
-              <input
-                id={`${fieldId}-username`}
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={t.settings.openSubtitles.usernamePlaceholder}
-                className={SETTINGS_INPUT_CLASSES}
-              />
-            </SettingsField>
-
-          </div>
+          <SettingsField id={`${fieldId}-username`} label={t.settings.openSubtitles.username}>
+            <input
+              id={`${fieldId}-username`}
+              type="text"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder={t.settings.openSubtitles.usernamePlaceholder}
+              className={SETTINGS_INPUT_CLASSES}
+            />
+          </SettingsField>
 
           <SettingsField id={`${fieldId}-languages`} label={t.settings.openSubtitles.languages}>
             <input
@@ -102,20 +97,13 @@ export const OpenSubtitlesSection: React.FC = () => {
             />
           </SettingsField>
 
-          <button
+          <SettingsButton
             type="submit"
-            disabled={updateSettings.isPending}
-            className="flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-2.5 text-xs font-semibold text-white shadow-lg shadow-brand-500/20 transition-all hover:bg-brand-500 disabled:opacity-40"
+            isLoading={updateSettings.isPending}
+            loadingLabel={t.common.saving}
           >
-            {updateSettings.isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{t.common.saving}</span>
-              </>
-            ) : (
-              <span>{t.settings.openSubtitles.saveSettings}</span>
-            )}
-          </button>
+            {t.settings.openSubtitles.saveSettings}
+          </SettingsButton>
         </form>
       )}
     </SettingsCard>
