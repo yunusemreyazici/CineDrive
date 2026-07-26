@@ -510,10 +510,13 @@ export const tr = {
       description: 'Arayüz renk stilini özelleştirin',
       groupLabel: 'Renk teması',
       themes: {
-        default: { name: 'CineDrive Cyan', desc: 'Modern Medya Merkezi' },
-        midnight: { name: 'OLED Midnight', desc: 'Siyah & Cyan' },
-        neon: { name: 'Cyberpunk Neon', desc: 'Mor & Pembe Accent' },
-        emerald: { name: 'Emerald Green', desc: 'Derin Zümrüt Yeşili' },
+        default: { name: 'CineDrive Cyan', desc: 'Modern medya merkezi' },
+        neon: { name: 'Cyberpunk Neon', desc: 'Mor ve pembe vurgular' },
+        emerald: { name: 'Emerald Green', desc: 'Derin zümrüt yeşili' },
+        amber: { name: 'Amber Sunset', desc: 'Sıcak turuncu ve kehribar' },
+        rose: { name: 'Rose Noir', desc: 'Koyu zeminde gül kırmızısı' },
+        azure: { name: 'Deep Azure', desc: 'Gece mavisi ve kobalt' },
+        graphite: { name: 'Grafit', desc: 'Nötr gri — renk posterlerde kalsın' },
       },
     },
 

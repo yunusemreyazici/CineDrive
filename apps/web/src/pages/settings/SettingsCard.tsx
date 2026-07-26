@@ -182,9 +182,15 @@ export const SettingsToggle: React.FC<SettingsToggleProps> = ({ checked, onChang
       checked ? 'bg-brand-600' : 'bg-zinc-700'
     }`}
   >
+    {/*
+      `left-0.5` is load-bearing: without it the absolutely positioned thumb
+      takes its static position from the button's centred content, which put it
+      at the right edge of the 44px track *before* the transform — so the "on"
+      state pushed it clean outside the switch.
+    */}
     <span
-      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-        checked ? 'translate-x-[22px]' : 'translate-x-0.5'
+      className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+        checked ? 'translate-x-5' : 'translate-x-0'
       }`}
     />
   </button>

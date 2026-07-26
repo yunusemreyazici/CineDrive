@@ -1,6 +1,23 @@
 import { create } from 'zustand';
 
-export type ThemeType = 'default' | 'midnight' | 'neon' | 'emerald';
+export type ThemeType =
+  | 'default'
+  | 'neon'
+  | 'emerald'
+  | 'amber'
+  | 'rose'
+  | 'azure'
+  | 'graphite';
+
+export const THEME_IDS: ThemeType[] = [
+  'default',
+  'neon',
+  'emerald',
+  'amber',
+  'rose',
+  'azure',
+  'graphite',
+];
 
 interface UiState {
   sidebarOpen: boolean;
@@ -23,7 +40,10 @@ const getInitialTheme = (): ThemeType => {
   if (typeof localStorage !== 'undefined') {
     try {
       const saved = localStorage.getItem('cinedrive_theme');
-      if (saved && ['default', 'midnight', 'neon', 'emerald'].includes(saved)) {
+      // An unknown value — including the retired 'midnight', which only
+      // differed from the default by its background — falls back rather than
+      // leaving the document on a data-theme with no variables behind it.
+      if (saved && (THEME_IDS as string[]).includes(saved)) {
         return saved as ThemeType;
       }
     } catch {

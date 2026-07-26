@@ -4,11 +4,19 @@ import { useUiStore, type ThemeType } from '../../../stores/useUiStore';
 import { SettingsCard, SettingsChoice, SettingsRow, SettingsToggle } from '../SettingsCard';
 import { t } from '../../../i18n';
 
+/**
+ * `OLED Midnight` used to sit second here. Its brand ramp was within a couple
+ * of degrees of the default cyan, so the two were indistinguishable in every
+ * control — it only changed the page background.
+ */
 const THEMES: Array<{ id: ThemeType; name: string; desc: string; accentClass: string }> = [
   { id: 'default', ...t.settings.appearance.themes.default, accentClass: 'bg-cyan-500' },
-  { id: 'midnight', ...t.settings.appearance.themes.midnight, accentClass: 'bg-cyan-500' },
   { id: 'neon', ...t.settings.appearance.themes.neon, accentClass: 'bg-purple-500' },
   { id: 'emerald', ...t.settings.appearance.themes.emerald, accentClass: 'bg-emerald-500' },
+  { id: 'amber', ...t.settings.appearance.themes.amber, accentClass: 'bg-amber-500' },
+  { id: 'rose', ...t.settings.appearance.themes.rose, accentClass: 'bg-rose-500' },
+  { id: 'azure', ...t.settings.appearance.themes.azure, accentClass: 'bg-blue-600' },
+  { id: 'graphite', ...t.settings.appearance.themes.graphite, accentClass: 'bg-zinc-500' },
 ];
 
 export const AppearanceSection: React.FC = () => {

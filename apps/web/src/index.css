@@ -25,16 +25,6 @@
     --media-text-secondary: #979ba3;
   }
 
-  [data-theme='midnight'] {
-    --brand-50: 180 100% 97%;
-    --brand-100: 183 96% 90%;
-    --brand-400: 187 92% 55%;
-    --brand-500: 189 94% 43%;
-    --brand-600: 191 91% 36%;
-    --brand-700: 193 82% 31%;
-    --brand-900: 195 73% 20%;
-  }
-
   [data-theme='neon'] {
     --brand-50: 270 100% 98%;
     --brand-100: 269 97% 93%;
@@ -55,13 +45,51 @@
     --brand-900: 165 82% 16%;
   }
 
+  [data-theme='amber'] {
+    --brand-50: 48 100% 96%;
+    --brand-100: 48 96% 89%;
+    --brand-400: 38 92% 58%;
+    --brand-500: 32 95% 48%;
+    --brand-600: 26 90% 42%;
+    --brand-700: 22 82% 35%;
+    --brand-900: 20 70% 20%;
+  }
+
+  [data-theme='rose'] {
+    --brand-50: 356 100% 97%;
+    --brand-100: 356 96% 92%;
+    --brand-400: 351 90% 66%;
+    --brand-500: 348 83% 52%;
+    --brand-600: 347 77% 44%;
+    --brand-700: 345 74% 36%;
+    --brand-900: 344 68% 21%;
+  }
+
+  [data-theme='azure'] {
+    --brand-50: 214 100% 97%;
+    --brand-100: 214 95% 91%;
+    --brand-400: 217 91% 65%;
+    --brand-500: 221 83% 53%;
+    --brand-600: 224 76% 46%;
+    --brand-700: 226 71% 38%;
+    --brand-900: 226 61% 23%;
+  }
+
+  /* Neutral on purpose: the accent steps back so poster artwork carries the
+     only colour on screen. */
+  [data-theme='graphite'] {
+    --brand-50: 240 5% 96%;
+    --brand-100: 240 5% 90%;
+    --brand-400: 240 4% 64%;
+    --brand-500: 240 4% 52%;
+    --brand-600: 240 4% 42%;
+    --brand-700: 240 5% 34%;
+    --brand-900: 240 6% 20%;
+  }
+
   body {
     @apply bg-zinc-950 text-zinc-100 antialiased font-sans selection:bg-brand-500 selection:text-white transition-colors duration-300;
     background-color: var(--media-background);
-  }
-
-  [data-theme='midnight'] body {
-    @apply bg-black text-slate-100;
   }
 
   [data-theme='neon'] body {
@@ -70,6 +98,22 @@
 
   [data-theme='emerald'] body {
     @apply bg-zinc-950 text-emerald-100;
+  }
+
+  [data-theme='amber'] body {
+    @apply bg-[#0b0906] text-amber-50;
+  }
+
+  [data-theme='rose'] body {
+    @apply bg-[#0c0709] text-rose-50;
+  }
+
+  [data-theme='azure'] body {
+    @apply bg-[#06080d] text-slate-100;
+  }
+
+  [data-theme='graphite'] body {
+    @apply bg-zinc-950 text-zinc-100;
   }
 
   input:-webkit-autofill,
