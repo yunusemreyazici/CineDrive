@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { ownedLibraryFilter } from '../utils/library-access.js';
 import type { MediaHealthDto } from '@cinedrive/shared';
 import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
 import { MediaProbeService } from '../services/media-probe.service.js';
@@ -32,9 +33,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     const files = await fastify.prisma.driveFile.findMany({
       where: {
         status: 'active',
-        library: {
-          OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
-        },
+        library: ownedLibraryFilter(userId),
       },
       include: {
         library: true,
@@ -187,9 +186,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           { mimeType: 'application/octet-stream' },
           { mimeType: 'application/x-matroska' },
         ],
-        library: {
-          OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
-        },
+        library: ownedLibraryFilter(userId),
       },
       select: {
         id: true,
@@ -338,9 +335,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         where: {
           id: request.params.driveFileId,
           status: 'active',
-          library: {
-            OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
-          },
+          library: ownedLibraryFilter(userId),
         },
         include: { library: true },
       });

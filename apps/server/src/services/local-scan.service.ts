@@ -8,14 +8,24 @@ import { MediaProbeService } from './media-probe.service.js';
 export class LocalScanService {
   private metadataService = new MetadataService();
   private mediaProbeService = new MediaProbeService();
+  private readonly activeScans = new Set<string>();
 
   constructor(private prisma: PrismaClient) {}
 
   /**
-   * Scans a local filesystem folder recursively and indexes movies, TV shows, and subtitles.
-   * Enriches MediaItems with TMDB metadata (poster, backdrop, overview, cast, etc.)
+   * Validates the library, records a running scan and hands the work off to the
+   * background, returning the scan id immediately.
+   *
+   * The route used to await the whole scan, holding the HTTP request open for
+   * as long as indexing took — which is why the client needed a two-minute
+   * timeout. The `LibraryScan` record it creates is what the UI polls, so the
+   * progress reporting already worked; only the response was blocking.
    */
-  public async scanLocalLibrary(libraryId: string): Promise<{ success: boolean; filesScanned: number }> {
+  public async startLocalScan(libraryId: string): Promise<string> {
+    if (this.activeScans.has(libraryId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+
     const library = await this.prisma.library.findUnique({
       where: { id: libraryId },
     });
@@ -24,7 +34,8 @@ export class LocalScanService {
       throw new Error('Yerel kütüphane bulunamadı veya geçerli bir yerel klasör yolu yok.');
     }
 
-    // Create a new scan record
+    this.activeScans.add(libraryId);
+
     const scan = await this.prisma.libraryScan.create({
       data: {
         libraryId,
@@ -32,6 +43,29 @@ export class LocalScanService {
         startedAt: new Date(),
       },
     });
+
+    void this.executeLocalScan(libraryId, library.localFolderPath, scan.id)
+      .catch(() => {
+        // Failures are already recorded on the scan row for the UI to read.
+      })
+      .finally(() => {
+        this.activeScans.delete(libraryId);
+      });
+
+    return scan.id;
+  }
+
+  /**
+   * Scans a local filesystem folder recursively and indexes movies, TV shows, and subtitles.
+   * Enriches MediaItems with TMDB metadata (poster, backdrop, overview, cast, etc.)
+   */
+  private async executeLocalScan(
+    libraryId: string,
+    localFolderPath: string,
+    scanId: string,
+  ): Promise<{ success: boolean; filesScanned: number }> {
+    const library = { localFolderPath };
+    const scan = { id: scanId };
 
     let filesScannedCount = 0;
     let addedCount = 0;

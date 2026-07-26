@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, parseApiError } from '../api/client';
 import type {
@@ -156,6 +157,11 @@ export function useCreateLibraryMutation() {
   });
 }
 
+/**
+ * The server answers 202 as soon as the scan is registered and does the work in
+ * the background, so this no longer needs a long timeout — progress arrives
+ * through `useLibraryScansQuery`.
+ */
 export function useScanLibraryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -164,7 +170,6 @@ export function useScanLibraryMutation() {
         const res = await apiClient.post<{ scan: LibraryScanType }>(
           `/libraries/${libraryId}/scan`,
           {},
-          { timeout: 120000 },
         );
         return res.data.scan;
       } catch (err) {
@@ -172,15 +177,20 @@ export function useScanLibraryMutation() {
       }
     },
     onSuccess: (_, libraryId) => {
-      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      // Only the scan list is meaningful right now; the media list is
+      // refreshed by the poller once the scan actually finishes.
       queryClient.invalidateQueries({ queryKey: ['libraryScans', libraryId] });
-      queryClient.invalidateQueries({ queryKey: ['media'] });
     },
   });
 }
 
+const SCAN_POLL_INTERVAL_MS = 2000;
+
 export function useLibraryScansQuery(libraryId?: string) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const wasRunningRef = useRef(false);
+
+  const query = useQuery({
     queryKey: ['libraryScans', libraryId],
     queryFn: async () => {
       if (!libraryId) return [];
@@ -191,11 +201,23 @@ export function useLibraryScansQuery(libraryId?: string) {
     },
     enabled: !!libraryId,
     refetchInterval: (query) => {
-      const scans = query.state.data;
-      const latestScan = scans?.[0];
-      return latestScan?.status === 'running' ? 2000 : false;
+      const latestScan = query.state.data?.[0];
+      return latestScan?.status === 'running' ? SCAN_POLL_INTERVAL_MS : false;
     },
   });
+
+  // A background scan finishing is the moment the library actually changed, so
+  // that is when the media views need refreshing.
+  const isRunning = query.data?.[0]?.status === 'running';
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning) {
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning, queryClient]);
+
+  return query;
 }
 
 export function useClearLibraryMutation() {
@@ -519,7 +541,6 @@ export function useUpdateOpenSubtitlesSettingsMutation() {
     mutationFn: async (data: {
       apiKey?: string;
       username?: string;
-      password?: string;
       preferredLanguages?: string;
     }) => {
       const res = await apiClient.put<OpenSubtitlesSettingsDto>('/settings/opensubtitles', data);

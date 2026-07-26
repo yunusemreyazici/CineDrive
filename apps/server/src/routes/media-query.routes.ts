@@ -74,25 +74,17 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
 
     const skip = (page - 1) * limit;
 
+    // Grids and rails render a poster, a title and a year. This used to eager
+    // load every season, every episode and every subtitle track of every
+    // series on the page — data no list view reads, and the single largest
+    // contributor to the response size. Callers that need the full tree use
+    // GET /api/media/:id.
     const [items, total] = await Promise.all([
       fastify.prisma.mediaItem.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
         skip,
         take: limit,
-        include: {
-          movie: true,
-          series: {
-            include: {
-              seasons: {
-                include: { episodes: true },
-              },
-            },
-          },
-          subtitles: {
-            include: { driveFile: true },
-          },
-        },
       }),
       fastify.prisma.mediaItem.count({ where }),
     ]);
@@ -117,15 +109,6 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       progress: progressMap.get(item.id) || null,
       posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
       backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
-      subtitles: item.subtitles.map((sub) => ({
-        id: sub.id,
-        languageCode: sub.language,
-        languageLabel: sub.label || sub.language.toUpperCase(),
-        forced: sub.isForced,
-        hearingImpaired: sub.isHearingImpaired,
-        isDefault: sub.isDefault,
-        url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-      })),
     }));
 
     return reply.status(200).send({

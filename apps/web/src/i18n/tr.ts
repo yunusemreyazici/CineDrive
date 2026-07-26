@@ -567,7 +567,6 @@ export const tr = {
       apiKeyPlaceholder: 'Örn: N1wK2wX9oW2e1tV8X0y5z6a7b8c9d0e1',
       username: 'Kullanıcı Adı (Opsiyonel)',
       usernamePlaceholder: 'OpenSubtitles Kullanıcı Adı',
-      password: 'Parola (Opsiyonel)',
       languages: 'Aranacak Altyazı Dilleri',
       saveSettings: 'Ayarları Kaydet',
       saved: 'OpenSubtitles ayarları kaydedildi.',

@@ -76,6 +76,11 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorateRequest('user', null);
   fastify.decorateRequest('sessionToken', null);
 
+  // Session tokens are read from the cookie or an Authorization header only.
+  // A `?token=` query parameter was also accepted, which put a full session
+  // credential into access logs, browser history and outbound Referer headers.
+  // Nothing in the app used it; playback URLs authenticate by cookie, and the
+  // FFmpeg source proxy uses scoped capability tokens instead.
   fastify.addHook('onRequest', async (request: FastifyRequest) => {
     let sessionToken = request.cookies.session_id;
 
@@ -84,10 +89,6 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
       if (authHeader.startsWith('Bearer ')) {
         sessionToken = authHeader.substring(7);
       }
-    }
-
-    if (!sessionToken && (request.query as Record<string, string>)?.token) {
-      sessionToken = (request.query as Record<string, string>).token;
     }
 
     if (sessionToken) {

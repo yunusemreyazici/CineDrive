@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useId } from 'react';
 import { Settings, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import {
   useOpenSubtitlesSettingsQuery,
@@ -19,23 +19,16 @@ export const OpenSubtitlesSection: React.FC = () => {
   const [preferredLanguages, setPreferredLanguages] = useSyncedState(
     openSubSettings?.preferredLanguages || 'tr,en',
   );
-  // Never re-seeded from the server: the API deliberately does not return it.
-  const [password, setPassword] = useState('');
-
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     updateSettings.mutate(
       {
         apiKey,
         username,
-        ...(password ? { password } : {}),
         preferredLanguages,
       },
       {
-        onSuccess: () => {
-          toast.success(t.settings.openSubtitles.saved);
-          setPassword('');
-        },
+        onSuccess: () => toast.success(t.settings.openSubtitles.saved),
         onError: (error) => toast.fromError(error, t.settings.openSubtitles.saveFailed),
       },
     );
@@ -83,7 +76,7 @@ export const OpenSubtitlesSection: React.FC = () => {
             />
           </SettingsField>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4">
             <SettingsField id={`${fieldId}-username`} label={t.settings.openSubtitles.username}>
               <input
                 id={`${fieldId}-username`}
@@ -96,17 +89,6 @@ export const OpenSubtitlesSection: React.FC = () => {
               />
             </SettingsField>
 
-            <SettingsField id={`${fieldId}-password`} label={t.settings.openSubtitles.password}>
-              <input
-                id={`${fieldId}-password`}
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className={SETTINGS_INPUT_CLASSES}
-              />
-            </SettingsField>
           </div>
 
           <SettingsField id={`${fieldId}-languages`} label={t.settings.openSubtitles.languages}>

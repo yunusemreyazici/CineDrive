@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg, { type FfmpegCommand } from 'fluent-ffmpeg';
+import { HlsProcessRegistry } from './hls-process-registry.js';
 
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 
@@ -23,6 +24,15 @@ const MAX_FAMILY_CACHE_ENTRIES = 3;
 const ACCESS_MARKER = '.access';
 const COMPLETE_MARKER = '.complete';
 const PROCESS_REGISTRY_FILE = '.active-processes.json';
+// Codec probes and process lookups are advisory: if one hangs, carry on rather
+// than hold a viewer's playback behind it.
+const PROBE_TIMEOUT_MS = 5_000;
+const PROBE_MAX_STDERR_BYTES = 1024 * 1024;
+
+interface LocalCodecs {
+  video: string | undefined;
+  audio: string | undefined;
+}
 const MANUAL_STOP_BLOCK_MS = 5 * 60 * 1000;
 // A queued request must not wait forever for a slot that may never free up.
 const PENDING_SLOT_TIMEOUT_MS = 90_000;
@@ -94,13 +104,6 @@ export type HlsQueueInfo = {
   waitMs: number;
 };
 
-type ProcessRegistryEntry = {
-  jobId: string;
-  pid: number;
-  cacheKey: string;
-  startedAt: number;
-};
-
 type PendingSlot = {
   id: string;
   cacheKey: string;
@@ -123,7 +126,7 @@ export class HlsService {
   private readonly jobs = new Map<string, HlsJob>();
   private readonly leases = new Map<string, Set<string>>();
   private readonly blockedSessions = new Map<string, number>();
-  private readonly processRegistry = new Map<string, ProcessRegistryEntry>();
+  private readonly processRegistry: HlsProcessRegistry;
   private readonly pendingSlots: PendingSlot[] = [];
   private readonly reservedSlots = new Set<string>();
   private readonly inflightStarts = new Map<string, Promise<string>>();
@@ -143,7 +146,9 @@ export class HlsService {
     );
     fs.mkdirSync(this.cacheRoot, { recursive: true });
     this.processRegistryPath = path.join(this.cacheRoot, PROCESS_REGISTRY_FILE);
-    this.cleanupOrphanedProcesses();
+    this.processRegistry = new HlsProcessRegistry(this.processRegistryPath, this.cacheRoot);
+    // Reaping a previous run's strays must not delay the port from opening.
+    void this.processRegistry.reapOrphans();
     this.enforceCacheQuota();
   }
 
@@ -312,7 +317,7 @@ export class HlsService {
         const inputSource = isRemoteUrlInput ? input.url : input;
         const probedCodecs =
           typeof inputSource === 'string' && !isRemoteUrlInput
-            ? this.probeLocalCodecs(inputSource)
+            ? await this.probeLocalCodecs(inputSource)
             : null;
         const normalizedVideoCodec = sourceVideoCodec?.toLowerCase() || probedCodecs?.video || '';
         // Although recent Safari versions can decode many HEVC files directly,
@@ -394,17 +399,16 @@ export class HlsService {
               const activeJob = this.jobs.get(cacheKey);
               if (activeJob?.id === jobId) activeJob.pid = processId;
               if (processId) {
-                this.processRegistry.set(jobId, {
+                this.processRegistry.register({
                   jobId,
                   pid: processId,
                   cacheKey,
                   startedAt,
                 });
-                this.persistProcessRegistry();
               }
             })
             .on('error', (error: Error) => {
-              this.unregisterProcess(jobId);
+              this.processRegistry.unregister(jobId);
               const jobState = this.detachJob(cacheKey, command);
               // FFmpeg writes ENDLIST when it is terminated gracefully. That
               // does not mean the episode was fully generated, so never retain
@@ -417,7 +421,7 @@ export class HlsService {
               finish(() => reject(new Error(describeFailure(error.message))));
             })
             .on('end', () => {
-              this.unregisterProcess(jobId);
+              this.processRegistry.unregister(jobId);
               const jobState = this.detachJob(cacheKey, command);
               if (jobState === 'replaced') {
                 finish(resolve);
@@ -439,7 +443,7 @@ export class HlsService {
               // orphaned entry in `jobs` would occupy a global slot forever and
               // re-throw this same error to every subsequent request.
               finish(() => {
-                this.unregisterProcess(jobId);
+                this.processRegistry.unregister(jobId);
                 this.abandonJob(cacheKey, command, outputDir);
                 reject(new Error(describeFailure('HLS_PREPARATION_TIMEOUT')));
               });
@@ -908,53 +912,7 @@ export class HlsService {
     return 'detached' as const;
   }
 
-  private cleanupOrphanedProcesses() {
-    let entries: ProcessRegistryEntry[] = [];
-    try {
-      entries = JSON.parse(
-        fs.readFileSync(this.processRegistryPath, 'utf8'),
-      ) as ProcessRegistryEntry[];
-    } catch {
-      // A missing or invalid registry is equivalent to an empty registry.
-    }
-
-    for (const entry of entries) {
-      if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0) continue;
-      try {
-        const command = execFileSync('ps', ['-p', String(entry.pid), '-o', 'command='], {
-          encoding: 'utf8',
-          timeout: 2_000,
-        });
-        if (
-          command.includes(String(ffmpegPath)) &&
-          command.includes(this.cacheRoot) &&
-          command.includes('-f hls')
-        ) {
-          process.kill(entry.pid, 'SIGKILL');
-        }
-      } catch {
-        // The process has already exited or cannot be inspected.
-      }
-    }
-    this.persistProcessRegistry();
-  }
-
-  private unregisterProcess(jobId: string) {
-    if (!this.processRegistry.delete(jobId)) return;
-    this.persistProcessRegistry();
-  }
-
-  private persistProcessRegistry() {
-    try {
-      fs.writeFileSync(
-        this.processRegistryPath,
-        JSON.stringify([...this.processRegistry.values()]),
-      );
-    } catch {
-      // Observability must never interrupt playback.
-    }
-  }
-
+  /** Reads a process's command line without blocking the event loop. */
   private isReady(playlistPath: string) {
     if (!fs.existsSync(playlistPath)) return false;
     const playlist = fs.readFileSync(playlistPath, 'utf8');
@@ -1020,17 +978,47 @@ export class HlsService {
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
   }
 
-  private probeLocalCodecs(inputPath: string) {
-    if (!ffmpegPath) return null;
-    const result = spawnSync(
-      ffmpegPath,
-      ['-hide_banner', '-i', inputPath, '-t', '0', '-f', 'null', '-'],
-      { encoding: 'utf8', maxBuffer: 1024 * 1024 },
-    );
-    const output = result.stderr || '';
-    return {
-      video: output.match(/Video:\s*([^,\s]+)/)?.[1]?.toLowerCase(),
-      audio: output.match(/Audio:\s*([^,\s]+)/)?.[1]?.toLowerCase(),
-    };
+  /**
+   * Reads the codecs FFmpeg reports for a local file.
+   *
+   * This used to be `spawnSync`. Node is single-threaded, so probing blocked
+   * the event loop — and with it every other viewer's segment request — for as
+   * long as FFmpeg took to open the file.
+   */
+  private probeLocalCodecs(inputPath: string): Promise<LocalCodecs | null> {
+    if (!ffmpegPath) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const child = spawn(
+        ffmpegPath!,
+        ['-hide_banner', '-i', inputPath, '-t', '0', '-f', 'null', '-'],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      );
+
+      let stderr = '';
+      let settled = false;
+      const finish = (output: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({
+          video: output.match(/Video:\s*([^,\s]+)/)?.[1]?.toLowerCase(),
+          audio: output.match(/Audio:\s*([^,\s]+)/)?.[1]?.toLowerCase(),
+        });
+      };
+
+      // A probe that hangs must not hold up playback; an unknown codec simply
+      // routes through the deterministic H.264 path.
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        finish(stderr);
+      }, PROBE_TIMEOUT_MS);
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (stderr.length < PROBE_MAX_STDERR_BYTES) stderr += chunk.toString('utf8');
+      });
+      child.on('error', () => finish(''));
+      child.on('close', () => finish(stderr));
+    });
   }
 }

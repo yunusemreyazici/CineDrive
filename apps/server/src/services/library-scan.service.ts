@@ -4,6 +4,11 @@ import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
 import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
+import { runWithConcurrency } from '../utils/concurrency.js';
+
+// Each probe issues a handful of ranged Drive reads. Enough of them run at once
+// to hide the latency, few enough to stay well inside Google's per-user quota.
+const MEDIA_PROBE_CONCURRENCY = 4;
 
 const VIDEO_MIME_TYPES = [
   'video/mp4',
@@ -226,6 +231,13 @@ export class LibraryScanService {
       (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
     );
 
+    // Codec probing reads byte ranges straight from Drive and writes only its
+    // own row, so it is independent of everything else in the loop. Collected
+    // here and drained concurrently after the pass instead of adding a network
+    // round trip per file to the critical path.
+    const pendingProbes: Array<{ driveFileId: string; name: string; size: string; fileId: string }> =
+      [];
+
     // 3. Process Videos across account
     for (const video of videos) {
       try {
@@ -234,34 +246,12 @@ export class LibraryScanService {
         else if (driveFile.sourceChanged) updated++;
 
         if (driveFile.needsMediaAnalysis && video.size) {
-          try {
-            const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
-              name: video.name,
-              size: BigInt(video.size),
-              readRange: (start, end) =>
-                this.driveService.getMediaRangeBuffer(
-                  accessToken,
-                  video.id,
-                  start,
-                  end,
-                ),
-            });
-            await this.prisma.driveFile.update({
-              where: { id: driveFile.record.id },
-              data: technicalMetadata,
-            });
-          } catch (error) {
-            await this.prisma.driveFile.update({
-              where: { id: driveFile.record.id },
-              data: {
-                mediaAnalyzedAt: new Date(),
-                mediaAnalysisError:
-                  error instanceof Error
-                    ? error.message.slice(0, 500)
-                    : 'REMOTE_MEDIA_PROBE_FAILED',
-              },
-            });
-          }
+          pendingProbes.push({
+            driveFileId: driveFile.record.id,
+            name: video.name,
+            size: String(video.size),
+            fileId: video.id,
+          });
         }
 
         // Live progress update on LibraryScan record in DB
@@ -465,6 +455,36 @@ export class LibraryScanService {
         });
       }
     }
+
+    await runWithConcurrency(pendingProbes, MEDIA_PROBE_CONCURRENCY, async (probe) => {
+      try {
+        const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
+          name: probe.name,
+          size: BigInt(probe.size),
+          readRange: (start, end) =>
+            this.driveService.getMediaRangeBuffer(accessToken, probe.fileId, start, end),
+        });
+        await this.prisma.driveFile.update({
+          where: { id: probe.driveFileId },
+          data: technicalMetadata,
+        });
+      } catch (error) {
+        // A file that cannot be probed still belongs in the library; the
+        // failure is recorded on the row so Media Health can surface it.
+        await this.prisma.driveFile
+          .update({
+            where: { id: probe.driveFileId },
+            data: {
+              mediaAnalyzedAt: new Date(),
+              mediaAnalysisError:
+                error instanceof Error
+                  ? error.message.slice(0, 500)
+                  : 'REMOTE_MEDIA_PROBE_FAILED',
+            },
+          })
+          .catch(() => {});
+      }
+    });
 
     return { added, updated, errors };
   }

@@ -24,23 +24,24 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // PUT /api/settings/opensubtitles
+  // A password is deliberately not accepted: the OpenSubtitles client
+  // authenticates with the API key, so storing one would keep a credential the
+  // application never uses.
   fastify.put<{
     Body: {
       apiKey?: string;
       username?: string;
-      password?: string;
       preferredLanguages?: string;
     };
   }>('/opensubtitles', async (request, reply) => {
     const userId = request.user!.id;
-    const { apiKey, username, password, preferredLanguages } = request.body;
+    const { apiKey, username, preferredLanguages } = request.body;
 
     const updatedUser = await fastify.prisma.user.update({
       where: { id: userId },
       data: {
         opensubtitlesApiKey: apiKey !== undefined ? apiKey.trim() : undefined,
         opensubtitlesUsername: username !== undefined ? username.trim() : undefined,
-        opensubtitlesPassword: password !== undefined ? password.trim() : undefined,
         preferredLanguages: preferredLanguages !== undefined ? preferredLanguages.trim() : undefined,
       },
       select: {

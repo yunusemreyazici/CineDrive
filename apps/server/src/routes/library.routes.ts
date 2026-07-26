@@ -120,21 +120,31 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    // Both storage types answer as soon as the scan is registered. The client
+    // follows progress through GET /:id/scans, which it already polls.
     if (library.storageType === 'local') {
       try {
-        const scanResult = await fastify.localScanService.scanLocalLibrary(id);
-        const lastScan = await fastify.prisma.libraryScan.findFirst({
-          where: { libraryId: id },
-          orderBy: { startedAt: 'desc' },
+        const scanId = await fastify.localScanService.startLocalScan(id);
+        const scan = await fastify.prisma.libraryScan.findUnique({
+          where: { id: scanId },
           include: { errors: true },
         });
 
-        return reply.status(200).send({
-          message: 'Yerel kütüphane taraması tamamlandı.',
-          scan: lastScan,
-          filesScanned: scanResult.filesScanned,
+        return reply.status(202).send({
+          message: 'Yerel kütüphane taraması başlatıldı.',
+          scan,
         });
       } catch (err: unknown) {
+        if (err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS') {
+          return reply.status(409).send({
+            error: {
+              code: 'SCAN_ALREADY_IN_PROGRESS',
+              message: 'Bu kütüphane için eşzamanlı bir tarama zaten devam ediyor.',
+              requestId: request.id,
+            },
+          });
+        }
+
         return reply.status(500).send({
           error: {
             code: 'LOCAL_SCAN_FAILED',
@@ -152,8 +162,8 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         include: { errors: true },
       });
 
-      return reply.status(200).send({
-        message: 'Kütüphane taraması tamamlandı.',
+      return reply.status(202).send({
+        message: 'Kütüphane taraması başlatıldı.',
         scan: scanResult,
       });
     } catch (err: unknown) {
