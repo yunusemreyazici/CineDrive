@@ -19,7 +19,7 @@ jobs:
       # config/env.ts validates these at import time, and buildApp() runs in the
       # server tests. They are throwaway values for CI only.
       NODE_ENV: test
-      DATABASE_URL: 'file:./prisma/data/ci.db'
+      DATABASE_URL: 'file:./data/ci.db'
       SESSION_SECRET: ci-session-secret-not-used-outside-continuous-integration
       TOKEN_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
 

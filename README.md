@@ -59,8 +59,13 @@ CineDrive/
 
 3. **Veritabanını hazırlayın:**
    ```bash
-   DATABASE_URL="file:./data/app.db" pnpm --filter "@cinedrive/server" exec prisma db push
+   pnpm --filter "@cinedrive/server" exec prisma migrate deploy
    ```
+
+   > `DATABASE_URL` göreli bir `file:` adresi ise Prisma bunu **şema dizinine**
+   > (`apps/server/prisma/`) göre çözer, çalışma dizinine göre değil. `.env`
+   > içindeki varsayılan `file:./data/app.db` bu yüzden
+   > `apps/server/prisma/data/app.db` anlamına gelir.
 
    > **Mevcut bir kurulumu güncelliyorsanız:** kütüphaneler artık `Library.userId`
    > ile bir kullanıcıya ait. `db push` bu sütunu veri kaybetmeden ekleyemediği

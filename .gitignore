@@ -18,6 +18,7 @@ apps/server/data/preview_cache/
 /test-results/
 /playwright-report/
 /blob-report/
-apps/server/prisma/data/e2e.db*
-apps/server/prisma/data/e2e-media/
-apps/server/prisma/data/test.db*
+# Runtime data only: the application, test and end-to-end databases plus the
+# generated e2e media. Listing the directory rather than each filename also
+# covers the backup copies taken before a schema change.
+apps/server/prisma/data/
