@@ -297,7 +297,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     };
   }>('/:mediaId/auto-subtitle', async (request, reply) => {
     const { mediaId } = request.params;
-    const { seasonNumber, episodeNumber, language = 'tr' } = request.body || {};
+    const { seasonNumber, episodeNumber, language } = request.body || {};
     const userId = request.user!.id;
 
     const [mediaItem, user] = await Promise.all([
@@ -340,29 +340,52 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     const { OpenSubtitlesService } = await import('../services/opensubtitles.service.js');
     const openSubtitlesService = new OpenSubtitlesService();
 
-    const searchRes = await openSubtitlesService.searchSubtitles(
-      mediaItem.title,
-      seasonNumber,
-      episodeNumber,
-      [language],
-      user?.opensubtitlesApiKey || undefined,
-      {
-        tmdbId: mediaItem.tmdbId,
-        imdbId: mediaItem.imdbId,
-      },
-    );
+    /*
+     * The button used to ask for Turkish and nothing else — the request sent no
+     * language, and both the client hook and this route defaulted to 'tr'. The
+     * account's own subtitle language preference was never consulted, so an
+     * English-only title simply reported "no subtitle found".
+     */
+    const preferredLanguages = language
+      ? [language]
+      : (user?.preferredLanguages || 'tr,en')
+          .split(',')
+          .map((code) => code.trim().toLowerCase())
+          .filter(Boolean);
 
-    if (!searchRes.results || searchRes.results.length === 0 || !searchRes.results[0]) {
+    let topSub: { fileId: number; filename: string; languageName: string; languageCode: string } | undefined;
+
+    // Tried in preference order rather than all at once, so the first choice
+    // wins whenever it exists instead of losing to a more-downloaded track in
+    // another language.
+    for (const candidate of preferredLanguages) {
+      const searchRes = await openSubtitlesService.searchSubtitles(
+        mediaItem.title,
+        seasonNumber,
+        episodeNumber,
+        [candidate],
+        user?.opensubtitlesApiKey || undefined,
+        {
+          tmdbId: mediaItem.tmdbId,
+          imdbId: mediaItem.imdbId,
+        },
+      );
+
+      if (searchRes.results?.[0]) {
+        topSub = searchRes.results[0];
+        break;
+      }
+    }
+
+    if (!topSub) {
       return reply.status(404).send({
         error: {
           code: 'NO_SUBTITLE_FOUND',
-          message: `${language.toUpperCase()} dilinde uygun altyazı bulunamadı.`,
+          message: `${preferredLanguages.join(', ').toUpperCase()} dillerinde uygun altyazı bulunamadı.`,
           requestId: request.id,
         },
       });
     }
-
-    const topSub = searchRes.results[0];
 
     const vttContent = await openSubtitlesService.downloadAndConvertSubtitle(
       topSub.fileId,
@@ -400,7 +423,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
           mediaItemId: targetEpisode ? undefined : mediaItem.id,
           episodeId: targetEpisode?.id,
           driveFileId: driveFile.id,
-          language: topSub.languageCode || language,
+          language: topSub.languageCode,
           label: `${topSub.languageName} (OpenSubtitles)`,
           sourceFormat: 'vtt',
         },

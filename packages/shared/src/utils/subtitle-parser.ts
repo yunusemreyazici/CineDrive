@@ -22,6 +22,34 @@ const LANGUAGE_LABELS: Record<string, string> = {
   zh: '中文',
 };
 
+/**
+ * Release groups label sidecar files with ISO 639-2 as often as 639-1, so
+ * `Movie.eng.srt` is at least as common as `Movie.en.srt`. The filename
+ * pattern already accepted three letters, but only two-letter codes were
+ * recognised — every `.eng.` file fell through to the Turkish fallback below
+ * and was imported, labelled and defaulted as Turkish.
+ */
+const ISO_639_2_TO_1: Record<string, string> = {
+  tur: 'tr',
+  eng: 'en',
+  ger: 'de',
+  deu: 'de',
+  fre: 'fr',
+  fra: 'fr',
+  spa: 'es',
+  ita: 'it',
+  por: 'pt',
+  rus: 'ru',
+  ara: 'ar',
+  jpn: 'ja',
+  kor: 'ko',
+  chi: 'zh',
+  zho: 'zh',
+};
+
+/** Used when the filename carries no language at all. */
+export const UNKNOWN_LANGUAGE_CODE = 'und';
+
 export function parseSubtitleFilename(filename: string): ParsedSubtitleInfo {
   const lower = filename.toLowerCase();
   const sourceFormat: 'vtt' | 'srt' = lower.endsWith('.srt') ? 'srt' : 'vtt';
@@ -33,9 +61,14 @@ export function parseSubtitleFilename(filename: string): ParsedSubtitleInfo {
   const langMatch = lower.match(/\.([a-z]{2,3})\.(vtt|srt)$/i) ||
     lower.match(/[\._\-]([a-z]{2,3})[\._\-]/i);
 
-  const rawLang = langMatch?.[1]?.toLowerCase() || 'tr';
-  const languageCode = LANGUAGE_LABELS[rawLang] ? rawLang : 'tr';
-  const baseLabel = LANGUAGE_LABELS[languageCode] || 'Türkçe';
+  const rawLang = langMatch?.[1]?.toLowerCase();
+  const normalized = rawLang ? ISO_639_2_TO_1[rawLang] || rawLang : undefined;
+
+  // An unrecognised or absent code stays unrecognised. It used to become `tr`,
+  // which silently relabelled every foreign track as Turkish and — because the
+  // default flag keys off `tr` — promoted it to the default subtitle.
+  const languageCode = normalized || UNKNOWN_LANGUAGE_CODE;
+  const baseLabel = LANGUAGE_LABELS[languageCode] || languageCode.toUpperCase();
 
   let languageLabel = baseLabel;
   if (forced && hearingImpaired) {

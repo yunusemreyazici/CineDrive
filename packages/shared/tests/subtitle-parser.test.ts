@@ -19,6 +19,24 @@ describe('Subtitle Parser & SRT Converter Unit Tests', () => {
       expect(parsed.sourceFormat).toBe('srt');
     });
 
+    it('resolves three-letter ISO 639-2 codes instead of falling back to Turkish', () => {
+      // `.eng.` is at least as common as `.en.` in release naming, and it used
+      // to be imported, labelled and defaulted as Turkish.
+      const english = parseSubtitleFilename('Movie.2019.eng.srt');
+      expect(english.languageCode).toBe('en');
+      expect(english.languageLabel).toBe('English');
+      expect(english.isDefault).toBe(false);
+
+      expect(parseSubtitleFilename('Movie.ger.srt').languageCode).toBe('de');
+      expect(parseSubtitleFilename('Movie.tur.srt').languageCode).toBe('tr');
+    });
+
+    it('marks a subtitle with no language in its name as undetermined, not Turkish', () => {
+      const parsed = parseSubtitleFilename('Movie.srt');
+      expect(parsed.languageCode).toBe('und');
+      expect(parsed.isDefault).toBe(false);
+    });
+
     it('should detect forced and SDH subtitles e.g. "Series.S01E01.forced.tr.vtt" & "Series.S01E01.sdh.en.srt"', () => {
       const forcedSub = parseSubtitleFilename('Series.S01E01.forced.tr.vtt');
       expect(forcedSub.forced).toBe(true);

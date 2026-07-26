@@ -307,7 +307,9 @@ export function useAutoDownloadSubtitleMutation() {
       mediaId,
       seasonNumber,
       episodeNumber,
-      language = 'tr',
+      // Omitted by default so the server falls back to the account's own
+      // subtitle language preference instead of assuming Turkish.
+      language,
     }: {
       mediaId: string;
       seasonNumber?: number;

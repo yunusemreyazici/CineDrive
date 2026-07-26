@@ -380,7 +380,8 @@ export const tr = {
     showLess: 'Kısalt',
     downloadSubtitle: 'Altyazı İndir',
     downloadingSubtitle: 'Altyazı İndiriliyor...',
-    downloadSubtitleTitle: 'OpenSubtitles üzerinden Türkçe altyazı indir ve veritabanına kaydet',
+    downloadSubtitleTitle:
+      'Tercih ettiğiniz altyazı dillerinde OpenSubtitles’ta ara, indir ve kaydet',
     subtitleDownloaded: 'Altyazı indirildi!',
     subtitleNotFound: 'Altyazı bulunamadı.',
     edit: 'Düzenle',

@@ -21,6 +21,15 @@ export interface OpenSubtitlesSearchIdentifiers {
   imdbId?: string | null;
 }
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  tr: 'Türkçe',
+  en: 'İngilizce',
+  de: 'Almanca',
+  fr: 'Fransızca',
+  es: 'İspanyolca',
+  it: 'İtalyanca',
+};
+
 export class OpenSubtitlesService {
   /**
    * Searches OpenSubtitles v1 API for subtitles matching title, season, and episode
@@ -134,13 +143,13 @@ export class OpenSubtitlesService {
               id: String(file.file_id),
               fileId: file.file_id,
               filename: file.file_name || item.attributes?.release || 'Altyazı',
-              languageName:
-                item.attributes?.language === 'tr'
-                  ? 'Türkçe'
-                  : item.attributes?.language === 'en'
-                    ? 'İngilizce'
-                    : item.attributes?.language || 'Türkçe',
-              languageCode: item.attributes?.language || 'tr',
+              // A language the map does not know is reported as itself, not
+              // as Turkish: the old fallback stored French and Spanish tracks
+              // with `languageCode: 'tr'`.
+              languageName: LANGUAGE_NAMES[item.attributes?.language || ''] ||
+                item.attributes?.language?.toUpperCase() ||
+                'Bilinmiyor',
+              languageCode: item.attributes?.language || 'und',
               downloadCount: item.attributes?.download_count || 0,
               releaseName: item.attributes?.release,
             });

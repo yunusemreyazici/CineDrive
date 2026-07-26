@@ -378,7 +378,8 @@ export const en: Translations = {
     showLess: 'Show less',
     downloadSubtitle: 'Download subtitle',
     downloadingSubtitle: 'Downloading subtitle…',
-    downloadSubtitleTitle: 'Download a subtitle from OpenSubtitles and store it in the database',
+    downloadSubtitleTitle:
+      'Search OpenSubtitles in your preferred subtitle languages, download and store it',
     subtitleDownloaded: 'Subtitle downloaded.',
     subtitleNotFound: 'No subtitle found.',
     edit: 'Edit',
