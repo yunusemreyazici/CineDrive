@@ -17,7 +17,16 @@ import { favoriteRoutes } from './routes/favorite.routes.js';
 import { subtitleRoutes } from './routes/subtitle.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { insightsRoutes } from './routes/insights.routes.js';
+import { internalRoutes } from './routes/internal.routes.js';
 import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
+
+// A single 4-second-segment HLS viewer issues roughly 15 segment requests per
+// minute on top of playlist polls and scrub previews, so the general API budget
+// throttles normal playback. Media transport gets its own, much larger budget.
+const PLAYBACK_PATH_PATTERN =
+  /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|internal\/drive-source\/)/;
+const API_RATE_LIMIT_MAX = 100;
+const PLAYBACK_RATE_LIMIT_MAX = 1200;
 
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
@@ -45,7 +54,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   });
 
   await app.register(rateLimit, {
-    max: 100,
+    max: (request) =>
+      PLAYBACK_PATH_PATTERN.test(request.url.split('?')[0] || '')
+        ? PLAYBACK_RATE_LIMIT_MAX
+        : API_RATE_LIMIT_MAX,
     timeWindow: '1 minute',
   });
 
@@ -91,6 +103,8 @@ export const buildApp = async (): Promise<FastifyInstance> => {
   await app.register(subtitleRoutes, { prefix: '/api/media' });
   await app.register(settingsRoutes, { prefix: '/api/settings' });
   await app.register(insightsRoutes, { prefix: '/api/insights' });
+  // Loopback-only FFmpeg source proxy; authenticated by capability, not session.
+  await app.register(internalRoutes, { prefix: '/api/internal' });
 
   return app;
 };

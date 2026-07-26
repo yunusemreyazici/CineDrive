@@ -24,6 +24,11 @@ const ACCESS_MARKER = '.access';
 const COMPLETE_MARKER = '.complete';
 const PROCESS_REGISTRY_FILE = '.active-processes.json';
 const MANUAL_STOP_BLOCK_MS = 5 * 60 * 1000;
+// A queued request must not wait forever for a slot that may never free up.
+const PENDING_SLOT_TIMEOUT_MS = 90_000;
+// A fully generated cache has no running job to protect it, but it may still be
+// the directory a viewer is streaming segments from right now.
+const RECENT_ACCESS_PROTECTION_MS = 5 * 60 * 1000;
 
 export type HlsServiceOptions = {
   cacheRoot?: string;
@@ -107,6 +112,7 @@ type PendingSlot = {
   startSeconds: number;
   resolve: (reservationId: string) => void;
   reject: (error: Error) => void;
+  dispose: () => void;
 };
 
 export class HlsService {
@@ -121,6 +127,7 @@ export class HlsService {
   private readonly pendingSlots: PendingSlot[] = [];
   private readonly reservedSlots = new Set<string>();
   private readonly inflightStarts = new Map<string, Promise<string>>();
+  private readonly recentlyServed = new Map<string, number>();
 
   constructor(options: HlsServiceOptions = {}) {
     this.cacheRoot = options.cacheRoot || path.resolve(process.cwd(), 'data/hls_cache');
@@ -153,7 +160,10 @@ export class HlsService {
     sessionId?: string,
     mediaName = cacheKey,
     sourceVideoCodec?: string | null,
+    signal?: AbortSignal,
   ) {
+    if (signal?.aborted) throw new Error('HLS_CLIENT_ABORTED');
+
     const inflight = this.inflightStarts.get(cacheKey);
     if (inflight) {
       if (sessionId) {
@@ -173,6 +183,7 @@ export class HlsService {
       sessionId,
       mediaName,
       sourceVideoCodec,
+      signal,
     );
     this.inflightStarts.set(cacheKey, start);
     try {
@@ -192,6 +203,7 @@ export class HlsService {
     sessionId: string | undefined,
     mediaName: string,
     sourceVideoCodec: string | null | undefined,
+    signal?: AbortSignal,
   ) {
     if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
       throw new Error('HLS_JOB_STOPPED');
@@ -200,12 +212,22 @@ export class HlsService {
     const outputDir = this.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
     if (sessionId) this.acquireLease(cacheKey, sessionId);
+    this.markRecentlyServed(cacheKey);
 
     let job = this.jobs.get(cacheKey);
     if (job) {
+      const pendingCommand = job.command;
       job.lastAccessAt = Date.now();
       this.touchCache(outputDir);
-      await job.ready;
+      try {
+        await job.ready;
+      } catch (error) {
+        // A job that failed to become ready must not stay in the map: it would
+        // keep re-throwing the same stale error to every later request while
+        // its own idle timer is refreshed, holding a slot forever.
+        this.abandonJob(cacheKey, pendingCommand, outputDir);
+        throw error;
+      }
       return playlistPath;
     }
 
@@ -239,9 +261,11 @@ export class HlsService {
       startSeconds > 0 ? 2 : 1,
       mediaName,
       startSeconds,
+      signal,
     );
 
     try {
+      if (signal?.aborted) throw new Error('HLS_CLIENT_ABORTED');
       if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
         throw new Error('HLS_JOB_STOPPED');
       }
@@ -273,6 +297,12 @@ export class HlsService {
         if (sessionId && !this.leases.get(cacheKey)?.has(sessionId)) {
           if (typeof input !== 'string' && !('url' in input)) input.destroy();
           throw new Error('HLS_CLIENT_RELEASED');
+        }
+        // Resolving a remote source involves network I/O; the viewer may have
+        // navigated away in the meantime. Never spawn FFmpeg for nobody.
+        if (signal?.aborted) {
+          if (typeof input !== 'string' && !('url' in input)) input.destroy();
+          throw new Error('HLS_CLIENT_ABORTED');
         }
 
         fs.mkdirSync(outputDir, { recursive: true });
@@ -388,12 +418,18 @@ export class HlsService {
             })
             .run();
 
-          const startedAt = Date.now();
           poll = setInterval(() => {
             if (this.isReady(playlistPath)) {
               finish(resolve);
             } else if (Date.now() - startedAt >= WAIT_TIMEOUT_MS) {
-              finish(() => reject(new Error('HLS_PREPARATION_TIMEOUT')));
+              // Tear the job down rather than only rejecting the waiter: an
+              // orphaned entry in `jobs` would occupy a global slot forever and
+              // re-throw this same error to every subsequent request.
+              finish(() => {
+                this.unregisterProcess(jobId);
+                this.abandonJob(cacheKey, command, outputDir);
+                reject(new Error('HLS_PREPARATION_TIMEOUT'));
+              });
             }
           }, 250);
         });
@@ -458,6 +494,7 @@ export class HlsService {
       }
     }
     const cacheDir = this.getCacheDir(cacheKey);
+    this.markRecentlyServed(cacheKey);
     this.touchCache(cacheDir);
     return path.join(cacheDir, assetName);
   }
@@ -558,7 +595,7 @@ export class HlsService {
 
   public enforceCacheQuota(protectedCacheKey?: string) {
     const protectedDirectory = protectedCacheKey ? this.getCacheDir(protectedCacheKey) : undefined;
-    const activeDirectories = new Set([...this.jobs.keys()].map((key) => this.getCacheDir(key)));
+    const activeDirectories = this.protectedDirectories();
     const entries = this.cacheEntries();
     let totalBytes = entries.reduce((total, entry) => total + entry.size, 0);
 
@@ -577,7 +614,7 @@ export class HlsService {
       throw new Error('INVALID_HLS_KEY');
     }
     const protectedDirectory = protectedCacheKey ? this.getCacheDir(protectedCacheKey) : undefined;
-    const activeDirectories = new Set([...this.jobs.keys()].map((key) => this.getCacheDir(key)));
+    const activeDirectories = this.protectedDirectories();
     const baseDirectoryName = `${familyKey}-${CACHE_VERSION}`;
     const seekDirectoryPrefix = `${familyKey}-at-`;
     const versionSuffix = `-${CACHE_VERSION}`;
@@ -615,11 +652,66 @@ export class HlsService {
     this.jobs.clear();
     this.leases.clear();
     this.blockedSessions.clear();
+    this.recentlyServed.clear();
     for (const pending of this.pendingSlots.splice(0)) {
+      pending.dispose();
       pending.reject(new Error('HLS_SERVICE_SHUTDOWN'));
     }
     this.reservedSlots.clear();
     this.inflightStarts.clear();
+  }
+
+  /**
+   * Directories that must survive eviction: those with a running encoder, those
+   * a player session still holds a lease on, and those served recently. The
+   * last case covers a fully generated cache, which has no job to protect it
+   * yet may be exactly what a viewer is streaming segments from right now.
+   */
+  private protectedDirectories() {
+    const now = Date.now();
+    const keys = new Set<string>([...this.jobs.keys(), ...this.leases.keys()]);
+
+    for (const [cacheKey, servedAt] of this.recentlyServed) {
+      if (now - servedAt >= RECENT_ACCESS_PROTECTION_MS) {
+        this.recentlyServed.delete(cacheKey);
+        continue;
+      }
+      keys.add(cacheKey);
+    }
+
+    const directories = new Set<string>();
+    for (const key of keys) {
+      try {
+        directories.add(this.getCacheDir(key));
+      } catch {
+        // An invalid key cannot correspond to a cache directory.
+      }
+    }
+    return directories;
+  }
+
+  private markRecentlyServed(cacheKey: string) {
+    this.recentlyServed.set(cacheKey, Date.now());
+  }
+
+  /**
+   * Removes a job that will never become usable, kills its encoder and drops
+   * the partial output so the next request starts from a clean slate.
+   */
+  private abandonJob(cacheKey: string, command: FfmpegCommand, outputDir: string) {
+    const jobState = this.detachJob(cacheKey, command);
+    try {
+      command.kill('SIGKILL');
+    } catch {
+      // Process may already have exited.
+    }
+    if (jobState !== 'replaced') {
+      try {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      } catch {
+        // A missing directory is the desired end state anyway.
+      }
+    }
   }
 
   private acquireLease(cacheKey: string, sessionId: string) {
@@ -697,6 +789,7 @@ export class HlsService {
     priority: number,
     mediaName: string,
     startSeconds: number,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (this.jobs.size + this.reservedSlots.size < this.maxActiveJobs) {
       const reservationId = crypto.randomUUID();
@@ -706,8 +799,20 @@ export class HlsService {
 
     if (sessionId) this.cancelPendingSlots(sessionId);
     return new Promise<string>((resolve, reject) => {
+      const id = crypto.randomUUID();
+
+      // A queued request previously had no exit other than a slot opening up,
+      // so a client that disconnected still eventually started a full job.
+      const timeout = setTimeout(() => {
+        this.removePendingSlot(id, new Error('HLS_QUEUE_TIMEOUT'));
+      }, PENDING_SLOT_TIMEOUT_MS);
+      timeout.unref();
+
+      const onAbort = () => this.removePendingSlot(id, new Error('HLS_CLIENT_ABORTED'));
+      signal?.addEventListener('abort', onAbort, { once: true });
+
       this.pendingSlots.push({
-        id: crypto.randomUUID(),
+        id,
         cacheKey,
         familyKey,
         sessionId,
@@ -717,9 +822,21 @@ export class HlsService {
         startSeconds,
         resolve,
         reject,
+        dispose: () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener('abort', onAbort);
+        },
       });
       this.sortPendingSlots();
     });
+  }
+
+  private removePendingSlot(id: string, error: Error) {
+    const index = this.pendingSlots.findIndex((pending) => pending.id === id);
+    if (index < 0) return;
+    const [pending] = this.pendingSlots.splice(index, 1);
+    pending!.dispose();
+    pending!.reject(error);
   }
 
   private cancelPendingSlots(sessionId: string, cacheKey?: string) {
@@ -732,6 +849,7 @@ export class HlsService {
         continue;
       }
       this.pendingSlots.splice(index, 1);
+      pending.dispose();
       pending.reject(new Error('HLS_REQUEST_SUPERSEDED'));
     }
   }
@@ -751,6 +869,7 @@ export class HlsService {
       const pending = this.pendingSlots.shift()!;
       const reservationId = pending.id;
       this.reservedSlots.add(reservationId);
+      pending.dispose();
       pending.resolve(reservationId);
     }
   }

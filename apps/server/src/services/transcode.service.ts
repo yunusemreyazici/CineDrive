@@ -1,6 +1,6 @@
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg from 'fluent-ffmpeg';
-import { Readable, PassThrough } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 
 if (ffmpegPath) {
@@ -8,6 +8,12 @@ if (ffmpegPath) {
 }
 
 export type TranscodeQuality = 'original' | '1080p' | '720p' | '480p';
+
+// Backstop for a process whose consumer vanished without the socket 'close'
+// ever reaching us. Generous enough that a paused player is not interrupted;
+// if it does fire, the player's source-error recovery re-requests the stream.
+const IDLE_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
+const IDLE_CHECK_INTERVAL_MS = 30 * 1000;
 
 const QUALITY_PROFILES: Record<
   TranscodeQuality,
@@ -74,7 +80,17 @@ export class TranscodeService {
 
     const sessionId = randomUUID();
     this.activeSessions.add(sessionId);
-    const outputStream = new PassThrough();
+
+    // Counting on the write side gives a liveness signal without consuming the
+    // stream: when the client stops reading, backpressure stalls FFmpeg's
+    // writes and this timestamp stops advancing.
+    let lastProgressAt = Date.now();
+    const outputStream = new Transform({
+      transform(chunk, _encoding, callback) {
+        lastProgressAt = Date.now();
+        callback(null, chunk);
+      },
+    });
     const quality = options.quality || '1080p';
     const profile = QUALITY_PROFILES[quality];
     const scaleOptions = profile.height ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`] : [];
@@ -101,9 +117,11 @@ export class TranscodeService {
       : ['-c:v copy'];
 
     let closed = false;
+    let idleTimer: NodeJS.Timeout | undefined;
     const closeSession = () => {
       if (closed) return;
       closed = true;
+      if (idleTimer) clearInterval(idleTimer);
       this.activeSessions.delete(sessionId);
       if (ownerSessionId && this.ownerSessions.get(ownerSessionId)?.id === sessionId) {
         this.ownerSessions.delete(ownerSessionId);
@@ -146,6 +164,14 @@ export class TranscodeService {
       ])
       .on('error', (err: Error) => {
         closeSession();
+        // Freeing the session slot is not the same as stopping the encoder.
+        // Without this kill a failed job left a live FFmpeg process behind and
+        // the real process count drifted above maxActiveSessions.
+        try {
+          command.kill('SIGKILL');
+        } catch {
+          // Process may already have exited.
+        }
         if (
           !err.message.includes('Output stream closed') &&
           !err.message.includes('Output pipe closed') &&
@@ -157,7 +183,10 @@ export class TranscodeService {
       })
       .on('end', closeSession);
 
+    let killed = false;
     const kill = () => {
+      if (killed) return;
+      killed = true;
       closeSession();
       try {
         command.kill('SIGKILL');
@@ -165,6 +194,14 @@ export class TranscodeService {
         // ignore kill errors
       }
     };
+
+    // The reply destroying its source is the normal signal that the browser is
+    // gone; the interval only covers the case where it never arrives.
+    outputStream.on('close', kill);
+    idleTimer = setInterval(() => {
+      if (Date.now() - lastProgressAt >= IDLE_SESSION_TIMEOUT_MS) kill();
+    }, IDLE_CHECK_INTERVAL_MS);
+    idleTimer.unref();
 
     if (onAbort) {
       onAbort(kill);

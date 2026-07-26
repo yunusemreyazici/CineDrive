@@ -2,27 +2,33 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { TranscodeQuality } from '../services/transcode.service.js';
+import { env } from '../config/env.js';
+import { resolveRangeRequest } from '../utils/http-range.js';
 
-// Browsers commonly request `bytes=N-`. Forwarding that request unchanged makes
-// Google Drive send the entire remainder of a multi-GB file until the browser
-// eventually closes the connection. A bounded chunk keeps prefetch/probing
-// traffic predictable while retaining normal HTML5 seek support.
-const MAX_STREAM_CHUNK_BYTES = 8 * 1024 * 1024;
-
-const boundOpenEndedRange = (rangeHeader?: string): string | undefined => {
-  if (!rangeHeader) return undefined;
-
-  const match = rangeHeader.match(/^bytes=(\d+)-$/);
-  if (!match) return rangeHeader;
-
-  const start = Number.parseInt(match[1]!, 10);
-  return `bytes=${start}-${start + MAX_STREAM_CHUNK_BYTES - 1}`;
-};
+// FFmpeg reads its Drive input over HTTP. Reconnecting keeps a long encode
+// alive across transient upstream resets instead of failing the whole job.
+const FFMPEG_HTTP_INPUT_OPTIONS = [
+  '-reconnect',
+  '1',
+  '-reconnect_streamed',
+  '1',
+  '-reconnect_delay_max',
+  '5',
+  '-rw_timeout',
+  '15000000',
+];
 
 export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
-  const resolveActiveDriveFile = (driveFileId: string) =>
+  // A Drive file ID alone is not an authorization decision. Every lookup is
+  // scoped to a library the caller actually owns, matching the pattern already
+  // used by the insights routes.
+  const ownedLibraryFilter = (userId: string) => ({
+    OR: [{ googleConnection: { userId } }, { googleConnectionId: null }],
+  });
+
+  const resolveActiveDriveFile = (driveFileId: string, userId: string) =>
     fastify.prisma.driveFile.findFirst({
       where: {
         OR: [
@@ -31,9 +37,32 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           { localFilePath: driveFileId },
         ],
         status: 'active',
+        library: ownedLibraryFilter(userId),
       },
       include: { library: true },
     });
+
+  // FFmpeg is pointed at this server rather than at googleapis.com so each
+  // (re)connection resolves a fresh access token. See DriveSourceService.
+  const driveSourceInput = (
+    driveFile: {
+      googleDriveFileId: string | null;
+      library: { googleConnectionId: string | null } | null;
+    },
+    userId: string,
+  ) => {
+    const capability = fastify.driveSourceService.issue({
+      googleDriveFileId: driveFile.googleDriveFileId || '',
+      userId,
+      ...(driveFile.library?.googleConnectionId
+        ? { connectionId: driveFile.library.googleConnectionId }
+        : {}),
+    });
+    return {
+      url: `http://127.0.0.1:${env.PORT}/api/internal/drive-source/${capability}`,
+      inputOptions: [...FFMPEG_HTTP_INPUT_OPTIONS],
+    };
+  };
 
   const hlsCacheKey = (
     driveFile: {
@@ -71,11 +100,20 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
   const parseHlsSession = (value: unknown) =>
     typeof value === 'string' && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null;
 
+  const CLIENT_ABANDONED_HLS_ERRORS = new Set([
+    'HLS_CLIENT_ABORTED',
+    'HLS_CLIENT_RELEASED',
+    'HLS_REQUEST_SUPERSEDED',
+  ]);
+
+  const isClientAbandonedHlsError = (error: unknown) =>
+    error instanceof Error && CLIENT_ABANDONED_HLS_ERRORS.has(error.message);
+
   fastify.get<{
     Params: { driveFileId: string };
     Querystring: { time?: string };
   }>('/:driveFileId/preview', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId, request.user!.id);
     if (!driveFile) {
       return reply.status(404).send({
         error: {
@@ -155,51 +193,51 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     request: FastifyRequest,
     reply: FastifyReply,
   ) => {
-    // Range validation against malformed, multi-range or amplification attacks
+    // Wire client-disconnect handling before any await. Attaching it later left
+    // a window where 'close' had already fired, so the listener never ran and
+    // FFmpeg was spawned for a client that had already gone away.
+    const abortController = new AbortController();
+    const onClientClose = () => {
+      if (!reply.raw.writableEnded) {
+        abortController.abort();
+      }
+    };
+
+    const cleanupListeners = () => {
+      request.raw.removeListener('close', onClientClose);
+    };
+
+    request.raw.on('close', onClientClose);
+    reply.raw.on('finish', cleanupListeners);
+    reply.raw.on('error', cleanupListeners);
+
+    // Range syntax validation. Bounds that depend on the resource size are
+    // resolved once the file (and therefore its length) is known.
     const rangeHeader = request.headers.range;
-    const upstreamRangeHeader = boundOpenEndedRange(rangeHeader);
-    if (rangeHeader) {
-      // Reject multi-range requests (comma separated)
-      if (rangeHeader.includes(',')) {
-        return reply.status(400).send({
-          error: {
-            code: 'MULTI_RANGE_NOT_SUPPORTED',
-            message: 'Çoklu Range istekleri desteklenmemektedir.',
-            requestId: request.id,
-          },
-        });
-      }
-
-      // Check range syntax regex (e.g. bytes=0-1000 or bytes=1000-)
-      const rangeMatch = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-      if (!rangeMatch) {
-        return reply.status(416).send({
-          error: {
-            code: 'RANGE_NOT_SATISFIABLE',
-            message: 'Geçersiz Range başlığı biçimi.',
-            requestId: request.id,
-          },
-        });
-      }
-
-      const startStr = rangeMatch[1];
-      const endStr = rangeMatch[2];
-      if (startStr && endStr) {
-        const start = parseInt(startStr, 10);
-        const end = parseInt(endStr, 10);
-        if (start > end) {
-          return reply.status(416).send({
-            error: {
-              code: 'RANGE_NOT_SATISFIABLE',
-              message: 'Başlangıç pozisyonu bitiş pozisyonundan büyük olamaz.',
-              requestId: request.id,
-            },
-          });
-        }
-      }
+    const syntaxCheck = resolveRangeRequest(rangeHeader, null);
+    if (syntaxCheck.kind === 'multi') {
+      cleanupListeners();
+      return reply.status(400).send({
+        error: {
+          code: 'MULTI_RANGE_NOT_SUPPORTED',
+          message: 'Çoklu Range istekleri desteklenmemektedir.',
+          requestId: request.id,
+        },
+      });
+    }
+    if (syntaxCheck.kind === 'invalid' || syntaxCheck.kind === 'unsatisfiable') {
+      cleanupListeners();
+      return reply.status(416).send({
+        error: {
+          code: 'RANGE_NOT_SATISFIABLE',
+          message: 'Geçersiz Range başlığı biçimi.',
+          requestId: request.id,
+        },
+      });
     }
 
-    // 1. Verify file exists in database and belongs to an active library
+    // 1. Verify file exists in database and belongs to a library the caller owns
+    const ownedLibrary = ownedLibraryFilter(userId);
     let driveFile = await fastify.prisma.driveFile.findFirst({
       where: {
         OR: [
@@ -208,6 +246,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           { localFilePath: driveFileId },
         ],
         status: 'active',
+        library: ownedLibrary,
       },
       include: { library: true },
     });
@@ -220,7 +259,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (movieItem && movieItem.driveFileId) {
         driveFile = await fastify.prisma.driveFile.findFirst({
-          where: { id: movieItem.driveFileId, status: 'active' },
+          where: { id: movieItem.driveFileId, status: 'active', library: ownedLibrary },
           include: { library: true },
         });
       }
@@ -234,13 +273,14 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (episodeItem && episodeItem.driveFileId) {
         driveFile = await fastify.prisma.driveFile.findFirst({
-          where: { id: episodeItem.driveFileId, status: 'active' },
+          where: { id: episodeItem.driveFileId, status: 'active', library: ownedLibrary },
           include: { library: true },
         });
       }
     }
 
     if (!driveFile) {
+      cleanupListeners();
       return reply.status(404).send({
         error: {
           code: 'FILE_NOT_FOUND',
@@ -270,6 +310,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       ].some((ext) => driveFile.name.toLowerCase().endsWith(ext));
 
     if (!isVideo) {
+      cleanupListeners();
       return reply.status(400).send({
         error: {
           code: 'INVALID_MEDIA_TYPE',
@@ -278,22 +319,6 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-
-    // 4. Setup AbortController for client socket disconnect handling
-    const abortController = new AbortController();
-    const onClientClose = () => {
-      if (!reply.raw.writableEnded) {
-        abortController.abort();
-      }
-    };
-
-    const cleanupListeners = () => {
-      request.raw.removeListener('close', onClientClose);
-    };
-
-    request.raw.on('close', onClientClose);
-    reply.raw.on('finish', cleanupListeners);
-    reply.raw.on('error', cleanupListeners);
 
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
     const requestedQuality = (request.query as Record<string, string>)?.quality;
@@ -332,6 +357,20 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
+    // The socket may have closed while the database and token lookups above
+    // were in flight. Binding the kill switch to the abort signal (rather than
+    // to a second 'close' listener) makes that case deterministic.
+    const bindTranscodeAbort = (kill: () => void) => {
+      abortController.signal.addEventListener(
+        'abort',
+        () => {
+          kill();
+          cleanupListeners();
+        },
+        { once: true },
+      );
+    };
+
     const transcodeQuality = (requestedQuality || '1080p') as TranscodeQuality;
     const isTranscode =
       transcodeMode === 'true' ||
@@ -365,6 +404,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.send();
         }
 
+        if (abortController.signal.aborted) {
+          cleanupListeners();
+          return;
+        }
+
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           // A local MP4 must remain seekable. Feeding it through a ReadStream
           // turns it into a pipe, and FFmpeg cannot revisit MP4 sample offsets.
@@ -376,34 +420,32 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
-
-        request.raw.on('close', () => {
-          kill();
-          cleanupListeners();
-        });
+        bindTranscodeAbort(kill);
 
         return reply.send(transcodedStream);
       }
 
       const stat = fs.statSync(driveFile.localFilePath);
       const fileSize = stat.size;
-      let start = 0;
-      let end = fileSize - 1;
-      let statusCode = 200;
+      const resolution = resolveRangeRequest(rangeHeader, fileSize);
 
-      if (rangeHeader) {
-        const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
-        if (match) {
-          start = match[1] ? parseInt(match[1], 10) : 0;
-          end = match[2]
-            ? parseInt(match[2], 10)
-            : Math.min(start + MAX_STREAM_CHUNK_BYTES - 1, fileSize - 1);
-          if (end >= fileSize) end = fileSize - 1;
-          statusCode = 206;
-        }
+      if (resolution.kind === 'unsatisfiable' || resolution.kind === 'invalid') {
+        cleanupListeners();
+        reply.header('Content-Range', `bytes */${fileSize}`);
+        return reply.status(416).send({
+          error: {
+            code: 'RANGE_NOT_SATISFIABLE',
+            message: 'İstenen Range aralığı dosya boyutunun dışında.',
+            requestId: request.id,
+          },
+        });
       }
 
-      const chunkSize = end - start + 1;
+      const start = resolution.kind === 'range' ? resolution.start : 0;
+      const end = resolution.kind === 'range' ? resolution.end : Math.max(0, fileSize - 1);
+      const statusCode = resolution.kind === 'range' ? 206 : 200;
+
+      const chunkSize = fileSize === 0 ? 0 : end - start + 1;
       let contentType = driveFile.mimeType;
       if (!contentType || contentType === 'application/octet-stream') {
         const nameLower = driveFile.name.toLowerCase();
@@ -460,37 +502,56 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.send();
         }
 
-        // Give FFmpeg a seekable HTTP input instead of a Node pipe. Google
-        // Drive supports Range requests on this URL, so input-side `-ss` can
-        // jump near the requested timestamp without downloading and discarding
-        // the whole file from byte zero.
-        const googleDriveFileId = encodeURIComponent(driveFile.googleDriveFileId || '');
-        const sourceUrl =
-          `https://www.googleapis.com/drive/v3/files/${googleDriveFileId}` +
-          '?alt=media&supportsAllDrives=true';
+        if (abortController.signal.aborted) {
+          cleanupListeners();
+          return;
+        }
+
+        // Give FFmpeg a seekable HTTP input instead of a Node pipe, so
+        // input-side `-ss` can jump near the requested timestamp without
+        // downloading and discarding the whole file from byte zero. The URL
+        // points at this server's loopback proxy rather than at Google, so a
+        // job outliving its access token refreshes instead of failing.
+        const source = driveSourceInput(driveFile, userId);
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
-          sourceUrl,
+          source.url,
           {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
             startSeconds,
-            inputOptions: [
-              '-headers',
-              `Authorization: Bearer ${accessToken}\r\n`,
-              '-rw_timeout',
-              '15000000',
-            ],
+            inputOptions: source.inputOptions,
             ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
-
-        request.raw.on('close', () => {
-          kill();
-          cleanupListeners();
-        });
+        bindTranscodeAbort(kill);
 
         return reply.send(transcodedStream);
       }
+
+      // Now that the file's real length is known, resolve the requested window
+      // into absolute bounds: suffix ranges become concrete offsets, and an
+      // over-large `bytes=0-<huge>` is narrowed instead of being forwarded.
+      const driveFileSize = driveFile.size === null ? null : Number(driveFile.size);
+      const resolution = resolveRangeRequest(rangeHeader, driveFileSize);
+
+      if (resolution.kind === 'unsatisfiable') {
+        cleanupListeners();
+        if (resolution.size > 0) {
+          reply.header('Content-Range', `bytes */${resolution.size}`);
+        }
+        return reply.status(416).send({
+          error: {
+            code: 'RANGE_NOT_SATISFIABLE',
+            message: 'İstenen Range aralığı dosya boyutunun dışında.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const upstreamRangeHeader =
+        resolution.kind === 'range' || resolution.kind === 'passthrough'
+          ? resolution.header
+          : undefined;
 
       const driveStreamRes = await fastify.driveService.createMediaStream(
         accessToken,
@@ -591,7 +652,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
   }>('/:driveFileId/hls/index.m3u8', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId, request.user!.id);
     if (!driveFile) {
       return reply.status(404).send({
         error: {
@@ -601,6 +662,16 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
+
+    // Preparing an HLS job can take tens of seconds and may sit in a queue.
+    // Without this signal a client that navigated away still consumed a global
+    // transcode slot and started a full FFmpeg job nobody was waiting for.
+    const abortController = new AbortController();
+    const onClientClose = () => abortController.abort();
+    request.raw.on('close', onClientClose);
+    const cleanupListeners = () => request.raw.removeListener('close', onClientClose);
+    reply.raw.on('finish', cleanupListeners);
+    reply.raw.on('error', cleanupListeners);
 
     try {
       const startSeconds = parseHlsStart(request.query.start);
@@ -630,26 +701,20 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
             return driveFile.localFilePath;
           }
 
-          const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+          // Resolved eagerly so a disconnected Google account fails the request
+          // instead of the encoder. The token itself stays server-side.
+          await fastify.googleOAuthService.getValidAccessToken(
             request.user!.id,
             driveFile.library?.googleConnectionId || undefined,
           );
-          const googleDriveFileId = encodeURIComponent(driveFile.googleDriveFileId || '');
-          return {
-            url: `https://www.googleapis.com/drive/v3/files/${googleDriveFileId}?alt=media&supportsAllDrives=true`,
-            inputOptions: [
-              '-headers',
-              `Authorization: Bearer ${accessToken}\r\n`,
-              '-rw_timeout',
-              '15000000',
-            ],
-          };
+          return driveSourceInput(driveFile, request.user!.id);
         },
         startSeconds,
         hlsCacheKey(driveFile),
         sessionId,
         driveFile.name,
         driveFile.videoCodec,
+        abortController.signal,
       );
       const assetQuery = `?start=${startSeconds}`;
       const playlist = fs
@@ -660,6 +725,14 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('Cache-Control', 'no-cache');
       return reply.send(playlist);
     } catch (error) {
+      cleanupListeners();
+
+      // The client went away while the job was queued or starting. There is
+      // nobody left to answer, and this is not a server fault worth logging.
+      if (abortController.signal.aborted || isClientAbandonedHlsError(error)) {
+        return;
+      }
+
       request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
       return reply.status(500).send({
         error: {
@@ -675,7 +748,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
   }>('/:driveFileId/hls/release', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId, request.user!.id);
     if (!driveFile) return reply.status(404).send();
 
     const startSeconds = parseHlsStart(request.query.start);
@@ -692,7 +765,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string; assetName: string };
     Querystring: { start?: string };
   }>('/:driveFileId/hls/:assetName', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(request.params.driveFileId);
+    const driveFile = await resolveActiveDriveFile(request.params.driveFileId, request.user!.id);
     if (!driveFile) return reply.status(404).send();
 
     try {
@@ -706,7 +779,8 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
       const isInit = request.params.assetName === 'init.mp4';
       reply.header('Content-Type', isInit ? 'video/mp4' : 'video/iso.segment');
-      reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+      // Per-user media behind a session cookie must never enter a shared cache.
+      reply.header('Cache-Control', 'private, max-age=31536000, immutable');
       return reply.send(fs.createReadStream(assetPath));
     } catch {
       return reply.status(404).send();

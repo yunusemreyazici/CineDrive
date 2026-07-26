@@ -385,6 +385,27 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     const { driveFileId } = request.params;
     const userId = request.user!.id;
 
+    // Without this check the route was a generic Drive proxy: any file readable
+    // under the app's OAuth grant could be fetched by ID, and 200-vs-404 leaked
+    // whether an arbitrary file ID existed. Only IDs this library actually
+    // references as artwork are servable.
+    const isKnownAsset = await fastify.prisma.mediaItem.findFirst({
+      where: {
+        OR: [{ posterDriveFileId: driveFileId }, { backdropDriveFileId: driveFileId }],
+      },
+      select: { id: true },
+    });
+
+    if (!isKnownAsset) {
+      return reply.status(404).send({
+        error: {
+          code: 'ASSET_NOT_FOUND',
+          message: 'Görsel yüklenemedi.',
+          requestId: request.id,
+        },
+      });
+    }
+
     try {
       const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId);
       const driveStreamRes = await fastify.driveService.createMediaStream(accessToken, driveFileId);
