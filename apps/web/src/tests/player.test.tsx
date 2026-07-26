@@ -2,15 +2,17 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MediaPlayer } from '../features/player/components/MediaPlayer';
 import {
-  alignSubtitleCueToPlaybackTimeline,
   getBufferedAheadSeconds,
   isSafariBrowser,
-  MediaPlayer,
+  togglePlayerFullscreen,
+} from '../features/player/utils/playerBrowser';
+import {
+  alignSubtitleCueToPlaybackTimeline,
   normalizeSubtitleTrack,
   serializeSubtitleCuesToVtt,
-  togglePlayerFullscreen,
-} from '../features/player/components/MediaPlayer';
+} from '../features/player/utils/subtitleTracks';
 import { ResumeOverlay } from '../features/player/components/ResumeOverlay';
 import { NextEpisodeOverlay } from '../features/player/components/NextEpisodeOverlay';
 import { PlayerError } from '../features/player/components/PlayerError';

@@ -45,11 +45,11 @@ export const InsightsPage: React.FC = () => {
   } = insights || {};
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       {/* Header Title */}
       <div className="flex items-center justify-between border-b border-zinc-800 pb-5">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white font-display flex items-center gap-3">
+          <h1 className="text-xl font-extrabold text-white font-display flex items-center gap-3">
             <HardDrive className="w-8 h-8 text-brand-500" />
             Depolama ve Kota Analizi
           </h1>
@@ -111,7 +111,7 @@ export const InsightsPage: React.FC = () => {
       </div>
 
       {/* Resolution Breakdown */}
-      <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl space-y-6">
+      <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-6">
         <h3 className="text-lg font-bold text-white font-display">Çözünürlük Dağılımı</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* 4K */}
@@ -162,7 +162,7 @@ export const InsightsPage: React.FC = () => {
 
       {/* Duplicate Files List */}
       {duplicates.length > 0 && (
-        <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl space-y-4">
+        <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
               <Copy className="w-5 h-5 text-amber-400" />
@@ -198,7 +198,7 @@ export const InsightsPage: React.FC = () => {
       )}
 
       {/* Top 10 Largest Video Files */}
-      <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl space-y-4">
+      <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-4">
         <h3 className="text-lg font-bold text-white font-display flex items-center gap-2">
           <Film className="w-5 h-5 text-brand-400" />
           En Yüksek Boyutlu 10 Medya Dosyası

@@ -6,6 +6,7 @@ import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useMediaListQuery } from '../hooks/useApi';
+import { t } from '../i18n';
 
 export const SeriesPage: React.FC = () => {
   const [filterState, setFilterState] = useState<FilterState>({
@@ -52,8 +53,8 @@ export const SeriesPage: React.FC = () => {
           <Tv className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Diziler</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Google Drive arşivinizdeki tüm diziler ve sezonlar</p>
+          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.series.title}</h2>
+          <p className="text-sm text-zinc-400 mt-0.5">{t.series.subtitle}</p>
         </div>
       </div>
 
@@ -70,12 +71,12 @@ export const SeriesPage: React.FC = () => {
           ))}
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="Diziler Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.series.loadFailed} onRetry={() => void refetch()} />
       ) : !data || data.media.length === 0 ? (
         <EmptyState
           icon={Tv}
-          title="Dizi Bulunamadı"
-          description="Seçilen filtre kriterlerine uygun dizi bulunamadı."
+          title={t.series.notFoundTitle}
+          description={t.series.notFoundDescription}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

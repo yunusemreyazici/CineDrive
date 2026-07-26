@@ -1,24 +1,22 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Play, Info, Film, Tv, X } from 'lucide-react';
 import { useResetProgressMutation, type ContinueWatchingItemType } from '../../hooks/useApi';
 import { formatMediaTitle } from '../../utils/formatMediaTitle';
+import { getWideArtworkUrl } from '../../utils/mediaImages';
+import { t } from '../../i18n';
 
 interface ContinueWatchingCardProps {
   item: ContinueWatchingItemType;
 }
 
 export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item }) => {
-  const navigate = useNavigate();
   const resetProgress = useResetProgressMutation();
 
   const media = item.mediaItem;
   if (!media) return null;
 
-  const backdropUrl =
-    media.backdropUrl ||
-    media.posterUrl ||
-    (media.backdropDriveFileId ? `/api/media/assets/${media.backdropDriveFileId}` : null);
+  const backdropUrl = getWideArtworkUrl(media);
 
   const remainingSeconds = Math.max(0, item.durationSeconds - item.positionSeconds);
   const remainingMins = Math.ceil(remainingSeconds / 60);
@@ -33,25 +31,29 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
     }
   }
 
-  const handlePlayClick = () => {
-    if (item.episodeId) {
-      navigate(`/watch/${media.id}/${item.episodeId}`);
-    } else {
-      navigate(`/watch/${media.id}`);
-    }
-  };
+  const watchPath = item.episodeId
+    ? `/watch/${media.id}/${item.episodeId}`
+    : `/watch/${media.id}`;
 
   return (
-    <div
-      onClick={handlePlayClick}
-      className="group relative flex w-[280px] shrink-0 snap-start cursor-pointer flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#111214] transition duration-300 hover:scale-[1.025] hover:bg-[#181a1d] hover:shadow-[0_18px_42px_rgba(0,0,0,0.35)]"
-    >
+    <div className="group relative flex w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#111214] transition duration-300 hover:scale-[1.025] hover:bg-[#181a1d] hover:shadow-[0_18px_42px_rgba(0,0,0,0.35)]">
+      {/* The card resumes playback, but it also carries dismiss and detail
+          buttons, so the link is stretched instead of wrapping them. */}
+      <Link
+        to={watchPath}
+        className="absolute inset-0 z-10 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#070809]"
+      >
+        <span className="sr-only">
+          {t.mediaCard.continueWatching(formatMediaTitle(media.title))}
+        </span>
+      </Link>
+
       {/* 16:9 Landscape Media Image Container */}
       <div className="relative aspect-video w-full bg-zinc-950 overflow-hidden">
         {backdropUrl ? (
           <img
             src={backdropUrl}
-            alt={media.title}
+            alt=""
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
           />
@@ -65,10 +67,10 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-transparent" />
 
         {/* Center Hover Play Button */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
           <button
             type="button"
-            aria-label={`${media.title} izlemeye devam listesinden kaldır`}
+            aria-label={t.mediaCard.dismissFromContinue(media.title)}
             onClick={(event) => {
               event.stopPropagation();
               resetProgress.mutate(media.id);
@@ -78,18 +80,17 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
           >
             <X className="h-3.5 w-3.5" />
           </button>
-          <button
-            type="button"
-            aria-label={`${media.title} detayları`}
-            onClick={(event) => {
-              event.stopPropagation();
-              navigate(`/media/${media.id}`);
-            }}
+          <Link
+            to={`/media/${media.id}`}
+            aria-label={t.mediaCard.details(media.title)}
             className="flex h-8 w-8 translate-y-1 items-center justify-center rounded-full border border-white/25 bg-black/65 text-zinc-200 opacity-0 backdrop-blur transition group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100"
           >
             <Info className="h-3.5 w-3.5" />
-          </button>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/45 bg-zinc-950/75 text-white shadow-lg backdrop-blur-md transition group-hover:border-brand-400 group-hover:bg-brand-600">
+          </Link>
+          <div
+            aria-hidden="true"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/45 bg-zinc-950/75 text-white shadow-lg backdrop-blur-md transition group-hover:border-brand-400 group-hover:bg-brand-600"
+          >
             <Play className="h-4 w-4 translate-x-px fill-current" />
           </div>
         </div>
@@ -108,7 +109,7 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-[11px] text-zinc-400">
             {episodeInfo ? `${episodeInfo} · ` : ''}
-            {remainingMins > 0 ? `${remainingMins} dk kaldı` : 'Neredeyse bitti'}
+            {remainingMins > 0 ? t.mediaCard.remaining(remainingMins) : t.mediaCard.almostDone}
           </p>
           <span className="shrink-0 text-[10px] font-bold text-brand-400 opacity-0 transition group-hover:opacity-100">
             %{Math.round(item.percentage)}

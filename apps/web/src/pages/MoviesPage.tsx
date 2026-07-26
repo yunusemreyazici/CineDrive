@@ -6,6 +6,7 @@ import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useMediaListQuery } from '../hooks/useApi';
+import { t } from '../i18n';
 
 export const MoviesPage: React.FC = () => {
   const [filterState, setFilterState] = useState<FilterState>({
@@ -52,8 +53,8 @@ export const MoviesPage: React.FC = () => {
           <Film className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Filmler</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Google Drive arşivinizdeki tüm sinema filmleri</p>
+          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.movies.title}</h2>
+          <p className="text-sm text-zinc-400 mt-0.5">{t.movies.subtitle}</p>
         </div>
       </div>
 
@@ -70,12 +71,12 @@ export const MoviesPage: React.FC = () => {
           ))}
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="Filmler Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.movies.loadFailed} onRetry={() => void refetch()} />
       ) : !data || data.media.length === 0 ? (
         <EmptyState
           icon={Film}
-          title="Film Bulunamadı"
-          description="Seçilen filtre kriterlerine uygun film bulunamadı."
+          title={t.movies.notFoundTitle}
+          description={t.movies.notFoundDescription}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { parseApiError } from '../../api/client';
+import { t } from '../../i18n';
 
 interface ErrorStateProps {
   /** The error thrown by a query or mutation. */
@@ -17,7 +18,7 @@ interface ErrorStateProps {
  */
 export const ErrorState: React.FC<ErrorStateProps> = ({
   error,
-  title = 'İçerik Yüklenemedi',
+  title = t.errors.contentLoadFailed,
   onRetry,
 }) => {
   const { message, requestId } = parseApiError(error);
@@ -38,11 +39,13 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
           className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-md shadow-brand-500/20 transition-all hover:bg-brand-500"
         >
           <RefreshCw className="h-4 w-4" />
-          Tekrar Dene
+          {t.common.retry}
         </button>
       )}
       {requestId && (
-        <p className="mt-4 font-mono text-[11px] text-zinc-600">İstek No: {requestId}</p>
+        <p className="mt-4 font-mono text-[11px] text-zinc-600">
+          {t.common.requestId(requestId)}
+        </p>
       )}
     </div>
   );

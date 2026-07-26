@@ -7,6 +7,7 @@ import { ContinueWatchingCard } from '../components/media/ContinueWatchingCard';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
+import { t } from '../i18n';
 import type { MediaItemType } from '../types/media';
 import {
   useMediaListQuery,
@@ -35,7 +36,7 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 
           to={href}
           className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
         >
-          Tümünü gör
+          {t.common.seeAll}
           <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
         </Link>
       </div>
@@ -114,7 +115,7 @@ export const HomePage: React.FC = () => {
     try {
       lastFeaturedId = window.sessionStorage.getItem(LAST_FEATURED_MEDIA_KEY);
     } catch {
-      // Storage erişimi kapalıysa rastgele seçim yine çalışmaya devam eder.
+      // Random selection still works when storage access is blocked.
     }
 
     const freshCandidates =
@@ -129,7 +130,7 @@ export const HomePage: React.FC = () => {
     try {
       window.sessionStorage.setItem(LAST_FEATURED_MEDIA_KEY, selected.id);
     } catch {
-      // Seçimi kalıcılaştırmak kritik değildir.
+      // Persisting the pick is best-effort.
     }
   }, [allMedia.length, featuredCandidates, featuredId]);
 
@@ -150,7 +151,7 @@ export const HomePage: React.FC = () => {
     return (
       <ErrorState
         error={mediaError}
-        title="Ana Sayfa Yüklenemedi"
+        title={t.home.loadFailed}
         onRetry={() => void refetchMedia()}
       />
     );
@@ -159,9 +160,9 @@ export const HomePage: React.FC = () => {
   if (allMedia.length === 0) {
     return (
       <EmptyState
-        title="Medya Arşivi Boş"
-        description="Google Drive kütüphaneniz henüz taranmamış veya medya dosyası bulunamamış. Lütfen Ayarlar sayfasından kütüphane taramasını başlatın."
-        actionLabel="Ayarlara Git"
+        title={t.home.emptyTitle}
+        description={t.home.emptyDescription}
+        actionLabel={t.home.emptyAction}
         onAction={() => navigate('/settings')}
       />
     );
@@ -177,13 +178,13 @@ export const HomePage: React.FC = () => {
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
-              İzlemeye Devam Et
+              {t.home.continueWatching}
             </h2>
             <Link
               to="/history"
               className="group/link flex items-center gap-1.5 text-xs font-semibold text-zinc-500 transition hover:text-brand-400"
             >
-              Tümünü gör
+              {t.common.seeAll}
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/link:translate-x-0.5" />
             </Link>
           </div>
@@ -195,14 +196,14 @@ export const HomePage: React.FC = () => {
         </section>
       )}
 
-      <HomeSection title="Son Eklenenler" href="/library" items={allMedia} layout="grid" />
-      <HomeSection title="Filmler" href="/movies" items={movies} />
-      <HomeSection title="Diziler" href="/series" items={series} />
+      <HomeSection title={t.home.recentlyAdded} href="/library" items={allMedia} layout="grid" />
+      <HomeSection title={t.common.movies} href="/movies" items={movies} />
+      <HomeSection title={t.common.seriesPlural} href="/series" items={series} />
 
       {genres.length > 0 ? (
         <section className="space-y-3">
           <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
-            Türlere Göre
+            {t.home.byGenre}
           </h2>
           <div className="flex flex-wrap gap-2">
             {genres.map((genre) => (

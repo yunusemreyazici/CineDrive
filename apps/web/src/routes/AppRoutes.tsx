@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { Navigate, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
+import { t } from '../i18n';
 import { HomePage } from '../pages/HomePage';
 
 // Only the dashboard ships in the initial bundle. Every other route — the
@@ -44,7 +45,7 @@ const NotFoundPage = React.lazy(() =>
 const PlayerFallback: React.FC = () => (
   <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black font-display text-zinc-400">
     <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-brand-500 border-t-transparent" />
-    <span>Oynatıcı Hazırlanıyor...</span>
+    <span>{t.player.preparing}</span>
   </div>
 );
 

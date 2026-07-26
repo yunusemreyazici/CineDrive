@@ -5,6 +5,7 @@ import { useMediaListQuery } from '../hooks/useApi';
 import { MediaCard } from '../components/media/MediaCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
+import { t } from '../i18n';
 
 export const PersonPage: React.FC = () => {
   const { personName } = useParams<{ personName: string }>();
@@ -41,7 +42,7 @@ export const PersonPage: React.FC = () => {
           <button
             onClick={() => navigate(-1)}
             className="p-3 bg-zinc-800/80 hover:bg-zinc-700 text-white rounded-2xl transition-colors"
-            title="Geri Dön"
+            title={t.person.goBack}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -55,7 +56,9 @@ export const PersonPage: React.FC = () => {
               {decodedName}
             </h1>
             <p className="text-xs text-zinc-400 mt-1">
-              Kütüphanenizde <strong className="text-brand-400">{allItems.length} adet</strong> film ve dizi bulundu
+              {t.person.foundPrefix}{' '}
+              <strong className="text-brand-400">{t.person.foundCount(allItems.length)}</strong>{' '}
+              {t.person.foundSuffix}
             </p>
           </div>
         </div>
@@ -70,7 +73,7 @@ export const PersonPage: React.FC = () => {
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Tümü ({allItems.length})
+            {t.common.all} ({allItems.length})
           </button>
           <button
             onClick={() => setTypeFilter('movie')}
@@ -80,7 +83,7 @@ export const PersonPage: React.FC = () => {
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Filmler ({movieCount})
+            {t.common.movies} ({movieCount})
           </button>
           <button
             onClick={() => setTypeFilter('series')}
@@ -90,7 +93,7 @@ export const PersonPage: React.FC = () => {
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Diziler ({seriesCount})
+            {t.common.seriesPlural} ({seriesCount})
           </button>
         </div>
       </div>
@@ -99,14 +102,14 @@ export const PersonPage: React.FC = () => {
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-zinc-500 text-sm gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
-          <span>İçerikler yükleniyor...</span>
+          <span>{t.person.loading}</span>
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="İçerikler Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.person.loadFailed} onRetry={() => void refetch()} />
       ) : filteredItems.length === 0 ? (
         <EmptyState
-          title="İçerik Bulunamadı"
-          description={`Kütüphanenizde ${decodedName} için eşleşen içerik bulunamadı.`}
+          title={t.person.notFoundTitle}
+          description={t.person.notFoundDescription(decodedName)}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

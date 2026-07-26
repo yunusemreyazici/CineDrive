@@ -1,5 +1,6 @@
 import axios, { type AxiosError } from 'axios';
 import type { ApiErrorResponse } from '@cinedrive/shared';
+import { t } from '../i18n';
 
 const baseURL = import.meta.env.VITE_API_URL || '/api';
 
@@ -27,7 +28,7 @@ export function parseApiError(error: unknown): FormattedApiError {
 
     return {
       code: errorData?.code || 'UNKNOWN_ERROR',
-      message: errorData?.message || axiosErr.message || 'Bir ağ hatası oluştu.',
+      message: errorData?.message || axiosErr.message || t.errors.networkError,
       requestId: errorData?.requestId,
       status,
     };
@@ -35,7 +36,7 @@ export function parseApiError(error: unknown): FormattedApiError {
 
   return {
     code: 'UNKNOWN_ERROR',
-    message: error instanceof Error ? error.message : 'Beklenmeyen bir hata oluştu.',
+    message: error instanceof Error ? error.message : t.errors.unexpected,
     status: 500,
   };
 }

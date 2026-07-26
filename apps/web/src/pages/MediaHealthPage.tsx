@@ -132,7 +132,7 @@ export const MediaHealthPage: React.FC = () => {
 
   if (isError || !data) {
     return (
-      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-red-200">
+      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-200">
         Medya sağlığı bilgileri alınamadı.
       </div>
     );
@@ -143,10 +143,10 @@ export const MediaHealthPage: React.FC = () => {
     : 0;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       <header className="flex flex-col gap-4 border-b border-zinc-800 pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-2xl font-extrabold text-white md:text-3xl">
+          <h1 className="flex items-center gap-3 text-xl font-extrabold text-white">
             <Activity className="h-8 w-8 text-brand-400" />
             Medya Sağlığı
           </h1>

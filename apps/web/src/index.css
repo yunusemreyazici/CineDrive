@@ -82,56 +82,7 @@
   }
 }
 
-@layer components {
-  .settings-general {
-    @apply grid max-w-none grid-cols-1 gap-4;
-  }
-
-  .settings-general > * {
-    padding: 1rem !important;
-    border-radius: 1rem !important;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 280px;
-  }
-
-  .settings-general > * [class~='pb-4'] {
-    padding-bottom: 0.75rem;
-  }
-
-  .settings-general > * [class~='space-y-6'] > :not([hidden]) ~ :not([hidden]),
-  .settings-tool [class~='space-y-8'] > :not([hidden]) ~ :not([hidden]) {
-    margin-top: 1rem;
-  }
-
-  .settings-general > * [class~='space-y-5'] > :not([hidden]) ~ :not([hidden]),
-  .settings-tool [class~='space-y-6'] > :not([hidden]) ~ :not([hidden]) {
-    margin-top: 0.875rem;
-  }
-
-  .settings-tool [class~='p-6'] {
-    padding: 1rem;
-  }
-
-  .settings-tool [class~='p-5'] {
-    padding: 0.875rem;
-  }
-
-  .settings-tool [class~='rounded-3xl'] {
-    border-radius: 1rem;
-  }
-
-  .settings-tool [class~='rounded-2xl'] {
-    border-radius: 0.75rem;
-  }
-
-  .settings-tool h1 {
-    font-size: 1.25rem;
-    line-height: 1.75rem;
-  }
-
-  .settings-tool h1 svg {
-    width: 1.25rem;
-    height: 1.25rem;
-  }
-
-}
+/* Settings sections are styled by the SettingsCard component. The attribute
+   selectors that used to live here (`.settings-general > * [class~='pb-4']`)
+   reached into Tailwind utility names and broke silently whenever a class was
+   renamed in a component. */

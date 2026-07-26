@@ -5,6 +5,7 @@ import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useFavoritesQuery } from '../hooks/useApi';
+import { t } from '../i18n';
 
 export const FavoritesPage: React.FC = () => {
   const { data: favorites, isLoading, isError, error, refetch } = useFavoritesQuery();
@@ -16,8 +17,8 @@ export const FavoritesPage: React.FC = () => {
           <Heart className="w-6 h-6 fill-current" />
         </div>
         <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Favorilerim</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">Beğendiğiniz ve favorilere eklediğiniz medya içerikleri</p>
+          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.favorites.title}</h2>
+          <p className="text-sm text-zinc-400 mt-0.5">{t.favorites.subtitle}</p>
         </div>
       </div>
 
@@ -28,12 +29,12 @@ export const FavoritesPage: React.FC = () => {
           ))}
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="Favoriler Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.favorites.loadFailed} onRetry={() => void refetch()} />
       ) : !favorites || favorites.length === 0 ? (
         <EmptyState
           icon={Heart}
-          title="Favoriniz Bulunmuyor"
-          description="Beğendiğiniz filmleri ve dizileri kalbe tıklayarak favorilerinize ekleyebilirsiniz."
+          title={t.favorites.emptyTitle}
+          description={t.favorites.emptyDescription}
         />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

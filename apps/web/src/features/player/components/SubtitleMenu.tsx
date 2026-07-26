@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { Check, Plus, Search, Loader2, Clock, Download } from 'lucide-react';
 import type { SubtitleTrackType } from '../types/player';
 import { usePlayerStore } from '../stores/usePlayerStore';
@@ -34,6 +34,7 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
   onSelectOpenSubtitle,
   onClose,
 }) => {
+  const fieldId = useId();
   const [activeTab, setActiveTab] = useState<'tracks' | 'search' | 'sync' | 'style'>('tracks');
   const [searchResults, setSearchResults] = useState<OpenSubResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -243,25 +244,27 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
 
           {!isSearching &&
             searchResults.map((item) => (
-              <div
+              <button
                 key={item.id}
+                type="button"
                 onClick={() => handleDownloadSubtitle(item)}
-                className="flex items-center justify-between p-2 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 cursor-pointer transition-colors border border-zinc-800/80 group"
+                aria-label={`${item.filename} altyazısını indir`}
+                className="group flex w-full items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-800/50 p-2 text-left transition-colors hover:bg-zinc-800"
               >
-                <div className="min-w-0 flex-1 pr-2">
-                  <p className="text-xs font-semibold text-zinc-200 truncate group-hover:text-brand-300">
+                <span className="min-w-0 flex-1 pr-2">
+                  <span className="block truncate text-xs font-semibold text-zinc-200 group-hover:text-brand-300">
                     {item.filename}
-                  </p>
-                  <p className="text-[10px] text-zinc-400">{item.languageName}</p>
-                </div>
-                <button className="p-1.5 bg-brand-600/20 text-brand-400 rounded-lg group-hover:bg-brand-600 group-hover:text-white transition-colors">
+                  </span>
+                  <span className="block text-[10px] text-zinc-400">{item.languageName}</span>
+                </span>
+                <span className="rounded-lg bg-brand-600/20 p-1.5 text-brand-400 transition-colors group-hover:bg-brand-600 group-hover:text-white">
                   {downloadingFileId === item.fileId ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Download className="w-3.5 h-3.5" />
                   )}
-                </button>
-              </div>
+                </span>
+              </button>
             ))}
         </div>
       )}
@@ -292,8 +295,11 @@ export const SubtitleMenu: React.FC<SubtitleMenuProps> = ({
           </div>
 
           <div className="flex items-center gap-2 pt-1">
-            <label className="text-[11px] text-zinc-400 font-medium">Özel Değer (sn):</label>
+            <label htmlFor={`${fieldId}-delay`} className="text-[11px] text-zinc-400 font-medium">
+              Özel Değer (sn):
+            </label>
             <input
+              id={`${fieldId}-delay`}
               type="number"
               step="0.1"
               value={subtitleDelay}

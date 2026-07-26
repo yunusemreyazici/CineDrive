@@ -8,6 +8,8 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useUiStore } from '../stores/useUiStore';
 import { useMediaListQuery } from '../hooks/useApi';
+import { useSyncedState } from '../hooks/useSyncedState';
+import { t } from '../i18n';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -22,11 +24,7 @@ export const LibraryPage: React.FC = () => {
 
   // The input stays responsive on every keystroke while the URL — and with it
   // the media query — only follows once typing settles.
-  const [searchDraft, setSearchDraft] = useState(searchParam);
-
-  React.useEffect(() => {
-    setSearchDraft(searchParam);
-  }, [searchParam]);
+  const [searchDraft, setSearchDraft] = useSyncedState(searchParam);
 
   React.useEffect(() => {
     if (searchDraft === searchParam) return;
@@ -54,11 +52,14 @@ export const LibraryPage: React.FC = () => {
     genre: genreParam,
   });
 
-  React.useEffect(() => {
-    setFilterState((current) =>
-      current.genre === genreParam ? current : { ...current, genre: genreParam },
-    );
-  }, [genreParam]);
+  // The genre can arrive from a link (?genre=Dram) or from the filter panel, so
+  // the URL value is folded into the filter state during render rather than in
+  // an effect that would render the stale genre once first.
+  const [lastGenreParam, setLastGenreParam] = useState(genreParam);
+  if (genreParam !== lastGenreParam) {
+    setLastGenreParam(genreParam);
+    setFilterState((current) => ({ ...current, genre: genreParam }));
+  }
 
   const queryInput = useMemo(() => {
     let yearFrom: number | undefined;
@@ -112,8 +113,8 @@ export const LibraryPage: React.FC = () => {
       {/* Header & Filter Controls Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-zinc-800/60">
         <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">Medya Kütüphanesi</h2>
-          <p className="text-sm text-zinc-400 mt-1">Google Drive arşivinizdeki tüm dizi ve filmler</p>
+          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.library.title}</h2>
+          <p className="text-sm text-zinc-400 mt-1">{t.library.subtitle}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -121,7 +122,7 @@ export const LibraryPage: React.FC = () => {
           <div className="flex items-center p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
             <button
               onClick={() => setViewMode('grid')}
-              aria-label="Izgara Görünümü"
+              aria-label={t.library.gridView}
               className={`p-2 rounded-lg transition-colors ${
                 viewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
@@ -130,7 +131,7 @@ export const LibraryPage: React.FC = () => {
             </button>
             <button
               onClick={() => setViewMode('list')}
-              aria-label="Liste Görünümü"
+              aria-label={t.library.listView}
               className={`p-2 rounded-lg transition-colors ${
                 viewMode === 'list' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
               }`}
@@ -147,7 +148,7 @@ export const LibraryPage: React.FC = () => {
                 !typeParam ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Tümü
+              {t.common.all}
             </button>
             <button
               onClick={() => handleTypeChange('movie')}
@@ -155,7 +156,7 @@ export const LibraryPage: React.FC = () => {
                 typeParam === 'movie' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Filmler
+              {t.common.movies}
             </button>
             <button
               onClick={() => handleTypeChange('series')}
@@ -163,7 +164,7 @@ export const LibraryPage: React.FC = () => {
                 typeParam === 'series' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Diziler
+              {t.common.seriesPlural}
             </button>
           </div>
 
@@ -177,8 +178,8 @@ export const LibraryPage: React.FC = () => {
           type="text"
           value={searchDraft}
           onChange={(event) => setSearchDraft(event.target.value)}
-          aria-label="Kütüphanede ara"
-          placeholder="Kütüphanede ara..."
+          aria-label={t.library.searchLabel}
+          placeholder={t.library.searchPlaceholder}
           className="w-full pl-10 pr-4 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
         />
       </div>
@@ -198,12 +199,12 @@ export const LibraryPage: React.FC = () => {
           ))}
         </div>
       ) : isError ? (
-        <ErrorState error={error} title="Kütüphane Yüklenemedi" onRetry={() => void refetch()} />
+        <ErrorState error={error} title={t.library.loadFailed} onRetry={() => void refetch()} />
       ) : !data || data.media.length === 0 ? (
         <EmptyState
-          title="Medya Bulunamadı"
-          description="Arama kriterlerinize uygun hiçbir film veya dizi bulunamadı. Lütfen aramayı temizleyin."
-          actionLabel="Filtreleri Temizle"
+          title={t.library.notFoundTitle}
+          description={t.library.notFoundDescription}
+          actionLabel={t.library.clearFilters}
           onAction={() => setSearchParams(new URLSearchParams())}
         />
       ) : (
@@ -231,7 +232,7 @@ export const LibraryPage: React.FC = () => {
             <ChevronLeft className="w-5 h-5" />
           </button>
           <span className="text-sm text-zinc-400 font-medium font-display">
-            Sayfa <span className="text-white font-bold">{pageParam}</span> / {data.pagination.totalPages}
+            {t.library.page} <span className="text-white font-bold">{pageParam}</span> / {data.pagination.totalPages}
           </span>
           <button
             onClick={() => handlePageChange(pageParam + 1)}

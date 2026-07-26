@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, User, Pencil, Trash2, AlertTriangle, Loader2, Download } from 'lucide-react';
 import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation, useMediaListQuery } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
+import { Modal } from '../components/common/Modal';
+import { toast } from '../stores/useToastStore';
 import { MediaCard } from '../components/media/MediaCard';
 import { EditMetadataModal } from '../components/EditMetadataModal';
-import { TrailerModal, extractYoutubeId } from '../components/media/TrailerModal';
+import { TrailerModal } from '../components/media/TrailerModal';
+import { extractYoutubeId } from '../utils/youtube';
 import type { SeasonType, EpisodeType } from '../types/media';
+import { getHeroArtworkUrl, getPosterUrl } from '../utils/mediaImages';
 
 export const MediaDetailPage: React.FC = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
@@ -34,17 +38,14 @@ export const MediaDetailPage: React.FC = () => {
   const [showTrailerModal, setShowTrailerModal] = useState<boolean>(false);
   const [showEditModal, setShowEditModal] = useState<boolean>(false);
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
-  const [subMessage, setSubMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleAutoDownloadSubtitle = async () => {
     if (!media) return;
-    setSubMessage(null);
     try {
       const res = await autoSubtitleMutation.mutateAsync({ mediaId: media.id });
-      setSubMessage({ type: 'success', text: res.message || 'Altyazı indirildi!' });
+      toast.success(res.message || 'Altyazı indirildi!');
     } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'message' in err ? String(err.message) : 'Altyazı bulunamadı.';
-      setSubMessage({ type: 'error', text: msg });
+      toast.fromError(err, 'Altyazı bulunamadı.');
     }
   };
 
@@ -52,9 +53,10 @@ export const MediaDetailPage: React.FC = () => {
     if (!media) return;
     try {
       await deleteMutation.mutateAsync(media.id);
+      toast.success(`${media.title} kütüphaneden kaldırıldı.`);
       navigate('/library');
-    } catch {
-      // Error handled by react-query
+    } catch (err: unknown) {
+      toast.fromError(err, 'İçerik silinemedi.');
     }
   };
 
@@ -89,18 +91,8 @@ export const MediaDetailPage: React.FC = () => {
     );
   }
 
-  const backdropUrl =
-    media.backdropUrl ||
-    media.posterUrl ||
-    (media.backdropDriveFileId
-      ? `/api/media/assets/${media.backdropDriveFileId}`
-      : media.posterDriveFileId
-        ? `/api/media/assets/${media.posterDriveFileId}`
-        : null);
-
-  const posterUrl =
-    media.posterUrl ||
-    (media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : null);
+  const backdropUrl = getHeroArtworkUrl(media);
+  const posterUrl = getPosterUrl(media);
 
   const seasons: SeasonType[] = media.series?.seasons || [];
   const currentSeason = selectedSeasonId
@@ -275,22 +267,6 @@ export const MediaDetailPage: React.FC = () => {
             </button>
           </div>
 
-          {subMessage && (
-            <div
-              className={`mt-4 p-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2 animate-in fade-in ${
-                subMessage.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-              }`}
-            >
-              {subMessage.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-              )}
-              <span>{subMessage.text}</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -301,16 +277,16 @@ export const MediaDetailPage: React.FC = () => {
             Oyuncu Kadrosu
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-            {media.cast.map((actor, idx) => (
-              <div
-                key={idx}
-                onClick={() => navigate(`/person/${encodeURIComponent(actor.name)}`)}
-                className="flex items-center gap-3 p-2.5 bg-zinc-900/60 border border-zinc-800/70 rounded-2xl hover:border-brand-500/50 hover:bg-brand-600/10 cursor-pointer transition-all group"
+            {media.cast.map((actor) => (
+              <Link
+                key={`${actor.name}-${actor.character || ''}`}
+                to={`/person/${encodeURIComponent(actor.name)}`}
+                className="group flex items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-900/60 p-2.5 transition-all hover:border-brand-500/50 hover:bg-brand-600/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 title={`${actor.name} içeriklerini gör`}
               >
                 <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500 group-hover:border-brand-500/50">
                   {actor.profileUrl ? (
-                    <img src={actor.profileUrl} alt={actor.name} className="w-full h-full object-cover" />
+                    <img src={actor.profileUrl} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <User className="w-6 h-6 text-zinc-400 group-hover:text-brand-400" />
                   )}
@@ -323,7 +299,7 @@ export const MediaDetailPage: React.FC = () => {
                     <p className="text-[11px] text-zinc-400 truncate">{actor.character}</p>
                   )}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -360,10 +336,10 @@ export const MediaDetailPage: React.FC = () => {
               const isWatched = epProgress?.completed;
 
               return (
-                <div
+                <Link
                   key={episode.id}
-                  onClick={() => navigate(`/watch/${media.id}/${episode.id}`)}
-                  className="group flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/70 hover:border-brand-500/50 rounded-2xl cursor-pointer transition-all gap-4"
+                  to={`/watch/${media.id}/${episode.id}`}
+                  className="group flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/70 hover:border-brand-500/50 rounded-2xl transition-all gap-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 >
                   <div className="flex items-start md:items-center gap-4 flex-1 min-w-0">
                     {/* Episode Thumbnail */}
@@ -371,7 +347,7 @@ export const MediaDetailPage: React.FC = () => {
                       {episode.stillUrl ? (
                         <img
                           src={episode.stillUrl}
-                          alt={episode.title}
+                          alt=""
                           loading="lazy"
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />
@@ -382,7 +358,10 @@ export const MediaDetailPage: React.FC = () => {
                       )}
 
                       {/* Play Button Overlay */}
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                      <div
+                        aria-hidden="true"
+                        className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors flex items-center justify-center"
+                      >
                         <div className="p-2.5 bg-brand-600 group-hover:bg-brand-500 text-white rounded-full shadow-lg shadow-brand-500/30 transform scale-95 group-hover:scale-105 transition-transform">
                           <Play className="w-4 h-4 fill-current translate-x-0.5" />
                         </div>
@@ -427,7 +406,7 @@ export const MediaDetailPage: React.FC = () => {
                       </div>
                     </div>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -467,53 +446,52 @@ export const MediaDetailPage: React.FC = () => {
       )}
 
       {/* Delete Confirmation Modal */}
-      {showDeleteConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white font-display">İçeriği Sil</h3>
-                <p className="text-xs text-zinc-400">Bu işlem CineDrive veritabanından kaldırılacaktır.</p>
-              </div>
-            </div>
-
-            <p className="text-sm text-zinc-300 leading-relaxed">
-              <strong className="text-white">{media.title}</strong> içerikli medya kaydı veritabanından silinecektir. Google Drive dosyanız silinmez. Devam etmek istiyor musunuz?
-            </p>
-
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirmModal(false)}
-                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
-              >
-                İptal
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteItem}
-                disabled={deleteMutation.isPending}
-                className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-500/20 transition-all disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Siliniyor...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4" />
-                    Evet, Sil
-                  </>
-                )}
-              </button>
-            </div>
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onClose={() => setShowDeleteConfirmModal(false)}
+        size="sm"
+        title="İçeriği Sil"
+        description="Bu işlem CineDrive veritabanından kaldırılacaktır."
+        icon={
+          <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
+            <AlertTriangle className="h-6 w-6" />
           </div>
-        </div>
-      )}
+        }
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirmModal(false)}
+              className="rounded-xl bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-zinc-300 transition-all hover:bg-zinc-700"
+            >
+              İptal
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteItem}
+              disabled={deleteMutation.isPending}
+              className="flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-rose-500/20 transition-all hover:bg-rose-500 disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Siliniyor...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  Evet, Sil
+                </>
+              )}
+            </button>
+          </div>
+        }
+      >
+        <p className="p-6 text-sm leading-relaxed text-zinc-300">
+          <strong className="text-white">{media.title}</strong> içerikli medya kaydı veritabanından
+          silinecektir. Google Drive dosyanız silinmez. Devam etmek istiyor musunuz?
+        </p>
+      </Modal>
 
       {/* Trailer Modal */}
       <TrailerModal

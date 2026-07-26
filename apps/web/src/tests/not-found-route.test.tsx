@@ -30,8 +30,9 @@ describe('Unmatched routes', () => {
     expect(await screen.findByText('404')).toBeInTheDocument();
     expect(screen.getByText('Sayfa Bulunamadı')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Kütüphaneye Dön/ })).toBeInTheDocument();
-    // The shell stays mounted so the user can navigate away.
-    expect(screen.getByRole('navigation')).toBeInTheDocument();
+    // The shell stays mounted so the user can navigate away. (The sidebar nav
+    // is aria-hidden at mobile widths, so the header is the stable landmark.)
+    expect(screen.getByRole('banner')).toBeInTheDocument();
   });
 
   it('does not hijack a known route', async () => {

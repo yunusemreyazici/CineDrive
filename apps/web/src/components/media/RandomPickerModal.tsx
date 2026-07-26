@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Dices, Play, Info, X, Star, Film, Tv, Sparkles, RefreshCw } from 'lucide-react';
+import { Dices, Play, Info, Star, Film, Tv, Sparkles, RefreshCw } from 'lucide-react';
 import { apiClient } from '../../api/client';
+import { Modal } from '../common/Modal';
+import { getPosterUrl } from '../../utils/mediaImages';
 import type { MediaItemType } from '../../types/media';
 
 interface RandomPickerModalProps {
@@ -10,89 +12,59 @@ interface RandomPickerModalProps {
   onClose: () => void;
 }
 
+// Long enough for the dice to visibly roll before the result lands.
+const DICE_ROLL_ANIMATION_MS = 600;
+
 export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const [typeFilter, setTypeFilter] = useState<'all' | 'movie' | 'series'>('all');
   const [minRating, setMinRating] = useState<number | undefined>(undefined);
-  const [isRolling, setIsRolling] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState<MediaItemType | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchRandomMedia = async () => {
-    setIsRolling(true);
-    setError(null);
-
-    try {
+  // The pick used to be hand-rolled loading/error state driven by an effect.
+  // Letting the query own it removes the effect and reuses the app's shared
+  // request handling.
+  const {
+    data: selectedMedia,
+    isFetching: isRolling,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ['randomMedia', typeFilter, minRating],
+    queryFn: async () => {
       const params: Record<string, string | number> = {};
       if (typeFilter !== 'all') params.type = typeFilter;
       if (minRating) params.minRating = minRating;
 
-      // Small delay for dice rolling animation effect
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((resolve) => setTimeout(resolve, DICE_ROLL_ANIMATION_MS));
 
       const res = await apiClient.get<{ media: MediaItemType }>('/media/random', { params });
-      setSelectedMedia(res.data.media);
-    } catch {
-      setError('Kriterlerinize uygun medya bulunamadı.');
-      setSelectedMedia(null);
-    } finally {
-      setIsRolling(false);
-    }
-  };
+      return res.data.media;
+    },
+    enabled: isOpen,
+    // Every time the dialog opens the user expects a fresh roll, never a
+    // cached one.
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
 
-  useEffect(() => {
-    if (isOpen && !selectedMedia && !isRolling) {
-      fetchRandomMedia();
-    }
-  }, [isOpen]);
+  const error = isError ? 'Kriterlerinize uygun medya bulunamadı.' : null;
+  const rollAgain = () => void refetch();
+  const posterUrl = selectedMedia ? getPosterUrl(selectedMedia) : null;
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.body.style.overflow = '';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col my-auto animate-scale-up"
-      >
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 bg-zinc-900/60">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-brand-600/20 text-brand-400 rounded-2xl border border-brand-500/30">
-              <Dices className={`w-6 h-6 ${isRolling ? 'animate-spin' : ''}`} />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white font-display">Ne İzlesem? Zarı 🎲</h3>
-              <p className="text-xs text-zinc-400">Kararsız kaldığınızda kütüphaneden rastgele öneri alın</p>
-            </div>
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Ne İzlesem? Zarı 🎲"
+      description="Kararsız kaldığınızda kütüphaneden rastgele öneri alın"
+      icon={
+        <div className="rounded-2xl border border-brand-500/30 bg-brand-600/20 p-2.5 text-brand-400">
+          <Dices className={`h-6 w-6 ${isRolling ? 'animate-spin' : ''}`} />
         </div>
-
+      }
+    >
+      <>
         {/* Filter Controls Bar */}
         <div className="p-4 bg-zinc-900/40 border-b border-zinc-800/60 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -138,7 +110,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
           </div>
 
           <button
-            onClick={fetchRandomMedia}
+            onClick={rollAgain}
             disabled={isRolling}
             className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-brand-500/20 transition-all hover:scale-105 disabled:opacity-50"
           >
@@ -167,10 +139,10 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
             <div className="w-full flex flex-col md:flex-row items-center gap-6">
               {/* Media Poster */}
               <div className="w-36 md:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 flex-shrink-0 shadow-xl relative group">
-                {selectedMedia.posterUrl ? (
+                {posterUrl ? (
                   <img
-                    src={selectedMedia.posterUrl}
-                    alt={selectedMedia.title}
+                    src={posterUrl}
+                    alt=""
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -238,7 +210,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
                   </button>
 
                   <button
-                    onClick={fetchRandomMedia}
+                    onClick={rollAgain}
                     className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl transition-all"
                   >
                     <Dices className="w-4 h-4 text-brand-400" />
@@ -249,8 +221,7 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
             </div>
           ) : null}
         </div>
-      </div>
-    </div>,
-    document.body,
+      </>
+    </Modal>
   );
 };

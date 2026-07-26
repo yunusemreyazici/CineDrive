@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { Filter, Star, Calendar, ArrowUpDown, RotateCcw } from 'lucide-react';
 
 export interface FilterState {
@@ -36,6 +36,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
   ],
   totalResults,
 }) => {
+  const fieldId = useId();
   const isFiltered =
     filters.sortBy !== 'createdAt' ||
     filters.minRating !== undefined ||
@@ -79,11 +80,12 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Sort By Dropdown */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
+          <label htmlFor={`${fieldId}-sort`} className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
             <ArrowUpDown className="w-3.5 h-3.5 text-brand-400" />
             Sıralama Ölçütü
           </label>
           <select
+            id={`${fieldId}-sort`}
             value={`${filters.sortBy}:${filters.sortOrder}`}
             onChange={(e) => {
               const [sBy, sOrd] = e.target.value.split(':') as [
@@ -104,11 +106,12 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 
         {/* IMDb Rating Filter */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
+          <label htmlFor={`${fieldId}-rating`} className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
             <Star className="w-3.5 h-3.5 text-amber-400" />
             Minimum IMDb Puanı
           </label>
           <select
+            id={`${fieldId}-rating`}
             value={filters.minRating || 'all'}
             onChange={(e) => {
               const val = e.target.value === 'all' ? undefined : parseFloat(e.target.value);
@@ -126,11 +129,12 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 
         {/* Release Year Range */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
+          <label htmlFor={`${fieldId}-year`} className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
             <Calendar className="w-3.5 h-3.5 text-blue-400" />
             Yapım Yılı Aralığı
           </label>
           <select
+            id={`${fieldId}-year`}
             value={filters.yearRange || 'all'}
             onChange={(e) => {
               const val = e.target.value as FilterState['yearRange'];
@@ -148,11 +152,12 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 
         {/* Genre Selector */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
+          <label htmlFor={`${fieldId}-genre`} className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1">
             <Filter className="w-3.5 h-3.5 text-purple-400" />
             Film / Dizi Türü
           </label>
           <select
+            id={`${fieldId}-genre`}
             value={filters.genre || 'all'}
             onChange={(e) => {
               const val = e.target.value === 'all' ? undefined : e.target.value;

@@ -3,24 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Play, Info, Heart, Video, Volume2, VolumeX, RotateCcw } from 'lucide-react';
 import { useToggleFavoriteMutation } from '../../hooks/useApi';
 import { TrailerModal } from './TrailerModal';
-import { extractYoutubeId } from './TrailerModal';
+import { extractYoutubeId } from '../../utils/youtube';
 import { formatMediaTitle } from '../../utils/formatMediaTitle';
+import { getHeroArtworkUrl } from '../../utils/mediaImages';
+import type { MediaItemType } from '../../types/media';
 
 interface FeaturedHeroProps {
-  media: {
-    id: string;
-    type: 'movie' | 'series';
-    title: string;
-    overview?: string;
-    year?: number;
-    trailerUrl?: string | null;
-    backdropDriveFileId?: string;
-    posterDriveFileId?: string;
-    isFavorite?: boolean;
-    progress?: {
-      percentage: number;
-    } | null;
-  };
+  media: MediaItemType;
 }
 
 const AUTOPLAY_DELAY_MS = 2500;
@@ -182,21 +171,14 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(false);
 
-  const backdropUrl =
-    (media as { backdropUrl?: string; posterUrl?: string }).backdropUrl ||
-    (media as { backdropUrl?: string; posterUrl?: string }).posterUrl ||
-    (media.backdropDriveFileId
-      ? `/api/media/assets/${media.backdropDriveFileId}`
-      : media.posterDriveFileId
-        ? `/api/media/assets/${media.posterDriveFileId}`
-        : null);
+  const backdropUrl = getHeroArtworkUrl(media);
 
   return (
     <section className="relative flex h-[420px] w-full items-center overflow-hidden bg-[#070809] md:h-[460px]">
       {backdropUrl ? (
         <img
           src={backdropUrl}
-          alt={media.title}
+          alt=""
           className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-700 ${
             trailerPlaying ? 'opacity-0' : 'opacity-100'
           }`}

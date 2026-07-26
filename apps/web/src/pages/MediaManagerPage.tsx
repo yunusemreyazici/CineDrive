@@ -31,7 +31,9 @@ export const MediaManagerPage: React.FC = () => {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  const allItems: MediaItemType[] = mediaData?.media || [];
+  // Memoized so the fallback empty array does not create a new identity on
+  // every render and invalidate the filter below.
+  const allItems: MediaItemType[] = useMemo(() => mediaData?.media || [], [mediaData]);
 
   const filteredItems = useMemo(() => {
     return allItems.filter((item) => {
@@ -94,7 +96,7 @@ export const MediaManagerPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-20">
+    <div className="space-y-4 pb-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-6">
         <div className="flex items-center gap-3">
@@ -102,7 +104,7 @@ export const MediaManagerPage: React.FC = () => {
             <Database className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold font-display text-white">Veri Yönetimi & Toplu Silme</h1>
+            <h1 className="text-xl font-bold font-display text-white">Veri Yönetimi & Toplu Silme</h1>
             <p className="text-xs text-zinc-400">
               Veritabanındaki medyaları görün, Shift + Tıklama ile çoklu seçin ve kaldırın
             </p>
@@ -200,7 +202,7 @@ export const MediaManagerPage: React.FC = () => {
           description="Arama kriterlerinize uyan hiçbir medya bulunamadı."
         />
       ) : (
-        <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl overflow-hidden shadow-xl">
+        <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-zinc-900/80 text-zinc-400 font-semibold border-b border-zinc-800">
@@ -355,7 +357,7 @@ export const MediaManagerPage: React.FC = () => {
       {/* Batch Delete Confirmation Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl">
+          <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-4 md:p-8 space-y-6 shadow-2xl">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl">
                 <AlertTriangle className="w-6 h-6" />

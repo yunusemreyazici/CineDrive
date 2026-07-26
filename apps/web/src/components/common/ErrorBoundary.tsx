@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { t } from '../../i18n';
 
 interface Props {
   children: ReactNode;
@@ -37,16 +38,16 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-bold font-display mb-2">Bir Hata Oluştu</h2>
+            <h2 className="text-2xl font-bold font-display mb-2">{t.errors.boundaryTitle}</h2>
             <p className="text-sm text-zinc-400 mb-6">
-              {this.state.error?.message || 'Uygulama çalışırken beklenmeyen bir hata meydana geldi.'}
+              {this.state.error?.message || t.errors.boundaryDescription}
             </p>
             <button
               onClick={this.handleReset}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-brand-500/20"
             >
               <RefreshCw className="w-4 h-4" />
-              Sayfayı Yenile
+              {t.errors.reload}
             </button>
           </div>
         </div>

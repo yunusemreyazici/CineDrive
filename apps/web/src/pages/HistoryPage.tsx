@@ -18,7 +18,7 @@ import {
 } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
-import { parseApiError } from '../api/client';
+import { toast } from '../stores/useToastStore';
 
 type HistoryFilterType = 'all' | 'movie' | 'series';
 type DurationFilter = 'all' | 'short' | 'medium' | 'long';
@@ -42,7 +42,10 @@ export const HistoryPage: React.FC = () => {
     )
       return;
 
-    clearHistoryMutation.mutate();
+    clearHistoryMutation.mutate(undefined, {
+      onSuccess: () => toast.success('İzleme geçmişi temizlendi.'),
+      onError: (error) => toast.fromError(error, 'Geçmiş temizlenemedi.'),
+    });
   };
 
   const formatFriendlyDate = (dateString: string) => {
@@ -104,15 +107,6 @@ export const HistoryPage: React.FC = () => {
         )}
       </div>
 
-      {clearHistoryMutation.isError && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-        >
-          {parseApiError(clearHistoryMutation.error).message}
-        </div>
-      )}
-
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="space-y-1.5 text-xs text-zinc-400">
           <span className="font-semibold">İzlenen süre</span>
@@ -140,7 +134,7 @@ export const HistoryPage: React.FC = () => {
             <option value="mobile">Telefon</option>
           </select>
         </label>
-        <label className="flex items-end">
+        <div className="flex items-end">
           <button
             type="button"
             role="switch"
@@ -154,7 +148,7 @@ export const HistoryPage: React.FC = () => {
           >
             Yalnızca bölümler
           </button>
-        </label>
+        </div>
       </div>
 
       {/* Filter Tabs */}

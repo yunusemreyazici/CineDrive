@@ -1,33 +1,68 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Home, FolderGit2, Film, Tv, Heart, History, Settings, X } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
+import { t } from '../../i18n';
+
+const DESKTOP_QUERY = '(min-width: 1024px)';
 
 const navItems = [
-  { to: '/', label: 'Ana Sayfa', icon: Home },
-  { to: '/library', label: 'Kütüphane', icon: FolderGit2 },
-  { to: '/movies', label: 'Filmler', icon: Film },
-  { to: '/series', label: 'Diziler', icon: Tv },
-  { to: '/favorites', label: 'Favoriler', icon: Heart },
-  { to: '/history', label: 'Geçmiş', icon: History },
-  { to: '/settings', label: 'Ayarlar', icon: Settings },
+  { to: '/', label: t.nav.home, icon: Home },
+  { to: '/library', label: t.nav.library, icon: FolderGit2 },
+  { to: '/movies', label: t.nav.movies, icon: Film },
+  { to: '/series', label: t.nav.series, icon: Tv },
+  { to: '/favorites', label: t.nav.favorites, icon: Heart },
+  { to: '/history', label: t.nav.history, icon: History },
+  { to: '/settings', label: t.nav.settings, icon: Settings },
 ];
 
 export const Sidebar: React.FC = () => {
   const { sidebarOpen, sidebarCollapsed, setSidebarOpen } = useUiStore();
+  const asideRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
+  );
+
+  // Below the desktop breakpoint the sidebar is an overlay drawer. It has to be
+  // taken out of the tab order while hidden, and Escape has to close it.
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(DESKTOP_QUERY);
+    const sync = (event: MediaQueryList | MediaQueryListEvent) => setIsDesktop(event.matches);
+    mediaQuery.addEventListener('change', sync);
+    return () => mediaQuery.removeEventListener('change', sync);
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarOpen || isDesktop) return;
+
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isDesktop, setSidebarOpen, sidebarOpen]);
 
   return (
     <>
-      {/* Mobile backdrop overlay */}
+      {/* Mobile backdrop overlay — a button so it can be dismissed without a mouse */}
       {sidebarOpen && (
-        <div
+        <button
+          type="button"
+          aria-label={t.nav.closeMenu}
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-zinc-950/80 backdrop-blur-sm lg:hidden transition-opacity"
+          className="fixed inset-0 z-40 cursor-default bg-zinc-950/80 backdrop-blur-sm transition-opacity lg:hidden"
         />
       )}
 
       {/* Sidebar Navigation Drawer */}
       <aside
+        ref={asideRef}
+        aria-label={t.nav.mainNavigation}
+        aria-hidden={!sidebarOpen && !isDesktop}
+        inert={!sidebarOpen && !isDesktop ? true : undefined}
         className={`fixed left-0 top-0 z-50 flex h-screen w-[220px] flex-col border-r border-white/[0.06] bg-[#090a0c]/98 p-3 transition-[width,transform] duration-300 ease-in-out lg:bg-[#090a0c] ${
           sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-[220px]'
         } ${
@@ -45,9 +80,10 @@ export const Sidebar: React.FC = () => {
               </span>
             </Link>
             <button
+              ref={closeButtonRef}
               onClick={() => setSidebarOpen(false)}
-              aria-label="Menüyü kapat"
-              className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-900 hover:text-white lg:hidden"
+              aria-label={t.nav.closeMenu}
+              className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-900 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 lg:hidden"
             >
               <X className="w-5 h-5" />
             </button>
