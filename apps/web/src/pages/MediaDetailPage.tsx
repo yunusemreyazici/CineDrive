@@ -114,6 +114,9 @@ export const MediaDetailPage: React.FC = () => {
           <img
             src={backdropUrl}
             alt={media.title}
+            // The LCP element of this page; see FeaturedHero for the same hint.
+            fetchPriority="high"
+            decoding="async"
             className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4]"
           />
         )}
@@ -287,7 +290,12 @@ export const MediaDetailPage: React.FC = () => {
               >
                 <div className="w-12 h-12 rounded-xl bg-zinc-800 flex-shrink-0 overflow-hidden border border-zinc-700/50 flex items-center justify-center text-zinc-500 group-hover:border-brand-500/50">
                   {actor.profileUrl ? (
-                    <img src={actor.profileUrl} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={actor.profileUrl}
+                      alt=""
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <User className="w-6 h-6 text-zinc-400 group-hover:text-brand-400" />
                   )}

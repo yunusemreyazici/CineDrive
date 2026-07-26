@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent, act } from '@testing-library/react';
-import { apiClient } from '../api/client';
+import { ApiRequestError, apiClient } from '../api/client';
 import { LibraryPage } from '../pages/LibraryPage';
 import { t } from '../i18n';
 import { renderWithProviders } from './helpers/renderWithProviders';
@@ -19,10 +19,15 @@ describe('LibraryPage', () => {
   });
 
   it('shows a retryable error instead of an empty state when the request fails', async () => {
-    const getSpy = vi.spyOn(apiClient, 'get').mockRejectedValue({
-      isAxiosError: true,
-      response: { status: 500, data: { error: { message: 'Sunucu hatası' } } },
-    });
+    const getSpy = vi
+      .spyOn(apiClient, 'get')
+      .mockRejectedValue(
+        new ApiRequestError(
+          500,
+          { error: { code: 'INTERNAL_ERROR', message: 'Sunucu hatası', requestId: 'req_500' } },
+          'Sunucu hatası',
+        ),
+      );
 
     renderWithProviders(<LibraryPage />, { route: '/library' });
 

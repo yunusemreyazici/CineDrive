@@ -180,6 +180,11 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         <img
           src={backdropUrl}
           alt=""
+          // This is the largest element on the home page and therefore what
+          // LCP measures. Without the hint the browser ranks it behind the
+          // card posters it discovers at the same time.
+          fetchPriority="high"
+          decoding="async"
           className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-700 ${
             trailerPlaying ? 'opacity-0' : 'opacity-100'
           }`}

@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
+import compress from '@fastify/compress';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
@@ -54,6 +55,18 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   await app.register(cookie, {
     secret: env.SESSION_SECRET,
+  });
+
+  // JSON went over the wire uncompressed: the home page alone pulled 125 kB of
+  // it. The Docker deployment gzips at nginx, but running the server directly
+  // — the setup in the README, and any LAN install — had no compression at
+  // all. Media never reaches this: `video/*` and the segment types are not
+  // compressible, so the plugin passes byte-range and HLS responses through
+  // untouched.
+  await app.register(compress, {
+    global: true,
+    threshold: 1024,
+    encodings: ['br', 'gzip', 'deflate'],
   });
 
   await app.register(rateLimit, {

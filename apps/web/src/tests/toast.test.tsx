@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import { ApiRequestError } from '../api/client';
 import { ToastViewport } from '../components/common/ToastViewport';
 import { toast, useToastStore } from '../stores/useToastStore';
 
@@ -62,13 +63,13 @@ describe('Toast system', () => {
   it('turns an API error into a readable message with its request id', () => {
     render(<ToastViewport />);
     act(() => {
-      toast.fromError({
-        isAxiosError: true,
-        response: {
-          status: 404,
-          data: { error: { code: 'NOT_FOUND', message: 'Medya bulunamadı.', requestId: 'req_1' } },
-        },
-      });
+      toast.fromError(
+        new ApiRequestError(
+          404,
+          { error: { code: 'NOT_FOUND', message: 'Medya bulunamadı.', requestId: 'req_1' } },
+          'Medya bulunamadı.',
+        ),
+      );
     });
 
     expect(screen.getByText('Medya bulunamadı.')).toBeInTheDocument();

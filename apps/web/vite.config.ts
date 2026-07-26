@@ -21,6 +21,18 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` serves the real build. Without the same proxy it cannot
+  // reach the API, so the only way to check production bundle behaviour
+  // locally would be a full Docker run.
+  preview: {
+    port: Number(process.env.WEB_PREVIEW_PORT) || 4173,
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

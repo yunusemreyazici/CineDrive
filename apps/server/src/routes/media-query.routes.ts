@@ -12,6 +12,36 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
+/**
+ * Everything a grid, rail or hero renders — which is every scalar column
+ * except `cast`. Cast was 1.3 kB of a 2.3 kB list item, more than half the
+ * response, and only the detail page reads it. Filtering by person still works
+ * because that is a `where` clause, not a returned column.
+ */
+const listItemSelect = {
+  id: true,
+  type: true,
+  title: true,
+  originalTitle: true,
+  normalizedTitle: true,
+  year: true,
+  overview: true,
+  posterDriveFileId: true,
+  backdropDriveFileId: true,
+  posterUrl: true,
+  backdropUrl: true,
+  duration: true,
+  voteAverage: true,
+  voteCount: true,
+  genres: true,
+  trailerUrl: true,
+  contentRating: true,
+  tmdbId: true,
+  imdbId: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.MediaItemSelect;
+
 const technicalMetadataSelect = {
   mediaContainer: true,
   videoCodec: true,
@@ -82,6 +112,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     const [items, total] = await Promise.all([
       fastify.prisma.mediaItem.findMany({
         where,
+        select: listItemSelect,
         orderBy: { [sortBy]: sortOrder },
         skip,
         take: limit,
@@ -89,22 +120,28 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.prisma.mediaItem.count({ where }),
     ]);
 
+    // Scoped to the page. These used to fetch every favourite and every
+    // progress row the account owns on every list request, so the cost grew
+    // with watch history rather than with page size.
     const userId = request.user!.id;
-    const favorites = await fastify.prisma.favorite.findMany({
-      where: { userId },
-      select: { mediaItemId: true },
-    });
-    const favoriteSet = new Set(favorites.map((f) => f.mediaItemId));
+    const pageItemIds = items.map((item) => item.id);
 
-    const progressList = await fastify.prisma.playbackProgress.findMany({
-      where: { userId },
-    });
+    const [favorites, progressList] = await Promise.all([
+      fastify.prisma.favorite.findMany({
+        where: { userId, mediaItemId: { in: pageItemIds } },
+        select: { mediaItemId: true },
+      }),
+      fastify.prisma.playbackProgress.findMany({
+        where: { userId, mediaItemId: { in: pageItemIds } },
+      }),
+    ]);
+
+    const favoriteSet = new Set(favorites.map((f) => f.mediaItemId));
     const progressMap = new Map(progressList.map((p) => [p.mediaItemId, p]));
 
     const enrichedItems = items.map((item) => ({
       ...item,
       genres: safeJsonParse<string[]>(item.genres, []),
-      cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(item.cast, []),
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
       posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
