@@ -16,7 +16,8 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
   const media = item.mediaItem;
   if (!media) return null;
 
-  const backdropUrl = getWideArtworkUrl(media);
+  // A 280px card never needed the 1280px variant.
+  const backdropUrl = getWideArtworkUrl(media, 'w780');
 
   const remainingSeconds = Math.max(0, item.durationSeconds - item.positionSeconds);
   const remainingMins = Math.ceil(remainingSeconds / 60);

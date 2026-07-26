@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Film } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
-import { FilterPanel, type FilterState } from '../components/media/FilterPanel';
+import { FilterPanel } from '../components/media/FilterPanel';
+import { DEFAULT_FILTERS, type FilterState } from '../components/media/filterState';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
@@ -9,13 +10,7 @@ import { useMediaListQuery } from '../hooks/useApi';
 import { t } from '../i18n';
 
 export const MoviesPage: React.FC = () => {
-  const [filterState, setFilterState] = useState<FilterState>({
-    sortBy: 'createdAt',
-    sortOrder: 'desc',
-    minRating: undefined,
-    yearRange: 'all',
-    genre: undefined,
-  });
+  const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTERS);
 
   const queryInput = useMemo(() => {
     let yearFrom: number | undefined;
@@ -48,21 +43,21 @@ export const MoviesPage: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center gap-3 pb-6 border-b border-zinc-800/60">
-        <div className="p-3 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-2xl">
-          <Film className="w-6 h-6" />
-        </div>
-        <div>
-          <h2 className="text-3xl font-extrabold font-display text-white tracking-tight">{t.movies.title}</h2>
-          <p className="text-sm text-zinc-400 mt-0.5">{t.movies.subtitle}</p>
-        </div>
+      {/* Same header shape as the library, which is what this page is a
+          pre-filtered view of. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
+          {t.movies.title}
+        </h2>
+        {data && (
+          <span className="text-sm text-zinc-500">
+            {t.library.itemCount(data.pagination.total)}
+          </span>
+        )}
+        <p className="w-full text-sm text-zinc-400">{t.movies.subtitle}</p>
       </div>
 
-      <FilterPanel
-        filters={filterState}
-        onChange={setFilterState}
-        totalResults={data?.pagination.total}
-      />
+      <FilterPanel filters={filterState} onChange={setFilterState} />
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

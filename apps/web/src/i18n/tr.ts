@@ -95,6 +95,7 @@ export const tr = {
     subtitle: 'Google Drive arşivinizdeki tüm dizi ve filmler',
     searchLabel: 'Kütüphanede ara',
     searchPlaceholder: 'Kütüphanede ara...',
+    itemCount: (count: number) => `${count} içerik`,
     gridView: 'Izgara Görünümü',
     listView: 'Liste Görünümü',
     notFoundTitle: 'Medya Bulunamadı',
@@ -134,7 +135,11 @@ export const tr = {
 
   filters: {
     heading: 'Gelişmiş Filtrele & Sırala',
+    toggle: 'Filtreler',
+    toggleLabel: 'Gelişmiş filtreleri aç/kapat',
     resultCount: (count: number) => `(${count} sonuç)`,
+    activeCount: (count: number) => `${count} filtre etkin`,
+    clearOne: (label: string) => `${label} filtresini kaldır`,
     reset: 'Filtreleri Sıfırla',
     sortBy: 'Sıralama Ölçütü',
     sortNewest: 'En Yeniler (Eklenme Tarihi)',
