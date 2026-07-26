@@ -109,6 +109,9 @@ export const Navbar: React.FC = () => {
         <button
           onClick={() => setShowRandomModal(true)}
           className="flex items-center gap-2 rounded-xl border border-brand-400/25 bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white shadow-[0_8px_24px_hsl(var(--brand-900)/0.28)] transition-all hover:bg-brand-500"
+          // The label text is hidden below `md`, which would otherwise leave
+          // the button named only by its tooltip on small screens.
+          aria-label={t.nav.randomPickLabel}
           title={t.nav.randomPickTitle}
         >
           <Dices className="w-4 h-4 text-brand-400" />

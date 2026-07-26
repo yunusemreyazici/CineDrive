@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HlsService } from '../src/services/hls.service';
+import { HlsCacheStore } from '../src/services/hls-cache-store';
+import { HlsSlotScheduler, NORMAL_PRIORITY, SEEK_PRIORITY } from '../src/services/hls-slot-scheduler';
+import { selectProfile, videoOptions } from '../src/services/hls-encoder';
 
 const temporaryDirectories: string[] = [];
 
@@ -28,13 +31,9 @@ describe('HlsService cache management', () => {
       '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\nsegment-000000.m4s\n',
     );
 
-    const isReady = (
-      service as unknown as {
-        isReady: (path: string) => boolean;
-      }
-    ).isReady(playlistPath);
+    const cache = new HlsCacheStore(service.getCacheDir('x').replace(/\/[^/]+$/, ''), 1024);
 
-    expect(isReady).toBe(true);
+    expect(cache.isReady(playlistPath)).toBe(true);
   });
 
   it('does not reuse an interrupted playlist that only contains ENDLIST', async () => {
@@ -253,147 +252,139 @@ describe('HlsService cache management', () => {
   });
 
   it('prioritizes a seek request when an HLS slot becomes available', async () => {
-    const service = createService(1024);
-    const idleTimerOne = setInterval(() => {}, 60_000);
-    const idleTimerTwo = setInterval(() => {}, 60_000);
-    idleTimerOne.unref();
-    idleTimerTwo.unref();
-    const internals = service as unknown as {
-      jobs: Map<string, unknown>;
-      reserveSlot: (
-        cacheKey: string,
-        familyKey: string,
-        sessionId: string,
-        priority: number,
-        mediaName: string,
-        startSeconds: number,
-      ) => Promise<string>;
-      drainPendingSlots: () => void;
-      releaseReservation: (reservationId: string) => void;
-    };
-    const fakeJob = (id: string, idleTimer: NodeJS.Timeout) => ({
-      id,
-      command: { kill: vi.fn() },
-      ready: Promise.resolve(),
-      familyKey: id,
-      mediaName: id,
-      pid: null,
-      startSeconds: 0,
-      startedAt: Date.now(),
-      lastAccessAt: Date.now(),
-      idleTimer,
-      profile: 'video-copy-aac',
-      lastRequestedSegment: -1,
-      isPaused: false,
-    });
-    internals.jobs.set('active-one', fakeJob('active-one', idleTimerOne));
-    internals.jobs.set('active-two', fakeJob('active-two', idleTimerTwo));
+    // Two encoders are already running, so both requests have to queue.
+    let activeJobs = 2;
+    const scheduler = new HlsSlotScheduler(2, () => activeJobs);
 
     const order: string[] = [];
-    let seekReservation = '';
-    const normal = internals
-      .reserveSlot('normal-cache', 'normal-family', 'normal_session', 1, 'Normal Film', 0)
+    const normal = scheduler
+      .reserve({
+        cacheKey: 'normal-cache',
+        familyKey: 'normal-family',
+        sessionId: 'normal_session',
+        priority: NORMAL_PRIORITY,
+        mediaName: 'Normal Film',
+        startSeconds: 0,
+      })
       .then((reservationId) => {
         order.push('normal');
-        internals.releaseReservation(reservationId);
+        scheduler.release(reservationId);
       });
-    const seek = internals
-      .reserveSlot('seek-cache', 'seek-family', 'seek_session', 2, 'Seek Film', 300)
+
+    let seekReservation = '';
+    const seek = scheduler
+      .reserve({
+        cacheKey: 'seek-cache',
+        familyKey: 'seek-family',
+        sessionId: 'seek_session',
+        priority: SEEK_PRIORITY,
+        mediaName: 'Seek Film',
+        startSeconds: 300,
+      })
       .then((reservationId) => {
         order.push('seek');
         seekReservation = reservationId;
       });
 
-    internals.jobs.delete('active-one');
-    expect(service.getQueue()[0]).toMatchObject({
+    // Someone already watching outranks a fresh start, regardless of arrival.
+    expect(scheduler.snapshot()[0]).toMatchObject({
       mediaName: 'Seek Film',
       startSeconds: 300,
       priority: 'seek',
     });
-    internals.drainPendingSlots();
+
+    activeJobs = 1;
+    scheduler.drain();
     await seek;
     expect(order).toEqual(['seek']);
 
-    internals.jobs.delete('active-two');
-    internals.drainPendingSlots();
+    activeJobs = 0;
+    scheduler.drain();
     await normal;
     expect(order).toEqual(['seek', 'normal']);
-    internals.releaseReservation(seekReservation);
-    service.shutdown();
+
+    scheduler.release(seekReservation);
+    scheduler.shutdown();
   });
 
   it('does not cancel a queued seek when Safari releases the previous HLS window', async () => {
-    const service = createService(1024);
-    const idleTimerOne = setInterval(() => {}, 60_000);
-    const idleTimerTwo = setInterval(() => {}, 60_000);
-    idleTimerOne.unref();
-    idleTimerTwo.unref();
-    const internals = service as unknown as {
-      jobs: Map<string, unknown>;
-      leases: Map<string, Set<string>>;
-      reserveSlot: (
-        cacheKey: string,
-        familyKey: string,
-        sessionId: string,
-        priority: number,
-        mediaName: string,
-        startSeconds: number,
-      ) => Promise<string>;
-      drainPendingSlots: () => void;
-      releaseReservation: (reservationId: string) => void;
-    };
-    const fakeJob = (id: string, idleTimer: NodeJS.Timeout) => ({
-      id,
-      command: { kill: vi.fn() },
-      ready: Promise.resolve(),
-      familyKey: id,
-      mediaName: id,
-      pid: null,
-      startSeconds: 0,
-      startedAt: Date.now(),
-      lastAccessAt: Date.now(),
-      idleTimer,
-      profile: 'video-copy-aac',
-      lastRequestedSegment: -1,
-      isPaused: false,
-    });
-    internals.jobs.set('busy-one', fakeJob('busy-one', idleTimerOne));
-    internals.jobs.set('busy-two', fakeJob('busy-two', idleTimerTwo));
-    internals.leases.set('law-order-at-0', new Set(['safari_session']));
+    let activeJobs = 2;
+    const scheduler = new HlsSlotScheduler(2, () => activeJobs);
 
     let reservation = '';
-    const queuedSeek = internals
-      .reserveSlot('law-order-at-900', 'law-order', 'safari_session', 2, 'Law & Order', 900)
+    const queuedSeek = scheduler
+      .reserve({
+        cacheKey: 'law-order-at-900',
+        familyKey: 'law-order',
+        sessionId: 'safari_session',
+        priority: SEEK_PRIORITY,
+        mediaName: 'Law & Order',
+        startSeconds: 900,
+      })
       .then((reservationId) => {
         reservation = reservationId;
       });
 
-    expect(service.getQueue()).toHaveLength(1);
-    service.releaseHls('law-order-at-0', 'safari_session');
-    expect(service.getQueue()).toHaveLength(1);
+    expect(scheduler.snapshot()).toHaveLength(1);
 
-    internals.jobs.delete('busy-one');
-    internals.drainPendingSlots();
+    // Releasing the window the viewer seeked *away from* must not drop the
+    // request they are now waiting on — the cache keys differ.
+    scheduler.cancelForSession('safari_session', 'law-order-at-0');
+    expect(scheduler.snapshot()).toHaveLength(1);
+
+    activeJobs = 1;
+    scheduler.drain();
     await queuedSeek;
     expect(reservation).not.toBe('');
-    internals.releaseReservation(reservation);
-    service.shutdown();
+
+    scheduler.release(reservation);
+    scheduler.shutdown();
+  });
+
+  it('supersedes an earlier queued request from the same session', async () => {
+    const scheduler = new HlsSlotScheduler(1, () => 1);
+
+    const superseded = scheduler.reserve({
+      cacheKey: 'episode-at-0',
+      familyKey: 'episode',
+      sessionId: 'scrubbing_session',
+      priority: SEEK_PRIORITY,
+      mediaName: 'Episode',
+      startSeconds: 0,
+    });
+    const rejection = expect(superseded).rejects.toThrow('HLS_REQUEST_SUPERSEDED');
+
+    // A second request from the same session means the viewer scrubbed again.
+    void scheduler.reserve({
+      cacheKey: 'episode-at-600',
+      familyKey: 'episode',
+      sessionId: 'scrubbing_session',
+      priority: SEEK_PRIORITY,
+      mediaName: 'Episode',
+      startSeconds: 600,
+    });
+
+    await rejection;
+    expect(scheduler.snapshot()).toHaveLength(1);
+    expect(scheduler.snapshot()[0]).toMatchObject({ startSeconds: 600 });
+
+    scheduler.shutdown();
   });
 
   it('copies H.264 video and only fully encodes incompatible video codecs', () => {
-    const service = createService(1024);
-    const internals = service as unknown as {
-      videoOptions: (videoCodec: string, accurateSeekRequired?: boolean) => string[];
-    };
+    expect(videoOptions('h264')).toEqual(['-c:v copy']);
+    expect(videoOptions('hevc')).toEqual(
+      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
+    );
+    // An accurate seek cannot copy: it would start at the preceding keyframe.
+    expect(videoOptions('h264', true)).toEqual(
+      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
+    );
+    expect(videoOptions('')).toContain('-c:v libx264');
 
-    expect(internals.videoOptions('h264')).toEqual(['-c:v copy']);
-    expect(internals.videoOptions('hevc')).toEqual(
-      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
-    );
-    expect(internals.videoOptions('h264', true)).toEqual(
-      expect.arrayContaining(['-c:v libx264', '-preset ultrafast']),
-    );
-    expect(internals.videoOptions('')).toContain('-c:v libx264');
+    expect(selectProfile('h264', false)).toBe('video-copy-aac');
+    expect(selectProfile('h264', true)).toBe('h264-aac');
+    expect(selectProfile('hevc', false)).toBe('h264-aac');
   });
 
   it('calculates buffer lead from real EXTINF durations instead of assuming four seconds', () => {
@@ -404,12 +395,10 @@ describe('HlsService cache management', () => {
       playlistPath,
       '#EXTM3U\n#EXTINF:9.84,\nsegment-000000.m4s\n#EXTINF:10.12,\nsegment-000001.m4s\n',
     );
-    const internals = service as unknown as {
-      bufferLeadSeconds: (playlist: string, lastRequestedSegment: number) => number;
-    };
+    const cache = new HlsCacheStore(service.getCacheDir('x').replace(/\/[^/]+$/, ''), 1024);
 
-    expect(internals.bufferLeadSeconds(playlistPath, -1)).toBeCloseTo(19.96);
-    expect(internals.bufferLeadSeconds(playlistPath, 0)).toBeCloseTo(10.12);
+    expect(cache.bufferLeadSeconds(playlistPath, -1)).toBeCloseTo(19.96);
+    expect(cache.bufferLeadSeconds(playlistPath, 0)).toBeCloseTo(10.12);
   });
 
   it('deduplicates concurrent starts for the same HLS cache', async () => {

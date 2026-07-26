@@ -10,11 +10,13 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // Overridable so an end-to-end run can bring up its own pair of servers
+    // beside the ones a developer already has running.
+    port: Number(process.env.WEB_PORT) || 5173,
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
         changeOrigin: true,
       },
     },

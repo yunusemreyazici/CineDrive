@@ -11,3 +11,11 @@ build
 apps/server/data/hls_cache/
 apps/server/data/subtitle_cache/
 apps/server/data/preview_cache/
+
+# Playwright / end-to-end artefacts
+/test-results/
+/playwright-report/
+/blob-report/
+apps/server/prisma/data/e2e.db*
+apps/server/prisma/data/e2e-media/
+apps/server/prisma/data/test.db*
