@@ -4,6 +4,7 @@ import { User, ArrowLeft, Loader2 } from 'lucide-react';
 import { useMediaListQuery } from '../hooks/useApi';
 import { MediaCard } from '../components/media/MediaCard';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 
 export const PersonPage: React.FC = () => {
   const { personName } = useParams<{ personName: string }>();
@@ -12,7 +13,13 @@ export const PersonPage: React.FC = () => {
 
   const decodedName = personName ? decodeURIComponent(personName) : '';
 
-  const { data: mediaData, isLoading } = useMediaListQuery({
+  const {
+    data: mediaData,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useMediaListQuery({
     person: decodedName,
     limit: 100,
   });
@@ -94,6 +101,8 @@ export const PersonPage: React.FC = () => {
           <Loader2 className="w-6 h-6 animate-spin text-brand-500" />
           <span>İçerikler yükleniyor...</span>
         </div>
+      ) : isError ? (
+        <ErrorState error={error} title="İçerikler Yüklenemedi" onRetry={() => void refetch()} />
       ) : filteredItems.length === 0 ? (
         <EmptyState
           title="İçerik Bulunamadı"

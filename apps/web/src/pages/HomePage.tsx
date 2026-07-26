@@ -1,11 +1,12 @@
 import React, { useLayoutEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
 import { HomeMediaCard } from '../components/media/HomeMediaCard';
 import { ContinueWatchingCard } from '../components/media/ContinueWatchingCard';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import type { MediaItemType } from '../types/media';
 import {
   useMediaListQuery,
@@ -58,11 +59,25 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 
 };
 
 export const HomePage: React.FC = () => {
+  const navigate = useNavigate();
   const [featuredId, setFeaturedId] = useState<string | null>(null);
-  const { data: mediaData, isLoading: isMediaLoading } = useMediaListQuery({ limit: 30 });
+  const {
+    data: mediaData,
+    isLoading: isMediaLoading,
+    isError: isMediaError,
+    error: mediaError,
+    refetch: refetchMedia,
+  } = useMediaListQuery({ limit: 30 });
+  // Ask the server for each rail separately. Filtering a single "latest 30"
+  // page client-side left the movie or series rail empty whenever recent
+  // additions happened to be all one type.
+  const { data: movieData } = useMediaListQuery({ type: 'movie', limit: 12 });
+  const { data: seriesData } = useMediaListQuery({ type: 'series', limit: 12 });
   const { data: continueWatching } = useContinueWatchingQuery();
 
-  const allMedia = mediaData?.media || [];
+  const allMedia = useMemo(() => mediaData?.media || [], [mediaData]);
+  const movies = movieData?.media || [];
+  const series = seriesData?.media || [];
   const featuredCandidates = useMemo(() => {
     const moviesOnly = allMedia.filter((media) => media.type === 'movie');
     const candidatePool = moviesOnly.length > 0 ? moviesOnly : allMedia;
@@ -85,8 +100,6 @@ export const HomePage: React.FC = () => {
   }, [allMedia]);
   const featuredItem =
     featuredCandidates.find((media) => media.id === featuredId) || featuredCandidates[0];
-  const movies = allMedia.filter((m) => m.type === 'movie');
-  const series = allMedia.filter((m) => m.type === 'series');
   const genres = useMemo(
     () => Array.from(new Set(allMedia.flatMap((media) => media.genres || []))).slice(0, 10),
     [allMedia],
@@ -133,13 +146,23 @@ export const HomePage: React.FC = () => {
     );
   }
 
+  if (isMediaError) {
+    return (
+      <ErrorState
+        error={mediaError}
+        title="Ana Sayfa Yüklenemedi"
+        onRetry={() => void refetchMedia()}
+      />
+    );
+  }
+
   if (allMedia.length === 0) {
     return (
       <EmptyState
         title="Medya Arşivi Boş"
         description="Google Drive kütüphaneniz henüz taranmamış veya medya dosyası bulunamamış. Lütfen Ayarlar sayfasından kütüphane taramasını başlatın."
         actionLabel="Ayarlara Git"
-        onAction={() => (window.location.href = '/settings')}
+        onAction={() => navigate('/settings')}
       />
     );
   }

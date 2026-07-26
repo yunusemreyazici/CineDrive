@@ -4,6 +4,7 @@ import { MediaCard } from '../components/media/MediaCard';
 import { FilterPanel, type FilterState } from '../components/media/FilterPanel';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { useMediaListQuery } from '../hooks/useApi';
 
 export const MoviesPage: React.FC = () => {
@@ -42,7 +43,7 @@ export const MoviesPage: React.FC = () => {
     };
   }, [filterState]);
 
-  const { data, isLoading } = useMediaListQuery(queryInput);
+  const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
 
   return (
     <div className="space-y-8">
@@ -68,6 +69,8 @@ export const MoviesPage: React.FC = () => {
             <SkeletonCard key={i} />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} title="Filmler Yüklenemedi" onRetry={() => void refetch()} />
       ) : !data || data.media.length === 0 ? (
         <EmptyState
           icon={Film}

@@ -1196,7 +1196,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [
     clearStallRecoveryTimer,
     effectiveQuality,
-    playbackTimelineOffset,
     playbackMode,
     playbackTimelineOffset,
     qualityPreference,

@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, X, User, Pencil, Trash2, AlertTriangle, Loader2, Download } from 'lucide-react';
+import { Play, Heart, Clock, Film, Tv, CheckCircle2, Star, Video, User, Pencil, Trash2, AlertTriangle, Loader2, Download } from 'lucide-react';
 import { useMediaDetailQuery, useToggleFavoriteMutation, useDeleteMediaItemMutation, useAutoDownloadSubtitleMutation, useMediaListQuery } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { MediaCard } from '../components/media/MediaCard';
 import { EditMetadataModal } from '../components/EditMetadataModal';
-import { TrailerModal } from '../components/media/TrailerModal';
+import { TrailerModal, extractYoutubeId } from '../components/media/TrailerModal';
 import type { SeasonType, EpisodeType } from '../types/media';
 
 export const MediaDetailPage: React.FC = () => {
   const { mediaId } = useParams<{ mediaId: string }>();
   const navigate = useNavigate();
-  const { data: media, isLoading } = useMediaDetailQuery(mediaId);
+  const { data: media, isLoading, isError, error, refetch } = useMediaDetailQuery(mediaId);
   const primaryGenre = media?.genres?.[0];
   const { data: similarData } = useMediaListQuery(
     media
@@ -57,16 +58,6 @@ export const MediaDetailPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowTrailerModal(false);
-    };
-    if (showTrailerModal) {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showTrailerModal]);
-
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -74,6 +65,16 @@ export const MediaDetailPage: React.FC = () => {
         <div className="h-8 bg-zinc-900 rounded-xl w-1/3" />
         <div className="h-20 bg-zinc-900 rounded-xl w-2/3" />
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <ErrorState
+        error={error}
+        title="İçerik Yüklenemedi"
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -106,13 +107,7 @@ export const MediaDetailPage: React.FC = () => {
     ? seasons.find((s) => s.id === selectedSeasonId) || seasons[0]
     : seasons[0];
 
-  // YouTube Embed Link Extractor
-  const getYouTubeEmbedUrl = (url?: string) => {
-    if (!url) return null;
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-    return match ? `https://www.youtube.com/embed/${match[1]}?autoplay=1` : null;
-  };
-  const embedTrailerUrl = getYouTubeEmbedUrl(media.trailerUrl);
+  const hasTrailer = Boolean(extractYoutubeId(media.trailerUrl));
   const similarItems = (similarData?.media || [])
     .filter((item) => item.id !== media.id)
     .slice(0, 6);
@@ -212,7 +207,7 @@ export const MediaDetailPage: React.FC = () => {
               {media.progress && media.progress.percentage > 0 ? 'Kaldığın Yerden Devam Et' : 'Oynat'}
             </button>
 
-            {embedTrailerUrl && (
+            {hasTrailer && (
               <button
                 onClick={() => setShowTrailerModal(true)}
                 className="flex items-center gap-2 px-5 py-3 bg-zinc-800/90 hover:bg-zinc-700 text-white font-medium text-sm rounded-xl border border-zinc-700 backdrop-blur-md transition-all hover:scale-105"
@@ -460,41 +455,6 @@ export const MediaDetailPage: React.FC = () => {
             ))}
           </div>
         </section>
-      )}
-
-      {/* Trailer YouTube Embed Modal */}
-      {showTrailerModal && embedTrailerUrl && (
-        <div
-          onClick={() => setShowTrailerModal(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl"
-          >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/60">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Video className="w-4 h-4 text-brand-400" />
-                {media.title} — Resmi Fragman
-              </h3>
-              <button
-                onClick={() => setShowTrailerModal(false)}
-                className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 rounded-xl transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="relative w-full aspect-video bg-black">
-              <iframe
-                src={embedTrailerUrl}
-                title={`${media.title} Fragman`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="w-full h-full border-0"
-              />
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Edit Metadata Modal */}

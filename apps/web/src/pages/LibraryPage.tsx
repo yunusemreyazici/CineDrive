@@ -5,8 +5,11 @@ import { MediaCard } from '../components/media/MediaCard';
 import { FilterPanel, type FilterState } from '../components/media/FilterPanel';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { useUiStore } from '../stores/useUiStore';
 import { useMediaListQuery } from '../hooks/useApi';
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 export const LibraryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,6 +19,32 @@ export const LibraryPage: React.FC = () => {
   const searchParam = searchParams.get('search') || '';
   const genreParam = searchParams.get('genre') || undefined;
   const pageParam = parseInt(searchParams.get('page') || '1', 10);
+
+  // The input stays responsive on every keystroke while the URL — and with it
+  // the media query — only follows once typing settles.
+  const [searchDraft, setSearchDraft] = useState(searchParam);
+
+  React.useEffect(() => {
+    setSearchDraft(searchParam);
+  }, [searchParam]);
+
+  React.useEffect(() => {
+    if (searchDraft === searchParam) return;
+
+    const timer = window.setTimeout(() => {
+      setSearchParams(
+        (prev) => {
+          if (searchDraft) prev.set('search', searchDraft);
+          else prev.delete('search');
+          prev.set('page', '1');
+          return prev;
+        },
+        { replace: true },
+      );
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [searchDraft, searchParam, setSearchParams]);
 
   const [filterState, setFilterState] = useState<FilterState>({
     sortBy: 'createdAt',
@@ -60,17 +89,7 @@ export const LibraryPage: React.FC = () => {
     };
   }, [typeParam, searchParam, filterState, pageParam]);
 
-  const { data, isLoading } = useMediaListQuery(queryInput);
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setSearchParams((prev) => {
-      if (val) prev.set('search', val);
-      else prev.delete('search');
-      prev.set('page', '1');
-      return prev;
-    });
-  };
+  const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
 
   const handleTypeChange = (newType: string) => {
     setSearchParams((prev) => {
@@ -156,8 +175,9 @@ export const LibraryPage: React.FC = () => {
         <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
         <input
           type="text"
-          value={searchParam}
-          onChange={handleSearchChange}
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
+          aria-label="Kütüphanede ara"
           placeholder="Kütüphanede ara..."
           className="w-full pl-10 pr-4 py-2.5 bg-zinc-900/60 border border-zinc-800 rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
         />
@@ -177,6 +197,8 @@ export const LibraryPage: React.FC = () => {
             <SkeletonCard key={i} />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} title="Kütüphane Yüklenemedi" onRetry={() => void refetch()} />
       ) : !data || data.media.length === 0 ? (
         <EmptyState
           title="Medya Bulunamadı"

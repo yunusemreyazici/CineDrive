@@ -3,10 +3,11 @@ import { Heart } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { useFavoritesQuery } from '../hooks/useApi';
 
 export const FavoritesPage: React.FC = () => {
-  const { data: favorites, isLoading } = useFavoritesQuery();
+  const { data: favorites, isLoading, isError, error, refetch } = useFavoritesQuery();
 
   return (
     <div className="space-y-8">
@@ -26,6 +27,8 @@ export const FavoritesPage: React.FC = () => {
             <SkeletonCard key={i} />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} title="Favoriler Yüklenemedi" onRetry={() => void refetch()} />
       ) : !favorites || favorites.length === 0 ? (
         <EmptyState
           icon={Heart}

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   History,
   Trash2,
@@ -16,6 +17,7 @@ import {
   useClearWatchHistoryMutation,
 } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { parseApiError } from '../api/client';
 
 type HistoryFilterType = 'all' | 'movie' | 'series';
@@ -23,11 +25,12 @@ type DurationFilter = 'all' | 'short' | 'medium' | 'long';
 type DeviceFilter = 'all' | 'desktop' | 'tablet' | 'mobile';
 
 export const HistoryPage: React.FC = () => {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<HistoryFilterType>('all');
   const [durationFilter, setDurationFilter] = useState<DurationFilter>('all');
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('all');
   const [episodesOnly, setEpisodesOnly] = useState(false);
-  const { data: historyItems, isLoading } = useWatchHistoryQuery();
+  const { data: historyItems, isLoading, isError, error, refetch } = useWatchHistoryQuery();
   const deleteHistoryMutation = useDeleteHistoryMutation();
   const clearHistoryMutation = useClearWatchHistoryMutation();
 
@@ -186,12 +189,14 @@ export const HistoryPage: React.FC = () => {
             <div key={i} className="h-24 bg-zinc-900/40 rounded-2xl animate-pulse" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState error={error} title="Geçmiş Yüklenemedi" onRetry={() => void refetch()} />
       ) : filteredItems.length === 0 ? (
         <EmptyState
           title="İzleme Geçmişi Boş"
           description="Henüz izlediğiniz bir içerik bulunmuyor. Medya kütüphanesinden izlemeye başlayabilirsiniz."
           actionLabel="Kütüphaneyi Keşfet"
-          onAction={() => (window.location.href = '/library')}
+          onAction={() => navigate('/library')}
         />
       ) : (
         <div className="space-y-4">
