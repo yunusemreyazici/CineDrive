@@ -23,6 +23,7 @@ model User {
   updatedAt             DateTime           @updatedAt
   sessions              Session[]
   googleConnections     GoogleConnection[]
+  libraries             Library[]
   playbackProgresses    PlaybackProgress[]
   watchHistories        WatchHistory[]
   favorites             Favorite[]
@@ -59,6 +60,11 @@ model GoogleConnection {
 model Library {
   id                 String            @id @default(uuid())
   name               String
+  // Ownership used to be derived through googleConnection, which left every
+  // local-folder library (no connection) belonging to nobody and therefore
+  // readable by any signed-in account.
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   storageType        String            @default("gdrive")
   rootFolderId       String            @default("")
   localFolderPath    String?
@@ -70,6 +76,8 @@ model Library {
   updatedAt          DateTime          @updatedAt
   files              DriveFile[]
   scans              LibraryScan[]
+
+  @@index([userId])
 }
 
 model DriveFile {

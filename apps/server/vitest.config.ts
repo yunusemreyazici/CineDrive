@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_DATABASE_URL } from './tests/test-database.js';
 
 export default defineConfig({
   test: {
@@ -10,7 +11,7 @@ export default defineConfig({
     // over the repository .env that env.ts loads.
     env: {
       NODE_ENV: 'test',
-      DATABASE_URL: 'file:./prisma/data/test.db',
+      DATABASE_URL: TEST_DATABASE_URL,
     },
     globalSetup: './tests/globalSetup.ts',
     // Every test file talks to the same SQLite file and clears rows in its

@@ -4,6 +4,8 @@ dist
 .env.local
 *.db
 *.db-journal
+# Copies taken before a schema change; `*.db` alone does not match them.
+*.db.backup*
 .DS_Store
 coverage
 build

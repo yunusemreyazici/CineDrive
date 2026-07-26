@@ -25,8 +25,11 @@ describe('Subtitle API Integration Tests', () => {
       where: { rootFolderId: 'test_sub_root' },
     });
 
+    const owner = await app.authService.ensureAdminUserExists();
+
     const lib = await app.prisma.library.create({
       data: {
+        userId: owner.id,
         name: 'Subtitle Test Library',
         rootFolderId: 'test_sub_root',
       },

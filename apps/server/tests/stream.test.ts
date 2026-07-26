@@ -21,9 +21,14 @@ describe('Video Media Streaming API Integration Tests', () => {
       where: { rootFolderId: 'test_root_folder_id' },
     });
 
+    // Libraries are owned, and the streaming routes only serve the caller's
+    // own. The admin is created during boot; this just resolves it.
+    const owner = await app.authService.ensureAdminUserExists();
+
     // Create default library in DB
     const lib = await app.prisma.library.create({
       data: {
+        userId: owner.id,
         name: 'Streaming Test Library',
         rootFolderId: 'test_root_folder_id',
       },

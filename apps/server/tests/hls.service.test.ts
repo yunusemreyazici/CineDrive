@@ -355,7 +355,7 @@ describe('HlsService cache management', () => {
     const rejection = expect(superseded).rejects.toThrow('HLS_REQUEST_SUPERSEDED');
 
     // A second request from the same session means the viewer scrubbed again.
-    void scheduler.reserve({
+    const survivor = scheduler.reserve({
       cacheKey: 'episode-at-600',
       familyKey: 'episode',
       sessionId: 'scrubbing_session',
@@ -363,12 +363,16 @@ describe('HlsService cache management', () => {
       mediaName: 'Episode',
       startSeconds: 600,
     });
+    // Still queued at the end of the test, so its rejection has to be claimed
+    // here — an unclaimed one surfaces as an unhandled rejection later.
+    const shutdownRejection = expect(survivor).rejects.toThrow('HLS_SERVICE_SHUTDOWN');
 
     await rejection;
     expect(scheduler.snapshot()).toHaveLength(1);
     expect(scheduler.snapshot()[0]).toMatchObject({ startSeconds: 600 });
 
     scheduler.shutdown();
+    await shutdownRejection;
   });
 
   it('copies H.264 video and only fully encodes incompatible video codecs', () => {

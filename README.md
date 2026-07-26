@@ -62,6 +62,16 @@ CineDrive/
    DATABASE_URL="file:./data/app.db" pnpm --filter "@cinedrive/server" exec prisma db push
    ```
 
+   > **Mevcut bir kurulumu güncelliyorsanız:** kütüphaneler artık `Library.userId`
+   > ile bir kullanıcıya ait. `db push` bu sütunu veri kaybetmeden ekleyemediği
+   > için önce aşağıdaki betiği çalıştırın; sahipliği Google bağlantısındaki
+   > kullanıcıya, bağlantısı olmayan yerel kütüphanelerde ise en eski (admin)
+   > hesaba atar. Betik varsayılan olarak kuru çalışır, `--apply` ile yazar.
+   >
+   > ```bash
+   > pnpm --filter "@cinedrive/server" exec tsx scripts/add-library-owner.ts --apply
+   > ```
+
 4. **Uygulamayı başlatın:**
    ```bash
    pnpm dev

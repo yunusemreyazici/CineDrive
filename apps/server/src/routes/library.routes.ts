@@ -5,9 +5,20 @@ import { env } from '../config/env.js';
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
-  // GET /api/libraries: List all libraries
-  fastify.get('/', async (_request, reply) => {
+  /**
+   * Every route addressing a single library goes through this. A library owned
+   * by someone else answers exactly like one that does not exist, so the
+   * endpoint never confirms that an id is real to a caller who cannot use it.
+   */
+  const findOwnedLibrary = (id: string, userId: string) =>
+    fastify.prisma.library.findFirst({ where: { id, userId } });
+
+  // GET /api/libraries: List the caller's libraries
+  fastify.get('/', async (request, reply) => {
+    const userId = request.user!.id;
+
     let libraries = await fastify.prisma.library.findMany({
+      where: { userId },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -16,6 +27,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     if (!libraries.some((library) => library.storageType === 'gdrive')) {
       const defaultLib = await fastify.prisma.library.create({
         data: {
+          userId,
           name: 'Google Drive',
           storageType: 'gdrive',
           rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',
@@ -46,6 +58,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const library = await fastify.prisma.library.create({
         data: {
+          userId: request.user!.id,
           name,
           storageType: storageType || 'gdrive',
           rootFolderId: rootFolderId || '',
@@ -84,7 +97,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const existing = await fastify.prisma.library.findUnique({ where: { id } });
+      const existing = await findOwnedLibrary(id, request.user!.id);
       if (!existing) {
         return reply.status(404).send({
           error: {
@@ -109,7 +122,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params;
     const userId = request.user!.id;
 
-    const library = await fastify.prisma.library.findUnique({ where: { id } });
+    const library = await findOwnedLibrary(id, userId);
     if (!library) {
       return reply.status(404).send({
         error: {
@@ -201,6 +214,17 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/:id/scans', async (request, reply) => {
     const { id } = request.params;
 
+    const library = await findOwnedLibrary(id, request.user!.id);
+    if (!library) {
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+
     // Auto-cleanup any orphaned scans marked as 'running' in DB if not actively scanning in memory
     if (!fastify.libraryScanService.isScanning(id)) {
       await fastify.prisma.libraryScan.updateMany({
@@ -223,7 +247,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string } }>('/:id/clear', async (request, reply) => {
     const { id } = request.params;
 
-    const library = await fastify.prisma.library.findUnique({ where: { id } });
+    const library = await findOwnedLibrary(id, request.user!.id);
     if (!library) {
       return reply.status(404).send({
         error: {

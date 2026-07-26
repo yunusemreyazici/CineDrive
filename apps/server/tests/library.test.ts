@@ -145,4 +145,66 @@ describe('Library API Integration Tests', () => {
     },
     15000,
   );
+
+  it("a second account can neither list nor address another user's library", async () => {
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const adminCookie = adminLogin.cookies.find((c) => c.name === 'session_id')!.value;
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/libraries',
+      cookies: { session_id: adminCookie },
+      payload: { name: 'Private Library', rootFolderId: 'owner_only_folder' },
+    });
+    const privateLibraryId = JSON.parse(created.body).library.id;
+
+    const intruderPassword = 'IntruderPassword123!';
+    const intruderEmail = `intruder-${Date.now()}@cinedrive.test`;
+    await app.prisma.user.create({
+      data: {
+        email: intruderEmail,
+        name: 'Intruder',
+        passwordHash: await app.authService.hashPassword(intruderPassword),
+      },
+    });
+
+    const intruderLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: intruderEmail, password: intruderPassword },
+    });
+    const intruderCookie = intruderLogin.cookies.find((c) => c.name === 'session_id')!.value;
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/libraries',
+      cookies: { session_id: intruderCookie },
+    });
+    const libraries = JSON.parse(listed.body).libraries as { id: string }[];
+    expect(libraries.some((library) => library.id === privateLibraryId)).toBe(false);
+
+    // Not 403: an id the caller may not use should be indistinguishable from
+    // one that does not exist.
+    const scans = await app.inject({
+      method: 'GET',
+      url: `/api/libraries/${privateLibraryId}/scans`,
+      cookies: { session_id: intruderCookie },
+    });
+    expect(scans.statusCode).toBe(404);
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/libraries/${privateLibraryId}`,
+      cookies: { session_id: intruderCookie },
+      payload: { name: 'Hijacked' },
+    });
+    expect(patched.statusCode).toBe(404);
+
+    await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
+    await app.prisma.library.deleteMany({ where: { id: privateLibraryId } });
+  });
 });

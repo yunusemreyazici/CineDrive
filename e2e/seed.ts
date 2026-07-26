@@ -1,9 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import argon2 from 'argon2';
 import ffmpegPath from 'ffmpeg-static';
 import { PrismaClient } from '@prisma/client';
 import {
+  E2E_ADMIN_EMAIL,
+  E2E_ADMIN_PASSWORD,
   E2E_DATABASE_URL,
   schemaPath,
   e2eDatabasePath,
@@ -75,10 +78,24 @@ export const seedE2EDatabase = async () => {
   });
 
   try {
+    // Libraries are owned, so the owner has to exist before them. The server's
+    // own bootstrap (`ensureAdminUserExists`) matches on email and reuses this
+    // row, so the account seeded here is the one the smoke test logs in as —
+    // which is why the password has to be hashed the same way the server does.
+    const owner = await prisma.user.create({
+      data: {
+        email: E2E_ADMIN_EMAIL,
+        name: 'Administrator',
+        passwordHash: await argon2.hash(E2E_ADMIN_PASSWORD),
+        role: 'admin',
+      },
+    });
+
     // A local library has no Google connection, which is also the path that
     // needs no network access during the run.
     const library = await prisma.library.create({
       data: {
+        userId: owner.id,
         name: 'E2E Local Library',
         storageType: 'local',
         rootFolderId: '',
