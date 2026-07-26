@@ -667,7 +667,9 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     // Without this signal a client that navigated away still consumed a global
     // transcode slot and started a full FFmpeg job nobody was waiting for.
     const abortController = new AbortController();
-    const onClientClose = () => abortController.abort();
+    const onClientClose = () => {
+      if (!reply.raw.writableEnded) abortController.abort();
+    };
     request.raw.on('close', onClientClose);
     const cleanupListeners = () => request.raw.removeListener('close', onClientClose);
     reply.raw.on('finish', cleanupListeners);
@@ -727,10 +729,29 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       cleanupListeners();
 
-      // The client went away while the job was queued or starting. There is
-      // nobody left to answer, and this is not a server fault worth logging.
-      if (abortController.signal.aborted || isClientAbandonedHlsError(error)) {
+      // Only stay silent when the socket is genuinely gone. Returning without
+      // a reply on a live connection leaves the request hanging until the
+      // browser times out, which the player then reports as a stream failure.
+      if (abortController.signal.aborted) {
         return;
+      }
+
+      // The job was superseded or its lease dropped while this request waited.
+      // Nothing is wrong with the media, so ask the player to retry instead of
+      // reporting a server fault.
+      if (isClientAbandonedHlsError(error)) {
+        request.log.info(
+          { reason: (error as Error).message, driveFileId: driveFile.id },
+          'HLS preparation superseded',
+        );
+        reply.header('Retry-After', '1');
+        return reply.status(503).send({
+          error: {
+            code: 'HLS_PREPARATION_SUPERSEDED',
+            message: 'Akış yeniden hazırlanıyor, kısa süre sonra tekrar deneyin.',
+            requestId: request.id,
+          },
+        });
       }
 
       request.log.error({ error, driveFileId: driveFile.id }, 'HLS preparation failed');
@@ -739,6 +760,12 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           code: 'HLS_PREPARATION_FAILED',
           message: 'Safari uyumlu akış hazırlanamadı.',
           requestId: request.id,
+          // Surfacing the underlying FFmpeg/Drive failure in the response makes
+          // playback problems diagnosable from the browser's network tab.
+          // Withheld in production so internal details never reach end users.
+          ...(env.NODE_ENV === 'production'
+            ? {}
+            : { detail: error instanceof Error ? error.message : String(error) }),
         },
       });
     }

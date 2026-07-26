@@ -31,6 +31,9 @@ const PLAYBACK_RATE_LIMIT_MAX = 1200;
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
     exposeHeadRoutes: false,
+    // Drive-source capability tokens (base64url payload + HMAC) travel as a
+    // path param and exceed Fastify's 100-char default, which answers 414.
+    maxParamLength: 1024,
     genReqId: (req) => (req.headers['x-request-id'] as string) || crypto.randomUUID(),
     logger: {
       level: env.LOG_LEVEL,

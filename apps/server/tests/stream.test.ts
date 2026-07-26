@@ -198,18 +198,20 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.headers['accept-ranges']).toBeUndefined();
     expect(response.headers['content-length']).toBeUndefined();
     expect(response.body).toBe('transcoded-fragment');
-    expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      'https://www.googleapis.com/drive/v3/files/gdrive_video_id_100?alt=media&supportsAllDrives=true',
+    const transcodeMock = app.transcodeService.createTranscodedStream as ReturnType<typeof vi.fn>;
+    expect(transcodeMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/drive-source\//),
       expect.objectContaining({
         transcodeVideo: false,
         quality: '1080p',
         startSeconds: 0,
-        inputOptions: expect.arrayContaining([
-          '-headers',
-          'Authorization: Bearer mock-access-token\r\n',
-        ]),
+        inputOptions: expect.arrayContaining(['-reconnect', '1']),
       }),
     );
+    // The Google access token must never reach FFmpeg's argv.
+    const [sourceUrl, sourceOptions] = transcodeMock.mock.calls[0];
+    expect(sourceUrl).not.toContain('mock-access-token');
+    expect(JSON.stringify(sourceOptions.inputOptions)).not.toContain('mock-access-token');
     expect(app.driveService.createMediaStream).not.toHaveBeenCalled();
   });
 
@@ -240,7 +242,7 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      expect.stringContaining('https://www.googleapis.com/drive/v3/files/'),
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/drive-source\//),
       expect.objectContaining({
         transcodeVideo: true,
         quality: '1080p',
@@ -275,7 +277,7 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      expect.stringContaining('https://www.googleapis.com/drive/v3/files/'),
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/internal\/drive-source\//),
       expect.objectContaining({
         transcodeVideo: true,
         quality: '1080p',
@@ -399,5 +401,26 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(abortSignalReceived).toBeDefined();
     expect(typeof abortSignalReceived?.aborted).toBe('boolean');
+  });
+
+  it('serves the drive-source proxy for a full-length capability token', async () => {
+    // Capability tokens are ~300 chars and travel as a path param; Fastify's
+    // default maxParamLength of 100 answered 414 and broke every Drive-backed
+    // FFmpeg input. Guards the maxParamLength override in app.ts.
+    const capability = app.driveSourceService.issue({
+      googleDriveFileId: 'gdrive_video_id_100',
+      userId: '9ca10484-195e-4e7c-b1c3-c45645df7706',
+      connectionId: '8e7be4b3-2ec9-4f50-a4a5-4a7f77414ffc',
+    });
+    expect(capability.length).toBeGreaterThan(100);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/internal/drive-source/${capability}`,
+      remoteAddress: '127.0.0.1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toBe('fake-video-stream-chunk-data');
   });
 });

@@ -360,6 +360,13 @@ export class HlsService {
         const startedAt = Date.now();
         let processId: number | null = null;
 
+        // FFmpeg explains input failures on stderr. Without keeping the tail,
+        // a failed job surfaces only as a generic error and the actual cause
+        // (bad URL, auth rejection, unsupported codec) is lost.
+        const stderrTail: string[] = [];
+        const describeFailure = (reason: string) =>
+          stderrTail.length > 0 ? `${reason} | ffmpeg: ${stderrTail.join(' ⏎ ')}` : reason;
+
         const ready = new Promise<void>((resolve, reject) => {
           let settled = false;
           let poll: NodeJS.Timeout | undefined;
@@ -371,6 +378,12 @@ export class HlsService {
           };
 
           command
+            .on('stderr', (line: string) => {
+              const trimmed = String(line).trim();
+              if (!trimmed) return;
+              stderrTail.push(trimmed);
+              if (stderrTail.length > 12) stderrTail.shift();
+            })
             .on('start', () => {
               processId =
                 (
@@ -401,7 +414,7 @@ export class HlsService {
               if (jobState !== 'replaced') {
                 fs.rmSync(outputDir, { recursive: true, force: true });
               }
-              finish(() => reject(error));
+              finish(() => reject(new Error(describeFailure(error.message))));
             })
             .on('end', () => {
               this.unregisterProcess(jobId);
@@ -428,7 +441,7 @@ export class HlsService {
               finish(() => {
                 this.unregisterProcess(jobId);
                 this.abandonJob(cacheKey, command, outputDir);
-                reject(new Error('HLS_PREPARATION_TIMEOUT'));
+                reject(new Error(describeFailure('HLS_PREPARATION_TIMEOUT')));
               });
             }
           }, 250);
