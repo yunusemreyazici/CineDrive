@@ -14,9 +14,13 @@ const QUALITY_PROFILES: Record<
   { bitrate: string; maxrate: string; bufsize: string; height?: number }
 > = {
   original: { bitrate: '7M', maxrate: '8M', bufsize: '16M' },
-  '1080p': { bitrate: '5M', maxrate: '6M', bufsize: '12M', height: 1080 },
-  '720p': { bitrate: '3M', maxrate: '4M', bufsize: '8M', height: 720 },
-  '480p': { bitrate: '1500k', maxrate: '2M', bufsize: '4M', height: 480 },
+  '1080p': { bitrate: '3M', maxrate: '4M', bufsize: '8M', height: 1080 },
+  // The library contains many SD/720-wide TV encodes around 0.7–1.2 Mbps.
+  // Re-encoding those at 3 Mbps nearly tripled network use without improving
+  // the source image. These profiles leave enough headroom for ultrafast x264
+  // while keeping the compatibility stream close to its source traffic.
+  '720p': { bitrate: '1400k', maxrate: '2M', bufsize: '4M', height: 720 },
+  '480p': { bitrate: '900k', maxrate: '1200k', bufsize: '2400k', height: 480 },
 };
 
 export class TranscodeService {
@@ -27,9 +31,7 @@ export class TranscodeService {
   constructor() {
     const configuredLimit = Number(process.env.TRANSCODE_MAX_ACTIVE_SESSIONS);
     this.maxActiveSessions =
-      Number.isFinite(configuredLimit) && configuredLimit > 0
-        ? Math.floor(configuredLimit)
-        : 2;
+      Number.isFinite(configuredLimit) && configuredLimit > 0 ? Math.floor(configuredLimit) : 2;
   }
 
   public getStats() {
@@ -74,9 +76,7 @@ export class TranscodeService {
     const outputStream = new PassThrough();
     const quality = options.quality || '1080p';
     const profile = QUALITY_PROFILES[quality];
-    const scaleOptions = profile.height
-      ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`]
-      : [];
+    const scaleOptions = profile.height ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`] : [];
     const videoOptions = options.transcodeVideo
       ? [
           // VideoToolbox can accept the command and emit an MP4 header before
@@ -87,9 +87,12 @@ export class TranscodeService {
           '-c:v libx264',
           '-preset ultrafast',
           '-tune zerolatency',
-          '-b:v', profile.bitrate,
-          '-maxrate', profile.maxrate,
-          '-bufsize', profile.bufsize,
+          '-b:v',
+          profile.bitrate,
+          '-maxrate',
+          profile.maxrate,
+          '-bufsize',
+          profile.bufsize,
           '-pix_fmt yuv420p',
           '-g 50',
           ...scaleOptions,
@@ -110,11 +113,15 @@ export class TranscodeService {
       ...(options.startSeconds && options.startSeconds > 0
         ? ['-ss', options.startSeconds.toString()]
         : []),
-        // Keep a modest lead over playback so Safari's buffer grows instead of
-        // draining on small encode/load spikes. This remains tightly bounded,
-        // unlike an unrestricted pipe that consumed hundreds of MB per second.
+      // Keep a modest lead over playback so Safari's buffer grows instead of
+      // draining on small encode/load spikes. This remains tightly bounded,
+      // unlike an unrestricted pipe that consumed hundreds of MB per second.
       '-readrate',
       '1.25',
+      // Some MKV files start audio and video on slightly different clocks.
+      // Generate a clean monotonic timeline before fragmented MP4 muxing.
+      '-fflags',
+      '+genpts',
       '-probesize',
       '65536',
       '-analyzeduration',
@@ -126,14 +133,22 @@ export class TranscodeService {
       .outputOptions([
         ...videoOptions,
         '-c:a aac',
-        '-b:a 192k',
+        '-b:a 128k',
         '-ac 2',
+        '-af',
+        'aresample=async=1:first_pts=0',
+        '-avoid_negative_ts',
+        'make_zero',
         '-f mp4',
         '-movflags frag_keyframe+empty_moov+default_base_moof',
       ])
       .on('error', (err: Error) => {
         closeSession();
-        if (!err.message.includes('Output stream closed') && !err.message.includes('Output pipe closed') && !err.message.includes('SIGKILL')) {
+        if (
+          !err.message.includes('Output stream closed') &&
+          !err.message.includes('Output pipe closed') &&
+          !err.message.includes('SIGKILL')
+        ) {
           console.error('[TranscodeService] FFmpeg streaming error:', err.message);
         }
         outputStream.destroy(err);

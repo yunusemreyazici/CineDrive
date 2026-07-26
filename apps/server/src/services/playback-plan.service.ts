@@ -53,7 +53,7 @@ export const buildPlaybackPlan = (source: PlaybackSource): PlaybackPlan => {
     CHROMIUM_AUDIO_CODECS.has(audio);
   const chromium: PlaybackMode = chromiumDirect
     ? 'direct'
-    : chromiumVideoCompatible
+    : (container === 'mp4' || container === 'm4v') && chromiumVideoCompatible
       ? 'audio'
       : 'full';
 

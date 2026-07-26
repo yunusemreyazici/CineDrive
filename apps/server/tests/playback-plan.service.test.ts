@@ -37,10 +37,21 @@ describe('buildPlaybackPlan', () => {
     ).toMatchObject({ safari: 'hls', chromium: 'full', analyzed: true });
   });
 
-  it('copies compatible H.264 video and converts only incompatible MKV audio in Chromium', () => {
+  it('fully normalizes H.264 MKV video for Chromium instead of producing audio-only playback', () => {
     expect(
       buildPlaybackPlan({
         mediaContainer: 'mkv',
+        videoCodec: 'h264',
+        audioCodec: 'dts',
+        mediaAnalyzedAt: analyzedAt,
+      }),
+    ).toMatchObject({ safari: 'hls', chromium: 'full' });
+  });
+
+  it('converts only incompatible audio when the H.264 source is already in MP4', () => {
+    expect(
+      buildPlaybackPlan({
+        mediaContainer: 'mp4',
         videoCodec: 'h264',
         audioCodec: 'dts',
         mediaAnalyzedAt: analyzedAt,
