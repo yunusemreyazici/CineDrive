@@ -1,16 +1,21 @@
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@cinedrive/shared';
-import { Film, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
+import { Film, Lock, Mail, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useLoginMutation } from '../hooks/useApi';
+import { parseApiError } from '../api/client';
 import { t } from '../i18n';
+
+const FIELD_CLASSES =
+  'w-full rounded-xl border border-zinc-800 bg-zinc-950/60 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-500 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20';
 
 export const LoginPage: React.FC = () => {
   const fieldId = useId();
   const navigate = useNavigate();
   const loginMutation = useLoginMutation();
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -45,13 +50,20 @@ export const LoginPage: React.FC = () => {
           <p className="text-xs text-zinc-400 mt-1">{t.auth.appTagline}</p>
         </div>
 
-        {/* Global Error Banner */}
+        {/*
+          `role="alert"` because this is the only feedback a rejected sign-in
+          gives: without it the banner appeared silently and a screen reader
+          user was left waiting on a form that looked unchanged.
+        */}
         {loginMutation.error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 text-red-400 text-xs">
-            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div
+            role="alert"
+            className="mb-6 flex items-start gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-xs text-red-400"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <div>
               <p className="font-semibold">{t.auth.signInFailed}</p>
-              <p>{loginMutation.error.message}</p>
+              <p>{parseApiError(loginMutation.error).message}</p>
             </div>
           </div>
         )}
@@ -66,19 +78,24 @@ export const LoginPage: React.FC = () => {
               {t.auth.email}
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <input
                 id={`${fieldId}-email`}
                 type="email"
                 autoComplete="email"
                 aria-invalid={Boolean(errors.email)}
+                // Without this the validation text sits beside the field but is
+                // never announced when focus is inside it.
+                aria-describedby={errors.email ? `${fieldId}-email-error` : undefined}
                 {...register('email')}
                 placeholder="admin@cinedrive.local"
-                className="w-full pl-10 pr-4 py-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
+                className={FIELD_CLASSES}
               />
             </div>
             {errors.email && (
-              <p className="text-xs text-red-400 mt-1">{errors.email.message}</p>
+              <p id={`${fieldId}-email-error`} className="mt-1 text-xs text-red-400">
+                {errors.email.message}
+              </p>
             )}
           </div>
 
@@ -90,26 +107,40 @@ export const LoginPage: React.FC = () => {
               {t.auth.password}
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <input
                 id={`${fieldId}-password`}
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 aria-invalid={Boolean(errors.password)}
+                aria-describedby={errors.password ? `${fieldId}-password-error` : undefined}
                 {...register('password')}
                 placeholder="••••••••"
-                className="w-full pl-10 pr-4 py-2.5 bg-zinc-950/60 border border-zinc-800 rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all"
+                className={`${FIELD_CLASSES} pr-11`}
               />
+              {/* A typo in a masked field is otherwise only discoverable by
+                  failing the sign-in. */}
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
+                aria-pressed={showPassword}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-zinc-500 transition-colors hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
             </div>
             {errors.password && (
-              <p className="text-xs text-red-400 mt-1">{errors.password.message}</p>
+              <p id={`${fieldId}-password-error`} className="mt-1 text-xs text-red-400">
+                {errors.password.message}
+              </p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={loginMutation.isPending}
-            className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 disabled:opacity-50"
           >
             {loginMutation.isPending ? (
               <>

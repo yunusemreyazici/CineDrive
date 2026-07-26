@@ -42,6 +42,8 @@ export const tr = {
     signIn: 'Giriş Yap',
     signingIn: 'Giriş Yapılıyor...',
     signInFailed: 'Giriş Başarısız',
+    showPassword: 'Parolayı göster',
+    hidePassword: 'Parolayı gizle',
     verifyingSession: 'Oturum Doğrulanıyor...',
     driveHint: 'Google Drive hesabınızı bağlama işlemi yöneticisi girişi yaptıktan sonra',
     driveHintSettings: 'Ayarlar',

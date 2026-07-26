@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
+// The other schemas in this file already carry Turkish messages; login was
+// left on Zod's English defaults, so the sign-in form answered a Turkish UI
+// with "Invalid email".
 export const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().email('Geçerli bir e-posta adresi giriniz.'),
+  password: z.string().min(1, 'Parolanızı giriniz.'),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -9,7 +9,9 @@ import { tr } from '../apps/web/src/i18n/tr.js';
 const signIn = async (page: Page) => {
   await page.goto('/login');
   await page.getByLabel(tr.auth.email).fill(E2E_ADMIN_EMAIL);
-  await page.getByLabel(tr.auth.password).fill(E2E_ADMIN_PASSWORD);
+  // Exact: the reveal toggle beside the field is labelled "Parolayı göster",
+  // which a substring match would also resolve to.
+  await page.getByLabel(tr.auth.password, { exact: true }).fill(E2E_ADMIN_PASSWORD);
   await page.getByRole('button', { name: tr.auth.signIn }).click();
   await expect(page).toHaveURL(/\/$/);
 };
