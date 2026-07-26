@@ -1,8 +1,15 @@
 import React from 'react';
-import { Palette, EyeOff } from 'lucide-react';
+import { Palette, EyeOff, Languages } from 'lucide-react';
 import { useUiStore, type ThemeType } from '../../../stores/useUiStore';
-import { SettingsCard, SettingsChoice, SettingsRow, SettingsToggle } from '../SettingsCard';
-import { t } from '../../../i18n';
+import {
+  SettingsCard,
+  SettingsChoice,
+  SettingsField,
+  SettingsRow,
+  SettingsToggle,
+  SETTINGS_INPUT_CLASSES,
+} from '../SettingsCard';
+import { LOCALES, locale, setLocale, t, type Locale } from '../../../i18n';
 
 /**
  * `OLED Midnight` used to sit second here. Its brand ramp was within a couple
@@ -49,6 +56,34 @@ export const AppearanceSection: React.FC = () => {
     </SettingsCard>
   );
 };
+
+export const LanguageSection: React.FC = () => (
+  <SettingsCard
+    id="settings-language"
+    title={t.settings.language.title}
+    description={t.settings.language.description}
+    icon={Languages}
+  >
+    <SettingsField
+      id="settings-language-select"
+      label={t.settings.language.label}
+      hint={t.settings.language.reloadNotice}
+    >
+      <select
+        id="settings-language-select"
+        value={locale}
+        onChange={(event) => setLocale(event.target.value as Locale)}
+        className={SETTINGS_INPUT_CLASSES}
+      >
+        {LOCALES.map((id) => (
+          <option key={id} value={id}>
+            {t.settings.language.names[id]}
+          </option>
+        ))}
+      </select>
+    </SettingsField>
+  </SettingsCard>
+);
 
 export const LibraryVisibilitySection: React.FC = () => {
   const hideMoviesWithoutMetadata = useUiStore((state) => state.hideMoviesWithoutMetadata);

@@ -520,6 +520,17 @@ export const tr = {
       },
     },
 
+    language: {
+      title: 'Dil',
+      description: 'Arayüz dilini seçin',
+      label: 'Arayüz dili',
+      reloadNotice: 'Dil değiştiğinde sayfa yeniden yüklenir.',
+      names: {
+        tr: 'Türkçe',
+        en: 'English',
+      },
+    },
+
     visibility: {
       title: 'Kütüphane Görünürlüğü',
       description: 'Film listelerinde gösterilecek içerikleri seçin',
@@ -646,6 +657,7 @@ export const tr = {
       profile: { label: 'Profil Bilgileri', description: 'Ad ve e-posta' },
       security: { label: 'Güvenlik ve Şifre', description: 'Hesap şifresini değiştirin' },
       appearance: { label: 'Görünüm ve Temalar', description: 'Arayüz renk temasını seçin' },
+      language: { label: 'Dil', description: 'Arayüz dilini değiştirin' },
       visibility: { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin' },
       google: { label: 'Google Drive', description: 'Bağlı Google hesapları' },
       scan: { label: 'Kütüphane Taraması', description: 'Medya taramasını başlatın' },
@@ -798,6 +810,10 @@ export const tr = {
   toast: {
     dismiss: 'Bildirimi kapat',
   },
-} as const;
+};
 
+/**
+ * Widened on purpose: without `as const` every value is `string`, so a second
+ * dictionary can satisfy the same shape with different copy.
+ */
 export type Translations = typeof tr;

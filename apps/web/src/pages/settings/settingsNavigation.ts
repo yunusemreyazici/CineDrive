@@ -30,6 +30,7 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.profile, tab: 'general', targetId: 'settings-profile' },
   { ...t.settings.search.security, tab: 'general', targetId: 'settings-security' },
   { ...t.settings.search.appearance, tab: 'general', targetId: 'settings-appearance' },
+  { ...t.settings.search.language, tab: 'general', targetId: 'settings-language' },
   { ...t.settings.search.visibility, tab: 'general', targetId: 'settings-visibility' },
   { ...t.settings.search.google, tab: 'general', targetId: 'settings-google' },
   { ...t.settings.search.scan, tab: 'general', targetId: 'settings-scan' },

@@ -1,7 +1,11 @@
 import React from 'react';
 import { ProfileSection } from './sections/ProfileSection';
 import { SecuritySection } from './sections/SecuritySection';
-import { AppearanceSection, LibraryVisibilitySection } from './sections/AppearanceSection';
+import {
+  AppearanceSection,
+  LanguageSection,
+  LibraryVisibilitySection,
+} from './sections/AppearanceSection';
 import { GoogleDriveSection } from './sections/GoogleDriveSection';
 import { LibraryScanSection } from './sections/LibraryScanSection';
 import { LocalLibrarySection } from './sections/LocalLibrarySection';
@@ -19,6 +23,7 @@ export const GeneralSettingsTab: React.FC = () => (
     <ProfileSection />
     <SecuritySection />
     <AppearanceSection />
+    <LanguageSection />
     <LibraryVisibilitySection />
     <GoogleDriveSection />
     <LibraryScanSection />
