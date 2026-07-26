@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@prisma/client';
 import { buildPlaybackPlan } from '../services/playback-plan.service.js';
+import { ownedMediaFilter } from '../utils/library-access.js';
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -66,7 +67,13 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       ? parseResult.data
       : { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
 
-    const where: Prisma.MediaItemWhereInput = {};
+    /*
+     * Every list request now starts from the caller's own libraries. Until
+     * `MediaItem.libraryId` existed there was no cheap way to express this, and
+     * the endpoint simply returned every media row in the database — favourites
+     * and progress were scoped to the user, the catalogue itself was not.
+     */
+    const where: Prisma.MediaItemWhereInput = { ...ownedMediaFilter(request.user!.id) };
     if (type) where.type = type;
     if (genre) where.genres = { contains: genre };
     if (person) where.cast = { contains: person };

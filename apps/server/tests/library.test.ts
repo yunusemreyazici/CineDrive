@@ -146,6 +146,69 @@ describe('Library API Integration Tests', () => {
     15000,
   );
 
+  it("GET /api/media hides another account's media", async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+
+    const ownerLibrary = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'OwnerScopedLib', rootFolderId: 'owner_scoped' },
+    });
+    const ownerMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: ownerLibrary.id,
+        type: 'movie',
+        title: 'Owner Only Movie',
+        normalizedTitle: 'owner only movie',
+      },
+    });
+
+    const intruderEmail = `scope-${Date.now()}@cinedrive.test`;
+    const intruderPassword = 'ScopedPassword123!';
+    const intruder = await app.prisma.user.create({
+      data: {
+        email: intruderEmail,
+        name: 'Scoped',
+        passwordHash: await app.authService.hashPassword(intruderPassword),
+      },
+    });
+    const intruderLibrary = await app.prisma.library.create({
+      data: { userId: intruder.id, name: 'IntruderScopedLib', rootFolderId: 'intruder_scoped' },
+    });
+    const intruderMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: intruderLibrary.id,
+        type: 'movie',
+        title: 'Intruder Only Movie',
+        normalizedTitle: 'intruder only movie',
+      },
+    });
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: intruderEmail, password: intruderPassword },
+    });
+    const sessionCookie = login.cookies.find((c) => c.name === 'session_id')!.value;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media?limit=100',
+      cookies: { session_id: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const ids = (JSON.parse(response.body).media as { id: string }[]).map((item) => item.id);
+
+    // The catalogue itself was unscoped: favourites and progress were filtered
+    // by user, the media list returned every row in the database.
+    expect(ids).toContain(intruderMedia.id);
+    expect(ids).not.toContain(ownerMedia.id);
+
+    await app.prisma.library.deleteMany({
+      where: { id: { in: [ownerLibrary.id, intruderLibrary.id] } },
+    });
+    await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
+  });
+
   it('clearing one library leaves the other library untouched', async () => {
     const owner = await app.authService.ensureAdminUserExists();
 
@@ -163,7 +226,13 @@ describe('Library API Integration Tests', () => {
         },
       });
       const mediaItem = await app.prisma.mediaItem.create({
-        data: { type: 'movie', title, normalizedTitle: title.toLowerCase() },
+        // Scans set this; the fixture predates the column.
+        data: {
+          libraryId: library.id,
+          type: 'movie',
+          title,
+          normalizedTitle: title.toLowerCase(),
+        },
       });
       await app.prisma.movie.create({
         data: { mediaItemId: mediaItem.id, driveFileId: driveFile.id },

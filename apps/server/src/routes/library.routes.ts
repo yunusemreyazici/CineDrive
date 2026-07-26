@@ -265,13 +265,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
      * database — including other libraries' and, now that libraries have
      * owners, other accounts'.
      */
+    // A single indexed column now; this walked movie/episode -> driveFile ->
+    // library to work out which media belonged here.
     const mediaIdsInLibrary = await fastify.prisma.mediaItem.findMany({
-      where: {
-        OR: [
-          { movie: { driveFile: { libraryId: id } } },
-          { episodes: { some: { driveFile: { libraryId: id } } } },
-        ],
-      },
+      where: { libraryId: id },
       select: { id: true },
     });
     const mediaIds = mediaIdsInLibrary.map((item) => item.id);

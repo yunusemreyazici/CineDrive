@@ -76,6 +76,7 @@ model Library {
   updatedAt          DateTime          @updatedAt
   files              DriveFile[]
   scans              LibraryScan[]
+  mediaItems         MediaItem[]
 
   @@index([userId])
 }
@@ -118,6 +119,12 @@ model DriveFile {
 
 model MediaItem {
   id                  String             @id @default(uuid())
+  // Ownership used to be derived through movie/episode -> driveFile -> library,
+  // a three-hop join every access check and every scoped delete had to repeat.
+  // Optional because a record can outlive the file it came from until the
+  // maintenance cleanup removes it.
+  libraryId           String?
+  library             Library?           @relation(fields: [libraryId], references: [id], onDelete: Cascade)
   type                String
   title               String
   originalTitle       String?
@@ -149,6 +156,7 @@ model MediaItem {
 
   @@index([normalizedTitle])
   @@index([type])
+  @@index([libraryId])
 }
 
 model Movie {

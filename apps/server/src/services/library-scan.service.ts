@@ -319,6 +319,9 @@ export class LibraryScanService {
           where: { id: mediaItemId },
           create: {
             id: mediaItemId,
+            // Recorded at scan time so ownership is one indexed column rather
+            // than a walk through movie/episode -> driveFile -> library.
+            libraryId,
             type,
             title,
             normalizedTitle,
@@ -337,6 +340,8 @@ export class LibraryScanService {
             imdbId,
           },
           update: {
+            // A rescan re-homes the record to the library that just found it.
+            libraryId,
             title,
             year: finalYear,
             overview: overview || undefined,

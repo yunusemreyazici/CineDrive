@@ -17,3 +17,14 @@ export const ownedLibraryFilter = (userId: string): Prisma.LibraryWhereInput => 
 export const ownedDriveFileFilter = (userId: string): Prisma.DriveFileWhereInput => ({
   library: ownedLibraryFilter(userId),
 });
+
+/**
+ * Media the user may read.
+ *
+ * `MediaItem.libraryId` makes this a single hop. Reaching the owner used to
+ * mean walking movie or episode → driveFile → library → user, so every caller
+ * wrote a two-branch `OR` over both relations.
+ */
+export const ownedMediaFilter = (userId: string): Prisma.MediaItemWhereInput => ({
+  library: ownedLibraryFilter(userId),
+});

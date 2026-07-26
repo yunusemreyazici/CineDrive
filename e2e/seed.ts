@@ -126,6 +126,8 @@ export const seedE2EDatabase = async () => {
     const mediaItem = await prisma.mediaItem.create({
       data: {
         id: 'e2e_movie_smoke',
+        // Scans set this, and GET /api/media filters on it.
+        libraryId: library.id,
         type: 'movie',
         title: 'Smoke Test Movie',
         normalizedTitle: 'smoke test movie',
