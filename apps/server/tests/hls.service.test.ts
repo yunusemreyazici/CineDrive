@@ -396,6 +396,22 @@ describe('HlsService cache management', () => {
     expect(internals.videoOptions('')).toContain('-c:v libx264');
   });
 
+  it('calculates buffer lead from real EXTINF durations instead of assuming four seconds', () => {
+    const service = createService(1024);
+    const playlistPath = path.join(service.getCacheDir('duration-check'), 'index.m3u8');
+    fs.mkdirSync(path.dirname(playlistPath), { recursive: true });
+    fs.writeFileSync(
+      playlistPath,
+      '#EXTM3U\n#EXTINF:9.84,\nsegment-000000.m4s\n#EXTINF:10.12,\nsegment-000001.m4s\n',
+    );
+    const internals = service as unknown as {
+      bufferLeadSeconds: (playlist: string, lastRequestedSegment: number) => number;
+    };
+
+    expect(internals.bufferLeadSeconds(playlistPath, -1)).toBeCloseTo(19.96);
+    expect(internals.bufferLeadSeconds(playlistPath, 0)).toBeCloseTo(10.12);
+  });
+
   it('deduplicates concurrent starts for the same HLS cache', async () => {
     const service = createService(1024);
     let rejectInput!: (error: Error) => void;

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Clock } from 'lucide-react';
 import { PlayerControls } from './PlayerControls';
@@ -10,6 +10,7 @@ import { useUiStore } from '../../../stores/useUiStore';
 import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { usePlayerControls } from '../hooks/usePlayerControls';
+import { useHlsPlayback } from '../hooks/useHlsPlayback';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import type { PlayerErrorState, SubtitleTrackType } from '../types/player';
 import { findActiveSubtitleCue, parseWebVttCues, type SubtitleCue } from '../utils/subtitleCues';
@@ -240,7 +241,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const isSafari = isSafariBrowser();
-  const [hlsSessionId] = useState(createHlsSessionId);
 
   // Player Store State
   const {
@@ -300,6 +300,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [qualityPreference, setQualityPreference] =
     useState<QualityPreference>(initialQualityPreference);
+  const [streamGeneration, setStreamGeneration] = useState(0);
 
   const { areControlsVisible, resetHideTimer } = usePlayerControls(isPlaying);
 
@@ -352,6 +353,19 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const automaticQuality = chooseAutoQuality(analyzedHeight);
   const [adaptiveQuality, setAdaptiveQuality] = useState(automaticQuality);
   const effectiveQuality = qualityPreference === 'auto' ? adaptiveQuality : qualityPreference;
+  // A source generation owns exactly one server-side FFmpeg job. Reusing a
+  // tab-wide owner ID allowed the cleanup request for an old source to kill a
+  // replacement stream that had already started.
+  const streamSessionId = useMemo(
+    createHlsSessionId,
+    [
+      effectiveQuality,
+      hlsStartOffset,
+      playbackMode,
+      streamGeneration,
+      targetDriveFileId,
+    ],
+  );
 
   React.useEffect(() => {
     if (pendingHlsSeekTimerRef.current) {
@@ -713,12 +727,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   // Stream URL directly to backend endpoint (ZERO FETCH / ZERO BLOB!)
   const videoSourceUrl = targetDriveFileId
     ? playbackMode === 'hls'
-      ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}&session=${hlsSessionId}`
+      ? `/api/media/${targetDriveFileId}/hls/index.m3u8?start=${hlsStartOffset}&session=${streamSessionId}`
       : `/api/media/${targetDriveFileId}/stream${
           playbackMode === 'audio'
-            ? `?transcode=audio&start=${hlsStartOffset}&session=${hlsSessionId}`
+            ? `?transcode=audio&start=${hlsStartOffset}&session=${streamSessionId}`
             : playbackMode === 'full'
-              ? `?transcode=full&quality=${effectiveQuality}&start=${hlsStartOffset}&session=${hlsSessionId}`
+              ? `?transcode=full&quality=${effectiveQuality}&start=${hlsStartOffset}&session=${streamSessionId}`
               : ''
         }`
     : '';
@@ -762,7 +776,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     const releaseUrl =
       `/api/media/${targetDriveFileId}/hls/release` +
-      `?start=${hlsStartOffset}&session=${hlsSessionId}`;
+      `?start=${hlsStartOffset}&session=${streamSessionId}`;
     const releaseStream = () => {
       void fetch(releaseUrl, {
         method: 'POST',
@@ -778,13 +792,13 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       window.removeEventListener('pagehide', releaseStream);
       releaseStream();
     };
-  }, [hlsSessionId, hlsStartOffset, playbackMode, targetDriveFileId]);
+  }, [hlsStartOffset, playbackMode, streamSessionId, targetDriveFileId]);
 
   React.useEffect(() => {
     if (playbackMode !== 'audio' && playbackMode !== 'full') return;
 
     const releaseStream = () => {
-      void fetch(`/api/media/transcode/release?session=${hlsSessionId}`, {
+      void fetch(`/api/media/transcode/release?session=${streamSessionId}`, {
         method: 'POST',
         credentials: 'include',
         keepalive: true,
@@ -798,7 +812,25 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       window.removeEventListener('pagehide', releaseStream);
       releaseStream();
     };
-  }, [hlsSessionId, playbackMode, targetDriveFileId]);
+  }, [playbackMode, streamSessionId]);
+
+  const handleHlsUnsupported = useCallback(() => {
+    setErrorState({
+      code: 'STREAM_FAILED',
+      message: 'Bu tarayıcı uyumlu HLS oynatmayı desteklemiyor.',
+      isRetryable: true,
+    });
+  }, []);
+  const handleFatalHlsError = useCallback(() => {
+    setStreamGeneration((generation) => generation + 1);
+  }, []);
+  useHlsPlayback({
+    videoRef,
+    sourceUrl: videoSourceUrl,
+    active: playbackMode === 'hls' && !isSafari,
+    onUnsupported: handleHlsUnsupported,
+    onFatalError: handleFatalHlsError,
+  });
 
   React.useLayoutEffect(() => {
     suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
@@ -1098,7 +1130,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (playbackMode === 'full' && qualityPreference === 'auto') {
       stallRecoveryTimerRef.current = setTimeout(() => {
         const video = videoRef.current;
-        if (!video || video.paused || video.currentTime >= 10) return;
+        if (!video || video.paused) return;
 
         const nextQuality =
           effectiveQuality === 'original' || effectiveQuality === '1080p'
@@ -1106,11 +1138,38 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             : effectiveQuality === '720p'
               ? '480p'
               : null;
-        if (!nextQuality) return;
+        if (video.currentTime >= 10 || !nextQuality) {
+          recoveryPositionRef.current = video.currentTime + playbackTimelineOffset;
+          setHlsStartOffset(Math.floor(recoveryPositionRef.current));
+          setStreamGeneration((generation) => generation + 1);
+          setConnectionMessage('Akış yeniden bağlanıyor');
+          return;
+        }
 
         suppressNextEpisodeUntilRef.current = Date.now() + 20_000;
         setConnectionMessage(`Başlangıç akışı ${nextQuality} kalitesinde yeniden hazırlanıyor`);
         setAdaptiveQuality(nextQuality);
+      }, STALL_RECOVERY_DELAY_MS);
+      return;
+    }
+
+    if (playbackMode === 'full' || playbackMode === 'audio') {
+      stallRecoveryTimerRef.current = setTimeout(() => {
+        const video = videoRef.current;
+        if (
+          !video ||
+          video.paused ||
+          stallRecoveryAttemptsRef.current >= MAX_STALL_RECOVERY_ATTEMPTS
+        ) {
+          return;
+        }
+        stallRecoveryAttemptsRef.current += 1;
+        recoveryPositionRef.current = video.currentTime + playbackTimelineOffset;
+        setHlsStartOffset(Math.floor(recoveryPositionRef.current));
+        setStreamGeneration((generation) => generation + 1);
+        setConnectionMessage(
+          `Akış yeniden bağlanıyor (${stallRecoveryAttemptsRef.current}/${MAX_STALL_RECOVERY_ATTEMPTS})`,
+        );
       }, STALL_RECOVERY_DELAY_MS);
       return;
     }
@@ -1137,6 +1196,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   }, [
     clearStallRecoveryTimer,
     effectiveQuality,
+    playbackTimelineOffset,
     playbackMode,
     playbackTimelineOffset,
     qualityPreference,
@@ -1348,7 +1408,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       {/* HTML5 Native Video Stream Element with Subtitle Tracks */}
       <video
         ref={videoRef}
-        src={videoSourceUrl}
+        src={playbackMode === 'hls' && !isSafari ? undefined : videoSourceUrl}
         onPlay={() => {
           setIsPlaying(true);
           checkForUnsupportedAudio();
@@ -1393,7 +1453,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             sourceErrorRecoveryTimerRef.current = setTimeout(() => {
               const video = videoRef.current;
               if (!video) return;
-              video.load();
+              if (playbackMode === 'hls' && !isSafari) {
+                setStreamGeneration((generation) => generation + 1);
+              } else {
+                video.load();
+              }
               void video.play().catch(() => {
                 // The retry remains loaded and can still be resumed manually
                 // when the browser requires a fresh user gesture.

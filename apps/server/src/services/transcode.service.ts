@@ -54,6 +54,7 @@ export class TranscodeService {
       quality?: TranscodeQuality;
       startSeconds?: number;
       ownerSessionId?: string;
+      inputOptions?: string[];
     } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
@@ -110,6 +111,7 @@ export class TranscodeService {
     };
 
     const inputOptions = [
+      ...(options.inputOptions || []),
       ...(options.startSeconds && options.startSeconds > 0
         ? ['-ss', options.startSeconds.toString()]
         : []),

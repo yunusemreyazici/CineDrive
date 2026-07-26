@@ -199,15 +199,18 @@ describe('Video Media Streaming API Integration Tests', () => {
     expect(response.headers['content-length']).toBeUndefined();
     expect(response.body).toBe('transcoded-fragment');
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      expect.any(Readable),
-      { transcodeVideo: false, quality: '1080p', startSeconds: 0 },
+      'https://www.googleapis.com/drive/v3/files/gdrive_video_id_100?alt=media&supportsAllDrives=true',
+      expect.objectContaining({
+        transcodeVideo: false,
+        quality: '1080p',
+        startSeconds: 0,
+        inputOptions: expect.arrayContaining([
+          '-headers',
+          'Authorization: Bearer mock-access-token\r\n',
+        ]),
+      }),
     );
-    expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
-      'mock-access-token',
-      'gdrive_video_id_100',
-      undefined,
-      expect.any(AbortSignal),
-    );
+    expect(app.driveService.createMediaStream).not.toHaveBeenCalled();
   });
 
   it('uses full video transcoding for Safari compatibility mode', async () => {
@@ -237,15 +240,15 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      expect.any(Readable),
-      { transcodeVideo: true, quality: '1080p', startSeconds: 0 },
+      expect.stringContaining('https://www.googleapis.com/drive/v3/files/'),
+      expect.objectContaining({
+        transcodeVideo: true,
+        quality: '1080p',
+        startSeconds: 0,
+        inputOptions: expect.any(Array),
+      }),
     );
-    expect(app.driveService.createMediaStream).toHaveBeenCalledWith(
-      'mock-access-token',
-      'gdrive_video_id_100',
-      undefined,
-      expect.any(AbortSignal),
-    );
+    expect(app.driveService.createMediaStream).not.toHaveBeenCalled();
   });
 
   it('restarts compatibility transcoding at the requested seek position', async () => {
@@ -272,13 +275,14 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(app.transcodeService.createTranscodedStream).toHaveBeenCalledWith(
-      expect.any(Readable),
-      {
+      expect.stringContaining('https://www.googleapis.com/drive/v3/files/'),
+      expect.objectContaining({
         transcodeVideo: true,
         quality: '1080p',
         startSeconds: 2028,
         ownerSessionId: 'player_session_2028',
-      },
+        inputOptions: expect.any(Array),
+      }),
     );
   });
 

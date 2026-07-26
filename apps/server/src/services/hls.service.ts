@@ -405,9 +405,10 @@ export class HlsService {
             return;
           }
           if (activeJob?.pid) {
-            const producedSegments = this.countSegments(outputDir);
-            const requestedSegments = Math.max(0, activeJob.lastRequestedSegment + 1);
-            const leadSeconds = (producedSegments - requestedSegments) * 4;
+            const leadSeconds = this.bufferLeadSeconds(
+              path.join(outputDir, 'index.m3u8'),
+              activeJob.lastRequestedSegment,
+            );
             if (leadSeconds >= 24 && !activeJob.isPaused) {
               this.setJobPaused(activeJob, true);
             } else if (leadSeconds <= 12 && activeJob.isPaused) {
@@ -487,11 +488,9 @@ export class HlsService {
         lastAccessAt: new Date(job.lastAccessAt).toISOString(),
         viewerCount: this.leases.get(cacheKey)?.size || 0,
         profile: job.profile,
-        bufferLeadSeconds: Math.max(
-          0,
-          (this.countSegments(this.getCacheDir(cacheKey)) -
-            Math.max(0, job.lastRequestedSegment + 1)) *
-            4,
+        bufferLeadSeconds: this.bufferLeadSeconds(
+          path.join(this.getCacheDir(cacheKey), 'index.m3u8'),
+          job.lastRequestedSegment,
         ),
         isPaused: job.isPaused,
       }))
@@ -652,9 +651,19 @@ export class HlsService {
     ];
   }
 
-  private countSegments(outputDir: string) {
+  private bufferLeadSeconds(playlistPath: string, lastRequestedSegment: number) {
     try {
-      return fs.readdirSync(outputDir).filter((name) => /^segment-\d{6}\.m4s$/.test(name)).length;
+      const playlist = fs.readFileSync(playlistPath, 'utf8');
+      const durations = [...playlist.matchAll(/^#EXTINF:([\d.]+)/gm)].map((match) =>
+        Number(match[1]),
+      );
+      const firstUnrequestedSegment = Math.max(0, lastRequestedSegment + 1);
+      return Math.max(
+        0,
+        durations
+          .slice(firstUnrequestedSegment)
+          .reduce((total, duration) => total + (Number.isFinite(duration) ? duration : 0), 0),
+      );
     } catch {
       return 0;
     }

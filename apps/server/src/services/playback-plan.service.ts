@@ -55,6 +55,8 @@ export const buildPlaybackPlan = (source: PlaybackSource): PlaybackPlan => {
     ? 'direct'
     : (container === 'mp4' || container === 'm4v') && chromiumVideoCompatible
       ? 'audio'
+      : video === 'h264'
+        ? 'hls'
       : 'full';
 
   return {

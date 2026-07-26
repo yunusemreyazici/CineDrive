@@ -360,6 +360,11 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('X-Transcode-Quality', transcodeQuality);
         reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
+        if (isHeadRequest) {
+          cleanupListeners();
+          return reply.send();
+        }
+
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           // A local MP4 must remain seekable. Feeding it through a ReadStream
           // turns it into a pipe, and FFmpeg cannot revisit MP4 sample offsets.
@@ -444,29 +449,7 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      const driveStreamRes = await fastify.driveService.createMediaStream(
-        accessToken,
-        driveFile.googleDriveFileId || '',
-        // FFmpeg consumes a continuous source stream. Safari may probe the
-        // output with bytes=0-1; forwarding that range would give FFmpeg only
-        // two source bytes and make transcoding fail immediately.
-        isTranscode ? undefined : upstreamRangeHeader,
-        abortController.signal,
-      );
-
-      // Handle mid-stream network errors on upstream Google Drive stream
-      driveStreamRes.stream.on('error', (streamErr) => {
-        cleanupListeners();
-        abortController.abort();
-        if (!reply.raw.writableEnded) {
-          reply.raw.destroy(streamErr);
-        }
-      });
-
       if (isTranscode) {
-        // A transcoded fragmented MP4 has neither the same byte length nor the
-        // same byte offsets as the source file. Passing Drive's 206/Range/
-        // Content-Length headers through makes Safari reject the response.
         reply.status(200);
         reply.header('Content-Type', 'video/mp4');
         reply.header('X-Transcode-Quality', transcodeQuality);
@@ -477,12 +460,26 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.send();
         }
 
+        // Give FFmpeg a seekable HTTP input instead of a Node pipe. Google
+        // Drive supports Range requests on this URL, so input-side `-ss` can
+        // jump near the requested timestamp without downloading and discarding
+        // the whole file from byte zero.
+        const googleDriveFileId = encodeURIComponent(driveFile.googleDriveFileId || '');
+        const sourceUrl =
+          `https://www.googleapis.com/drive/v3/files/${googleDriveFileId}` +
+          '?alt=media&supportsAllDrives=true';
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
-          driveStreamRes.stream,
+          sourceUrl,
           {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
             startSeconds,
+            inputOptions: [
+              '-headers',
+              `Authorization: Bearer ${accessToken}\r\n`,
+              '-rw_timeout',
+              '15000000',
+            ],
             ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
@@ -494,6 +491,25 @@ export const mediaRoutes: FastifyPluginAsync = async (fastify) => {
 
         return reply.send(transcodedStream);
       }
+
+      const driveStreamRes = await fastify.driveService.createMediaStream(
+        accessToken,
+        driveFile.googleDriveFileId || '',
+        // FFmpeg consumes a continuous source stream. Safari may probe the
+        // output with bytes=0-1; forwarding that range would give FFmpeg only
+        // two source bytes and make transcoding fail immediately.
+        upstreamRangeHeader,
+        abortController.signal,
+      );
+
+      // Handle mid-stream network errors on upstream Google Drive stream
+      driveStreamRes.stream.on('error', (streamErr) => {
+        cleanupListeners();
+        abortController.abort();
+        if (!reply.raw.writableEnded) {
+          reply.raw.destroy(streamErr);
+        }
+      });
 
       // Set HTTP status (206 Partial Content or 200 OK)
       reply.status(driveStreamRes.status);
