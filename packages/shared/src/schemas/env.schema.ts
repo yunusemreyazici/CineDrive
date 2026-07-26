@@ -19,6 +19,13 @@ export const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.boolean().default(false),
   APP_AUTH_MODE: z.enum(['single-user', 'multi-user']).default('single-user'),
+  /**
+   * Language TMDB titles, summaries and genres are fetched in. It belongs to
+   * the deployment rather than the viewer: the values are written into the
+   * database during a scan and shared by everyone reading the library, unlike
+   * the interface language which each browser chooses for itself.
+   */
+  METADATA_LANGUAGE: z.string().min(2).default('tr-TR'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

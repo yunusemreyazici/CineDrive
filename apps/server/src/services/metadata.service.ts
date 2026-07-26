@@ -1,3 +1,5 @@
+import { env } from '../config/env.js';
+
 export interface CastMember {
   name: string;
   character?: string;
@@ -125,7 +127,7 @@ export class MetadataService {
     try {
       const endpoint = type === 'movie' ? 'search/movie' : 'search/tv';
       const searchRes = await fetch(
-        `https://api.themoviedb.org/3/${endpoint}?api_key=${apiKey}&query=${encodeURIComponent(cleanTitle)}&language=tr-TR`,
+        `https://api.themoviedb.org/3/${endpoint}?api_key=${apiKey}&query=${encodeURIComponent(cleanTitle)}&language=${env.METADATA_LANGUAGE}`,
         { signal: AbortSignal.timeout(5000) }
       );
 
@@ -153,7 +155,7 @@ export class MetadataService {
       const detailEndpoint = type === 'movie' ? `movie/${match.id}` : `tv/${match.id}`;
       const appendParams = type === 'movie' ? 'videos,credits,release_dates' : 'videos,credits,content_ratings';
       const detailRes = await fetch(
-        `https://api.themoviedb.org/3/${detailEndpoint}?api_key=${apiKey}&append_to_response=${appendParams}&language=tr-TR`,
+        `https://api.themoviedb.org/3/${detailEndpoint}?api_key=${apiKey}&append_to_response=${appendParams}&language=${env.METADATA_LANGUAGE}`,
         { signal: AbortSignal.timeout(5000) }
       );
 
