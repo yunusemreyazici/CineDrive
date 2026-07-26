@@ -678,6 +678,14 @@ export const en: Translations = {
       description: 'Personal Google Drive media server',
       body:
         'Scans the movies and series in your Google Drive folders and turns them into a personal streaming server.',
+      developer: 'Developer',
+      developerRole: 'Developer',
+      developerQuote: '“Driven by curiosity, fueled by open source.”',
+      linkGithub: 'GitHub',
+      linkX: 'X',
+      linkMail: 'Email',
+      linkLabel: (network: string) => `Open the ${network} profile in a new tab`,
+      mailLabel: 'Send an email',
     },
 
     tabs: {

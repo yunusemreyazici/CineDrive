@@ -682,6 +682,14 @@ export const tr = {
       description: 'Kişisel Google Drive medya sunucusu',
       body:
         'Google Drive klasörlerinizdeki film ve dizileri tarayıp kişisel bir medya yayın sunucusuna dönüştürür.',
+      developer: 'Geliştirici',
+      developerRole: 'Developer',
+      developerQuote: '“Driven by curiosity, fueled by open source.”',
+      linkGithub: 'GitHub',
+      linkX: 'X',
+      linkMail: 'E-posta',
+      linkLabel: (network: string) => `${network} profilini yeni sekmede aç`,
+      mailLabel: 'E-posta gönder',
     },
 
     tabs: {
