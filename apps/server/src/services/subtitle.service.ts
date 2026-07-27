@@ -41,7 +41,17 @@ export class SubtitleService {
       },
     });
 
-    if (!track || track.driveFile.status !== 'active') {
+    /*
+     * `userId` was accepted and then ignored: the comment above promised a
+     * library scope check but only the `active` status was tested, so any
+     * signed-in account could read any account's subtitle content. A track the
+     * caller does not own is reported as missing rather than forbidden.
+     */
+    if (
+      !track ||
+      track.driveFile.status !== 'active' ||
+      track.driveFile.library.userId !== userId
+    ) {
       throw new Error('SUBTITLE_NOT_FOUND');
     }
 

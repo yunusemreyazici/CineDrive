@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { ownedMediaFilter } from '../utils/library-access.js';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -75,8 +76,17 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    /*
+     * Every media lookup in this file addressed the row by id alone. Attaching
+     * or downloading a subtitle for someone else's title was a matter of
+     * knowing the id — and ids are derived from the title. The download path
+     * also spends the caller's OpenSubtitles quota, so it was usable against
+     * another account's key.
+     */
     const [mediaItem, user] = await Promise.all([
-      fastify.prisma.mediaItem.findUnique({ where: { id: mediaId } }),
+      fastify.prisma.mediaItem.findFirst({
+        where: { id: mediaId, ...ownedMediaFilter(userId) },
+      }),
       fastify.prisma.user.findUnique({ where: { id: userId } }),
     ]);
 
@@ -160,14 +170,18 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
       const [user, mediaItem, targetEpisode] = await Promise.all([
         fastify.prisma.user.findUnique({ where: { id: userId } }),
         mediaId
-          ? fastify.prisma.mediaItem.findUnique({
-              where: { id: mediaId },
+          ? fastify.prisma.mediaItem.findFirst({
+              where: { id: mediaId, ...ownedMediaFilter(userId) },
               include: { movie: true },
             })
           : null,
         episodeId
           ? fastify.prisma.episode.findFirst({
-              where: { id: episodeId, ...(mediaId ? { mediaItemId: mediaId } : {}) },
+              where: {
+                id: episodeId,
+                ...(mediaId ? { mediaItemId: mediaId } : {}),
+                mediaItem: ownedMediaFilter(userId),
+              },
             })
           : null,
       ]);
@@ -301,8 +315,8 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = request.user!.id;
 
     const [mediaItem, user] = await Promise.all([
-      fastify.prisma.mediaItem.findUnique({
-        where: { id: mediaId },
+      fastify.prisma.mediaItem.findFirst({
+        where: { id: mediaId, ...ownedMediaFilter(userId) },
         include: {
           movie: true,
           episodes: {

@@ -144,6 +144,8 @@ Test altyazı metni
     await app.prisma.mediaItem.create({
       data: {
         id: 'media_sub_persist',
+        // Scans set this and the subtitle routes now filter on it.
+        libraryId: library.id,
         type: 'movie',
         title: 'Persistent Subtitle Movie',
         normalizedTitle: 'persistent-subtitle-movie',
@@ -203,5 +205,44 @@ Kalıcı altyazı`);
     });
     expect(persistedResponse.statusCode).toBe(200);
     expect(persistedResponse.body).toContain('Kalıcı altyazı');
+  });
+
+  it("does not serve or attach subtitles for another account's media", async () => {
+    const intruderEmail = `sub-guard-${Date.now()}@cinedrive.test`;
+    const intruderPassword = 'SubGuardPassword123!';
+    await app.prisma.user.create({
+      data: {
+        email: intruderEmail,
+        name: 'Sub Guard',
+        passwordHash: await app.authService.hashPassword(intruderPassword),
+      },
+    });
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: intruderEmail, password: intruderPassword },
+    });
+    const cookies = { session_id: login.cookies.find((c) => c.name === 'session_id')!.value };
+
+    // `getSubtitleWebVTT` took a userId and never compared it, so subtitle
+    // content was readable by any signed-in account.
+    const content = await app.inject({
+      method: 'GET',
+      url: '/api/media/db_sub_file_1/subtitle',
+      cookies,
+    });
+    expect(content.statusCode).toBe(404);
+
+    // Downloading also spends the target account's OpenSubtitles quota.
+    const auto = await app.inject({
+      method: 'POST',
+      url: '/api/media/media_sub_persist/auto-subtitle',
+      cookies,
+      payload: {},
+    });
+    expect(auto.statusCode).toBe(404);
+
+    await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
   });
 });
