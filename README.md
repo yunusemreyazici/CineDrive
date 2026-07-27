@@ -1,147 +1,207 @@
 # CineDrive
 
-Google Drive klasörlerindeki ve yerel disklerdeki film ve dizileri tarayarak kişisel bir medya yayın sunucusuna dönüştüren web uygulaması.
+**[Türkçe](README.tr.md)** · English
 
-## Ekran Görüntüleri
+A self-hosted media server that turns the movies and series sitting in your Google Drive folders — or on a local disk — into a browsable, streamable library.
 
-| Ana Sayfa | Medya Detayı |
+CineDrive scans your storage, matches each file against TMDB for artwork and metadata, and streams it back to the browser. Files that a browser cannot play natively are transcoded on the fly; everything else is served directly with byte-range requests, untouched.
+
+## Screenshots
+
+| Home | Media detail |
 | --- | --- |
-| ![Ana Sayfa](docs/screenshots/home_dashboard.png) | ![Medya Detay](docs/screenshots/media_detail_page.png) |
+| ![Home](docs/screenshots/home_dashboard.png) | ![Media detail](docs/screenshots/media_detail_page.png) |
 
-## Özellikler
+> The screenshots predate the most recent interface work and are due a refresh.
 
-### Kütüphane
+## Features
 
-- **Google Drive entegrasyonu:** Salt okunur OAuth 2.0 ile Drive klasörlerini ve Ortak Sürücüleri (Shared Drives) tarama.
-- **Yerel disk kütüphaneleri:** Sunucudaki klasörleri Drive'a hiç dokunmadan tarama.
-- **Çoklu hesap:** Birden fazla Google hesabı bağlama; her kütüphane bir kullanıcıya ait ve medya hesaplar arasında paylaşılmaz.
-- **Otomatik metadata:** TMDB üzerinden başlık, özet, tür, oyuncu ve kapak görselleri; TMDB anahtarı yoksa TVMaze'e düşer.
-- **Arama:** `⌘K` / `Ctrl+K` ile açılan, klavyeyle gezilebilen anlık arama.
+### Library
 
-### Oynatma
+- **Google Drive** — read-only OAuth 2.0 access to your folders and any Shared Drives you can reach. CineDrive never writes to Drive.
+- **Local folders** — point a library at a path on the server and scan it without involving Drive at all.
+- **Multiple accounts** — connect several Google accounts. Each library belongs to a user, and one account's media, favourites and history are invisible to another.
+- **Metadata** — titles, summaries, genres, cast, posters and backdrops from TMDB, falling back to TVMaze when no TMDB key is configured.
+- **Search** — `⌘K` / `Ctrl+K` opens an instant, keyboard-navigable search over the library.
+- **Filtering** — sort and filter by rating, release period and genre; results are paginated server-side.
 
-- **Doğrudan akış:** Fastify HTTP Range (206) desteğiyle kesintisiz aktarım.
-- **HLS uyumluluk katmanı:** Tarayıcının desteklemediği codec'ler için FFmpeg ile canlı dönüşüm; eşzamanlı iş sayısı ve önbellek kotası sınırlı.
-- **Altyazı:** OpenSubtitles araması ve tek tıkla indirme, harici `.srt` / `.vtt` yükleme, zaman kaydırma ve stil ayarları.
-- **İzleme takibi:** Kaldığın yerden devam etme, izleme geçmişi ve bölüm sonunda otomatik geçiş.
+### Playback
 
-### Arayüz
+- **Direct streaming** — HTTP Range (206) responses, so seeking works without downloading the file.
+- **Compatibility transcoding** — when the browser cannot play the source, FFmpeg produces an HLS stream on demand. The number of concurrent encoders and the on-disk cache are both capped.
+- **Per-browser playback plans** — the same file may play directly in Chromium and need HLS in Safari; CineDrive decides per file and per browser from the probed codecs.
+- **Subtitles** — OpenSubtitles search and one-click download, `.srt` / `.vtt` upload, timing offset and styling.
+- **Resume** — playback position, watch history and automatic next-episode transitions.
 
-- **İki dil:** Türkçe ve İngilizce; Ayarlar → Dil bölümünden değiştirilir.
-- **Yedi renk teması** ve sinema modu.
-- **Bakım ekranları:** Veri yönetimi (toplu silme), depolama analizi (boyut, çözünürlük dağılımı, mükerrer dosyalar), medya sağlığı (codec uyumluluğu, canlı HLS işleri) ve veritabanı yönetimi (istatistikler, artık kayıt temizliği).
+### Interface
 
-## Teknoloji Yığını
+- **Two languages** — Turkish and English, switched from Settings → Language.
+- **Seven colour themes** plus a cinema mode that dims the interface during playback.
+- **Maintenance screens** — bulk data management, storage analysis (size, resolution distribution, duplicates), media health (codec compatibility, live FFmpeg jobs, playback telemetry) and database management (row counts, leftover-record cleanup).
 
-- **Backend:** Node.js, Fastify 5, Prisma 6, SQLite (WAL), Zod, Pino, FFmpeg
-- **Frontend:** React 19, Vite 6, Tailwind CSS, TanStack Query, Zustand, Lucide Icons
-- **Mimari:** pnpm workspaces (monorepo), TypeScript
-- **Test:** Vitest (birim + entegrasyon), Playwright (uçtan uca), GitHub Actions
-- **Dağıtım:** Docker, Docker Compose, Nginx (reverse proxy)
-
-## Proje Yapısı
+## Architecture
 
 ```
 CineDrive/
 ├── apps/
-│   ├── server/       # Fastify REST API & medya sunucusu
-│   │   └── prisma/   # Şema, migration geçmişi ve çalışma zamanı verisi
-│   └── web/          # React + Vite web arayüzü
+│   ├── server/          # Fastify REST API and media server
+│   │   ├── prisma/      # Schema, migration history, runtime data
+│   │   ├── scripts/     # One-off maintenance scripts
+│   │   └── src/
+│   │       ├── routes/      # HTTP surface
+│   │       ├── services/    # Drive, scanning, metadata, HLS, subtitles
+│   │       ├── plugins/     # Prisma and auth as Fastify plugins
+│   │       └── utils/       # Shared helpers (ownership filters, concurrency)
+│   └── web/             # React + Vite front end
+│       └── src/
+│           ├── pages/       # Route-level screens
+│           ├── features/    # Player and its hooks
+│           ├── components/  # Shared UI
+│           └── i18n/        # tr / en dictionaries
 ├── packages/
-│   └── shared/       # Ortak tipler, Zod şemaları ve yardımcılar
-├── e2e/              # Playwright senaryoları ve izole test ortamı
-├── nginx/            # Reverse proxy yapılandırması
-├── .github/workflows/
+│   └── shared/          # Types, Zod schemas, filename parsers
+├── e2e/                 # Playwright scenarios and isolated environment
+├── nginx/               # Reverse proxy configuration
+├── .github/workflows/   # CI
 ├── Dockerfile.server
 ├── Dockerfile.web
 └── docker-compose.yml
 ```
 
-## Kurulum ve Çalıştırma
+### How playback is decided
 
-### Geliştirme Ortamı
+Every video file is probed during the scan, and its container, video codec and audio codec are stored. When a client asks to play something, the server picks one of four modes per browser:
 
-1. **Bağımlılıkları yükleyin:**
+| Mode | What happens |
+| --- | --- |
+| `direct` | The file is streamed as-is over HTTP Range. No transcoding. |
+| `audio` | Video is copied, only the audio track is re-encoded to AAC. |
+| `hls` | An HLS stream is produced on demand; video may be copied or re-encoded. |
+| `full` | Both tracks are re-encoded to H.264 + AAC. |
+
+Safari and Chromium get separate answers because their codec support differs — Settings → Media health shows the distribution across your library.
+
+### Data model
+
+Sixteen tables, of which the core chain is:
+
+```
+User ──< Library ──< DriveFile ──< Movie / Episode
+             └──< MediaItem ──< Season / SubtitleTrack / Favorite / …
+```
+
+`Library.userId` and `MediaItem.libraryId` are what every access check keys on: a request only ever sees rows reachable from the caller's own libraries.
+
+## Getting Started
+
+### Requirements
+
+- Node.js 20 or newer — the Docker images build on `node:20-alpine`
+- pnpm (the repository is a pnpm workspace; the images install it through Corepack)
+- FFmpeg — bundled via `ffmpeg-static`, no system install required
+- A Google Cloud project with the Drive API enabled, for Drive libraries
+- Optionally a TMDB API key for richer metadata, and an OpenSubtitles key for subtitle search
+
+### Development
+
+1. **Install dependencies**
+
    ```bash
    pnpm install
    ```
 
-2. **Çevre değişkenlerini ayarlayın:**
+2. **Configure the environment**
+
    ```bash
    cp .env.example .env
    ```
-   `.env` dosyasını kendi Google OAuth ve OpenSubtitles bilgilerinize göre düzenleyin.
 
-3. **Veritabanını hazırlayın:**
+   Fill in your Google OAuth credentials, a `SESSION_SECRET` of at least 32 characters, a 64-character hex `TOKEN_ENCRYPTION_KEY`, and the admin account you want created on first boot.
+
+3. **Prepare the database**
+
    ```bash
    pnpm --filter "@cinedrive/server" exec prisma migrate deploy
    ```
 
-   > `DATABASE_URL` göreli bir `file:` adresi ise Prisma bunu **şema dizinine**
-   > (`apps/server/prisma/`) göre çözer, çalışma dizinine göre değil. `.env`
-   > içindeki varsayılan `file:./data/app.db` bu yüzden
-   > `apps/server/prisma/data/app.db` anlamına gelir.
+   > Prisma resolves a relative `file:` URL against the **schema directory**
+   > (`apps/server/prisma/`), not the working directory. The default
+   > `file:./data/app.db` therefore means `apps/server/prisma/data/app.db`.
 
-4. **Uygulamayı başlatın:**
+4. **Run it**
+
    ```bash
    pnpm dev
    ```
 
-   - Web Arayüzü: `http://localhost:5173`
-   - API Sunucusu: `http://localhost:3000`
+   - Web: `http://localhost:5173`
+   - API: `http://localhost:3000`
 
-   İlk açılışta `.env` içindeki `ADMIN_EMAIL` / `ADMIN_PASSWORD` ile bir yönetici hesabı oluşturulur. Google Drive bağlantısı, giriş yaptıktan sonra Ayarlar sayfasından yapılır.
+   The admin account from `ADMIN_EMAIL` / `ADMIN_PASSWORD` is created on first boot. Connect Google Drive afterwards from the Settings page — the OAuth flow needs a signed-in user.
 
-### Mevcut Bir Kurulumu Güncelleme
+### Upgrading an existing installation
 
-Kütüphaneler `Library.userId`, medya kayıtları da `MediaItem.libraryId` ile bir sahibe bağlıdır. Bu sütunlar migration geçmişinde yer alır; `migrate deploy` yeterlidir.
+Libraries carry `Library.userId` and media rows carry `MediaItem.libraryId`. Both columns live in the migration history, so `migrate deploy` is enough.
 
-Sütunlar eklenmeden önce kurulmuş, migration geçmişi olmayan bir veritabanınız varsa sahipliği önce şu betikle doldurun (varsayılan olarak kuru çalışır, `--apply` ile yazar):
+If your database predates the migration history entirely, backfill ownership first. The script is a dry run by default:
 
 ```bash
 pnpm --filter "@cinedrive/server" exec tsx scripts/add-library-owner.ts --apply
 ```
 
-## Test
+## Testing
 
 ```bash
-pnpm typecheck     # Tüm paketlerde tsc
-pnpm lint          # ESLint (react-hooks, jsx-a11y, react-refresh dahil)
+pnpm typecheck     # tsc across every package
+pnpm lint          # ESLint, including react-hooks / jsx-a11y / react-refresh
 pnpm test          # Vitest: shared + web + server
-pnpm test:e2e      # Playwright uçtan uca senaryolar
+pnpm test:e2e      # Playwright end-to-end scenarios
 ```
 
-Sunucu testleri kendi tek kullanımlık SQLite veritabanını kurar ve koşu sonunda siler; geliştirme veritabanına dokunmaz. Uçtan uca koşu kendi API ve web sunucularını ayrı portlarda başlatır, gerçek bir H.264 klip üretir ve akış yolunu baştan sona geçer.
+The server suite creates its own throwaway SQLite database and removes it afterwards; it never touches the development database. The end-to-end run starts its own API and web servers on separate ports, renders a real H.264 clip with FFmpeg and drives sign-in, browsing, playback and settings against it.
 
-## Yapılandırma Notları
+CI runs typecheck, lint, unit tests and a build on every push, with the end-to-end suite gated behind them.
 
-`.env.example` tüm değişkenleri açıklamasıyla listeler. Sık gerekenler:
+## Configuration
 
-| Değişken | Açıklama |
+`.env.example` documents every variable. The ones you are most likely to touch:
+
+| Variable | Description |
 | --- | --- |
-| `DATABASE_URL` | SQLite adresi. Göreli yol şema dizinine göre çözülür. |
-| `METADATA_LANGUAGE` | TMDB başlık ve özetlerinin dili (varsayılan `tr-TR`). Yalnızca **yeni taramaları** etkiler; mevcut kayıtlar yeniden taranana kadar değişmez. |
-| `HLS_MAX_ACTIVE_JOBS` | Eşzamanlı FFmpeg dönüşüm sayısı. |
-| `HLS_CACHE_MAX_BYTES` | HLS önbellek kotası; aşılınca en eski kullanılan tahliye edilir. |
-| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Eşzamanlı canlı uyumluluk oturumu sayısı. |
+| `DATABASE_URL` | SQLite location. A relative path resolves against the Prisma schema directory. |
+| `SESSION_SECRET` | Session cookie signing key, 32 characters minimum. |
+| `TOKEN_ENCRYPTION_KEY` | 64-character hex key used to encrypt stored Google refresh tokens. |
+| `METADATA_LANGUAGE` | Language TMDB titles and summaries are fetched in (default `tr-TR`). |
+| `HLS_MAX_ACTIVE_JOBS` | How many FFmpeg transcodes may run at once. |
+| `HLS_CACHE_MAX_BYTES` | HLS cache quota; least-recently-used streams are evicted past it. |
+| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Concurrent live compatibility sessions. |
 
-Arayüz dili `METADATA_LANGUAGE`'dan bağımsızdır: arayüz her tarayıcının kendi seçimi, TMDB metinleri ise veritabanında saklanan ve tüm kullanıcıların gördüğü tek bir kopyadır.
+**`METADATA_LANGUAGE` is not the interface language.** The interface language is each browser's own choice; TMDB text is written into the database during a scan and shared by everyone reading the library. Changing this variable affects **future scans only** — existing records keep the language they were fetched with until you rescan.
 
-## Docker ile Dağıtım
+## Deployment
 
 ```bash
 docker compose up -d --build
-```
-
-Konteyner durumlarını ve logları kontrol etmek için:
-
-```bash
 docker compose ps
 docker compose logs -f
 ```
 
-Sunucu konteyneri açılışta `prisma migrate deploy` çalıştırır; şema, sürümlenmiş migration geçmişinden kurulur.
+The server container runs `prisma migrate deploy` on start, so the schema is built from the versioned migration history rather than inferred from the schema file.
 
-## Lisans
+Nginx sits in front as a reverse proxy with buffering disabled on the streaming routes, so byte-range and HLS responses reach the client as they are produced.
+
+## Troubleshooting
+
+**The library is empty after a scan.** Check Settings → Media health: files that failed to probe are listed there with their error, and can be re-analysed individually.
+
+**A title plays in Chrome but not in Safari.** That is expected for HEVC and some audio codecs. Settings → Media health shows which playback mode each browser gets; the player also has a manual audio/Safari compatibility toggle.
+
+**Playback stalls or never starts.** Media health shows active FFmpeg jobs, the wait queue and how far ahead each stream has buffered. If the queue is full, raise `HLS_MAX_ACTIVE_JOBS` — subject to the CPU you have.
+
+**Metadata came back in the wrong language.** See `METADATA_LANGUAGE` above; it applies to new scans only.
+
+**Records point at files that no longer exist.** Settings → Database has a leftover-record cleanup that removes media with nothing playable behind it and clears scans that were interrupted mid-run.
+
+## License
 
 MIT

@@ -22,3 +22,4 @@ apps/server/data/preview_cache/
 # generated e2e media. Listing the directory rather than each filename also
 # covers the backup copies taken before a schema change.
 apps/server/prisma/data/
+.claude
