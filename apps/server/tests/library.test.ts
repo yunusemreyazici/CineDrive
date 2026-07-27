@@ -146,6 +146,76 @@ describe('Library API Integration Tests', () => {
     15000,
   );
 
+  it("refuses to edit, delete or favourite another account's media", async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const ownerLibrary = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'GuardedLib', rootFolderId: 'guarded_root' },
+    });
+    const ownerMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: ownerLibrary.id,
+        type: 'movie',
+        title: 'Guarded Movie',
+        normalizedTitle: 'guarded movie',
+      },
+    });
+
+    const intruderEmail = `guard-${Date.now()}@cinedrive.test`;
+    const intruderPassword = 'GuardPassword123!';
+    await app.prisma.user.create({
+      data: {
+        email: intruderEmail,
+        name: 'Guard',
+        passwordHash: await app.authService.hashPassword(intruderPassword),
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: intruderEmail, password: intruderPassword },
+    });
+    const cookies = { session_id: login.cookies.find((c) => c.name === 'session_id')!.value };
+
+    // Media ids are derived from the title (`media_movie_...`), so reaching
+    // another account's row never required guessing a random identifier.
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/media/${ownerMedia.id}`,
+      cookies,
+      payload: { title: 'Hijacked' },
+    });
+    expect(patched.statusCode).toBe(404);
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/api/media/${ownerMedia.id}`,
+      cookies,
+    });
+    expect(deleted.statusCode).toBe(404);
+
+    const batch = await app.inject({
+      method: 'POST',
+      url: '/api/media/batch-delete',
+      cookies,
+      payload: { ids: [ownerMedia.id] },
+    });
+    expect(batch.statusCode).toBe(200);
+    expect(JSON.parse(batch.body).deletedCount).toBe(0);
+
+    const favorited = await app.inject({
+      method: 'POST',
+      url: `/api/favorites/${ownerMedia.id}`,
+      cookies,
+    });
+    expect(favorited.statusCode).toBe(404);
+
+    const survivor = await app.prisma.mediaItem.findUnique({ where: { id: ownerMedia.id } });
+    expect(survivor?.title).toBe('Guarded Movie');
+
+    await app.prisma.library.deleteMany({ where: { id: ownerLibrary.id } });
+    await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
+  });
+
   it("GET /api/media hides another account's media", async () => {
     const owner = await app.authService.ensureAdminUserExists();
 

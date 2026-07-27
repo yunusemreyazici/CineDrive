@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { ownedMediaFilter } from '../utils/library-access.js';
 
 export const favoriteRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -37,7 +38,11 @@ export const favoriteRoutes: FastifyPluginAsync = async (fastify) => {
     const { mediaItemId } = request.params;
     const userId = request.user!.id;
 
-    const item = await fastify.prisma.mediaItem.findUnique({ where: { id: mediaItemId } });
+    // Favouriting reached any media row by id, so a title from another
+    // account could be added to this account's favourites.
+    const item = await fastify.prisma.mediaItem.findFirst({
+      where: { id: mediaItemId, ...ownedMediaFilter(userId) },
+    });
     if (!item) {
       return reply.status(404).send({
         error: {

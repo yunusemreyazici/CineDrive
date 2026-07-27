@@ -174,7 +174,8 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       const type = request.query.type;
       const minRating = request.query.minRating ? parseFloat(request.query.minRating) : undefined;
 
-      const where: Prisma.MediaItemWhereInput = {};
+      // The dice used to roll across every library in the database.
+      const where: Prisma.MediaItemWhereInput = { ...ownedMediaFilter(request.user!.id) };
       if (type && (type === 'movie' || type === 'series')) where.type = type;
       if (minRating) where.voteAverage = { gte: minRating };
 
@@ -245,8 +246,9 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params;
     const userId = request.user!.id;
 
-    const item = await fastify.prisma.mediaItem.findUnique({
-      where: { id },
+    // Media the caller does not own answers like media that does not exist.
+    const item = await fastify.prisma.mediaItem.findFirst({
+      where: { id, ...ownedMediaFilter(request.user!.id) },
       include: {
         movie: {
           include: {

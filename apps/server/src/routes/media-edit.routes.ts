@@ -4,6 +4,7 @@ import {
   batchDeleteMediaSchema,
   type UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
+import { ownedMediaFilter } from '../utils/library-access.js';
 
 export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -23,9 +24,14 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { ids } = parseResult.data;
 
-    // Find all media items and associated driveFileIds
+    /*
+     * Every endpoint in this file addressed media by id alone. Being signed in
+     * was the only requirement, so any account could delete or rewrite another
+     * account's records by guessing or reading an id — and the ids are derived
+     * from the title (`media_movie_inception`), so they are guessable.
+     */
     const mediaItems = await fastify.prisma.mediaItem.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, ...ownedMediaFilter(request.user!.id) },
       include: {
         movie: true,
         series: {
@@ -54,9 +60,10 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    // Perform cascade delete of selected MediaItems
+    // Only what the lookup above confirmed as the caller's own.
+    const ownedIds = mediaItems.map((item) => item.id);
     const deleteResult = await fastify.prisma.mediaItem.deleteMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ownedIds } },
     });
 
     if (driveFileIdsToDelete.length > 0) {
@@ -77,8 +84,9 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { id } = request.params;
 
-      const mediaItem = await fastify.prisma.mediaItem.findUnique({
-        where: { id },
+      // Someone else's media answers exactly like media that does not exist.
+      const mediaItem = await fastify.prisma.mediaItem.findFirst({
+        where: { id, ...ownedMediaFilter(request.user!.id) },
       });
 
       if (!mediaItem) {
@@ -133,8 +141,8 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const { id } = request.params;
 
-    const mediaItem = await fastify.prisma.mediaItem.findUnique({
-      where: { id },
+    const mediaItem = await fastify.prisma.mediaItem.findFirst({
+      where: { id, ...ownedMediaFilter(request.user!.id) },
       include: {
         movie: true,
         series: {
