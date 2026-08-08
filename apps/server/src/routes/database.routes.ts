@@ -13,10 +13,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
 
   /** Media that no longer has anything playable behind it. */
   const orphanMediaFilter = {
-    AND: [
-      { movie: { is: null } },
-      { episodes: { none: {} } },
-    ],
+    AND: [{ movie: { is: null } }, { episodes: { none: {} } }],
   };
 
   // GET /api/settings/database/stats
@@ -77,6 +74,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /api/settings/database/cleanup
   fastify.post('/cleanup', async (request, reply) => {
+    const userId = request.user!.id;
     // Media rows whose file was removed from Drive — or from a library that was
     // deleted — survive as records with nothing to play.
     const { count: removedMedia } = await fastify.prisma.mediaItem.deleteMany({
@@ -100,10 +98,31 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    // Track deletion is driven by DriveFile/Library cascades. The shared
+    // artist, album and artwork rows become collectible once no owned track
+    // references them anymore.
+    const { count: removedMusicAlbums } = await fastify.prisma.musicAlbum.deleteMany({
+      where: { userId, tracks: { none: {} } },
+    });
+    const { count: removedMusicArtists } = await fastify.prisma.musicArtist.deleteMany({
+      where: {
+        userId,
+        albums: { none: {} },
+        albumTracks: { none: {} },
+        trackCredits: { none: {} },
+      },
+    });
+    const { count: removedMusicArtwork } = await fastify.prisma.musicArtwork.deleteMany({
+      where: { userId, albums: { none: {} }, tracks: { none: {} } },
+    });
+
     return reply.status(200).send({
       removed: {
         media: removedMedia,
         staleScans: abandoned.length,
+        musicAlbums: removedMusicAlbums,
+        musicArtists: removedMusicArtists,
+        musicArtwork: removedMusicArtwork,
       },
     });
   });

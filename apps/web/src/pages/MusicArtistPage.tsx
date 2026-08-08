@@ -1,0 +1,10 @@
+import React from 'react';
+import { Play, UserRound } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
+import { MusicTrackList } from '../components/music/MusicTrackList';
+import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
+import { useMusicArtistQuery } from '../hooks/useMusicApi';
+import { t } from '../i18n';
+
+export const MusicArtistPage: React.FC = () => { const { artistId } = useParams(); const query = useMusicArtistQuery(artistId); const player = useMusicPlayer(); const artist = query.data; if (!artist) return <div className="h-64 animate-pulse rounded-2xl bg-zinc-900" />; return <div className="space-y-8 pb-28"><header className="flex items-center gap-5 rounded-2xl bg-gradient-to-r from-brand-900/40 to-zinc-950 p-6"><div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-zinc-800">{artist.artworkUrl ? <img src={artist.artworkUrl} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-12 w-12 text-zinc-600" />}</div><div><p className="text-xs uppercase tracking-widest text-zinc-500">{t.music.artist}</p><h1 className="font-display text-4xl font-extrabold">{artist.name}</h1><button onClick={() => player.playTracks(artist.tracks)} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand-500 px-4 py-2 text-sm font-semibold"><Play className="h-4 w-4 fill-current" />{t.music.playAll}</button></div></header>{artist.albums.length > 0 && <section className="space-y-3"><h2 className="font-display text-xl font-bold">{t.music.albums}</h2><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">{artist.albums.map((album) => <MusicCollectionCard key={album.id} href={`/music/albums/${album.id}`} title={album.title} subtitle={album.year?.toString()} artworkUrl={album.artworkUrl} />)}</div></section>}<section className="space-y-3"><h2 className="font-display text-xl font-bold">{t.music.tracks}</h2><MusicTrackList tracks={artist.tracks} /></section></div>; };

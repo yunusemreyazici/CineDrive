@@ -5,6 +5,8 @@ import { Navbar } from '../components/layout/Navbar';
 import { Sidebar } from '../components/layout/Sidebar';
 import { useUiStore } from '../stores/useUiStore';
 import { t } from '../i18n';
+import { MusicPlayerProvider } from '../features/music/MusicPlayerProvider';
+import { MusicPlayerBar } from '../features/music/MusicPlayerBar';
 
 // Routes are code-split, so keep the shell mounted and swap only the content
 // area while the next page chunk downloads.
@@ -19,20 +21,26 @@ export const AppLayout: React.FC = () => {
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
 
   return (
-    <div className="min-h-screen bg-[#070809] font-sans text-zinc-100 selection:bg-brand-500 selection:text-white">
-      <Sidebar />
+    <MusicPlayerProvider>
       <div
-        className={`min-w-0 transition-[margin] duration-300 ${
-          sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[220px]'
-        }`}
+        className="min-h-screen bg-[#070809] font-sans text-zinc-100 selection:bg-brand-500 selection:text-white"
+        style={{ '--music-sidebar-offset': sidebarCollapsed ? '72px' : '220px' } as React.CSSProperties}
       >
-        <Navbar />
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-4 md:px-6 md:py-5">
-          <Suspense fallback={<PageFallback />}>
-            <Outlet />
-          </Suspense>
-        </main>
+        <Sidebar />
+        <div
+          className={`min-w-0 transition-[margin] duration-300 ${
+            sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[220px]'
+          }`}
+        >
+          <Navbar />
+          <main className="mx-auto w-full max-w-[1600px] px-4 py-4 pb-28 md:px-6 md:py-5 md:pb-28">
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
+        <MusicPlayerBar />
       </div>
-    </div>
+    </MusicPlayerProvider>
   );
 };

@@ -13,6 +13,8 @@ import {
   useMediaListQuery,
   useContinueWatchingQuery,
 } from '../hooks/useApi';
+import { useMusicOverviewQuery } from '../hooks/useMusicApi';
+import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 
 const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
 
@@ -75,6 +77,7 @@ export const HomePage: React.FC = () => {
   const { data: movieData } = useMediaListQuery({ type: 'movie', limit: 12 });
   const { data: seriesData } = useMediaListQuery({ type: 'series', limit: 12 });
   const { data: continueWatching } = useContinueWatchingQuery();
+  const { data: musicOverview } = useMusicOverviewQuery();
 
   const allMedia = useMemo(() => mediaData?.media || [], [mediaData]);
   const movies = movieData?.media || [];
@@ -199,6 +202,18 @@ export const HomePage: React.FC = () => {
       <HomeSection title={t.home.recentlyAdded} href="/library" items={allMedia} layout="grid" />
       <HomeSection title={t.common.movies} href="/movies" items={movies} />
       <HomeSection title={t.common.seriesPlural} href="/series" items={series} />
+
+      {musicOverview && musicOverview.recentAlbums.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">{t.music.recentAlbums}</h2>
+            <Link to="/music" className="text-xs font-semibold text-zinc-500 hover:text-brand-400">{t.common.seeAll}</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+            {musicOverview.recentAlbums.slice(0, 6).map((album) => <MusicCollectionCard key={album.id} href={`/music/albums/${album.id}`} title={album.title} subtitle={album.artist?.name} artworkUrl={album.artworkUrl} />)}
+          </div>
+        </section>
+      )}
 
       {genres.length > 0 ? (
         <section className="space-y-3">

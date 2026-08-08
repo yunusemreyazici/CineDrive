@@ -295,6 +295,20 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       where: { libraryId: id },
     });
 
+    await fastify.prisma.musicAlbum.deleteMany({
+      where: { userId: request.user!.id, tracks: { none: {} } },
+    });
+    await fastify.prisma.musicArtist.deleteMany({
+      where: {
+        userId: request.user!.id,
+        trackCredits: { none: {} },
+        albums: { none: {} },
+      },
+    });
+    await fastify.prisma.musicArtwork.deleteMany({
+      where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+    });
+
     await fastify.prisma.library.update({
       where: { id },
       data: { lastScannedAt: null },

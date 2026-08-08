@@ -1,7 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Film, Loader2, Search, Tv } from 'lucide-react';
+import { ArrowRight, Disc3, Film, Loader2, Music2, Search, Tv, UserRound } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import type { MusicAlbumDto, MusicArtistDto, MusicTrackDto } from '@cinedrive/shared';
 import { useMediaListQuery } from '../../hooks/useApi';
+import { apiClient } from '../../api/client';
 import { getPosterUrl } from '../../utils/mediaImages';
 import { t } from '../../i18n';
 
@@ -40,6 +43,11 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     { search: trimmedQuery, limit: MAX_RESULTS },
     { enabled: trimmedQuery.length > 0 },
   );
+  const musicQuery = useQuery({
+    queryKey: ['music', 'search', trimmedQuery],
+    enabled: trimmedQuery.length > 0,
+    queryFn: async () => (await apiClient.get<{ tracks: MusicTrackDto[]; albums: MusicAlbumDto[]; artists: MusicArtistDto[] }>('/music/search', { params: { q: trimmedQuery } })).data,
+  });
 
   // Adjusting state during render rather than in an effect: a new query always
   // starts from the first result, and React re-renders before painting.
@@ -49,10 +57,15 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     setActiveIndex(0);
   }
 
-  const results = useMemo(
-    () => (trimmedQuery ? data?.media || [] : []),
-    [data, trimmedQuery],
-  );
+  const results = useMemo(() => {
+    if (!trimmedQuery) return [];
+    return [
+      ...(data?.media || []).map((media) => ({ id: `media-${media.id}`, title: media.title, subtitle: `${media.type === 'movie' ? t.common.movie : t.common.series}${media.year ? ` · ${media.year}` : ''}`, image: getPosterUrl(media), kind: media.type as 'movie' | 'series', path: `/media/${media.id}` })),
+      ...(musicQuery.data?.tracks || []).map((track) => ({ id: `track-${track.id}`, title: track.title, subtitle: `${t.music.tracks} · ${track.primaryArtist?.name || ''}`, image: track.artworkUrl, kind: 'track' as const, path: `/music/albums/${track.album?.id || ''}` })),
+      ...(musicQuery.data?.albums || []).map((album) => ({ id: `album-${album.id}`, title: album.title, subtitle: `${t.music.album} · ${album.artist?.name || ''}`, image: album.artworkUrl, kind: 'album' as const, path: `/music/albums/${album.id}` })),
+      ...(musicQuery.data?.artists || []).map((artist) => ({ id: `artist-${artist.id}`, title: artist.name, subtitle: t.music.artist, image: artist.artworkUrl, kind: 'artist' as const, path: `/music/artists/${artist.id}` })),
+    ].slice(0, 14);
+  }, [data, musicQuery.data, trimmedQuery]);
 
   // Keystrokes stay instant while the query only reaches the API once typing
   // settles — the same rule the library search follows.
@@ -75,10 +88,10 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
   }, []);
 
   const openResult = (index: number) => {
-    const media = results[index];
-    if (!media) return;
+    const result = results[index];
+    if (!result) return;
     onClose();
-    navigate(`/media/${media.id}`);
+    navigate(result.path);
   };
 
   const openLibrarySearch = () => {
@@ -146,7 +159,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
             placeholder={t.search.placeholder}
             className="h-12 flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none"
           />
-          {isFetching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-500" />}
+          {(isFetching || musicQuery.isFetching) && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-500" />}
         </div>
 
         {trimmedQuery.length === 0 ? (
@@ -157,12 +170,11 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
           </p>
         ) : (
           <ul id={listId} role="listbox" aria-label={t.search.dialogLabel} className="max-h-80 overflow-y-auto p-1.5">
-            {results.map((media, index) => {
-              const posterUrl = getPosterUrl(media);
+            {results.map((result, index) => {
               const isActive = index === activeIndex;
 
               return (
-                <li key={media.id} role="none">
+                <li key={result.id} role="none">
                   <button
                     type="button"
                     id={`${listId}-option-${index}`}
@@ -175,26 +187,21 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
                     }`}
                   >
                     <span className="h-14 w-10 shrink-0 overflow-hidden rounded bg-zinc-900">
-                      {posterUrl ? (
-                        <img src={posterUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      {result.image ? (
+                        <img src={result.image} alt="" loading="lazy" className="h-full w-full object-cover" />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center text-zinc-600">
-                          {media.type === 'movie' ? (
-                            <Film className="h-4 w-4" />
-                          ) : (
-                            <Tv className="h-4 w-4" />
-                          )}
+                          {result.kind === 'movie' ? <Film className="h-4 w-4" /> : result.kind === 'series' ? <Tv className="h-4 w-4" /> : result.kind === 'artist' ? <UserRound className="h-4 w-4" /> : result.kind === 'album' ? <Disc3 className="h-4 w-4" /> : <Music2 className="h-4 w-4" />}
                         </span>
                       )}
                     </span>
 
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium text-zinc-100">
-                        {media.title}
+                        {result.title}
                       </span>
                       <span className="mt-0.5 block text-xs text-zinc-500">
-                        {media.type === 'movie' ? t.common.movie : t.common.series}
-                        {media.year ? ` · ${media.year}` : ''}
+                        {result.subtitle}
                       </span>
                     </span>
                   </button>

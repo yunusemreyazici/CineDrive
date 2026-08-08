@@ -81,6 +81,49 @@ test.describe('CineDrive smoke', () => {
       .toMatchObject({ readyState: 4, error: null });
   });
 
+  test('plays tagged music, creates a playlist, and restores the queue after refresh', async ({
+    page,
+  }) => {
+    await signIn(page);
+    await page.goto('/music');
+
+    await expect(page.getByRole('heading', { name: tr.music.title })).toBeVisible();
+    await expect(page.getByText('Fixture Album').first()).toBeVisible();
+    await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
+
+    const streamResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/music/tracks/00000000-0000-4000-8000-000000000105/stream') &&
+        response.status() < 400,
+    );
+    await page.getByRole('button', { name: tr.music.playTrack('Smoke Test Song') }).click();
+    expect([200, 206]).toContain((await streamResponse).status());
+    await expect(page.getByRole('slider', { name: tr.music.seek })).toBeVisible();
+
+    const stateResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/music/playback-state') &&
+        response.request().method() === 'PUT',
+    );
+    await expect(page.getByRole('button', { name: tr.music.pause }).first()).toBeVisible();
+    await page.getByRole('button', { name: tr.music.pause }).first().click();
+    expect((await stateResponse).status()).toBeLessThan(400);
+
+    await page.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');
+    const playlistResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/music/playlists') && response.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: tr.music.create }).click();
+    expect((await playlistResponse).status()).toBeLessThan(400);
+    await expect(page.getByRole('link', { name: /E2E Playlist/ })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
+    // Restored state remains paused to comply with browser autoplay policy.
+    await expect(page.getByRole('button', { name: tr.music.play }).first()).toBeVisible();
+  });
+
   test('navigates between settings panes', async ({ page }) => {
     await signIn(page);
     await page.goto('/settings');
@@ -96,9 +139,7 @@ test.describe('CineDrive smoke', () => {
 
     await page.getByRole('button', { name: tr.settings.search.health.label, exact: true }).click();
     await expect(page).toHaveURL(/tab=health/);
-    await expect(
-      page.getByRole('heading', { name: tr.mediaHealth.analysisSummary }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: tr.mediaHealth.analysisSummary })).toBeVisible();
   });
 
   test('keeps old ?tab=general links working', async ({ page }) => {

@@ -8,25 +8,32 @@ generator client {
 }
 
 model User {
-  id                    String             @id @default(uuid())
-  email                 String             @unique
+  id                    String              @id @default(uuid())
+  email                 String              @unique
   passwordHash          String?
   name                  String
-  role                  String             @default("user")
+  role                  String              @default("user")
   opensubtitlesApiKey   String?
   opensubtitlesUsername String?
   // opensubtitlesPassword was stored in plain text and never read: the
   // OpenSubtitles client authenticates with the API key alone. Removed rather
   // than encrypted — an unused credential is best not held at all.
-  preferredLanguages    String             @default("tr,en")
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  preferredLanguages    String              @default("tr,en")
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
   sessions              Session[]
   googleConnections     GoogleConnection[]
   libraries             Library[]
   playbackProgresses    PlaybackProgress[]
   watchHistories        WatchHistory[]
   favorites             Favorite[]
+  musicArtists          MusicArtist[]
+  musicAlbums           MusicAlbum[]
+  musicArtworks         MusicArtwork[]
+  musicFavorites        MusicFavorite[]
+  musicHistory          MusicHistory[]
+  musicPlaylists        MusicPlaylist[]
+  musicPlaybackState    MusicPlaybackState?
 }
 
 model Session {
@@ -77,6 +84,7 @@ model Library {
   files              DriveFile[]
   scans              LibraryScan[]
   mediaItems         MediaItem[]
+  musicTracks        MusicTrack[]
 
   @@index([userId])
 }
@@ -100,6 +108,8 @@ model DriveFile {
   videoBitDepth      Int?
   audioCodec         String?
   audioChannels      Int?
+  audioSampleRate    Int?
+  audioBitrate       Int?
   mediaWidth         Int?
   mediaHeight        Int?
   mediaDuration      Float?
@@ -111,6 +121,7 @@ model DriveFile {
   episodes           Episode[]
   movies             Movie[]
   subtitles          SubtitleTrack[]
+  musicTrack         MusicTrack?
 
   @@index([libraryId])
   @@index([parentDriveFileId])
@@ -160,9 +171,9 @@ model MediaItem {
 }
 
 model Movie {
-  id          String    @id @default(uuid())
-  mediaItemId String    @unique
-  mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  id          String     @id @default(uuid())
+  mediaItemId String     @unique
+  mediaItem   MediaItem  @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   driveFileId String?
   driveFile   DriveFile? @relation(fields: [driveFileId], references: [id], onDelete: SetNull)
 }
@@ -208,21 +219,21 @@ model Episode {
 }
 
 model SubtitleTrack {
-  id                 String     @id @default(uuid())
-  mediaItemId        String?
-  mediaItem          MediaItem? @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
-  episodeId          String?
-  episode            Episode?   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
-  driveFileId        String
-  driveFile          DriveFile  @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
-  language           String     @default("tr")
-  label              String?
-  isForced           Boolean    @default(false)
-  isHearingImpaired  Boolean    @default(false)
-  isDefault          Boolean    @default(false)
-  sourceFormat       String     @default("vtt")
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  id                String     @id @default(uuid())
+  mediaItemId       String?
+  mediaItem         MediaItem? @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  episodeId         String?
+  episode           Episode?   @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  driveFileId       String
+  driveFile         DriveFile  @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  language          String     @default("tr")
+  label             String?
+  isForced          Boolean    @default(false)
+  isHearingImpaired Boolean    @default(false)
+  isDefault         Boolean    @default(false)
+  sourceFormat      String     @default("vtt")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   @@unique([driveFileId])
 }
@@ -281,6 +292,187 @@ model Favorite {
   createdAt   DateTime  @default(now())
 
   @@unique([userId, mediaItemId])
+}
+
+model MusicArtwork {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mimeType  String
+  data      Bytes
+  checksum  String
+  createdAt DateTime     @default(now())
+  albums    MusicAlbum[]
+  tracks    MusicTrack[]
+
+  @@unique([userId, checksum])
+  @@index([userId])
+}
+
+model MusicArtist {
+  id             String             @id @default(uuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  normalizedName String
+  sortName       String?
+  musicbrainzId  String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  albums         MusicAlbum[]
+  albumTracks    MusicTrack[]       @relation("PrimaryTrackArtist")
+  trackCredits   MusicTrackArtist[]
+
+  @@unique([userId, normalizedName])
+  @@index([userId, name])
+}
+
+model MusicAlbum {
+  id                        String        @id @default(uuid())
+  userId                    String
+  user                      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artistId                  String?
+  artist                    MusicArtist?  @relation(fields: [artistId], references: [id], onDelete: SetNull)
+  artworkId                 String?
+  artwork                   MusicArtwork? @relation(fields: [artworkId], references: [id], onDelete: SetNull)
+  title                     String
+  normalizedTitle           String
+  year                      Int?
+  genres                    String?
+  musicbrainzReleaseId      String?
+  musicbrainzReleaseGroupId String?
+  metadataStatus            String        @default("local")
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+  tracks                    MusicTrack[]
+
+  @@unique([userId, artistId, normalizedTitle])
+  @@index([userId, title])
+}
+
+model MusicTrack {
+  id                     String               @id @default(uuid())
+  libraryId              String
+  library                Library              @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  driveFileId            String               @unique
+  driveFile              DriveFile            @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  albumId                String?
+  album                  MusicAlbum?          @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  primaryArtistId        String?
+  primaryArtist          MusicArtist?         @relation("PrimaryTrackArtist", fields: [primaryArtistId], references: [id], onDelete: SetNull)
+  artworkId              String?
+  artwork                MusicArtwork?        @relation(fields: [artworkId], references: [id], onDelete: SetNull)
+  title                  String
+  normalizedTitle        String
+  discNumber             Int                  @default(1)
+  trackNumber            Int                  @default(0)
+  year                   Int?
+  genres                 String?
+  duration               Float?
+  musicbrainzRecordingId String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  artists                MusicTrackArtist[]
+  favorites              MusicFavorite[]
+  history                MusicHistory[]
+  playlistItems          MusicPlaylistItem[]
+  queueItems             MusicQueueItem[]
+  currentInStates        MusicPlaybackState[] @relation("CurrentMusicTrack")
+
+  @@index([libraryId])
+  @@index([albumId, discNumber, trackNumber])
+  @@index([primaryArtistId])
+  @@index([normalizedTitle])
+}
+
+model MusicTrackArtist {
+  trackId  String
+  track    MusicTrack  @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  artistId String
+  artist   MusicArtist @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  position Int         @default(0)
+
+  @@id([trackId, artistId])
+  @@index([artistId])
+}
+
+model MusicFavorite {
+  id        String     @id @default(uuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId   String
+  track     MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, trackId])
+  @@index([userId, createdAt])
+}
+
+model MusicHistory {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId         String
+  track           MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  listenedSeconds Float
+  playedAt        DateTime   @default(now())
+
+  @@index([userId, playedAt])
+}
+
+model MusicPlaylist {
+  id          String              @id @default(uuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  items       MusicPlaylistItem[]
+
+  @@index([userId, updatedAt])
+}
+
+model MusicPlaylistItem {
+  id         String        @id @default(uuid())
+  playlistId String
+  playlist   MusicPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  trackId    String
+  track      MusicTrack    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  position   Int
+  createdAt  DateTime      @default(now())
+
+  @@unique([playlistId, position])
+  @@index([trackId])
+}
+
+model MusicPlaybackState {
+  id                 String           @id @default(uuid())
+  userId             String           @unique
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentTrackId     String?
+  currentTrack       MusicTrack?      @relation("CurrentMusicTrack", fields: [currentTrackId], references: [id], onDelete: SetNull)
+  currentQueueItemId String?
+  positionSeconds    Float            @default(0)
+  shuffleEnabled     Boolean          @default(false)
+  repeatMode         String           @default("off")
+  revision           Int              @default(0)
+  updatedAt          DateTime         @updatedAt
+  queue              MusicQueueItem[]
+}
+
+model MusicQueueItem {
+  id              String             @id @default(uuid())
+  playbackStateId String
+  playbackState   MusicPlaybackState @relation(fields: [playbackStateId], references: [id], onDelete: Cascade)
+  trackId         String
+  track           MusicTrack         @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  sourceOrder     Int
+  playOrder       Int
+
+  @@unique([playbackStateId, sourceOrder])
+  @@unique([playbackStateId, playOrder])
+  @@index([trackId])
 }
 
 model LibraryScan {

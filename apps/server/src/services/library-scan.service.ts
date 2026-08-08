@@ -5,6 +5,8 @@ import { GoogleOAuthService } from './google-oauth.service.js';
 import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { runWithConcurrency } from '../utils/concurrency.js';
+import { MusicLibraryService } from './music-library.service.js';
+import { isAudioFilename } from './music-metadata.service.js';
 
 // Each probe issues a handful of ranged Drive reads. Enough of them run at once
 // to hide the latency, few enough to stay well inside Google's per-user quota.
@@ -24,12 +26,15 @@ export class LibraryScanService {
   private driveService = new GoogleDriveService();
   private metadataService = new MetadataService();
   private mediaProbeService = new MediaProbeService();
+  private musicLibraryService: MusicLibraryService;
   private activeScans = new Set<string>();
 
   constructor(
     private prisma: PrismaClient,
     private googleOAuthService: GoogleOAuthService,
-  ) {}
+  ) {
+    this.musicLibraryService = new MusicLibraryService(prisma);
+  }
 
   private generateMediaItemId(type: string, normalizedTitle: string): string {
     const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
@@ -126,6 +131,7 @@ export class LibraryScanService {
         }
 
         const result = await this.scanAccountFiles(
+          userId,
           accessToken,
           libraryId,
           scanId,
@@ -179,6 +185,7 @@ export class LibraryScanService {
   }
 
   private async scanAccountFiles(
+    userId: string,
     accessToken: string,
     libraryId: string,
     scanId: string,
@@ -229,6 +236,9 @@ export class LibraryScanService {
     // 2. Separate into videos, images, subtitles, metadata
     const videos = allFiles.filter(
       (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
+    );
+    const audioFiles = allFiles.filter(
+      (file) => file.mimeType.startsWith('audio/') || isAudioFilename(file.name),
     );
 
     // Codec probing reads byte ranges straight from Drive and writes only its
@@ -461,6 +471,53 @@ export class LibraryScanService {
       }
     }
 
+    for (const audio of audioFiles) {
+      try {
+        const driveFile = await this.upsertDriveFile(libraryId, audio);
+        if (driveFile.isNew) added++;
+        else if (driveFile.sourceChanged) updated++;
+        if (!audio.size) throw new Error('AUDIO_SIZE_MISSING');
+        const parsed = await this.musicLibraryService.metadata.parseRemoteFile({
+          name: audio.name,
+          size: BigInt(audio.size),
+          readRange: (start, end) =>
+            this.driveService.getMediaRangeBuffer(accessToken, audio.id, start, end),
+        });
+        await this.prisma.driveFile.update({
+          where: { id: driveFile.record.id },
+          data: {
+            mediaContainer: parsed.container,
+            audioCodec: parsed.codec,
+            audioChannels: parsed.channels,
+            audioSampleRate: parsed.sampleRate,
+            audioBitrate: parsed.bitrate,
+            mediaDuration: parsed.duration,
+            mediaAnalyzedAt: new Date(),
+            mediaAnalysisError: null,
+          },
+        });
+        await this.musicLibraryService.indexTrack({
+          userId,
+          libraryId,
+          driveFileId: driveFile.record.id,
+          metadata: parsed,
+        });
+        await this.prisma.libraryScan.update({
+          where: { id: scanId },
+          data: { addedCount: added, updatedCount: updated, errorCount: errors },
+        }).catch(() => {});
+      } catch (error) {
+        errors++;
+        await this.prisma.libraryScanError.create({
+          data: {
+            scanId,
+            driveFileId: audio.id,
+            errorMessage: `Ses dosyası işlenemedi (${audio.name}): ${error instanceof Error ? error.message : String(error)}`,
+          },
+        });
+      }
+    }
+
     await runWithConcurrency(pendingProbes, MEDIA_PROBE_CONCURRENCY, async (probe) => {
       try {
         const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
@@ -554,7 +611,9 @@ export class LibraryScanService {
         status: 'active',
       },
       update: {
+        libraryId,
         name: file.name,
+        mimeType: file.mimeType,
         size: file.size ? BigInt(file.size) : null,
         modifiedTime: nextModifiedTime,
         md5Checksum: file.md5Checksum || null,

@@ -179,3 +179,71 @@ export interface LibraryDto {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface MusicArtworkDto {
+  id: string;
+  url: string;
+}
+
+export interface MusicArtistDto {
+  id: string;
+  name: string;
+  sortName?: string | null;
+  musicbrainzId?: string | null;
+  albumCount?: number;
+  trackCount?: number;
+  artworkUrl?: string | null;
+}
+
+export interface MusicAlbumDto {
+  id: string;
+  title: string;
+  year?: number | null;
+  genres: string[];
+  artist?: MusicArtistDto | null;
+  artworkUrl?: string | null;
+  trackCount?: number;
+}
+
+export interface MusicTrackDto {
+  id: string;
+  title: string;
+  discNumber: number;
+  trackNumber: number;
+  year?: number | null;
+  genres: string[];
+  duration?: number | null;
+  album?: MusicAlbumDto | null;
+  primaryArtist?: MusicArtistDto | null;
+  artists: MusicArtistDto[];
+  artworkUrl?: string | null;
+  isFavorite: boolean;
+  streamUrl: string;
+  createdAt: string;
+}
+
+export interface MusicPlaylistDto {
+  id: string;
+  name: string;
+  description?: string | null;
+  itemCount: number;
+  duration: number;
+  updatedAt: string;
+  items?: Array<{ id: string; position: number; track: MusicTrackDto }>;
+}
+
+export interface MusicPlaybackStateDto {
+  revision: number;
+  currentTrackId: string | null;
+  currentQueueItemId: string | null;
+  positionSeconds: number;
+  shuffleEnabled: boolean;
+  repeatMode: 'off' | 'all' | 'one';
+  queue: Array<{
+    id: string;
+    trackId: string;
+    sourceOrder: number;
+    playOrder: number;
+    track: MusicTrackDto;
+  }>;
+}

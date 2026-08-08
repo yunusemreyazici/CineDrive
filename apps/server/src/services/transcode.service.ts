@@ -61,6 +61,7 @@ export class TranscodeService {
       startSeconds?: number;
       ownerSessionId?: string;
       inputOptions?: string[];
+      audioOnly?: boolean;
     } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
@@ -94,7 +95,9 @@ export class TranscodeService {
     const quality = options.quality || '1080p';
     const profile = QUALITY_PROFILES[quality];
     const scaleOptions = profile.height ? ['-vf', `scale=-2:min(${profile.height}\\,ih)`] : [];
-    const videoOptions = options.transcodeVideo
+    const videoOptions = options.audioOnly
+      ? ['-vn']
+      : options.transcodeVideo
       ? [
           // VideoToolbox can accept the command and emit an MP4 header before
           // failing with kVTVideoEncoderMalfunctionErr (-12908). That leaves
@@ -153,7 +156,7 @@ export class TranscodeService {
       .outputOptions([
         ...videoOptions,
         '-c:a aac',
-        '-b:a 128k',
+        `-b:a ${options.audioOnly ? '192k' : '128k'}`,
         '-ac 2',
         '-af',
         'aresample=async=1:first_pts=0',

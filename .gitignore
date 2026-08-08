@@ -23,3 +23,8 @@ apps/server/data/preview_cache/
 # covers the backup copies taken before a schema change.
 apps/server/prisma/data/
 .claude
+.codex-home-hero
+.codex-ios-ui-fix
+.codex-ios-youtube-fix
+.codex-cine-drive-ios-staging
+scripts

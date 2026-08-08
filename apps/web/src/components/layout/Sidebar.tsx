@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { Home, FolderGit2, Film, Tv, Heart, History, Settings, X } from 'lucide-react';
+import { Home, FolderGit2, Film, Tv, Headphones, Heart, History, Settings, X } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
 import { t } from '../../i18n';
 
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/library', label: t.nav.library, icon: FolderGit2 },
   { to: '/movies', label: t.nav.movies, icon: Film },
   { to: '/series', label: t.nav.series, icon: Tv },
+  { to: '/music', label: t.nav.music, icon: Headphones },
   { to: '/favorites', label: t.nav.favorites, icon: Heart },
   { to: '/history', label: t.nav.history, icon: History },
   { to: '/settings', label: t.nav.settings, icon: Settings },

@@ -4,13 +4,18 @@ import type { PrismaClient } from '@prisma/client';
 import { parseMediaFilename } from '@cinedrive/shared';
 import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
+import { MusicLibraryService } from './music-library.service.js';
+import { isAudioFilename } from './music-metadata.service.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
   private mediaProbeService = new MediaProbeService();
+  private musicLibraryService: MusicLibraryService;
   private readonly activeScans = new Set<string>();
 
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient) {
+    this.musicLibraryService = new MusicLibraryService(prisma);
+  }
 
   /**
    * Validates the library, records a running scan and hands the work off to the
@@ -44,7 +49,7 @@ export class LocalScanService {
       },
     });
 
-    void this.executeLocalScan(libraryId, library.localFolderPath, scan.id)
+    void this.executeLocalScan(libraryId, library.userId, library.localFolderPath, scan.id)
       .catch(() => {
         // Failures are already recorded on the scan row for the UI to read.
       })
@@ -61,6 +66,7 @@ export class LocalScanService {
    */
   private async executeLocalScan(
     libraryId: string,
+    userId: string,
     localFolderPath: string,
     scanId: string,
   ): Promise<{ success: boolean; filesScanned: number }> {
@@ -83,6 +89,7 @@ export class LocalScanService {
       const subtitleFiles = allFiles.filter((f) =>
         subtitleExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
       );
+      const audioFiles = allFiles.filter((file) => isAudioFilename(file.name));
 
       // Process each video file
       for (const file of videoFiles) {
@@ -339,6 +346,77 @@ export class LocalScanService {
         }
       }
 
+      for (const file of audioFiles) {
+        try {
+          filesScannedCount++;
+          const stat = await fs.stat(file.fullPath);
+          const existing = await this.prisma.driveFile.findUnique({
+            where: { localFilePath: file.fullPath },
+          });
+          const sourceChanged =
+            !existing?.modifiedTime || existing.modifiedTime.getTime() !== stat.mtime.getTime();
+          const parsed = await this.musicLibraryService.metadata.parseLocalFile(
+            file.fullPath,
+            library.localFolderPath,
+          );
+          const driveFile = await this.prisma.driveFile.upsert({
+            where: { localFilePath: file.fullPath },
+            create: {
+              libraryId,
+              storageType: 'local',
+              localFilePath: file.fullPath,
+              name: file.name,
+              mimeType: this.getMimeType(file.name),
+              size: BigInt(stat.size),
+              modifiedTime: stat.mtime,
+              status: 'active',
+              mediaContainer: parsed.container,
+              audioCodec: parsed.codec,
+              audioChannels: parsed.channels,
+              audioSampleRate: parsed.sampleRate,
+              audioBitrate: parsed.bitrate,
+              mediaDuration: parsed.duration,
+              mediaAnalyzedAt: new Date(),
+            },
+            update: {
+              libraryId,
+              name: file.name,
+              mimeType: this.getMimeType(file.name),
+              size: BigInt(stat.size),
+              modifiedTime: stat.mtime,
+              status: 'active',
+              mediaContainer: parsed.container,
+              audioCodec: parsed.codec,
+              audioChannels: parsed.channels,
+              audioSampleRate: parsed.sampleRate,
+              audioBitrate: parsed.bitrate,
+              mediaDuration: parsed.duration,
+              mediaAnalyzedAt: new Date(),
+              mediaAnalysisError: null,
+            },
+          });
+          await this.musicLibraryService.indexTrack({
+            userId,
+            libraryId,
+            driveFileId: driveFile.id,
+            metadata: parsed,
+          });
+          if (!existing) addedCount++;
+          else if (sourceChanged) updatedCount++;
+          await this.prisma.libraryScan.update({
+            where: { id: scan.id },
+            data: { addedCount, updatedCount },
+          }).catch(() => {});
+        } catch (error) {
+          await this.prisma.libraryScanError.create({
+            data: {
+              scanId: scan.id,
+              errorMessage: `Ses dosyası işlenemedi (${file.name}): ${error instanceof Error ? error.message : String(error)}`,
+            },
+          });
+        }
+      }
+
       // Process local subtitle files - each gets its own DriveFile entry
       for (const subFile of subtitleFiles) {
         try {
@@ -480,6 +558,20 @@ export class LocalScanService {
         return 'video/x-ms-wmv';
       case '.3gp':
         return 'video/3gpp';
+      case '.mp3':
+        return 'audio/mpeg';
+      case '.m4a':
+      case '.aac':
+        return 'audio/mp4';
+      case '.flac':
+        return 'audio/flac';
+      case '.ogg':
+      case '.opus':
+        return 'audio/ogg';
+      case '.wav':
+        return 'audio/wav';
+      case '.wma':
+        return 'audio/x-ms-wma';
       default:
         return 'application/octet-stream';
     }

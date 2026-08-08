@@ -8,8 +8,8 @@ CineDrive depolamanızı tarar, her dosyayı TMDB ile eşleştirip kapak görsel
 
 ## Ekran Görüntüleri
 
-| Ana Sayfa | Medya Detayı |
-| --- | --- |
+| Ana Sayfa                                         | Medya Detayı                                           |
+| ------------------------------------------------- | ------------------------------------------------------ |
 | ![Ana Sayfa](docs/screenshots/home_dashboard.png) | ![Medya Detay](docs/screenshots/media_detail_page.png) |
 
 > Ekran görüntüleri son arayüz çalışmalarından önceye ait, yenilenmeleri gerekiyor.
@@ -22,6 +22,7 @@ CineDrive depolamanızı tarar, her dosyayı TMDB ile eşleştirip kapak görsel
 - **Yerel klasörler** — bir kütüphaneyi sunucudaki bir yola bağlayıp Drive'a hiç dokunmadan tarayın.
 - **Çoklu hesap** — birden fazla Google hesabı bağlayabilirsiniz. Her kütüphane bir kullanıcıya aittir; bir hesabın medyası, favorileri ve geçmişi diğerine görünmez.
 - **Metadata** — başlık, özet, tür, oyuncu kadrosu ve görseller TMDB'den; TMDB anahtarı yoksa TVMaze'e düşülür.
+- **Müzik kütüphanesi** — Drive ve yerel klasörlerdeki etiketli sesleri sanatçı, albüm ve parça olarak indeksler; beğeniler, geçmiş, çalma listeleri ve hesapta eşzamanlanan kuyruk sunar.
 - **Arama** — `⌘K` / `Ctrl+K` ile açılan, klavyeyle gezilebilen anlık arama.
 - **Filtreleme** — puana, döneme ve türe göre sıralama ve süzme; sonuçlar sunucu tarafında sayfalanır.
 
@@ -72,12 +73,12 @@ CineDrive/
 
 Her video dosyası tarama sırasında incelenir; kapsayıcısı, video ve ses codec'i kaydedilir. Bir istemci oynatmak istediğinde sunucu, tarayıcı başına dört moddan birini seçer:
 
-| Mod | Ne oluyor |
-| --- | --- |
-| `direct` | Dosya olduğu gibi HTTP Range üzerinden akıtılır. Dönüşüm yok. |
-| `audio` | Video kopyalanır, yalnızca ses AAC'ye yeniden kodlanır. |
-| `hls` | Anlık HLS akışı üretilir; video kopyalanabilir veya yeniden kodlanabilir. |
-| `full` | Her iki iz de H.264 + AAC'ye yeniden kodlanır. |
+| Mod      | Ne oluyor                                                                 |
+| -------- | ------------------------------------------------------------------------- |
+| `direct` | Dosya olduğu gibi HTTP Range üzerinden akıtılır. Dönüşüm yok.             |
+| `audio`  | Video kopyalanır, yalnızca ses AAC'ye yeniden kodlanır.                   |
+| `hls`    | Anlık HLS akışı üretilir; video kopyalanabilir veya yeniden kodlanabilir. |
+| `full`   | Her iki iz de H.264 + AAC'ye yeniden kodlanır.                            |
 
 Safari ve Chromium için ayrı cevaplar verilir, çünkü codec desteğleri farklıdır — Ayarlar → Medya Sağlığı ekranı kütüphanenizdeki dağılımı gösterir.
 
@@ -167,15 +168,16 @@ CI her push'ta typecheck, lint, birim testleri ve derlemeyi çalıştırır; uç
 
 `.env.example` tüm değişkenleri açıklamasıyla listeler. Sık gerekenler:
 
-| Değişken | Açıklama |
-| --- | --- |
-| `DATABASE_URL` | SQLite adresi. Göreli yol Prisma şema dizinine göre çözülür. |
-| `SESSION_SECRET` | Oturum çerezi imzalama anahtarı, en az 32 karakter. |
-| `TOKEN_ENCRYPTION_KEY` | Saklanan Google yenileme belirteçlerini şifrelemek için 64 karakterlik onaltılık anahtar. |
-| `METADATA_LANGUAGE` | TMDB başlık ve özetlerinin dili (varsayılan `tr-TR`). |
-| `HLS_MAX_ACTIVE_JOBS` | Aynı anda çalışabilecek FFmpeg dönüşüm sayısı. |
-| `HLS_CACHE_MAX_BYTES` | HLS önbellek kotası; aşılınca en eski kullanılan akışlar tahliye edilir. |
-| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Eşzamanlı canlı uyumluluk oturumu sayısı. |
+| Değişken                        | Açıklama                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                  | SQLite adresi. Göreli yol Prisma şema dizinine göre çözülür.                              |
+| `SESSION_SECRET`                | Oturum çerezi imzalama anahtarı, en az 32 karakter.                                       |
+| `TOKEN_ENCRYPTION_KEY`          | Saklanan Google yenileme belirteçlerini şifrelemek için 64 karakterlik onaltılık anahtar. |
+| `METADATA_LANGUAGE`             | TMDB başlık ve özetlerinin dili (varsayılan `tr-TR`).                                     |
+| `MUSIC_METADATA_ONLINE`         | Eksik müzik alanlarını tutucu MusicBrainz eşleşmeleriyle tamamlar (varsayılan `true`).    |
+| `HLS_MAX_ACTIVE_JOBS`           | Aynı anda çalışabilecek FFmpeg dönüşüm sayısı.                                            |
+| `HLS_CACHE_MAX_BYTES`           | HLS önbellek kotası; aşılınca en eski kullanılan akışlar tahliye edilir.                  |
+| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Eşzamanlı canlı uyumluluk oturumu sayısı.                                                 |
 
 **`METADATA_LANGUAGE` arayüz dili değildir.** Arayüz dili her tarayıcının kendi seçimidir; TMDB metinleri ise tarama sırasında veritabanına yazılır ve kütüphaneyi okuyan herkesin gördüğü tek bir kopyadır. Bu değişkeni değiştirmek **yalnızca yeni taramaları** etkiler; mevcut kayıtlar siz yeniden tarayana kadar çekildikleri dilde kalır.
 

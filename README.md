@@ -8,8 +8,8 @@ CineDrive scans your storage, matches each file against TMDB for artwork and met
 
 ## Screenshots
 
-| Home | Media detail |
-| --- | --- |
+| Home                                         | Media detail                                            |
+| -------------------------------------------- | ------------------------------------------------------- |
 | ![Home](docs/screenshots/home_dashboard.png) | ![Media detail](docs/screenshots/media_detail_page.png) |
 
 > The screenshots predate the most recent interface work and are due a refresh.
@@ -22,6 +22,7 @@ CineDrive scans your storage, matches each file against TMDB for artwork and met
 - **Local folders** — point a library at a path on the server and scan it without involving Drive at all.
 - **Multiple accounts** — connect several Google accounts. Each library belongs to a user, and one account's media, favourites and history are invisible to another.
 - **Metadata** — titles, summaries, genres, cast, posters and backdrops from TMDB, falling back to TVMaze when no TMDB key is configured.
+- **Music library** — indexes tagged audio from Drive and local folders into artists, albums and tracks, with favourites, history, playlists and an account-synchronised queue.
 - **Search** — `⌘K` / `Ctrl+K` opens an instant, keyboard-navigable search over the library.
 - **Filtering** — sort and filter by rating, release period and genre; results are paginated server-side.
 
@@ -72,12 +73,12 @@ CineDrive/
 
 Every video file is probed during the scan, and its container, video codec and audio codec are stored. When a client asks to play something, the server picks one of four modes per browser:
 
-| Mode | What happens |
-| --- | --- |
-| `direct` | The file is streamed as-is over HTTP Range. No transcoding. |
-| `audio` | Video is copied, only the audio track is re-encoded to AAC. |
-| `hls` | An HLS stream is produced on demand; video may be copied or re-encoded. |
-| `full` | Both tracks are re-encoded to H.264 + AAC. |
+| Mode     | What happens                                                            |
+| -------- | ----------------------------------------------------------------------- |
+| `direct` | The file is streamed as-is over HTTP Range. No transcoding.             |
+| `audio`  | Video is copied, only the audio track is re-encoded to AAC.             |
+| `hls`    | An HLS stream is produced on demand; video may be copied or re-encoded. |
+| `full`   | Both tracks are re-encoded to H.264 + AAC.                              |
 
 Safari and Chromium get separate answers because their codec support differs — Settings → Media health shows the distribution across your library.
 
@@ -166,15 +167,16 @@ CI runs typecheck, lint, unit tests and a build on every push, with the end-to-e
 
 `.env.example` documents every variable. The ones you are most likely to touch:
 
-| Variable | Description |
-| --- | --- |
-| `DATABASE_URL` | SQLite location. A relative path resolves against the Prisma schema directory. |
-| `SESSION_SECRET` | Session cookie signing key, 32 characters minimum. |
-| `TOKEN_ENCRYPTION_KEY` | 64-character hex key used to encrypt stored Google refresh tokens. |
-| `METADATA_LANGUAGE` | Language TMDB titles and summaries are fetched in (default `tr-TR`). |
-| `HLS_MAX_ACTIVE_JOBS` | How many FFmpeg transcodes may run at once. |
-| `HLS_CACHE_MAX_BYTES` | HLS cache quota; least-recently-used streams are evicted past it. |
-| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Concurrent live compatibility sessions. |
+| Variable                        | Description                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                  | SQLite location. A relative path resolves against the Prisma schema directory.           |
+| `SESSION_SECRET`                | Session cookie signing key, 32 characters minimum.                                       |
+| `TOKEN_ENCRYPTION_KEY`          | 64-character hex key used to encrypt stored Google refresh tokens.                       |
+| `METADATA_LANGUAGE`             | Language TMDB titles and summaries are fetched in (default `tr-TR`).                     |
+| `MUSIC_METADATA_ONLINE`         | Complete missing music fields through conservative MusicBrainz matches (default `true`). |
+| `HLS_MAX_ACTIVE_JOBS`           | How many FFmpeg transcodes may run at once.                                              |
+| `HLS_CACHE_MAX_BYTES`           | HLS cache quota; least-recently-used streams are evicted past it.                        |
+| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Concurrent live compatibility sessions.                                                  |
 
 **`METADATA_LANGUAGE` is not the interface language.** The interface language is each browser's own choice; TMDB text is written into the database during a scan and shared by everyone reading the library. Changing this variable affects **future scans only** — existing records keep the language they were fetched with until you rescan.
 

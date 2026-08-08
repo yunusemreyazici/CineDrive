@@ -11,6 +11,8 @@ export interface MediaTechnicalMetadata {
   videoBitDepth?: number;
   audioCodec?: string;
   audioChannels?: number;
+  audioSampleRate?: number;
+  audioBitrate?: number;
   mediaWidth?: number;
   mediaHeight?: number;
   mediaDuration?: number;
@@ -107,8 +109,8 @@ export class MediaProbeService {
     );
     const videoLine = stderr.match(/Stream #\S+.*Video:\s*([^\r\n]+)/)?.[1];
     const audioLine = stderr.match(/Stream #\S+.*Audio:\s*([^\r\n]+)/)?.[1];
-    if (!videoLine) {
-      throw new Error('MEDIA_VIDEO_STREAM_NOT_DETECTED');
+    if (!videoLine && !audioLine) {
+      throw new Error('MEDIA_STREAM_NOT_DETECTED');
     }
     const dimensions = videoLine?.match(/,\s*(\d{2,5})x(\d{2,5})(?:[,\s]|$)/);
     const pixelFormat = videoLine?.match(/,\s*(yuv[a-z0-9]+)/i)?.[1];
@@ -124,6 +126,12 @@ export class MediaProbeService {
       videoBitDepth: bitDepth ? Number.parseInt(bitDepth, 10) : 8,
       audioCodec: audioLine?.match(/^([^,\s]+)/)?.[1]?.toLowerCase(),
       audioChannels: this.parseChannels(channelsText),
+      audioSampleRate: audioLine
+        ? Number.parseInt(audioLine.match(/,\s*(\d+)\s*Hz/i)?.[1] || '', 10) || undefined
+        : undefined,
+      audioBitrate: audioLine
+        ? (Number.parseInt(audioLine.match(/,\s*(\d+)\s*kb\/s/i)?.[1] || '', 10) || 0) * 1000 || undefined
+        : undefined,
       mediaWidth: dimensions ? Number.parseInt(dimensions[1]!, 10) : undefined,
       mediaHeight: dimensions ? Number.parseInt(dimensions[2]!, 10) : undefined,
       mediaDuration: durationMatch
