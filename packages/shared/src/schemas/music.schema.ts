@@ -47,6 +47,12 @@ export const createMusicHistorySchema = z.object({
   listenedSeconds: z.number().finite().nonnegative(),
 });
 
+export const updateMusicLyricsSchema = z.object({
+  content: z.string().max(1024 * 1024),
+  sourceName: z.string().trim().min(1).max(255).default('manual.lrc'),
+  language: z.string().trim().min(2).max(16).nullable().optional(),
+});
+
 export type MusicListQueryInput = z.infer<typeof musicListQuerySchema>;
 export type CreateMusicPlaylistInput = z.infer<typeof createMusicPlaylistSchema>;
 export type UpdateMusicPlaylistInput = z.infer<typeof updateMusicPlaylistSchema>;

@@ -63,7 +63,7 @@ export class GoogleDriveService {
       const drive = this.createDriveClient(accessToken);
 
       const response = await drive.files.list({
-        q: "trashed = false and (mimeType contains 'video/' or mimeType contains 'audio/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder' or name contains '.mp4' or name contains '.mkv' or name contains '.webm' or name contains '.avi' or name contains '.mov' or name contains '.ts' or name contains '.m2ts' or name contains '.flv' or name contains '.wmv' or name contains '.3gp' or name contains '.mp3' or name contains '.m4a' or name contains '.aac' or name contains '.flac' or name contains '.ogg' or name contains '.opus' or name contains '.wav' or name contains '.wma' or name contains '.srt' or name contains '.vtt')",
+        q: "trashed = false and (mimeType contains 'video/' or mimeType contains 'audio/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder' or name contains '.mp4' or name contains '.mkv' or name contains '.webm' or name contains '.avi' or name contains '.mov' or name contains '.ts' or name contains '.m2ts' or name contains '.flv' or name contains '.wmv' or name contains '.3gp' or name contains '.mp3' or name contains '.m4a' or name contains '.aac' or name contains '.flac' or name contains '.ogg' or name contains '.opus' or name contains '.wav' or name contains '.wma' or name contains '.srt' or name contains '.vtt' or name contains '.lrc')",
         fields:
           'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
         pageSize: 1000,
@@ -175,19 +175,24 @@ export class GoogleDriveService {
     );
 
     const resHeaders: Record<string, string> = {};
-    if (response.headers['content-type']) resHeaders['content-type'] = String(response.headers['content-type']);
-    if (response.headers['content-length']) resHeaders['content-length'] = String(response.headers['content-length']);
-    if (response.headers['content-range']) resHeaders['content-range'] = String(response.headers['content-range']);
-    if (response.headers['accept-ranges']) resHeaders['accept-ranges'] = String(response.headers['accept-ranges']);
+    if (response.headers['content-type'])
+      resHeaders['content-type'] = String(response.headers['content-type']);
+    if (response.headers['content-length'])
+      resHeaders['content-length'] = String(response.headers['content-length']);
+    if (response.headers['content-range'])
+      resHeaders['content-range'] = String(response.headers['content-range']);
+    if (response.headers['accept-ranges'])
+      resHeaders['accept-ranges'] = String(response.headers['accept-ranges']);
     if (response.headers['etag']) resHeaders['etag'] = String(response.headers['etag']);
-    if (response.headers['last-modified']) resHeaders['last-modified'] = String(response.headers['last-modified']);
+    if (response.headers['last-modified'])
+      resHeaders['last-modified'] = String(response.headers['last-modified']);
 
-      return {
-        stream: response.data as Readable,
-        status: response.status,
-        headers: resHeaders,
-      };
-    }
+    return {
+      stream: response.data as Readable,
+      status: response.status,
+      headers: resHeaders,
+    };
+  }
 
   /**
    * Downloads a strictly bounded byte range for media header analysis.
@@ -205,11 +210,7 @@ export class GoogleDriveService {
     }
 
     const expectedLength = end - start + 1;
-    const response = await this.createMediaStream(
-      accessToken,
-      fileId,
-      `bytes=${start}-${end}`,
-    );
+    const response = await this.createMediaStream(accessToken, fileId, `bytes=${start}-${end}`);
 
     if (response.status !== 206) {
       response.stream.destroy();
@@ -232,9 +233,7 @@ export class GoogleDriveService {
   /**
    * Lists all Shared Drives (Team Drives) accessible by the user
    */
-  public async listSharedDrives(
-    accessToken: string
-  ): Promise<Array<{ id: string; name: string }>> {
+  public async listSharedDrives(accessToken: string): Promise<Array<{ id: string; name: string }>> {
     return this.withExponentialBackoff(async () => {
       const drive = this.createDriveClient(accessToken);
       const response = await drive.drives.list({

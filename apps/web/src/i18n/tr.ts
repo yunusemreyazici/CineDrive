@@ -166,6 +166,11 @@ export const tr = {
     moreActions: 'Diğer işlemler',
     playNext: 'Sonraki çal',
     addQueue: 'Kuyruğa ekle',
+    lyrics: 'Şarkı Sözleri',
+    noLyrics: 'Şarkı sözü bulunamadı',
+    lyricsHint: 'Parçayla aynı klasöre aynı adlı bir .lrc dosyası ekleyip kütüphaneyi tarayın.',
+    syncedLyrics: 'Zamanlı LRC',
+    plainLyrics: 'Düz metin',
     playTrack: (title: string) => `${title} parçasını oynat`,
     trackCount: (count: number) => `${count} parça`,
   },
@@ -323,8 +328,7 @@ export const tr = {
 
     nextEpisode: {
       badge: 'Sonraki Bölüm',
-      seasonEpisode: (season: number, episode: number) =>
-        `Sezon ${season} • Bölüm ${episode}`,
+      seasonEpisode: (season: number, episode: number) => `Sezon ${season} • Bölüm ${episode}`,
     },
 
     quality: {
@@ -472,8 +476,7 @@ export const tr = {
     foundSuffix: 'film ve dizi bulundu',
     loading: 'İçerikler yükleniyor...',
     notFoundTitle: 'İçerik Bulunamadı',
-    notFoundDescription: (name: string) =>
-      `Kütüphanenizde ${name} için eşleşen içerik bulunamadı.`,
+    notFoundDescription: (name: string) => `Kütüphanenizde ${name} için eşleşen içerik bulunamadı.`,
     loadFailed: 'İçerikler Yüklenemedi',
   },
 
@@ -723,8 +726,7 @@ export const tr = {
     about: {
       title: 'CineDrive Hakkında',
       description: 'Kişisel Google Drive medya sunucusu',
-      body:
-        'Google Drive klasörlerinizdeki film ve dizileri tarayıp kişisel bir medya yayın sunucusuna dönüştürür.',
+      body: 'Google Drive klasörlerinizdeki film ve dizileri tarayıp kişisel bir medya yayın sunucusuna dönüştürür.',
       developer: 'Geliştirici',
       developerRole: 'Developer',
       developerQuote: '“Driven by curiosity, fueled by open source.”',

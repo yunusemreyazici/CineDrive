@@ -8,6 +8,7 @@ import type { PrismaClient } from '@prisma/client';
 import ffmpegPath from 'ffmpeg-static';
 import { MusicMetadataService, type ParsedMusicMetadata } from './music-metadata.service.js';
 import { MusicBrainzService } from './musicbrainz.service.js';
+import { MusicLyricsService } from './music-lyrics.service.js';
 
 const normalize = (value: string) =>
   value
@@ -21,10 +22,13 @@ const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
 
 export class MusicLibraryService {
   public readonly metadata = new MusicMetadataService();
+  public readonly lyrics: MusicLyricsService;
   private readonly musicbrainz = new MusicBrainzService();
   private readonly artworkCache = new Map<string, string | undefined>();
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {
+    this.lyrics = new MusicLyricsService(prisma);
+  }
 
   public async indexTrack(options: {
     userId: string;

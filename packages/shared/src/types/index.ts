@@ -247,3 +247,18 @@ export interface MusicPlaybackStateDto {
     track: MusicTrackDto;
   }>;
 }
+
+export interface MusicLyricsLineDto {
+  timeMs: number | null;
+  text: string;
+}
+
+export interface MusicLyricsDto {
+  trackId: string;
+  sourceName: string;
+  language?: string | null;
+  isSynced: boolean;
+  offsetMs: number;
+  lines: MusicLyricsLineDto[];
+  updatedAt: string;
+}

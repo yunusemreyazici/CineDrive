@@ -274,7 +274,7 @@ export const seedE2EDatabase = async () => {
         genres: JSON.stringify(['Soundtrack']),
       },
     });
-    await prisma.musicTrack.create({
+    const musicTrack = await prisma.musicTrack.create({
       data: {
         id: '00000000-0000-4000-8000-000000000105',
         libraryId: library.id,
@@ -290,6 +290,18 @@ export const seedE2EDatabase = async () => {
         genres: JSON.stringify(['Soundtrack']),
         duration: AUDIO_SECONDS,
         artists: { create: { artistId: artist.id, position: 0 } },
+      },
+    });
+    const lyricsContent =
+      '[ar:Fixture Artist]\n[ti:Smoke Test Song]\n[00:00.00]Smoke test opening line\n[00:02.00]Smoke test second line';
+    fs.writeFileSync(path.join(e2eMediaRoot, '01 - Smoke Test Song.lrc'), lyricsContent, 'utf8');
+    await prisma.musicLyrics.create({
+      data: {
+        trackId: musicTrack.id,
+        content: lyricsContent,
+        sourceName: '01 - Smoke Test Song.lrc',
+        sourceType: 'sidecar',
+        isSynced: true,
       },
     });
   } finally {

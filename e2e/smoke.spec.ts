@@ -100,6 +100,11 @@ test.describe('CineDrive smoke', () => {
     expect([200, 206]).toContain((await streamResponse).status());
     await expect(page.getByRole('slider', { name: tr.music.seek })).toBeVisible();
 
+    await page.getByRole('button', { name: tr.music.lyrics }).click();
+    await expect(page.getByRole('complementary', { name: tr.music.lyrics })).toBeVisible();
+    await expect(page.getByText('Smoke test opening line')).toBeVisible();
+    await page.getByRole('button', { name: tr.common.close, exact: true }).click();
+
     const stateResponse = page.waitForResponse(
       (response) =>
         response.url().includes('/api/music/playback-state') &&

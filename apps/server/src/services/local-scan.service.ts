@@ -80,7 +80,18 @@ export class LocalScanService {
     try {
       const allFiles = await this.readdirRecursive(library.localFolderPath);
 
-      const videoExtensions = ['.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.m2ts', '.flv', '.wmv', '.3gp'];
+      const videoExtensions = [
+        '.mp4',
+        '.mkv',
+        '.avi',
+        '.webm',
+        '.mov',
+        '.m4v',
+        '.m2ts',
+        '.flv',
+        '.wmv',
+        '.3gp',
+      ];
       const subtitleExtensions = ['.srt', '.vtt'];
 
       const videoFiles = allFiles.filter((f) =>
@@ -90,6 +101,7 @@ export class LocalScanService {
         subtitleExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
       );
       const audioFiles = allFiles.filter((file) => isAudioFilename(file.name));
+      const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
 
       // Process each video file
       for (const file of videoFiles) {
@@ -107,9 +119,7 @@ export class LocalScanService {
           let technicalMetadata = {};
           if (!existingDriveFile?.mediaAnalyzedAt || sourceChanged) {
             try {
-              technicalMetadata = await this.mediaProbeService.probeLocalFile(
-                file.fullPath,
-              );
+              technicalMetadata = await this.mediaProbeService.probeLocalFile(file.fullPath);
             } catch (probeError) {
               technicalMetadata = {
                 mediaAnalyzedAt: new Date(),
@@ -162,7 +172,10 @@ export class LocalScanService {
           const type = parsedName.type; // 'movie' | 'series'
           const seasonNumber = parsedName.seasonNumber || 1;
           const episodeNumber = parsedName.episodeNumber || 1;
-          const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+          const safeTitle = normalizedTitle
+            .replace(/[^a-z0-9]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '');
           const mediaItemId = `media_${type}_${safeTitle}`;
           const existingMediaItem = await this.prisma.mediaItem.findUnique({
             where: { id: mediaItemId },
@@ -183,10 +196,7 @@ export class LocalScanService {
           let imdbId: string | undefined;
 
           const onlineMeta =
-            !existingDriveFile ||
-            sourceChanged ||
-            !existingMediaItem ||
-            !existingMediaItem.tmdbId
+            !existingDriveFile || sourceChanged || !existingMediaItem || !existingMediaItem.tmdbId
               ? await this.metadataService.fetchMetadata(title, type as 'movie' | 'series')
               : null;
           if (onlineMeta) {
@@ -293,10 +303,7 @@ export class LocalScanService {
               },
             });
             const epMetaMap =
-              !existingDriveFile ||
-              sourceChanged ||
-              !existingEpisode ||
-              !existingEpisode.stillUrl
+              !existingDriveFile || sourceChanged || !existingEpisode || !existingEpisode.stillUrl
                 ? await this.metadataService.fetchShowEpisodes(title)
                 : new Map();
             const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
@@ -332,14 +339,15 @@ export class LocalScanService {
           }
 
           // Live progress update
-          await this.prisma.libraryScan.update({
-            where: { id: scan.id },
-            data: {
-              addedCount,
-              updatedCount,
-            },
-          }).catch(() => {});
-
+          await this.prisma.libraryScan
+            .update({
+              where: { id: scan.id },
+              data: {
+                addedCount,
+                updatedCount,
+              },
+            })
+            .catch(() => {});
         } catch (fileErr: unknown) {
           // Log individual file errors but continue scanning
           console.error(`[LocalScan] Dosya işlenirken hata: ${file.fullPath}`, fileErr);
@@ -395,18 +403,51 @@ export class LocalScanService {
               mediaAnalysisError: null,
             },
           });
-          await this.musicLibraryService.indexTrack({
+          const track = await this.musicLibraryService.indexTrack({
             userId,
             libraryId,
             driveFileId: driveFile.id,
             metadata: parsed,
           });
+          const audioBase = path.parse(file.name).name.toLowerCase();
+          const matchingLyrics = lyricsFiles
+            .filter((candidate) => {
+              if (path.dirname(candidate.fullPath) !== path.dirname(file.fullPath)) return false;
+              const lyricsBase = path.parse(candidate.name).name.toLowerCase();
+              return lyricsBase === audioBase || lyricsBase.startsWith(`${audioBase}.`);
+            })
+            .sort((left, right) => {
+              const leftExact = path.parse(left.name).name.toLowerCase() === audioBase ? 0 : 1;
+              const rightExact = path.parse(right.name).name.toLowerCase() === audioBase ? 0 : 1;
+              return leftExact - rightExact || left.name.localeCompare(right.name);
+            })[0];
+          try {
+            if (matchingLyrics) {
+              await this.musicLibraryService.lyrics.syncTrackLyrics({
+                trackId: track.id,
+                sourceName: matchingLyrics.name,
+                content: await fs.readFile(matchingLyrics.fullPath, 'utf8'),
+              });
+            } else {
+              await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
+            }
+          } catch (lyricsError) {
+            await this.prisma.libraryScanError.create({
+              data: {
+                scanId: scan.id,
+                driveFileId: driveFile.id,
+                errorMessage: `LRC dosyası işlenemedi (${matchingLyrics?.name || file.name}): ${lyricsError instanceof Error ? lyricsError.message : String(lyricsError)}`,
+              },
+            });
+          }
           if (!existing) addedCount++;
           else if (sourceChanged) updatedCount++;
-          await this.prisma.libraryScan.update({
-            where: { id: scan.id },
-            data: { addedCount, updatedCount },
-          }).catch(() => {});
+          await this.prisma.libraryScan
+            .update({
+              where: { id: scan.id },
+              data: { addedCount, updatedCount },
+            })
+            .catch(() => {});
         } catch (error) {
           await this.prisma.libraryScanError.create({
             data: {
@@ -421,7 +462,8 @@ export class LocalScanService {
       for (const subFile of subtitleFiles) {
         try {
           const matchingVideo = videoFiles.find(
-            (v) => path.parse(v.name).name.toLowerCase() === path.parse(subFile.name).name.toLowerCase(),
+            (v) =>
+              path.parse(v.name).name.toLowerCase() === path.parse(subFile.name).name.toLowerCase(),
           );
 
           if (matchingVideo) {
@@ -479,7 +521,8 @@ export class LocalScanService {
 
       return { success: true, filesScanned: filesScannedCount };
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Yerel kütüphane taranırken hata oluştu.';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Yerel kütüphane taranırken hata oluştu.';
 
       await this.prisma.libraryScan.update({
         where: { id: scan.id },
@@ -500,7 +543,14 @@ export class LocalScanService {
 
   private detectSubtitleLanguage(filename: string): string {
     const lower = filename.toLowerCase();
-    if (lower.includes('.en.') || lower.includes('_en.') || lower.includes('.eng.') || lower.endsWith('.en.srt') || lower.endsWith('.en.vtt')) return 'en';
+    if (
+      lower.includes('.en.') ||
+      lower.includes('_en.') ||
+      lower.includes('.eng.') ||
+      lower.endsWith('.en.srt') ||
+      lower.endsWith('.en.vtt')
+    )
+      return 'en';
     if (lower.includes('.de.') || lower.includes('_de.') || lower.includes('.ger.')) return 'de';
     if (lower.includes('.fr.') || lower.includes('_fr.') || lower.includes('.fre.')) return 'fr';
     if (lower.includes('.es.') || lower.includes('_es.') || lower.includes('.spa.')) return 'es';
@@ -519,7 +569,11 @@ export class LocalScanService {
 
         if (entry.isDirectory()) {
           // Skip hidden dirs and common non-media dirs
-          if (!entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== '__pycache__') {
+          if (
+            !entry.name.startsWith('.') &&
+            entry.name !== 'node_modules' &&
+            entry.name !== '__pycache__'
+          ) {
             const subDirFiles = await this.readdirRecursive(fullPath);
             results.push(...subDirFiles);
           }

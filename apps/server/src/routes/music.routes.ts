@@ -8,12 +8,14 @@ import {
   createMusicPlaylistSchema,
   musicListQuerySchema,
   reorderMusicPlaylistSchema,
+  updateMusicLyricsSchema,
   updateMusicPlaybackStateSchema,
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
 import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
 import { driveSourceInput } from './media/shared.js';
+import { MusicLyricsService, parseLrc } from '../services/music-lyrics.service.js';
 
 const ownedTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   library: { userId },
@@ -43,6 +45,7 @@ const albumDto = (album: {
 });
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
+  const lyricsService = new MusicLyricsService(fastify.prisma);
   fastify.addHook('preHandler', fastify.authenticate);
 
   fastify.get('/overview', async (request) => {
@@ -806,6 +809,71 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       .header('Content-Type', artwork.mimeType)
       .header('Cache-Control', 'private, max-age=86400');
     return reply.send(Buffer.from(artwork.data));
+  });
+
+  fastify.get<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      include: { lyrics: true },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    if (!track.lyrics) return { lyrics: null };
+    const parsed = parseLrc(track.lyrics.content);
+    return {
+      lyrics: {
+        trackId: track.id,
+        sourceName: track.lyrics.sourceName,
+        language: track.lyrics.language,
+        isSynced: parsed.isSynced,
+        offsetMs: parsed.offsetMs,
+        lines: parsed.lines,
+        updatedAt: track.lyrics.updatedAt.toISOString(),
+      },
+    };
+  });
+
+  fastify.put<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
+    const parsed = updateMusicLyricsSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz şarkı sözü dosyası.',
+          requestId: request.id,
+        },
+      });
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      select: { id: true },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    await lyricsService.syncTrackLyrics({
+      trackId: track.id,
+      content: parsed.data.content,
+      sourceName: parsed.data.sourceName,
+      language: parsed.data.language,
+      sourceType: 'manual',
+    });
+    return { updated: true };
+  });
+
+  fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      select: { id: true },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    await fastify.prisma.musicLyrics.deleteMany({ where: { trackId: track.id } });
+    return reply.status(204).send();
   });
 
   const handleTrackStream = async (

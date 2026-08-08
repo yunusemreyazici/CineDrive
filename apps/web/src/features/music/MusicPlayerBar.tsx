@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  FileText,
   ListMusic,
   Pause,
   Play,
@@ -14,6 +15,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useMusicPlayer } from './MusicPlayerProvider';
 import { t } from '../../i18n';
+import { MusicLyricsPanel } from './MusicLyricsPanel';
 
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -25,17 +27,25 @@ const formatTime = (seconds: number) => {
 
 export const MusicPlayerBar: React.FC = () => {
   const player = useMusicPlayer();
-  const [queueOpen, setQueueOpen] = useState(false);
+  const [drawer, setDrawer] = useState<'queue' | 'lyrics' | null>(null);
   if (!player.currentTrack) return null;
   const track = player.currentTrack;
   return (
     <>
-      {queueOpen && (
+      {drawer === 'lyrics' && (
+        <MusicLyricsPanel
+          trackId={track.id}
+          position={player.position}
+          onSeek={player.seek}
+          onClose={() => setDrawer(null)}
+        />
+      )}
+      {drawer === 'queue' && (
         <aside className="fixed bottom-24 right-3 z-[70] flex max-h-[65vh] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/98 shadow-2xl backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <h2 className="font-display font-bold">{t.music.queue}</h2>
             <button
-              onClick={() => setQueueOpen(false)}
+              onClick={() => setDrawer(null)}
               aria-label={t.common.close}
               className="rounded-lg p-2 hover:bg-white/10"
             >
@@ -198,9 +208,18 @@ export const MusicPlayerBar: React.FC = () => {
               className="hidden w-24 accent-brand-500 lg:block"
             />
             <button
-              onClick={() => setQueueOpen((open) => !open)}
+              onClick={() => setDrawer((open) => (open === 'lyrics' ? null : 'lyrics'))}
+              aria-label={t.music.lyrics}
+              aria-pressed={drawer === 'lyrics'}
+              className={`p-2 hover:text-white ${drawer === 'lyrics' ? 'text-brand-400' : 'text-zinc-400'}`}
+            >
+              <FileText className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setDrawer((open) => (open === 'queue' ? null : 'queue'))}
               aria-label={t.music.queue}
-              className="p-2 text-zinc-400 hover:text-white"
+              aria-pressed={drawer === 'queue'}
+              className={`p-2 hover:text-white ${drawer === 'queue' ? 'text-brand-400' : 'text-zinc-400'}`}
             >
               <ListMusic className="h-5 w-5" />
             </button>

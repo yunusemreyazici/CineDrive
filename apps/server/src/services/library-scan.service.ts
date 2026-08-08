@@ -20,8 +20,6 @@ const VIDEO_MIME_TYPES = [
   'video/x-msvideo',
 ];
 
-
-
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
   private metadataService = new MetadataService();
@@ -37,7 +35,10 @@ export class LibraryScanService {
   }
 
   private generateMediaItemId(type: string, normalizedTitle: string): string {
-    const safeTitle = normalizedTitle.replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    const safeTitle = normalizedTitle
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
     return `media_${type}_${safeTitle}`;
   }
 
@@ -98,13 +99,9 @@ export class LibraryScanService {
     });
 
     // Launch scan execution asynchronously in background
-    this.executeScanAsync(
-      userId,
-      libraryId,
-      scan.id,
-      connections,
-      library.rootFolderId,
-    ).catch(() => {});
+    this.executeScanAsync(userId, libraryId, scan.id, connections, library.rootFolderId).catch(
+      () => {},
+    );
 
     return scan.id;
   }
@@ -201,7 +198,7 @@ export class LibraryScanService {
 
     try {
       if (rootFolderId.trim()) {
-        allFiles.push(...await this.listFolderTree(accessToken, rootFolderId.trim()));
+        allFiles.push(...(await this.listFolderTree(accessToken, rootFolderId.trim())));
       } else {
         let pageToken: string | undefined;
         do {
@@ -240,13 +237,18 @@ export class LibraryScanService {
     const audioFiles = allFiles.filter(
       (file) => file.mimeType.startsWith('audio/') || isAudioFilename(file.name),
     );
+    const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
 
     // Codec probing reads byte ranges straight from Drive and writes only its
     // own row, so it is independent of everything else in the loop. Collected
     // here and drained concurrently after the pass instead of adding a network
     // round trip per file to the critical path.
-    const pendingProbes: Array<{ driveFileId: string; name: string; size: string; fileId: string }> =
-      [];
+    const pendingProbes: Array<{
+      driveFileId: string;
+      name: string;
+      size: string;
+      fileId: string;
+    }> = [];
 
     // 3. Process Videos across account
     for (const video of videos) {
@@ -265,14 +267,16 @@ export class LibraryScanService {
         }
 
         // Live progress update on LibraryScan record in DB
-        await this.prisma.libraryScan.update({
-          where: { id: scanId },
-          data: {
-            addedCount: added,
-            updatedCount: updated,
-            errorCount: errors,
-          },
-        }).catch(() => {});
+        await this.prisma.libraryScan
+          .update({
+            where: { id: scanId },
+            data: {
+              addedCount: added,
+              updatedCount: updated,
+              errorCount: errors,
+            },
+          })
+          .catch(() => {});
 
         const parsedName = parseMediaFilename(video.name);
         const title = parsedName.title;
@@ -496,16 +500,52 @@ export class LibraryScanService {
             mediaAnalysisError: null,
           },
         });
-        await this.musicLibraryService.indexTrack({
+        const track = await this.musicLibraryService.indexTrack({
           userId,
           libraryId,
           driveFileId: driveFile.record.id,
           metadata: parsed,
         });
-        await this.prisma.libraryScan.update({
-          where: { id: scanId },
-          data: { addedCount: added, updatedCount: updated, errorCount: errors },
-        }).catch(() => {});
+        const audioBase = audio.name.replace(/\.[^/.]+$/, '').toLowerCase();
+        const audioParent = audio.parents?.[0];
+        const matchingLyrics = lyricsFiles
+          .filter((candidate) => {
+            if ((candidate.parents?.[0] || null) !== (audioParent || null)) return false;
+            const lyricsBase = candidate.name.replace(/\.lrc$/i, '').toLowerCase();
+            return lyricsBase === audioBase || lyricsBase.startsWith(`${audioBase}.`);
+          })
+          .sort((left, right) => {
+            const leftExact = left.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+            const rightExact =
+              right.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+            return leftExact - rightExact || left.name.localeCompare(right.name);
+          })[0];
+        try {
+          if (matchingLyrics) {
+            await this.musicLibraryService.lyrics.syncTrackLyrics({
+              trackId: track.id,
+              sourceName: matchingLyrics.name,
+              content: await this.driveService.getFileTextContent(accessToken, matchingLyrics.id),
+            });
+          } else {
+            await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
+          }
+        } catch (lyricsError) {
+          errors++;
+          await this.prisma.libraryScanError.create({
+            data: {
+              scanId,
+              driveFileId: driveFile.record.id,
+              errorMessage: `LRC dosyası işlenemedi (${matchingLyrics?.name || audio.name}): ${lyricsError instanceof Error ? lyricsError.message : String(lyricsError)}`,
+            },
+          });
+        }
+        await this.prisma.libraryScan
+          .update({
+            where: { id: scanId },
+            data: { addedCount: added, updatedCount: updated, errorCount: errors },
+          })
+          .catch(() => {});
       } catch (error) {
         errors++;
         await this.prisma.libraryScanError.create({
@@ -539,9 +579,7 @@ export class LibraryScanService {
             data: {
               mediaAnalyzedAt: new Date(),
               mediaAnalysisError:
-                error instanceof Error
-                  ? error.message.slice(0, 500)
-                  : 'REMOTE_MEDIA_PROBE_FAILED',
+                error instanceof Error ? error.message.slice(0, 500) : 'REMOTE_MEDIA_PROBE_FAILED',
             },
           })
           .catch(() => {});
@@ -566,11 +604,7 @@ export class LibraryScanService {
 
       let pageToken: string | undefined;
       do {
-        const page = await this.driveService.listFolderContents(
-          accessToken,
-          folderId,
-          pageToken,
-        );
+        const page = await this.driveService.listFolderContents(accessToken, folderId, pageToken);
 
         for (const file of page.files) {
           if (file.mimeType === 'application/vnd.google-apps.folder') {

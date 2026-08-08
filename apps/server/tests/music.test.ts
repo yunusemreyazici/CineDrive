@@ -11,6 +11,7 @@ import {
   cleanMusicFilenameTitle,
   isAudioFilename,
 } from '../src/services/music-metadata.service';
+import { parseLrc } from '../src/services/music-lyrics.service';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -96,6 +97,46 @@ describe('Music library', () => {
     for (const extension of AUDIO_EXTENSIONS)
       expect(isAudioFilename(`track${extension}`)).toBe(true);
     expect(isAudioFilename('movie.mp4')).toBe(false);
+  });
+
+  it('parses synced and plain LRC lyrics with metadata and offset', () => {
+    const synced = parseLrc(
+      '[ar:Test Artist]\n[offset:+100]\n[00:01.20][00:03.000]First line\n[00:05.50]Second line',
+    );
+    expect(synced.isSynced).toBe(true);
+    expect(synced.metadata.ar).toBe('Test Artist');
+    expect(synced.offsetMs).toBe(100);
+    expect(synced.lines).toEqual([
+      { timeMs: 1300, text: 'First line' },
+      { timeMs: 3100, text: 'First line' },
+      { timeMs: 5600, text: 'Second line' },
+    ]);
+    expect(parseLrc('First line\nSecond line').lines).toEqual([
+      { timeMs: null, text: 'First line' },
+      { timeMs: null, text: 'Second line' },
+    ]);
+  });
+
+  it('stores and serves owned track lyrics', async () => {
+    const saved = await app.inject({
+      method: 'PUT',
+      url: `/api/music/tracks/${trackId}/lyrics`,
+      cookies: { session_id: cookie },
+      payload: { sourceName: 'Test Song.tr.lrc', content: '[la:tr]\n[00:01.00]Merhaba' },
+    });
+    expect(saved.statusCode).toBe(200);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/lyrics`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).lyrics).toMatchObject({
+      trackId,
+      language: 'tr',
+      isSynced: true,
+      lines: [{ timeMs: 1000, text: 'Merhaba' }],
+    });
   });
 
   it('lists owned tracks and serves byte ranges', async () => {

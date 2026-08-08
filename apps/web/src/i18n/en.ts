@@ -32,8 +32,7 @@ export const en: Translations = {
     unexpected: 'An unexpected error occurred.',
     contentLoadFailed: 'Could not load content',
     boundaryTitle: 'Something went wrong',
-    boundaryDescription:
-      'The app hit an unexpected error. Reloading the page may resolve it.',
+    boundaryDescription: 'The app hit an unexpected error. Reloading the page may resolve it.',
     reload: 'Reload page',
   },
 
@@ -47,7 +46,8 @@ export const en: Translations = {
     showPassword: 'Show password',
     hidePassword: 'Hide password',
     verifyingSession: 'Verifying session…',
-    driveHint: 'You can connect your Google Drive account after signing in as administrator, from the',
+    driveHint:
+      'You can connect your Google Drive account after signing in as administrator, from the',
     driveHintSettings: 'Settings',
     driveHintSuffix: 'page.',
   },
@@ -168,6 +168,11 @@ export const en: Translations = {
     moreActions: 'More actions',
     playNext: 'Play next',
     addQueue: 'Add to queue',
+    lyrics: 'Lyrics',
+    noLyrics: 'No lyrics found',
+    lyricsHint: 'Add a matching .lrc file beside the track and rescan the library.',
+    syncedLyrics: 'Synced LRC',
+    plainLyrics: 'Plain text',
     playTrack: (title: string) => `Play ${title}`,
     trackCount: (count: number) => `${count} tracks`,
   },
@@ -495,8 +500,7 @@ export const en: Translations = {
     deviceMobile: 'Phone',
     episodesOnly: 'Episodes only',
     emptyTitle: 'Your watch history is empty',
-    emptyDescription:
-      'You have not watched anything yet. Start from the media library.',
+    emptyDescription: 'You have not watched anything yet. Start from the media library.',
     exploreLibrary: 'Explore the library',
     loadFailed: 'Could not load the history',
     today: 'Today',
@@ -615,7 +619,8 @@ export const en: Translations = {
       startFailed: 'The scan could not be started.',
       scopeLabel: 'Scan scope',
       allDriveTitle: 'Entire Google Drive',
-      allDriveDetail: 'Scans every media file in the connected account and any reachable shared drives.',
+      allDriveDetail:
+        'Scans every media file in the connected account and any reachable shared drives.',
       folderTitle: 'Specific folder',
       folderDetail: 'Scans the selected folder and all of its subfolders.',
       folderId: 'Google Drive folder ID',
@@ -719,8 +724,7 @@ export const en: Translations = {
     about: {
       title: 'About CineDrive',
       description: 'Personal Google Drive media server',
-      body:
-        'Scans the movies and series in your Google Drive folders and turns them into a personal streaming server.',
+      body: 'Scans the movies and series in your Google Drive folders and turns them into a personal streaming server.',
       developer: 'Developer',
       developerRole: 'Developer',
       developerQuote: '“Driven by curiosity, fueled by open source.”',
