@@ -240,6 +240,8 @@ export const seedE2EDatabase = async () => {
         audioChannels: 1,
         audioSampleRate: 44100,
         audioBitrate: 192000,
+        audioBitDepth: 16,
+        audioLossless: false,
         mediaDuration: AUDIO_SECONDS,
         mediaAnalyzedAt: new Date(),
       },
@@ -289,6 +291,8 @@ export const seedE2EDatabase = async () => {
         year: 2026,
         genres: JSON.stringify(['Soundtrack']),
         duration: AUDIO_SECONDS,
+        replayGainTrackDb: -3,
+        replayGainTrackPeak: 0.92,
         artists: { create: { artistId: artist.id, position: 0 } },
       },
     });

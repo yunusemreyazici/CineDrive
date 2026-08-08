@@ -13,6 +13,8 @@ export interface MediaTechnicalMetadata {
   audioChannels?: number;
   audioSampleRate?: number;
   audioBitrate?: number;
+  audioBitDepth?: number;
+  audioLossless?: boolean;
   mediaWidth?: number;
   mediaHeight?: number;
   mediaDuration?: number;
@@ -104,9 +106,7 @@ export class MediaProbeService {
   }
 
   private parseProbeOutput(stderr: string, inputPath: string): MediaTechnicalMetadata {
-    const durationMatch = stderr.match(
-      /Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/,
-    );
+    const durationMatch = stderr.match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/);
     const videoLine = stderr.match(/Stream #\S+.*Video:\s*([^\r\n]+)/)?.[1];
     const audioLine = stderr.match(/Stream #\S+.*Audio:\s*([^\r\n]+)/)?.[1];
     if (!videoLine && !audioLine) {
@@ -115,29 +115,37 @@ export class MediaProbeService {
     const dimensions = videoLine?.match(/,\s*(\d{2,5})x(\d{2,5})(?:[,\s]|$)/);
     const pixelFormat = videoLine?.match(/,\s*(yuv[a-z0-9]+)/i)?.[1];
     const bitDepth = pixelFormat?.match(/p(\d{2})(?:le|be)?$/i)?.[1];
-    const channelsText = audioLine?.match(
-      /,\s*(mono|stereo|[2-9]\.\d(?:\([^)]+\))?)(?:,|$)/i,
-    )?.[1];
+    const channelsText = audioLine?.match(/,\s*(mono|stereo|[2-9]\.\d(?:\([^)]+\))?)(?:,|$)/i)?.[1];
+    const audioCodec = audioLine?.match(/^([^,\s]+)/)?.[1]?.toLowerCase();
+    const audioBitDepth = audioLine
+      ? Number.parseInt(audioLine.match(/,\s*(?:s|u)(\d+)(?:p|le|be)?(?:,|\s)/i)?.[1] || '', 10) ||
+        undefined
+      : undefined;
 
     return {
       mediaContainer: this.detectContainer(inputPath),
       videoCodec: videoLine?.match(/^([^,\s]+)/)?.[1]?.toLowerCase(),
       videoProfile: videoLine?.match(/^[^,]*\(([^)]+)\)/)?.[1]?.trim(),
       videoBitDepth: bitDepth ? Number.parseInt(bitDepth, 10) : 8,
-      audioCodec: audioLine?.match(/^([^,\s]+)/)?.[1]?.toLowerCase(),
+      audioCodec,
       audioChannels: this.parseChannels(channelsText),
       audioSampleRate: audioLine
         ? Number.parseInt(audioLine.match(/,\s*(\d+)\s*Hz/i)?.[1] || '', 10) || undefined
         : undefined,
       audioBitrate: audioLine
-        ? (Number.parseInt(audioLine.match(/,\s*(\d+)\s*kb\/s/i)?.[1] || '', 10) || 0) * 1000 || undefined
+        ? (Number.parseInt(audioLine.match(/,\s*(\d+)\s*kb\/s/i)?.[1] || '', 10) || 0) * 1000 ||
+          undefined
+        : undefined,
+      audioBitDepth,
+      audioLossless: audioCodec
+        ? ['flac', 'alac', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'wavpack', 'ape'].includes(
+            audioCodec,
+          )
         : undefined,
       mediaWidth: dimensions ? Number.parseInt(dimensions[1]!, 10) : undefined,
       mediaHeight: dimensions ? Number.parseInt(dimensions[2]!, 10) : undefined,
       mediaDuration: durationMatch
-        ? Number(durationMatch[1]) * 3600 +
-          Number(durationMatch[2]) * 60 +
-          Number(durationMatch[3])
+        ? Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])
         : undefined,
       mediaAnalyzedAt: new Date(),
       mediaAnalysisError: null,

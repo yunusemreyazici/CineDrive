@@ -51,7 +51,13 @@ describe('Music library', () => {
         mimeType: 'audio/mpeg',
         size: 256n,
         status: 'active',
-        audioCodec: 'mp3',
+        mediaContainer: 'flac',
+        audioCodec: 'flac',
+        audioChannels: 2,
+        audioSampleRate: 96000,
+        audioBitrate: 2400000,
+        audioBitDepth: 24,
+        audioLossless: true,
         mediaDuration: 120,
       },
     });
@@ -76,6 +82,8 @@ describe('Music library', () => {
         normalizedTitle: 'test song',
         duration: 120,
         trackNumber: 1,
+        replayGainTrackDb: -5.2,
+        replayGainTrackPeak: 0.98,
       },
     });
     trackId = track.id;
@@ -98,6 +106,29 @@ describe('Music library', () => {
     for (const extension of AUDIO_EXTENSIONS)
       expect(isAudioFilename(`track${extension}`)).toBe(true);
     expect(isAudioFilename('movie.mp4')).toBe(false);
+  });
+
+  it('returns technical quality and ReplayGain metadata for music tracks', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/tracks',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).tracks[0]).toMatchObject({
+      id: trackId,
+      audio: {
+        container: 'flac',
+        codec: 'flac',
+        channels: 2,
+        sampleRate: 96000,
+        bitrate: 2400000,
+        bitDepth: 24,
+        lossless: true,
+        replayGainTrackDb: -5.2,
+        replayGainTrackPeak: 0.98,
+      },
+    });
   });
 
   it('parses synced and plain LRC lyrics with metadata and offset', () => {

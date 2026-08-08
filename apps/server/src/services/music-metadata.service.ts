@@ -34,6 +34,12 @@ export interface ParsedMusicMetadata {
   bitrate?: number;
   sampleRate?: number;
   channels?: number;
+  bitDepth?: number;
+  lossless?: boolean;
+  replayGainTrackDb?: number;
+  replayGainTrackPeak?: number;
+  replayGainAlbumDb?: number;
+  replayGainAlbumPeak?: number;
   musicbrainzRecordingId?: string;
   musicbrainzArtistIds: string[];
   musicbrainzAlbumArtistId?: string;
@@ -135,6 +141,12 @@ export class MusicMetadataService {
       bitrate: metadata.format.bitrate ? Math.round(metadata.format.bitrate) : undefined,
       sampleRate: metadata.format.sampleRate,
       channels: metadata.format.numberOfChannels,
+      bitDepth: metadata.format.bitsPerSample,
+      lossless: metadata.format.lossless,
+      replayGainTrackDb: common.replaygain_track_gain?.dB,
+      replayGainTrackPeak: common.replaygain_track_peak?.ratio,
+      replayGainAlbumDb: common.replaygain_album_gain?.dB,
+      replayGainAlbumPeak: common.replaygain_album_peak?.ratio,
       musicbrainzRecordingId: common.musicbrainz_recordingid,
       musicbrainzArtistIds: common.musicbrainz_artistid || [],
       musicbrainzAlbumArtistId: common.musicbrainz_albumartistid?.[0],

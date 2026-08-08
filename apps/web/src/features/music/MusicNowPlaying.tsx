@@ -11,12 +11,15 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  SlidersHorizontal,
   Volume2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToggleMusicFavoriteMutation } from '../../hooks/useMusicApi';
 import { t } from '../../i18n';
+import { audioQualityTier, formatAudioQuality } from './musicAudio';
 import { useMusicPlayer } from './MusicPlayerProvider';
+import { useArtworkPalette } from './useArtworkPalette';
 
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -29,15 +32,24 @@ interface Props {
   onClose: () => void;
   onOpenLyrics: () => void;
   onOpenQueue: () => void;
+  onOpenAudioSettings: () => void;
 }
 
-export const MusicNowPlaying: React.FC<Props> = ({ onClose, onOpenLyrics, onOpenQueue }) => {
+export const MusicNowPlaying: React.FC<Props> = ({
+  onClose,
+  onOpenLyrics,
+  onOpenQueue,
+  onOpenAudioSettings,
+}) => {
   const player = useMusicPlayer();
   const favoriteMutation = useToggleMusicFavoriteMutation();
   const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
   const track = player.currentTrack;
+  const palette = useArtworkPalette(track?.artworkUrl);
   if (!track) return null;
   const isFavorite = favoriteOverrides[track.id] ?? track.isFavorite;
+  const quality = formatAudioQuality(track);
+  const qualityTier = audioQualityTier(track);
 
   const toggleFavorite = () => {
     setFavoriteOverrides((items) => ({ ...items, [track.id]: !isFavorite }));
@@ -55,6 +67,9 @@ export const MusicNowPlaying: React.FC<Props> = ({ onClose, onOpenLyrics, onOpen
       aria-modal="true"
       aria-label={t.music.nowPlaying}
       className="fixed inset-0 z-[90] isolate overflow-y-auto bg-[#08090a] text-white"
+      style={{
+        backgroundImage: `radial-gradient(circle at 18% 12%, rgb(${palette.primary} / .58), transparent 44%), radial-gradient(circle at 88% 78%, rgb(${palette.secondary} / .3), transparent 48%), linear-gradient(145deg, rgb(${palette.primary} / .18), #070809 65%)`,
+      }}
     >
       {track.artworkUrl && (
         <img
@@ -116,6 +131,21 @@ export const MusicNowPlaying: React.FC<Props> = ({ onClose, onOpenLyrics, onOpen
                   >
                     {track.primaryArtist.name}
                   </Link>
+                )}
+                {quality && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {qualityTier && (
+                      <span className="rounded-md border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.15em] text-cyan-200">
+                        {qualityTier === 'hi_res' ? t.music.hiRes : t.music.lossless}
+                      </span>
+                    )}
+                    <span
+                      title={t.music.quality}
+                      className="text-xs font-semibold tracking-wide text-white/45"
+                    >
+                      {quality}
+                    </span>
+                  </div>
                 )}
               </div>
               <button
@@ -199,6 +229,13 @@ export const MusicNowPlaying: React.FC<Props> = ({ onClose, onOpenLyrics, onOpen
               >
                 <FileText className="h-4 w-4" />
                 {t.music.lyrics}
+              </button>
+              <button
+                onClick={onOpenAudioSettings}
+                aria-label={t.music.audioSettings}
+                className="rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-white/65 backdrop-blur transition hover:bg-white/10 hover:text-white"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
               </button>
               <Volume2 className="hidden h-4 w-4 text-white/40 sm:block" />
               <input

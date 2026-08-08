@@ -218,6 +218,19 @@ export interface MusicTrackDto {
   artists: MusicArtistDto[];
   artworkUrl?: string | null;
   isFavorite: boolean;
+  audio?: {
+    container?: string | null;
+    codec?: string | null;
+    channels?: number | null;
+    sampleRate?: number | null;
+    bitrate?: number | null;
+    bitDepth?: number | null;
+    lossless?: boolean | null;
+    replayGainTrackDb?: number | null;
+    replayGainTrackPeak?: number | null;
+    replayGainAlbumDb?: number | null;
+    replayGainAlbumPeak?: number | null;
+  };
   streamUrl: string;
   createdAt: string;
 }

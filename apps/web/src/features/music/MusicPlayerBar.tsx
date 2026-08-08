@@ -10,6 +10,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  SlidersHorizontal,
   Volume2,
   X,
 } from 'lucide-react';
@@ -18,6 +19,9 @@ import { useMusicPlayer } from './MusicPlayerProvider';
 import { t } from '../../i18n';
 import { MusicLyricsPanel } from './MusicLyricsPanel';
 import { MusicNowPlaying } from './MusicNowPlaying';
+import { MusicAudioSettingsPanel } from './MusicAudioSettingsPanel';
+import { audioQualityTier, formatAudioQuality } from './musicAudio';
+import { useArtworkPalette } from './useArtworkPalette';
 
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -29,11 +33,23 @@ const formatTime = (seconds: number) => {
 
 export const MusicPlayerBar: React.FC = () => {
   const player = useMusicPlayer();
-  const [drawer, setDrawer] = useState<'queue' | 'lyrics' | 'nowPlaying' | null>(null);
+  const [drawer, setDrawer] = useState<'queue' | 'lyrics' | 'nowPlaying' | 'audio' | null>(null);
+  const [audioReturnDrawer, setAudioReturnDrawer] = useState<'nowPlaying' | null>(null);
+  const palette = useArtworkPalette(player.currentTrack?.artworkUrl);
   if (!player.currentTrack) return null;
   const track = player.currentTrack;
+  const quality = formatAudioQuality(track);
+  const qualityTier = audioQualityTier(track);
   return (
     <>
+      {drawer === 'audio' && (
+        <MusicAudioSettingsPanel
+          onClose={() => {
+            setDrawer(audioReturnDrawer);
+            setAudioReturnDrawer(null);
+          }}
+        />
+      )}
       {drawer === 'lyrics' && (
         <MusicLyricsPanel
           trackId={track.id}
@@ -42,11 +58,15 @@ export const MusicPlayerBar: React.FC = () => {
           onClose={() => setDrawer(null)}
         />
       )}
-      {drawer === 'nowPlaying' && (
+      {(drawer === 'nowPlaying' || (drawer === 'audio' && audioReturnDrawer === 'nowPlaying')) && (
         <MusicNowPlaying
           onClose={() => setDrawer(null)}
           onOpenLyrics={() => setDrawer('lyrics')}
           onOpenQueue={() => setDrawer('queue')}
+          onOpenAudioSettings={() => {
+            setAudioReturnDrawer('nowPlaying');
+            setDrawer('audio');
+          }}
         />
       )}
       {drawer === 'queue' && (
@@ -100,7 +120,7 @@ export const MusicPlayerBar: React.FC = () => {
           </div>
         </aside>
       )}
-      {drawer !== 'nowPlaying' && (
+      {drawer !== 'nowPlaying' && !(drawer === 'audio' && audioReturnDrawer === 'nowPlaying') && (
         <div className="fixed bottom-0 left-0 right-0 z-[60] isolate overflow-hidden border-t border-white/10 bg-[#0a0b0d]/90 px-3 py-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.35)] backdrop-blur-2xl lg:left-[var(--music-sidebar-offset,220px)]">
           {track.artworkUrl && (
             <img
@@ -109,6 +129,12 @@ export const MusicPlayerBar: React.FC = () => {
               className="pointer-events-none absolute inset-0 -z-20 h-full w-full scale-125 object-cover opacity-15 blur-3xl saturate-150"
             />
           )}
+          <div
+            className="pointer-events-none absolute inset-0 -z-20"
+            style={{
+              backgroundImage: `linear-gradient(100deg, rgb(${palette.primary} / .32), transparent 42%, rgb(${palette.secondary} / .18))`,
+            }}
+          />
           <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-r from-black/75 via-[#0a0b0d]/85 to-black/75" />
           <div className="mx-auto grid max-w-[1600px] grid-cols-[1fr_auto] items-center gap-3 md:grid-cols-[minmax(210px,1fr)_minmax(300px,2fr)_minmax(190px,1fr)]">
             <div className="flex min-w-0 items-center gap-3">
@@ -139,6 +165,16 @@ export const MusicPlayerBar: React.FC = () => {
                   >
                     {track.primaryArtist.name}
                   </Link>
+                )}
+                {quality && (
+                  <p className="mt-0.5 hidden truncate text-[10px] font-semibold uppercase tracking-wide text-white/35 xl:block">
+                    {qualityTier === 'hi_res'
+                      ? `${t.music.hiRes} · `
+                      : qualityTier === 'lossless'
+                        ? `${t.music.lossless} · `
+                        : ''}
+                    {quality}
+                  </p>
                 )}
               </div>
             </div>
@@ -236,6 +272,22 @@ export const MusicPlayerBar: React.FC = () => {
                 onChange={(event) => player.setVolume(Number(event.target.value))}
                 className="music-range hidden w-24 lg:block"
               />
+              <button
+                onClick={() => {
+                  if (drawer === 'audio') {
+                    setDrawer(null);
+                    setAudioReturnDrawer(null);
+                  } else {
+                    setAudioReturnDrawer(null);
+                    setDrawer('audio');
+                  }
+                }}
+                aria-label={t.music.audioSettings}
+                aria-pressed={drawer === 'audio'}
+                className={`hidden p-2 hover:text-white sm:block ${drawer === 'audio' ? 'text-cyan-300' : 'text-zinc-400'}`}
+              >
+                <SlidersHorizontal className="h-5 w-5" />
+              </button>
               <button
                 onClick={() => setDrawer((open) => (open === 'lyrics' ? null : 'lyrics'))}
                 aria-label={t.music.lyrics}

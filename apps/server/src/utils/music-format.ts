@@ -1,12 +1,24 @@
 import type { Prisma } from '@prisma/client';
 
-export const musicTrackInclude = (userId: string) => ({
-  album: { include: { artist: true, artwork: { select: { id: true } } } },
-  primaryArtist: true,
-  artwork: { select: { id: true } },
-  artists: { orderBy: { position: 'asc' as const }, include: { artist: true } },
-  favorites: { where: { userId }, select: { id: true } },
-} satisfies Prisma.MusicTrackInclude);
+export const musicTrackInclude = (userId: string) =>
+  ({
+    album: { include: { artist: true, artwork: { select: { id: true } } } },
+    primaryArtist: true,
+    artwork: { select: { id: true } },
+    artists: { orderBy: { position: 'asc' as const }, include: { artist: true } },
+    favorites: { where: { userId }, select: { id: true } },
+    driveFile: {
+      select: {
+        mediaContainer: true,
+        audioCodec: true,
+        audioChannels: true,
+        audioSampleRate: true,
+        audioBitrate: true,
+        audioBitDepth: true,
+        audioLossless: true,
+      },
+    },
+  }) satisfies Prisma.MusicTrackInclude;
 
 export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
   include: {
@@ -15,6 +27,17 @@ export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
     artwork: { select: { id: true } };
     artists: { include: { artist: true } };
     favorites: { select: { id: true } };
+    driveFile: {
+      select: {
+        mediaContainer: true;
+        audioCodec: true;
+        audioChannels: true;
+        audioSampleRate: true;
+        audioBitrate: true;
+        audioBitDepth: true;
+        audioLossless: true;
+      };
+    };
   };
 }>;
 
@@ -22,7 +45,9 @@ export const parseGenres = (raw?: string | null): string[] => {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [];
   } catch {
     return [];
   }
@@ -38,25 +63,33 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
     year: track.year,
     genres: parseGenres(track.genres),
     duration: track.duration,
-    album: track.album ? {
-      id: track.album.id,
-      title: track.album.title,
-      year: track.album.year,
-      genres: parseGenres(track.album.genres),
-      artist: track.album.artist ? {
-        id: track.album.artist.id,
-        name: track.album.artist.name,
-        sortName: track.album.artist.sortName,
-        musicbrainzId: track.album.artist.musicbrainzId,
-      } : null,
-      artworkUrl: track.album.artwork?.id ? `/api/music/artwork/${track.album.artwork.id}` : null,
-    } : null,
-    primaryArtist: track.primaryArtist ? {
-      id: track.primaryArtist.id,
-      name: track.primaryArtist.name,
-      sortName: track.primaryArtist.sortName,
-      musicbrainzId: track.primaryArtist.musicbrainzId,
-    } : null,
+    album: track.album
+      ? {
+          id: track.album.id,
+          title: track.album.title,
+          year: track.album.year,
+          genres: parseGenres(track.album.genres),
+          artist: track.album.artist
+            ? {
+                id: track.album.artist.id,
+                name: track.album.artist.name,
+                sortName: track.album.artist.sortName,
+                musicbrainzId: track.album.artist.musicbrainzId,
+              }
+            : null,
+          artworkUrl: track.album.artwork?.id
+            ? `/api/music/artwork/${track.album.artwork.id}`
+            : null,
+        }
+      : null,
+    primaryArtist: track.primaryArtist
+      ? {
+          id: track.primaryArtist.id,
+          name: track.primaryArtist.name,
+          sortName: track.primaryArtist.sortName,
+          musicbrainzId: track.primaryArtist.musicbrainzId,
+        }
+      : null,
     artists: track.artists.map(({ artist }) => ({
       id: artist.id,
       name: artist.name,
@@ -65,6 +98,19 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
     })),
     artworkUrl: artworkId ? `/api/music/artwork/${artworkId}` : null,
     isFavorite: track.favorites.length > 0,
+    audio: {
+      container: track.driveFile.mediaContainer,
+      codec: track.driveFile.audioCodec,
+      channels: track.driveFile.audioChannels,
+      sampleRate: track.driveFile.audioSampleRate,
+      bitrate: track.driveFile.audioBitrate,
+      bitDepth: track.driveFile.audioBitDepth,
+      lossless: track.driveFile.audioLossless,
+      replayGainTrackDb: track.replayGainTrackDb,
+      replayGainTrackPeak: track.replayGainTrackPeak,
+      replayGainAlbumDb: track.replayGainAlbumDb,
+      replayGainAlbumPeak: track.replayGainAlbumPeak,
+    },
     streamUrl: `/api/music/tracks/${track.id}/stream`,
     createdAt: track.createdAt.toISOString(),
   };

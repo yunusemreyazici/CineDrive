@@ -103,7 +103,19 @@ test.describe('CineDrive smoke', () => {
     await page.getByRole('button', { name: tr.music.openNowPlaying }).click();
     await expect(page.getByRole('dialog', { name: tr.music.nowPlaying })).toBeVisible();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
-    await page.getByRole('button', { name: tr.common.close, exact: true }).click();
+    await expect(page.getByText('AAC · 16-bit · 44.1 kHz')).toBeVisible();
+    await page.getByRole('button', { name: tr.music.audioSettings }).click();
+    await expect(page.getByRole('dialog', { name: tr.music.audioSettings })).toBeVisible();
+    await expect(page.getByText(tr.music.loudnessNormalization)).toBeVisible();
+    await expect(page.getByText(tr.music.gaplessPlayback)).toBeVisible();
+    await page
+      .getByRole('dialog', { name: tr.music.audioSettings })
+      .getByRole('button', { name: tr.common.close, exact: true })
+      .click();
+    await page
+      .getByRole('dialog', { name: tr.music.nowPlaying })
+      .getByRole('button', { name: tr.common.close, exact: true })
+      .click();
 
     await page.getByRole('button', { name: tr.music.lyrics }).click();
     await expect(page.getByRole('complementary', { name: tr.music.lyrics })).toBeVisible();
@@ -115,6 +127,9 @@ test.describe('CineDrive smoke', () => {
         response.url().includes('/api/music/playback-state') &&
         response.request().method() === 'PUT',
     );
+    if (!(await page.getByRole('button', { name: tr.music.pause }).first().isVisible())) {
+      await page.getByRole('button', { name: tr.music.play }).first().click();
+    }
     await expect(page.getByRole('button', { name: tr.music.pause }).first()).toBeVisible();
     await page.getByRole('button', { name: tr.music.pause }).first().click();
     expect((await stateResponse).status()).toBeLessThan(400);

@@ -110,6 +110,8 @@ model DriveFile {
   audioChannels      Int?
   audioSampleRate    Int?
   audioBitrate       Int?
+  audioBitDepth      Int?
+  audioLossless      Boolean?
   mediaWidth         Int?
   mediaHeight        Int?
   mediaDuration      Float?
@@ -370,6 +372,10 @@ model MusicTrack {
   genres                 String?
   duration               Float?
   musicbrainzRecordingId String?
+  replayGainTrackDb      Float?
+  replayGainTrackPeak    Float?
+  replayGainAlbumDb      Float?
+  replayGainAlbumPeak    Float?
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   artists                MusicTrackArtist[]

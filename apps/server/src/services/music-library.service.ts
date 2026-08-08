@@ -94,6 +94,10 @@ export class MusicLibraryService {
         genres: JSON.stringify(metadata.genres),
         duration: metadata.duration,
         musicbrainzRecordingId: metadata.musicbrainzRecordingId,
+        replayGainTrackDb: metadata.replayGainTrackDb,
+        replayGainTrackPeak: metadata.replayGainTrackPeak,
+        replayGainAlbumDb: metadata.replayGainAlbumDb,
+        replayGainAlbumPeak: metadata.replayGainAlbumPeak,
       },
       update: {
         libraryId: options.libraryId,
@@ -108,6 +112,10 @@ export class MusicLibraryService {
         genres: JSON.stringify(metadata.genres),
         duration: metadata.duration,
         musicbrainzRecordingId: metadata.musicbrainzRecordingId || undefined,
+        replayGainTrackDb: metadata.replayGainTrackDb,
+        replayGainTrackPeak: metadata.replayGainTrackPeak,
+        replayGainAlbumDb: metadata.replayGainAlbumDb,
+        replayGainAlbumPeak: metadata.replayGainAlbumPeak,
       },
     });
     await this.prisma.musicTrackArtist.deleteMany({ where: { trackId: track.id } });
