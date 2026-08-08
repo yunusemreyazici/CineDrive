@@ -21,6 +21,25 @@ const ownedTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   library: { userId },
 });
 
+const formatLyrics = (lyrics: {
+  trackId: string;
+  content: string;
+  sourceName: string;
+  language: string | null;
+  updatedAt: Date;
+}) => {
+  const parsed = parseLrc(lyrics.content);
+  return {
+    trackId: lyrics.trackId,
+    sourceName: lyrics.sourceName,
+    language: lyrics.language,
+    isSynced: parsed.isSynced,
+    offsetMs: parsed.offsetMs,
+    lines: parsed.lines,
+    updatedAt: lyrics.updatedAt.toISOString(),
+  };
+};
+
 const albumDto = (album: {
   id: string;
   title: string;
@@ -821,18 +840,35 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     if (!track.lyrics) return { lyrics: null };
-    const parsed = parseLrc(track.lyrics.content);
-    return {
-      lyrics: {
+    return { lyrics: formatLyrics(track.lyrics) };
+  });
+
+  fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/lookup', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      include: { lyrics: true, primaryArtist: true, album: true },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    if (track.lyrics) return { lyrics: formatLyrics(track.lyrics), lookupStatus: 'existing' };
+    if (!track.primaryArtist?.name || !track.album?.title || !track.duration)
+      return { lyrics: null, lookupStatus: 'insufficient_metadata' };
+    try {
+      const result = await lyricsService.lookupOnlineLyrics({
         trackId: track.id,
-        sourceName: track.lyrics.sourceName,
-        language: track.lyrics.language,
-        isSynced: parsed.isSynced,
-        offsetMs: parsed.offsetMs,
-        lines: parsed.lines,
-        updatedAt: track.lyrics.updatedAt.toISOString(),
-      },
-    };
+        title: track.title,
+        artist: track.primaryArtist.name,
+        album: track.album.title,
+        duration: track.duration,
+      });
+      if (result.status === 'not_found') return { lyrics: null, lookupStatus: 'not_found' };
+      return { lyrics: formatLyrics(result.lyrics), lookupStatus: 'found' };
+    } catch (error) {
+      request.log.warn({ err: error, trackId: track.id }, 'Automatic lyrics lookup failed');
+      return { lyrics: null, lookupStatus: 'unavailable' };
+    }
   });
 
   fastify.put<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {

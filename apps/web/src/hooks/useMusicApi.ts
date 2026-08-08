@@ -106,9 +106,20 @@ export const useMusicLyricsQuery = (trackId?: string, enabled = true) =>
   useQuery({
     queryKey: ['music', 'lyrics', trackId],
     enabled: !!trackId && enabled,
-    queryFn: async () =>
-      (await apiClient.get<{ lyrics: MusicLyricsDto | null }>(`/music/tracks/${trackId}/lyrics`))
-        .data.lyrics,
+    queryFn: async () => {
+      const local = (
+        await apiClient.get<{ lyrics: MusicLyricsDto | null }>(`/music/tracks/${trackId}/lyrics`)
+      ).data.lyrics;
+      if (local) return local;
+      return (
+        await apiClient.post<{
+          lyrics: MusicLyricsDto | null;
+          lookupStatus:
+            'found' | 'existing' | 'not_found' | 'insufficient_metadata' | 'unavailable';
+        }>(`/music/tracks/${trackId}/lyrics/lookup`)
+      ).data.lyrics;
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
 export const useMusicPlaylistsQuery = () =>

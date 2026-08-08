@@ -100,6 +100,11 @@ test.describe('CineDrive smoke', () => {
     expect([200, 206]).toContain((await streamResponse).status());
     await expect(page.getByRole('slider', { name: tr.music.seek })).toBeVisible();
 
+    await page.getByRole('button', { name: tr.music.openNowPlaying }).click();
+    await expect(page.getByRole('dialog', { name: tr.music.nowPlaying })).toBeVisible();
+    await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
+    await page.getByRole('button', { name: tr.common.close, exact: true }).click();
+
     await page.getByRole('button', { name: tr.music.lyrics }).click();
     await expect(page.getByRole('complementary', { name: tr.music.lyrics })).toBeVisible();
     await expect(page.getByText('Smoke test opening line')).toBeVisible();
@@ -121,7 +126,7 @@ test.describe('CineDrive smoke', () => {
     );
     await page.getByRole('button', { name: tr.music.create }).click();
     expect((await playlistResponse).status()).toBeLessThan(400);
-    await expect(page.getByRole('link', { name: /E2E Playlist/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /E2E Playlist/ }).first()).toBeVisible();
 
     await page.reload();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();

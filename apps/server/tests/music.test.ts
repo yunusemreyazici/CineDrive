@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
@@ -83,6 +83,7 @@ describe('Music library', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await app.prisma.library.deleteMany({ where: { id: libraryId } });
     await app.prisma.musicAlbum.deleteMany({ where: { tracks: { none: {} } } });
     await app.prisma.musicArtist.deleteMany({
@@ -137,6 +138,81 @@ describe('Music library', () => {
       isSynced: true,
       lines: [{ timeMs: 1000, text: 'Merhaba' }],
     });
+  });
+
+  it('finds, validates, and caches lyrics automatically from LRCLIB', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 42,
+          trackName: 'Test Song',
+          artistName: 'Test Artist',
+          albumName: 'Test Album',
+          duration: 120,
+          instrumental: false,
+          plainLyrics: 'Hello world',
+          syncedLyrics: '[00:01.00]Hello world',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/lookup`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      lookupStatus: 'found',
+      lyrics: {
+        trackId,
+        sourceName: 'LRCLIB #42',
+        isSynced: true,
+        lines: [{ timeMs: 1000, text: 'Hello world' }],
+      },
+    });
+    const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestedUrl.searchParams.get('track_name')).toBe('Test Song');
+    expect(requestedUrl.searchParams.get('duration')).toBe('120');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { 'User-Agent': expect.stringContaining('CineDrive') },
+    });
+  });
+
+  it('uses a unique duration-matched LRCLIB search fallback', async () => {
+    const title = `Rare Song ${randomUUID()}`;
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { title } });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: 77,
+              trackName: title,
+              artistName: 'Test Artist',
+              albumName: 'A Different Edition',
+              duration: 121,
+              instrumental: false,
+              plainLyrics: 'Fallback line',
+              syncedLyrics: null,
+            },
+          ]),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/lookup`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(response.body)).toMatchObject({
+      lookupStatus: 'found',
+      lyrics: { sourceName: 'LRCLIB #77', isSynced: false },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api/search?');
   });
 
   it('lists owned tracks and serves byte ranges', async () => {

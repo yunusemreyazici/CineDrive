@@ -1,24 +1,46 @@
 import React, { useState } from 'react';
-import { Heart, History, LibraryBig, ListMusic, Plus } from 'lucide-react';
+import {
+  ArrowRight,
+  Disc3,
+  Heart,
+  History,
+  LibraryBig,
+  ListMusic,
+  Play,
+  Plus,
+  Radio,
+  Sparkles,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
+import type { LucideIcon } from 'lucide-react';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
+import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { useCreateMusicPlaylistMutation, useMusicOverviewQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
-const Section: React.FC<React.PropsWithChildren<{ title: string; href?: string }>> = ({
-  title,
-  href,
-  children,
-}) => (
-  <section className="space-y-3">
-    <div className="flex items-center justify-between">
-      <h2 className="font-display text-xl font-bold">{title}</h2>
+const Section: React.FC<
+  React.PropsWithChildren<{ title: string; eyebrow?: string; href?: string }>
+> = ({ title, eyebrow, href, children }) => (
+  <section className="space-y-4">
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        {eyebrow && (
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-brand-400/80">
+            {eyebrow}
+          </p>
+        )}
+        <h2 className="font-display text-2xl font-bold tracking-tight md:text-3xl">{title}</h2>
+      </div>
       {href && (
-        <Link to={href} className="text-xs font-semibold text-brand-400">
+        <Link
+          to={href}
+          className="group flex shrink-0 items-center gap-1.5 text-xs font-semibold text-white/40 transition hover:text-white"
+        >
           {t.common.seeAll}
+          <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
         </Link>
       )}
     </div>
@@ -26,11 +48,64 @@ const Section: React.FC<React.PropsWithChildren<{ title: string; href?: string }
   </section>
 );
 
+interface QuickCardProps {
+  href: string;
+  title: string;
+  subtitle?: string;
+  artworkUrl?: string | null;
+  icon: LucideIcon;
+  tone: string;
+}
+
+const QuickCard: React.FC<QuickCardProps> = ({
+  href,
+  title,
+  subtitle,
+  artworkUrl,
+  icon: Icon,
+  tone,
+}) => (
+  <Link
+    to={href}
+    className="group relative flex min-h-24 items-center gap-4 overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.045] p-3.5 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.075] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+  >
+    <div
+      className={`relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br ${tone}`}
+    >
+      {artworkUrl ? (
+        <img
+          src={artworkUrl}
+          alt=""
+          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        />
+      ) : (
+        <Icon className="h-7 w-7 text-white/90" />
+      )}
+    </div>
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-white">{title}</p>
+      {subtitle && <p className="mt-1 truncate text-xs text-white/40">{subtitle}</p>}
+    </div>
+    <Play className="ml-auto h-4 w-4 shrink-0 fill-current text-white/0 transition group-hover:text-white/70" />
+  </Link>
+);
+
 export const MusicPage: React.FC = () => {
   const query = useMusicOverviewQuery();
+  const player = useMusicPlayer();
   const createPlaylist = useCreateMusicPlaylistMutation();
   const [newName, setNewName] = useState('');
-  if (query.isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-zinc-900" />;
+  if (query.isLoading)
+    return (
+      <div className="space-y-8 pb-32">
+        <div className="h-[420px] animate-pulse rounded-[32px] bg-zinc-900" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((item) => (
+            <div key={item} className="h-24 animate-pulse rounded-2xl bg-zinc-900" />
+          ))}
+        </div>
+      </div>
+    );
   if (query.isError)
     return (
       <ErrorState
@@ -48,40 +123,125 @@ export const MusicPage: React.FC = () => {
         description={t.music.emptyDescription}
       />
     );
+
+  const heroTrack = data.recentHistory[0]?.track || data.recentTracks[0];
+  const heroQueue = heroTrack
+    ? [heroTrack, ...data.recentTracks.filter((track) => track.id !== heroTrack.id)]
+    : data.recentTracks;
+  const firstAlbum = data.recentAlbums[0];
+  const firstArtist = data.artists[0];
+  const recentlyPlayedTracks = data.recentHistory
+    .map((entry) => entry.track)
+    .filter((track, index, tracks) => tracks.findIndex((item) => item.id === track.id) === index);
+
   return (
-    <div className="space-y-8 pb-28">
-      <header className="rounded-2xl border border-brand-500/15 bg-gradient-to-br from-brand-900/40 via-[#111315] to-[#090a0b] p-6 md:p-8">
-        <p className="mb-2 text-xs font-bold uppercase tracking-[.2em] text-brand-400">
-          CineDrive Music
-        </p>
-        <h1 className="font-display text-3xl font-extrabold md:text-5xl">{t.music.title}</h1>
-        <p className="mt-2 max-w-2xl text-sm text-zinc-400">{t.music.subtitle}</p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Link
-            to="/music/tracks"
-            className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
-          >
-            {t.music.allTracks}
-          </Link>
-          <Link
-            to="/music/liked"
-            className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-sm"
-          >
-            <Heart className="h-4 w-4" />
-            {t.music.liked} · {data.favoriteCount}
-          </Link>
-          <Link
-            to="/music/history"
-            className="flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2 text-sm"
-          >
-            <History className="h-4 w-4" />
-            {t.music.history}
-          </Link>
+    <div className="space-y-11 pb-32 md:space-y-14">
+      <h1 className="sr-only">{t.music.title}</h1>
+      <header className="relative isolate min-h-[390px] overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#101114] shadow-[0_32px_90px_rgba(0,0,0,.35)] md:min-h-[440px] md:rounded-[36px]">
+        {heroTrack?.artworkUrl && (
+          <img
+            src={heroTrack.artworkUrl}
+            alt=""
+            className="absolute inset-0 -z-30 h-full w-full scale-105 object-cover opacity-70 blur-[2px]"
+          />
+        )}
+        <div className="absolute inset-0 -z-20 bg-gradient-to-r from-black via-black/80 to-black/10" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-t from-black via-transparent to-black/15" />
+        <div className="flex min-h-[390px] max-w-3xl flex-col justify-end p-6 md:min-h-[440px] md:p-10 lg:p-12">
+          <div className="mb-auto flex items-center gap-2 pt-1 text-[10px] font-bold uppercase tracking-[0.25em] text-white/55">
+            <Sparkles className="h-3.5 w-3.5 text-brand-300" />
+            CineDrive Music
+          </div>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-brand-300">
+            {data.recentHistory.length ? t.music.continueListening : t.music.justAdded}
+          </p>
+          <h1 className="max-w-2xl font-display text-4xl font-extrabold leading-[0.95] tracking-[-0.035em] sm:text-5xl md:text-7xl">
+            {heroTrack?.title || t.music.title}
+          </h1>
+          <p className="mt-4 text-sm font-medium text-white/55 md:text-base">
+            {heroTrack?.primaryArtist?.name || t.music.subtitle}
+            {heroTrack?.album?.title ? ` · ${heroTrack.album.title}` : ''}
+          </p>
+          <div className="mt-7 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => player.playTracks(heroQueue)}
+              disabled={!heroQueue.length}
+              className="inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-3 text-sm font-bold text-black shadow-xl transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+            >
+              <Play className="h-4 w-4 fill-current" />
+              {t.music.play}
+            </button>
+            <Link
+              to="/music/tracks"
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/25 px-5 py-3 text-sm font-semibold text-white backdrop-blur-xl transition hover:bg-white/10"
+            >
+              <Radio className="h-4 w-4" />
+              {t.music.openLibrary}
+            </Link>
+          </div>
         </div>
       </header>
+
+      <Section title={t.music.quickAccess} eyebrow={t.music.forYou}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <QuickCard
+            href="/music/liked"
+            title={t.music.liked}
+            subtitle={t.music.trackCount(data.favoriteCount)}
+            icon={Heart}
+            tone="from-fuchsia-600 to-rose-950"
+          />
+          <QuickCard
+            href="/music/history"
+            title={t.music.history}
+            subtitle={t.music.recentlyPlayed}
+            artworkUrl={data.recentHistory[0]?.track.artworkUrl}
+            icon={History}
+            tone="from-blue-500 to-indigo-950"
+          />
+          <QuickCard
+            href="/music/tracks"
+            title={t.music.allTracks}
+            subtitle={t.music.yourCollection}
+            artworkUrl={data.recentTracks[1]?.artworkUrl}
+            icon={ListMusic}
+            tone="from-brand-500 to-cyan-950"
+          />
+          {firstAlbum && (
+            <QuickCard
+              href={`/music/albums/${firstAlbum.id}`}
+              title={firstAlbum.title}
+              subtitle={firstAlbum.artist?.name || t.music.album}
+              artworkUrl={firstAlbum.artworkUrl}
+              icon={Disc3}
+              tone="from-amber-400 to-orange-950"
+            />
+          )}
+          {firstArtist && (
+            <QuickCard
+              href={`/music/artists/${firstArtist.id}`}
+              title={firstArtist.name}
+              subtitle={t.music.artist}
+              artworkUrl={firstArtist.artworkUrl}
+              icon={Radio}
+              tone="from-emerald-500 to-teal-950"
+            />
+          )}
+          {data.playlists[0] && (
+            <QuickCard
+              href={`/music/playlists/${data.playlists[0].id}`}
+              title={data.playlists[0].name}
+              subtitle={t.music.trackCount(data.playlists[0].itemCount)}
+              icon={ListMusic}
+              tone="from-violet-500 to-purple-950"
+            />
+          )}
+        </div>
+      </Section>
+
       {data.recentAlbums.length > 0 && (
-        <Section title={t.music.recentAlbums} href="/music/albums">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+        <Section title={t.music.recentAlbums} eyebrow={t.music.freshForYou} href="/music/albums">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {data.recentAlbums.slice(0, 6).map((album) => (
               <MusicCollectionCard
                 key={album.id}
@@ -94,14 +254,16 @@ export const MusicPage: React.FC = () => {
           </div>
         </Section>
       )}
-      {data.recentTracks.length > 0 && (
-        <Section title={t.music.recentTracks} href="/music/tracks">
-          <MusicTrackList tracks={data.recentTracks.slice(0, 8)} />
+
+      {data.recentHistory.length > 0 && (
+        <Section title={t.music.recentlyPlayed} href="/music/history">
+          <MusicTrackList tracks={recentlyPlayedTracks.slice(0, 6)} />
         </Section>
       )}
+
       {data.artists.length > 0 && (
-        <Section title={t.music.artists} href="/music/artists">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+        <Section title={t.music.artists} eyebrow={t.music.fromYourLibrary} href="/music/artists">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {data.artists.slice(0, 6).map((artist) => (
               <MusicCollectionCard
                 key={artist.id}
@@ -115,51 +277,70 @@ export const MusicPage: React.FC = () => {
           </div>
         </Section>
       )}
-      <Section title={t.music.playlists}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const name = newName.trim();
-            if (!name) return;
-            createPlaylist.mutate({ name }, { onSuccess: () => setNewName('') });
-          }}
-          className="flex max-w-md gap-2"
-        >
-          <input
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-            placeholder={t.music.newPlaylist}
-            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#111214] px-3 py-2 text-sm outline-none focus:border-brand-500"
-          />
-          <button
-            disabled={!newName.trim() || createPlaylist.isPending}
-            className="flex items-center gap-2 rounded-xl bg-brand-600 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+
+      {data.recentTracks.length > 0 && (
+        <Section title={t.music.recentTracks} href="/music/tracks">
+          <MusicTrackList tracks={data.recentTracks.slice(0, 8)} />
+        </Section>
+      )}
+
+      <Section title={t.music.playlists} eyebrow={t.music.madeByYou}>
+        <div className="rounded-[28px] border border-white/[0.07] bg-gradient-to-br from-white/[0.055] to-transparent p-5 md:p-7">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = newName.trim();
+              if (!name) return;
+              createPlaylist.mutate({ name }, { onSuccess: () => setNewName('') });
+            }}
+            className="flex max-w-xl gap-2"
           >
-            <Plus className="h-4 w-4" />
-            {t.music.create}
-          </button>
-        </form>
-        {data.playlists.length ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {data.playlists.map((playlist) => (
-              <Link
-                key={playlist.id}
-                to={`/music/playlists/${playlist.id}`}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#111214] p-4 hover:border-brand-500/30"
-              >
-                <ListMusic className="h-8 w-8 text-brand-400" />
-                <span>
-                  <span className="block font-semibold">{playlist.name}</span>
-                  <span className="text-xs text-zinc-500">
-                    {t.music.trackCount(playlist.itemCount)}
+            <input
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder={t.music.newPlaylist}
+              className="min-w-0 flex-1 rounded-full border border-white/10 bg-black/25 px-5 py-3 text-sm outline-none backdrop-blur focus:border-brand-400"
+            />
+            <button
+              disabled={!newName.trim() || createPlaylist.isPending}
+              className="flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-bold text-black transition hover:bg-zinc-200 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">{t.music.create}</span>
+            </button>
+          </form>
+          {data.playlists.length ? (
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {data.playlists.map((playlist, index) => (
+                <Link
+                  key={playlist.id}
+                  to={`/music/playlists/${playlist.id}`}
+                  className="group flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-3 transition hover:bg-white/[0.06]"
+                >
+                  <div
+                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${
+                      [
+                        'from-violet-500 to-indigo-950',
+                        'from-brand-400 to-cyan-950',
+                        'from-rose-500 to-fuchsia-950',
+                      ][index % 3]
+                    }`}
+                  >
+                    <ListMusic className="h-6 w-6" />
+                  </div>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">{playlist.name}</span>
+                    <span className="mt-1 block text-xs text-white/40">
+                      {t.music.trackCount(playlist.itemCount)}
+                    </span>
                   </span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-500">{t.music.noPlaylists}</p>
-        )}
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-5 text-sm text-white/35">{t.music.noPlaylists}</p>
+          )}
+        </div>
       </Section>
     </div>
   );
