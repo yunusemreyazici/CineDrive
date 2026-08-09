@@ -12,6 +12,7 @@ import {
   musicArtistMaintenanceSchema,
   musicBulkMetadataSchema,
   musicReplayGainScanSchema,
+  musicFingerprintScanSchema,
   musicMaintenanceGenerateSchema,
   musicDuplicateArchiveSchema,
   musicReplayQuerySchema,
@@ -33,6 +34,7 @@ import { MusicDiscoveryService } from '../services/music-discovery.service.js';
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicMaintenanceService, audioQuality } from '../services/music-maintenance.service.js';
+import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
 
 const normalizeMusicName = (value: string) =>
   value
@@ -123,6 +125,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const replayGainService = new MusicReplayGainService(fastify.prisma);
   const replayService = new MusicReplayService(fastify.prisma);
   const maintenanceService = new MusicMaintenanceService(fastify.prisma);
+  const fingerprintService = new MusicFingerprintService(fastify.prisma);
   fastify.addHook('preHandler', fastify.authenticate);
 
   fastify.get('/overview', async (request) => {
@@ -262,21 +265,52 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const replayGainMissing = tracks.filter(
       (track) => track.audio?.replayGainTrackDb == null && track.audio?.replayGainAlbumDb == null,
     );
-    const [suggestions, actions] = await Promise.all([
+    const [suggestions, actions, storedFingerprints, fingerprintCapability] = await Promise.all([
       fastify.prisma.musicMaintenanceSuggestion.findMany({ where: { userId, status: 'pending' }, orderBy: { createdAt: 'desc' }, take: 100 }),
       fastify.prisma.musicMaintenanceAction.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      fastify.prisma.musicFingerprint.findMany({ where: { track: ownedTrackWhere(userId) } }),
+      fingerprintService.capability(),
     ]);
+    const trackById = new Map(tracks.map((track) => [track.id, track]));
+    const acousticMap = new Map<string, typeof tracks>();
+    storedFingerprints.forEach((fingerprint) => {
+      if (!fingerprint.fingerprintHash) return;
+      const track = trackById.get(fingerprint.trackId);
+      if (!track) return;
+      const key = `${fingerprint.fingerprintHash}|${Math.round(fingerprint.duration || 0)}`;
+      const group = acousticMap.get(key) || [];
+      group.push(track);
+      acousticMap.set(key, group);
+    });
+    const acousticDuplicates = [...acousticMap.entries()]
+      .filter(([, group]) => group.length > 1)
+      .map(([key, group]) => {
+        const quality = group.map(audioQuality).sort((a, b) => b.score - a.score);
+        return { key, tracks: group, quality, recommendedTrackId: quality[0]?.trackId };
+      });
+    const fingerprintedIds = new Set(storedFingerprints.filter((item) => item.status === 'analyzed').map((item) => item.trackId));
+    const fingerprintCandidates = tracks.filter((track) => !fingerprintedIds.has(track.id));
     return {
       missingArtwork: missingArtwork.slice(0, 100),
       missingMetadata: missingMetadata.slice(0, 100),
       duplicates: duplicates.slice(0, 100),
+      acousticDuplicates: acousticDuplicates.slice(0, 100),
       replayGainMissing: replayGainMissing.slice(0, 100),
+      fingerprintCandidates: fingerprintCandidates.slice(0, 100),
+      fingerprints: {
+        ...fingerprintCapability,
+        total: storedFingerprints.length,
+        analyzed: storedFingerprints.filter((item) => item.status === 'analyzed').length,
+        identified: storedFingerprints.filter((item) => Boolean(item.acoustidId)).length,
+        failed: storedFingerprints.filter((item) => item.status === 'failed').length,
+      },
       suggestions: suggestions.map((item) => ({ ...item, currentData: JSON.parse(item.currentData), proposedData: JSON.parse(item.proposedData), createdAt: item.createdAt.toISOString(), resolvedAt: item.resolvedAt?.toISOString() || null })),
       actions: actions.map((item) => ({ id: item.id, actionType: item.actionType, targetType: item.targetType, targetId: item.targetId, createdAt: item.createdAt.toISOString(), revertedAt: item.revertedAt?.toISOString() || null })),
       totals: {
         missingArtwork: missingArtwork.length,
         missingMetadata: missingMetadata.length,
         duplicates: duplicates.length,
+        acousticDuplicates: acousticDuplicates.length,
         replayGainMissing: replayGainMissing.length,
       },
     };
@@ -489,6 +523,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     return replayGainService.scan(request.user!.id, parsed.data.trackIds);
+  });
+
+  fastify.post('/maintenance/fingerprints', async (request, reply) => {
+    const parsed = musicFingerprintScanSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz akustik parmak izi işlemi.',
+          requestId: request.id,
+        },
+      });
+    return fingerprintService.scan(request.user!.id, parsed.data, (driveFile) =>
+      driveFile.googleDriveFileId
+        ? driveSourceInput(fastify, driveFile, request.user!.id).url
+        : null,
+    );
   });
 
   fastify.get('/tracks', async (request, reply) => {

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Gauge, ImageOff, Layers3, RotateCcw, Save, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, AudioWaveform, Check, Gauge, ImageOff, Layers3, RotateCcw, Save, Sparkles, X } from 'lucide-react';
 import { ErrorState } from '../components/common/ErrorState';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import {
@@ -8,6 +8,7 @@ import {
   useEditMusicArtistMaintenanceMutation,
   useMusicMaintenanceQuery,
   useReplayGainScanMutation,
+  useFingerprintScanMutation,
   useGenerateMusicMaintenanceMutation,
   useResolveMusicSuggestionMutation,
   useArchiveDuplicateMutation,
@@ -34,6 +35,7 @@ export const MusicMaintenancePage: React.FC = () => {
   const query = useMusicMaintenanceQuery();
   const bulk = useBulkMusicMetadataMutation();
   const replayGain = useReplayGainScanMutation();
+  const fingerprints = useFingerprintScanMutation();
   const editAlbum = useEditMusicAlbumMaintenanceMutation();
   const editArtist = useEditMusicArtistMaintenanceMutation();
   const generate = useGenerateMusicMaintenanceMutation();
@@ -299,6 +301,45 @@ export const MusicMaintenancePage: React.FC = () => {
                   ))}
                 </div>
               </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-violet-400/15 bg-gradient-to-br from-violet-950/30 via-black/20 to-cyan-950/20 p-5 md:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <h2 className="flex items-center gap-2 font-display text-2xl font-bold"><AudioWaveform className="h-6 w-6 text-violet-300" /> {t.music.acousticFingerprint}</h2>
+            <p className="mt-2 text-sm leading-6 text-white/40">{t.music.acousticFingerprintHint}</p>
+            <p className="mt-2 text-xs font-semibold text-white/55">{t.music.fingerprintsAnalyzed(data.fingerprints.analyzed, data.fingerprints.identified)}</p>
+            {!data.fingerprints.available && <p className="mt-2 text-xs text-amber-300">{t.music.fpcalcUnavailable}</p>}
+            {data.fingerprints.available && !data.fingerprints.acoustidConfigured && <p className="mt-2 text-xs text-amber-200/70">{t.music.acoustidNotConfigured}</p>}
+          </div>
+          <button
+            onClick={() => fingerprints.mutate({ trackIds: data.fingerprintCandidates.slice(0, 20).map((track) => track.id) })}
+            disabled={!data.fingerprints.available || !data.fingerprintCandidates.length || fingerprints.isPending}
+            className="rounded-full bg-violet-300 px-5 py-2.5 text-xs font-black text-black disabled:opacity-40"
+          >
+            {fingerprints.isPending ? t.music.scanning : t.music.scanFingerprints}
+          </button>
+        </div>
+        {fingerprints.data && <p className="mt-4 text-xs text-white/55">{t.music.fingerprintsAnalyzed(fingerprints.data.analyzed.length, fingerprints.data.identified.length)}</p>}
+        <div className="mt-6">
+          <h3 className="font-display text-lg font-bold">{t.music.acousticDuplicates}</h3>
+          <p className="mt-1 text-xs text-white/35">{t.music.acousticDuplicateHint}</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {data.acousticDuplicates.map((group) => (
+              <div key={group.key} className="rounded-2xl border border-white/[0.07] bg-black/25 p-4">
+                <p className="truncate text-sm font-bold">{group.tracks[0]?.title} · {group.tracks.length}</p>
+                <div className="mt-3 space-y-2">
+                  {group.tracks.map((track) => (
+                    <div key={track.id} className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2 text-xs text-white/45">
+                      <span className="min-w-0 flex-1 truncate">{track.title} · {track.source?.fileName}</span>
+                      {track.id === group.recommendedTrackId ? <span className="rounded-full bg-violet-300/15 px-2 py-1 text-[9px] font-black text-violet-200">{t.music.recommendedQuality}</span> : <button onClick={() => group.recommendedTrackId && archiveDuplicate.mutate({ keepTrackId: group.recommendedTrackId, archiveTrackId: track.id, replacePlaylistItems: true })} className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10">{t.music.archiveLowerQuality}</button>}
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>

@@ -8,6 +8,7 @@ interface Props {
   subtitle?: string | null;
   artworkUrl?: string | null;
   round?: boolean;
+  compact?: boolean;
 }
 
 export const MusicCollectionCard: React.FC<Props> = ({
@@ -16,10 +17,11 @@ export const MusicCollectionCard: React.FC<Props> = ({
   subtitle,
   artworkUrl,
   round,
+  compact,
 }) => (
   <Link
     to={href}
-    className="group block min-w-0 rounded-2xl p-1 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+    className={`group block min-w-0 rounded-2xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${compact ? '' : 'p-1'}`}
   >
     <div
       className={`relative mb-3 aspect-square overflow-hidden border border-white/[0.07] bg-gradient-to-br from-zinc-800 to-zinc-950 shadow-[0_18px_45px_rgba(0,0,0,.28)] ${

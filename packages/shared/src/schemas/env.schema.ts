@@ -31,6 +31,8 @@ export const envSchema = z.object({
     z.string().url().optional(),
   ),
   LIBRETRANSLATE_API_KEY: z.string().optional(),
+  FPCALC_PATH: z.string().optional(),
+  ACOUSTID_API_KEY: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

@@ -91,6 +91,11 @@ export const musicReplayGainScanSchema = z.object({
   trackIds: z.array(z.string().uuid()).min(1).max(100),
 });
 
+export const musicFingerprintScanSchema = z.object({
+  trackIds: z.array(z.string().uuid()).min(1).max(100),
+  force: z.boolean().default(false),
+});
+
 export const musicMaintenanceGenerateSchema = z.object({
   trackIds: z.array(z.string().uuid()).max(20).optional(),
   albumIds: z.array(z.string().uuid()).max(20).optional(),

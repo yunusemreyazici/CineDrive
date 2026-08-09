@@ -314,6 +314,15 @@ export interface MusicDuplicateGroupDto {
   quality?: Array<{ trackId: string; score: number; label: string }>;
 }
 
+export interface MusicFingerprintStatusDto {
+  available: boolean;
+  acoustidConfigured: boolean;
+  total: number;
+  analyzed: number;
+  identified: number;
+  failed: number;
+}
+
 export interface MusicMaintenanceSuggestionDto {
   id: string;
   targetType: string;
@@ -340,13 +349,17 @@ export interface MusicMaintenanceDto {
   missingArtwork: MusicTrackDto[];
   missingMetadata: Array<MusicTrackDto & { confidence: number; issues: string[] }>;
   duplicates: MusicDuplicateGroupDto[];
+  acousticDuplicates: MusicDuplicateGroupDto[];
   replayGainMissing: MusicTrackDto[];
+  fingerprintCandidates: MusicTrackDto[];
+  fingerprints: MusicFingerprintStatusDto;
   suggestions?: MusicMaintenanceSuggestionDto[];
   actions?: MusicMaintenanceActionDto[];
   totals: {
     missingArtwork: number;
     missingMetadata: number;
     duplicates: number;
+    acousticDuplicates: number;
     replayGainMissing: number;
   };
 }

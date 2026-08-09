@@ -17,6 +17,7 @@ FROM node:22-alpine AS runner
 
 WORKDIR /app
 
+RUN apk add --no-cache chromaprint
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./

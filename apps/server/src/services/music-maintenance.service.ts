@@ -4,6 +4,13 @@ import { MusicLibraryService } from './music-library.service.js';
 
 const json = (value: unknown) => JSON.stringify(value);
 const parseJson = (value: string) => JSON.parse(value) as Record<string, unknown>;
+const normalizedName = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 
 export const audioQuality = (track: {
   id: string;
@@ -104,7 +111,42 @@ export class MusicMaintenanceService {
       return { status: 'rejected' };
     }
     const proposed = parseJson(suggestion.proposedData);
-    if (suggestion.kind === 'metadata' && suggestion.targetType === 'track') {
+    if (suggestion.kind === 'acoustic-metadata' && suggestion.targetType === 'track') {
+      const track = await this.prisma.musicTrack.findFirst({
+        where: { id: suggestion.targetId, library: { userId } },
+        include: { primaryArtist: true },
+      });
+      if (!track) return null;
+      const title = (proposed.title as string | undefined) || track.title;
+      const artistName = proposed.artist as string | undefined;
+      await this.prisma.$transaction(async (tx) => {
+        let artistId = track.primaryArtistId;
+        if (artistName) {
+          const artist = await tx.musicArtist.upsert({
+            where: { userId_normalizedName: { userId, normalizedName: normalizedName(artistName) } },
+            create: { userId, name: artistName, normalizedName: normalizedName(artistName) },
+            update: { name: artistName },
+          });
+          artistId = artist.id;
+        }
+        await tx.musicTrack.update({
+          where: { id: track.id },
+          data: {
+            title,
+            normalizedTitle: normalizedName(title),
+            primaryArtistId: artistId,
+            musicbrainzRecordingId: (proposed.musicbrainzRecordingId as string | undefined) || undefined,
+            metadataLocked: true,
+          },
+        });
+        if (artistId) {
+          await tx.musicTrackArtist.deleteMany({ where: { trackId: track.id } });
+          await tx.musicTrackArtist.create({ data: { trackId: track.id, artistId, position: 0 } });
+        }
+        await tx.musicMaintenanceAction.create({ data: { userId, actionType: 'accept-acoustic-metadata', targetType: 'track', targetId: track.id, beforeData: suggestion.currentData, afterData: suggestion.proposedData } });
+        await tx.musicMaintenanceSuggestion.update({ where: { id: suggestion.id }, data: { status: 'accepted', resolvedAt: new Date() } });
+      });
+    } else if (suggestion.kind === 'metadata' && suggestion.targetType === 'track') {
       const track = await this.prisma.musicTrack.findFirst({ where: { id: suggestion.targetId, library: { userId } }, include: { album: true, credits: true } });
       if (!track) return null;
       await this.prisma.$transaction(async (tx) => {
@@ -180,6 +222,21 @@ export class MusicMaintenanceService {
         await tx.musicTrackCredit.deleteMany({ where: { trackId: action.targetId, source: 'musicbrainz' } });
         const previousCredits = (before.credits as Array<{ name: string; role: string; instrument?: string; musicbrainzId?: string }> | undefined) || [];
         if (previousCredits.length) await tx.musicTrackCredit.createMany({ data: previousCredits.map((credit, position) => ({ trackId: action.targetId, ...credit, instrument: credit.instrument || '', source: 'musicbrainz', position })) });
+      } else if (action.actionType === 'accept-acoustic-metadata') {
+        const title = before.title as string;
+        const artistId = (before.primaryArtistId as string | null) || null;
+        await tx.musicTrack.update({
+          where: { id: action.targetId },
+          data: {
+            title,
+            normalizedTitle: normalizedName(title),
+            primaryArtistId: artistId,
+            musicbrainzRecordingId: (before.musicbrainzRecordingId as string | null) || null,
+            metadataLocked: false,
+          },
+        });
+        await tx.musicTrackArtist.deleteMany({ where: { trackId: action.targetId } });
+        if (artistId) await tx.musicTrackArtist.create({ data: { trackId: action.targetId, artistId, position: 0 } });
       }
       await tx.musicMaintenanceAction.update({ where: { id: action.id }, data: { revertedAt: new Date() } });
     });

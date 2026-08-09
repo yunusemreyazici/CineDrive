@@ -38,7 +38,7 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Install openssl and wget for Prisma SQLite & healthcheck
-RUN apk add --no-corepack --no-cache openssl wget ca-certificates
+RUN apk add --no-corepack --no-cache openssl wget ca-certificates chromaprint
 
 # Create non-root app directory & data volumes with write permissions
 RUN mkdir -p /app/data /app/data/subtitle_cache && \

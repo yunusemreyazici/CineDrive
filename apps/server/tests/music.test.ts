@@ -488,6 +488,58 @@ describe('Music library', () => {
     });
   });
 
+  it('groups true duplicates by acoustic fingerprint instead of tags', async () => {
+    const original = await app.prisma.musicTrack.findUniqueOrThrow({ where: { id: trackId } });
+    const duplicateFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId,
+        storageType: 'local',
+        localFilePath: `${fixturePath}.duplicate`,
+        name: 'Completely Different Title.mp3',
+        mimeType: 'audio/mpeg',
+        size: 128n,
+        status: 'active',
+        audioCodec: 'mp3',
+        audioBitrate: 128000,
+        mediaDuration: 120,
+      },
+    });
+    const duplicate = await app.prisma.musicTrack.create({
+      data: {
+        libraryId,
+        driveFileId: duplicateFile.id,
+        title: 'Completely Different Title',
+        normalizedTitle: 'completely different title',
+        duration: 120,
+      },
+    });
+    await app.prisma.musicFingerprint.createMany({
+      data: [
+        { trackId: original.id, fingerprint: 'same-audio', fingerprintHash: 'hash-1', duration: 120, status: 'analyzed' },
+        { trackId: duplicate.id, fingerprint: 'same-audio', fingerprintHash: 'hash-1', duration: 120, status: 'analyzed' },
+      ],
+    });
+
+    const report = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance',
+      cookies: { session_id: cookie },
+    });
+    expect(report.statusCode).toBe(200);
+    expect(JSON.parse(report.body)).toMatchObject({
+      totals: { acousticDuplicates: 1 },
+      acousticDuplicates: [
+        {
+          tracks: expect.arrayContaining([
+            expect.objectContaining({ id: trackId }),
+            expect.objectContaining({ id: duplicate.id }),
+          ]),
+          recommendedTrackId: trackId,
+        },
+      ],
+    });
+  });
+
   it('finds, validates, and caches lyrics automatically from LRCLIB', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(

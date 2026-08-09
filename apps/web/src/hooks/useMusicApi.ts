@@ -348,6 +348,23 @@ export const useReplayGainScanMutation = () => {
   });
 };
 
+export const useFingerprintScanMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { trackIds: string[]; force?: boolean }) =>
+      (
+        await apiClient.post<{
+          analyzed: string[];
+          identified: string[];
+          skipped: Array<{ trackId: string; reason: string }>;
+          available: boolean;
+          acoustidConfigured: boolean;
+        }>('/music/maintenance/fingerprints', input)
+      ).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
+
 export const useEditMusicAlbumMaintenanceMutation = () => {
   const client = useQueryClient();
   return useMutation({

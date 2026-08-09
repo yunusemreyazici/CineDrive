@@ -8,34 +8,34 @@ generator client {
 }
 
 model User {
-  id                    String              @id @default(uuid())
-  email                 String              @unique
-  passwordHash          String?
-  name                  String
-  role                  String              @default("user")
-  opensubtitlesApiKey   String?
-  opensubtitlesUsername String?
+  id                          String                       @id @default(uuid())
+  email                       String                       @unique
+  passwordHash                String?
+  name                        String
+  role                        String                       @default("user")
+  opensubtitlesApiKey         String?
+  opensubtitlesUsername       String?
   // opensubtitlesPassword was stored in plain text and never read: the
   // OpenSubtitles client authenticates with the API key alone. Removed rather
   // than encrypted — an unused credential is best not held at all.
-  preferredLanguages    String              @default("tr,en")
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
-  sessions              Session[]
-  googleConnections     GoogleConnection[]
-  libraries             Library[]
-  playbackProgresses    PlaybackProgress[]
-  watchHistories        WatchHistory[]
-  favorites             Favorite[]
-  musicArtists          MusicArtist[]
-  musicAlbums           MusicAlbum[]
-  musicArtworks         MusicArtwork[]
-  musicFavorites        MusicFavorite[]
-  musicHistory          MusicHistory[]
-  musicPlaylists        MusicPlaylist[]
-  musicPlaybackState    MusicPlaybackState?
+  preferredLanguages          String                       @default("tr,en")
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  sessions                    Session[]
+  googleConnections           GoogleConnection[]
+  libraries                   Library[]
+  playbackProgresses          PlaybackProgress[]
+  watchHistories              WatchHistory[]
+  favorites                   Favorite[]
+  musicArtists                MusicArtist[]
+  musicAlbums                 MusicAlbum[]
+  musicArtworks               MusicArtwork[]
+  musicFavorites              MusicFavorite[]
+  musicHistory                MusicHistory[]
+  musicPlaylists              MusicPlaylist[]
+  musicPlaybackState          MusicPlaybackState?
   musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
-  musicMaintenanceActions MusicMaintenanceAction[]
+  musicMaintenanceActions     MusicMaintenanceAction[]
 }
 
 model Session {
@@ -391,11 +391,36 @@ model MusicTrack {
   currentInStates        MusicPlaybackState[] @relation("CurrentMusicTrack")
   lyrics                 MusicLyrics?
   credits                MusicTrackCredit[]
+  fingerprint            MusicFingerprint?
 
   @@index([libraryId])
   @@index([albumId, discNumber, trackNumber])
   @@index([primaryArtistId])
   @@index([normalizedTitle])
+}
+
+model MusicFingerprint {
+  id                     String     @id @default(uuid())
+  trackId                String     @unique
+  track                  MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  fingerprint            String?
+  fingerprintHash        String?
+  duration               Float?
+  sourceModifiedAt       DateTime?
+  acoustidId             String?
+  acoustidScore          Float?
+  matchedTitle           String?
+  matchedArtist          String?
+  musicbrainzRecordingId String?
+  status                 String     @default("pending")
+  errorCode              String?
+  analyzedAt             DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  @@index([fingerprintHash, duration])
+  @@index([status, analyzedAt])
+  @@index([acoustidId])
 }
 
 model MusicTrackCredit {
@@ -416,20 +441,20 @@ model MusicTrackCredit {
 }
 
 model MusicLyrics {
-  id                String     @id @default(uuid())
-  trackId           String     @unique
-  track             MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  id                String                   @id @default(uuid())
+  trackId           String                   @unique
+  track             MusicTrack               @relation(fields: [trackId], references: [id], onDelete: Cascade)
   content           String
   translatedContent String?
   romanizedContent  String?
   sourceName        String
-  sourceType        String     @default("sidecar")
+  sourceType        String                   @default("sidecar")
   language          String?
   translationLang   String?
-  isSynced          Boolean    @default(false)
-  offsetMs          Int        @default(0)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  isSynced          Boolean                  @default(false)
+  offsetMs          Int                      @default(0)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
   translations      MusicLyricsTranslation[]
   revisions         MusicLyricsRevision[]
 
@@ -465,9 +490,9 @@ model MusicLyricsRevision {
 }
 
 model MusicMaintenanceSuggestion {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   targetType   String
   targetId     String
   kind         String
@@ -475,8 +500,8 @@ model MusicMaintenanceSuggestion {
   confidence   Int
   currentData  String
   proposedData String
-  status       String   @default("pending")
-  createdAt    DateTime @default(now())
+  status       String    @default("pending")
+  createdAt    DateTime  @default(now())
   resolvedAt   DateTime?
 
   @@index([userId, status, createdAt])
@@ -484,15 +509,15 @@ model MusicMaintenanceSuggestion {
 }
 
 model MusicMaintenanceAction {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   actionType String
   targetType String
   targetId   String
   beforeData String
   afterData  String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
   revertedAt DateTime?
 
   @@index([userId, createdAt])
