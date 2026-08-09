@@ -70,6 +70,7 @@ describe('Music library', () => {
         artistId: artist.id,
         title: 'Test Album',
         normalizedTitle: `test album ${randomUUID()}`,
+        releaseType: 'album',
       },
     });
     const track = await app.prisma.musicTrack.create({
@@ -88,6 +89,9 @@ describe('Music library', () => {
     });
     trackId = track.id;
     await app.prisma.musicTrackArtist.create({ data: { trackId, artistId: artist.id } });
+    await app.prisma.musicTrackCredit.create({
+      data: { trackId, name: 'Fixture Composer', role: 'composer', source: 'tag' },
+    });
   });
 
   afterEach(async () => {
@@ -128,7 +132,144 @@ describe('Music library', () => {
         replayGainTrackDb: -5.2,
         replayGainTrackPeak: 0.98,
       },
+      credits: [{ name: 'Fixture Composer', role: 'composer', source: 'tag' }],
+      source: {
+        fileName: '01 - Test Song.mp3',
+        localPath: fixturePath,
+      },
     });
+  });
+
+  it('edits and locks metadata with manual credits', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/music/tracks/${trackId}/metadata`,
+      cookies: { session_id: cookie },
+      payload: {
+        title: 'Edited Song',
+        artist: 'Edited Artist',
+        album: 'Edited EP',
+        year: 2025,
+        genres: ['Jazz', 'Vocal'],
+        discNumber: 2,
+        trackNumber: 4,
+        releaseType: 'ep',
+        metadataLocked: true,
+        credits: [
+          { name: 'Manual Writer', role: 'lyricist' },
+          { name: 'Manual Producer', role: 'producer' },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).track).toMatchObject({
+      title: 'Edited Song',
+      year: 2025,
+      discNumber: 2,
+      trackNumber: 4,
+      metadataLocked: true,
+      primaryArtist: { name: 'Edited Artist' },
+      album: { title: 'Edited EP', releaseType: 'ep' },
+      credits: [
+        { name: 'Manual Writer', role: 'lyricist', source: 'manual' },
+        { name: 'Manual Producer', role: 'producer', source: 'manual' },
+      ],
+    });
+  });
+
+  it('returns premium album summaries and disc information', async () => {
+    const albumId = (
+      await app.prisma.musicTrack.findUniqueOrThrow({
+        where: { id: trackId },
+        select: { albumId: true },
+      })
+    ).albumId!;
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/albums/${albumId}`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).album).toMatchObject({
+      releaseType: 'album',
+      totalDuration: 120,
+      discCount: 1,
+      qualitySummary: { formats: ['FLAC'], lossless: true, hiRes: true },
+    });
+  });
+
+  it('conservatively rematches MusicBrainz recording credits', async () => {
+    const recordingId = randomUUID();
+    const producerId = randomUUID();
+    const composerId = randomUUID();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            recordings: [
+              {
+                id: recordingId,
+                score: 100,
+                title: 'Test Song',
+                length: 120000,
+                'artist-credit': [{ artist: { name: 'Test Artist' } }],
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: recordingId,
+            relations: [
+              { type: 'producer', artist: { id: producerId, name: 'Online Producer' } },
+              {
+                type: 'performance',
+                work: {
+                  relations: [
+                    { type: 'composer', artist: { id: composerId, name: 'Online Composer' } },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ 'release-groups': [] }), { status: 200 }),
+      );
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/rematch`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toMatchObject({
+      matchStatus: 'matched',
+      track: {
+        musicbrainzRecordingId: recordingId,
+      },
+    });
+    expect(body.track.credits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Online Producer',
+          role: 'producer',
+          source: 'musicbrainz',
+        }),
+        expect.objectContaining({
+          name: 'Online Composer',
+          role: 'composer',
+          source: 'musicbrainz',
+        }),
+      ]),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('parses synced and plain LRC lyrics with metadata and offset', () => {

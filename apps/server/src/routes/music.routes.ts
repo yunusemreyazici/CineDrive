@@ -9,6 +9,7 @@ import {
   musicListQuerySchema,
   reorderMusicPlaylistSchema,
   updateMusicLyricsSchema,
+  updateMusicTrackMetadataSchema,
   updateMusicPlaybackStateSchema,
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
@@ -16,6 +17,15 @@ import { resolveRangeRequest } from '../utils/http-range.js';
 import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
 import { driveSourceInput } from './media/shared.js';
 import { MusicLyricsService, parseLrc } from '../services/music-lyrics.service.js';
+import { MusicBrainzService } from '../services/musicbrainz.service.js';
+
+const normalizeMusicName = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 
 const ownedTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   library: { userId },
@@ -45,6 +55,10 @@ const albumDto = (album: {
   title: string;
   year: number | null;
   genres: string | null;
+  releaseType: string;
+  secondaryTypes: string | null;
+  musicbrainzReleaseId: string | null;
+  musicbrainzReleaseGroupId: string | null;
   artwork: { id: string } | null;
   artist: {
     id: string;
@@ -58,6 +72,10 @@ const albumDto = (album: {
   title: album.title,
   year: album.year,
   genres: parseGenres(album.genres),
+  releaseType: album.releaseType,
+  secondaryTypes: parseGenres(album.secondaryTypes),
+  musicbrainzReleaseId: album.musicbrainzReleaseId,
+  musicbrainzReleaseGroupId: album.musicbrainzReleaseGroupId,
   artworkUrl: album.artwork ? `/api/music/artwork/${album.artwork.id}` : null,
   artist: album.artist,
   trackCount: album._count?.tracks,
@@ -65,6 +83,7 @@ const albumDto = (album: {
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const lyricsService = new MusicLyricsService(fastify.prisma);
+  const musicbrainz = new MusicBrainzService();
   fastify.addHook('preHandler', fastify.authenticate);
 
   fastify.get('/overview', async (request) => {
@@ -189,6 +208,220 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  fastify.get<{ Params: { id: string } }>('/tracks/:id', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      include: musicTrackInclude(request.user!.id),
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    return { track: formatMusicTrack(track) };
+  });
+
+  fastify.patch<{ Params: { id: string } }>('/tracks/:id/metadata', async (request, reply) => {
+    const parsed = updateMusicTrackMetadataSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz parça metadata bilgisi.',
+          requestId: request.id,
+        },
+      });
+    const userId = request.user!.id;
+    const existing = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(userId) },
+      include: { album: true },
+    });
+    if (!existing)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    const input = parsed.data;
+    await fastify.prisma.$transaction(async (transaction) => {
+      const primaryArtist = await transaction.musicArtist.upsert({
+        where: {
+          userId_normalizedName: {
+            userId,
+            normalizedName: normalizeMusicName(input.artist),
+          },
+        },
+        create: { userId, name: input.artist, normalizedName: normalizeMusicName(input.artist) },
+        update: { name: input.artist },
+      });
+      const albumArtistName = input.albumArtist || input.artist;
+      const albumArtist = await transaction.musicArtist.upsert({
+        where: {
+          userId_normalizedName: {
+            userId,
+            normalizedName: normalizeMusicName(albumArtistName),
+          },
+        },
+        create: {
+          userId,
+          name: albumArtistName,
+          normalizedName: normalizeMusicName(albumArtistName),
+        },
+        update: { name: albumArtistName },
+      });
+      const album = await transaction.musicAlbum.upsert({
+        where: {
+          userId_artistId_normalizedTitle: {
+            userId,
+            artistId: albumArtist.id,
+            normalizedTitle: normalizeMusicName(input.album),
+          },
+        },
+        create: {
+          userId,
+          artistId: albumArtist.id,
+          artworkId: existing.album?.artworkId,
+          title: input.album,
+          normalizedTitle: normalizeMusicName(input.album),
+          year: input.year,
+          genres: JSON.stringify(input.genres),
+          releaseType: input.releaseType.toLowerCase(),
+          metadataStatus: 'manual',
+        },
+        update: {
+          title: input.album,
+          year: input.year,
+          genres: JSON.stringify(input.genres),
+          releaseType: input.releaseType.toLowerCase(),
+          metadataStatus: 'manual',
+        },
+      });
+      await transaction.musicTrack.update({
+        where: { id: existing.id },
+        data: {
+          title: input.title,
+          normalizedTitle: normalizeMusicName(input.title),
+          primaryArtistId: primaryArtist.id,
+          albumId: album.id,
+          year: input.year,
+          genres: JSON.stringify(input.genres),
+          discNumber: input.discNumber,
+          trackNumber: input.trackNumber,
+          metadataLocked: input.metadataLocked,
+        },
+      });
+      await transaction.musicTrackArtist.deleteMany({ where: { trackId: existing.id } });
+      await transaction.musicTrackArtist.create({
+        data: { trackId: existing.id, artistId: primaryArtist.id, position: 0 },
+      });
+      if (input.credits) {
+        await transaction.musicTrackCredit.deleteMany({ where: { trackId: existing.id } });
+        if (input.credits.length)
+          await transaction.musicTrackCredit.createMany({
+            data: input.credits.map((credit, position) => ({
+              trackId: existing.id,
+              name: credit.name,
+              role: credit.role.toLowerCase(),
+              instrument: credit.instrument || '',
+              musicbrainzId: credit.musicbrainzId,
+              source: 'manual',
+              position,
+            })),
+          });
+      }
+    });
+    const track = await fastify.prisma.musicTrack.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: musicTrackInclude(userId),
+    });
+    return { track: formatMusicTrack(track) };
+  });
+
+  fastify.post<{ Params: { id: string } }>('/tracks/:id/rematch', async (request, reply) => {
+    const userId = request.user!.id;
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(userId) },
+      include: { primaryArtist: true, album: true },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    const artistName = track.primaryArtist?.name || '';
+    if (!artistName)
+      return reply.status(422).send({
+        error: {
+          code: 'INSUFFICIENT_METADATA',
+          message: 'MusicBrainz eşleştirmesi için sanatçı bilgisi gerekli.',
+          requestId: request.id,
+        },
+      });
+    const [recording, albumMetadata] = await Promise.all([
+      musicbrainz.enrichRecording({
+        recordingId: track.musicbrainzRecordingId,
+        title: track.title,
+        artist: artistName,
+        album: track.album?.title,
+        duration: track.duration,
+      }),
+      track.album ? musicbrainz.enrichAlbum(artistName, track.album.title) : Promise.resolve(null),
+    ]);
+    if (!recording && !albumMetadata) return { matchStatus: 'not_found', track: null };
+    await fastify.prisma.$transaction(async (transaction) => {
+      if (recording) {
+        await transaction.musicTrack.update({
+          where: { id: track.id },
+          data: { musicbrainzRecordingId: recording.recordingId },
+        });
+        await transaction.musicTrackCredit.deleteMany({
+          where: { trackId: track.id, source: 'musicbrainz' },
+        });
+        const existingCredits = await transaction.musicTrackCredit.findMany({
+          where: { trackId: track.id },
+          select: { name: true, role: true, instrument: true },
+        });
+        const newCredits = recording.credits.filter(
+          (credit) =>
+            !existingCredits.some(
+              (existingCredit) =>
+                existingCredit.name === credit.name &&
+                existingCredit.role === credit.role &&
+                (existingCredit.instrument || '') === (credit.instrument || ''),
+            ),
+        );
+        if (newCredits.length)
+          await transaction.musicTrackCredit.createMany({
+            data: newCredits.map((credit, position) => ({
+              trackId: track.id,
+              name: credit.name,
+              role: credit.role,
+              instrument: credit.instrument || '',
+              musicbrainzId: credit.musicbrainzId,
+              source: 'musicbrainz',
+              position: existingCredits.length + position,
+            })),
+          });
+      }
+      if (track.album && albumMetadata) {
+        await transaction.musicAlbum.update({
+          where: { id: track.album.id },
+          data: {
+            musicbrainzReleaseId: track.album.musicbrainzReleaseId || albumMetadata.releaseId,
+            musicbrainzReleaseGroupId:
+              track.album.musicbrainzReleaseGroupId || albumMetadata.releaseGroupId,
+            releaseType: albumMetadata.releaseType || track.album.releaseType,
+            secondaryTypes: albumMetadata.secondaryTypes.length
+              ? JSON.stringify(albumMetadata.secondaryTypes)
+              : track.album.secondaryTypes,
+            metadataStatus: 'enriched',
+          },
+        });
+      }
+    });
+    const updated = await fastify.prisma.musicTrack.findUniqueOrThrow({
+      where: { id: track.id },
+      include: musicTrackInclude(userId),
+    });
+    return { matchStatus: 'matched', track: formatMusicTrack(updated) };
+  });
+
   fastify.get('/albums', async (request, reply) => {
     const parsed = musicListQuerySchema.safeParse(request.query);
     if (!parsed.success)
@@ -247,7 +480,59 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({
         error: { code: 'ALBUM_NOT_FOUND', message: 'Albüm bulunamadı.', requestId: request.id },
       });
-    return { album: { ...albumDto(album), tracks: album.tracks.map(formatMusicTrack) } };
+    const albumGenres = new Set(parseGenres(album.genres).map((genre) => genre.toLowerCase()));
+    const candidates = albumGenres.size
+      ? await fastify.prisma.musicAlbum.findMany({
+          where: {
+            id: { not: album.id },
+            userId,
+            tracks: { some: ownedTrackWhere(userId) },
+          },
+          include: {
+            artwork: { select: { id: true } },
+            artist: true,
+            _count: { select: { tracks: true } },
+          },
+          take: 60,
+        })
+      : [];
+    const similarAlbums = candidates
+      .map((candidate) => ({
+        album: candidate,
+        score: parseGenres(candidate.genres).filter((genre) => albumGenres.has(genre.toLowerCase()))
+          .length,
+      }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 8)
+      .map(({ album: candidate }) => albumDto(candidate));
+    const formats = [
+      ...new Set(
+        album.tracks
+          .map((track) => track.driveFile.audioCodec || track.driveFile.mediaContainer)
+          .filter((format): format is string => !!format)
+          .map((format) => format.toUpperCase()),
+      ),
+    ];
+    return {
+      album: {
+        ...albumDto(album),
+        tracks: album.tracks.map(formatMusicTrack),
+        totalDuration: album.tracks.reduce((total, track) => total + (track.duration || 0), 0),
+        discCount: Math.max(1, ...album.tracks.map((track) => track.discNumber)),
+        qualitySummary: {
+          formats,
+          lossless: album.tracks.some((track) => track.driveFile.audioLossless),
+          hiRes: album.tracks.some(
+            (track) =>
+              track.driveFile.audioLossless &&
+              ((track.driveFile.audioBitDepth || 0) > 16 ||
+                (track.driveFile.audioSampleRate || 0) > 48_000),
+          ),
+        },
+        similarAlbums,
+      },
+    };
   });
 
   fastify.get('/artists', async (request) => {
@@ -308,14 +593,68 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
+    const artistGenres = new Set(
+      artist.trackCredits
+        .flatMap((credit) => parseGenres(credit.track.genres))
+        .map((genre) => genre.toLowerCase()),
+    );
+    const candidates = artistGenres.size
+      ? await fastify.prisma.musicArtist.findMany({
+          where: {
+            id: { not: artist.id },
+            userId,
+            trackCredits: { some: { track: ownedTrackWhere(userId) } },
+          },
+          include: {
+            _count: { select: { albums: true, trackCredits: true } },
+            albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+            trackCredits: {
+              where: { track: ownedTrackWhere(userId) },
+              select: { track: { select: { genres: true } } },
+            },
+          },
+          take: 60,
+        })
+      : [];
+    const similarArtists = candidates
+      .map((candidate) => ({
+        artist: candidate,
+        score: new Set(
+          candidate.trackCredits
+            .flatMap((credit) => parseGenres(credit.track.genres))
+            .map((genre) => genre.toLowerCase()),
+        ),
+      }))
+      .map(({ artist: candidate, score: genres }) => ({
+        artist: candidate,
+        score: [...genres].filter((genre) => artistGenres.has(genre)).length,
+      }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 8)
+      .map(({ artist: candidate }) => ({
+        id: candidate.id,
+        name: candidate.name,
+        sortName: candidate.sortName,
+        musicbrainzId: candidate.musicbrainzId,
+        albumCount: candidate._count.albums,
+        trackCount: candidate._count.trackCredits,
+        artworkUrl: candidate.albums[0]?.artworkId
+          ? `/api/music/artwork/${candidate.albums[0].artworkId}`
+          : null,
+      }));
     return {
       artist: {
         id: artist.id,
         name: artist.name,
         sortName: artist.sortName,
         musicbrainzId: artist.musicbrainzId,
+        artworkUrl: artist.albums.find((album) => album.artworkId)?.artworkId
+          ? `/api/music/artwork/${artist.albums.find((album) => album.artworkId)!.artworkId}`
+          : null,
         albums: artist.albums.map(albumDto),
         tracks: artist.trackCredits.map((credit) => formatMusicTrack(credit.track)),
+        similarArtists,
       },
     };
   });

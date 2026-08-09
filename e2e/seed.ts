@@ -274,6 +274,8 @@ export const seedE2EDatabase = async () => {
         normalizedTitle: 'fixture album',
         year: 2026,
         genres: JSON.stringify(['Soundtrack']),
+        releaseType: 'album',
+        secondaryTypes: JSON.stringify(['soundtrack']),
       },
     });
     const musicTrack = await prisma.musicTrack.create({
@@ -307,6 +309,24 @@ export const seedE2EDatabase = async () => {
         sourceType: 'sidecar',
         isSynced: true,
       },
+    });
+    await prisma.musicTrackCredit.createMany({
+      data: [
+        {
+          trackId: musicTrack.id,
+          name: 'Fixture Composer',
+          role: 'composer',
+          source: 'tag',
+          position: 0,
+        },
+        {
+          trackId: musicTrack.id,
+          name: 'Fixture Producer',
+          role: 'producer',
+          source: 'tag',
+          position: 1,
+        },
+      ],
     });
   } finally {
     await prisma.$disconnect();

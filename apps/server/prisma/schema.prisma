@@ -343,6 +343,8 @@ model MusicAlbum {
   genres                    String?
   musicbrainzReleaseId      String?
   musicbrainzReleaseGroupId String?
+  releaseType               String        @default("album")
+  secondaryTypes            String?
   metadataStatus            String        @default("local")
   createdAt                 DateTime      @default(now())
   updatedAt                 DateTime      @updatedAt
@@ -376,6 +378,7 @@ model MusicTrack {
   replayGainTrackPeak    Float?
   replayGainAlbumDb      Float?
   replayGainAlbumPeak    Float?
+  metadataLocked         Boolean              @default(false)
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   artists                MusicTrackArtist[]
@@ -385,11 +388,29 @@ model MusicTrack {
   queueItems             MusicQueueItem[]
   currentInStates        MusicPlaybackState[] @relation("CurrentMusicTrack")
   lyrics                 MusicLyrics?
+  credits                MusicTrackCredit[]
 
   @@index([libraryId])
   @@index([albumId, discNumber, trackNumber])
   @@index([primaryArtistId])
   @@index([normalizedTitle])
+}
+
+model MusicTrackCredit {
+  id            String     @id @default(uuid())
+  trackId       String
+  track         MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  name          String
+  role          String
+  instrument    String?
+  musicbrainzId String?
+  source        String     @default("tag")
+  position      Int        @default(0)
+  createdAt     DateTime   @default(now())
+
+  @@unique([trackId, role, name, instrument])
+  @@index([trackId, position])
+  @@index([musicbrainzId])
 }
 
 model MusicLyrics {

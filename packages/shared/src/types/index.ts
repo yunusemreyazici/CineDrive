@@ -203,6 +203,19 @@ export interface MusicAlbumDto {
   artist?: MusicArtistDto | null;
   artworkUrl?: string | null;
   trackCount?: number;
+  releaseType?: string;
+  secondaryTypes?: string[];
+  musicbrainzReleaseId?: string | null;
+  musicbrainzReleaseGroupId?: string | null;
+}
+
+export interface MusicTrackCreditDto {
+  id: string;
+  name: string;
+  role: string;
+  instrument?: string | null;
+  musicbrainzId?: string | null;
+  source: 'tag' | 'musicbrainz' | 'manual' | string;
 }
 
 export interface MusicTrackDto {
@@ -218,6 +231,10 @@ export interface MusicTrackDto {
   artists: MusicArtistDto[];
   artworkUrl?: string | null;
   isFavorite: boolean;
+  playCount?: number;
+  metadataLocked?: boolean;
+  musicbrainzRecordingId?: string | null;
+  credits?: MusicTrackCreditDto[];
   audio?: {
     container?: string | null;
     codec?: string | null;
@@ -230,6 +247,16 @@ export interface MusicTrackDto {
     replayGainTrackPeak?: number | null;
     replayGainAlbumDb?: number | null;
     replayGainAlbumPeak?: number | null;
+  };
+  source?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes?: string | null;
+    modifiedAt?: string | null;
+    storageType: string;
+    localPath?: string | null;
+    googleDriveFileId?: string | null;
+    library: { id: string; name: string; storageType: string };
   };
   streamUrl: string;
   createdAt: string;

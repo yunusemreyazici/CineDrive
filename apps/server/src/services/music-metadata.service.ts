@@ -40,6 +40,15 @@ export interface ParsedMusicMetadata {
   replayGainTrackPeak?: number;
   replayGainAlbumDb?: number;
   replayGainAlbumPeak?: number;
+  releaseType: string;
+  secondaryTypes: string[];
+  credits: Array<{
+    name: string;
+    role: string;
+    instrument?: string;
+    musicbrainzId?: string;
+    source: 'tag';
+  }>;
   musicbrainzRecordingId?: string;
   musicbrainzArtistIds: string[];
   musicbrainzAlbumArtistId?: string;
@@ -125,6 +134,37 @@ export class MusicMetadataService {
       cover && cover.data.byteLength <= MAX_ARTWORK_INPUT_BYTES
         ? { mimeType: cover.format || 'image/jpeg', data: Buffer.from(cover.data) }
         : undefined;
+    const releaseTypes = (common.releasetype || []).map((type) => type.trim()).filter(Boolean);
+    const releaseType = (
+      releaseTypes[0] || (common.compilation ? 'compilation' : 'album')
+    ).toLowerCase();
+    const creditGroups: Array<[string, string[] | undefined]> = [
+      ['composer', common.composer],
+      ['lyricist', common.lyricist?.length ? common.lyricist : common.writer],
+      ['producer', common.producer],
+      ['conductor', common.conductor],
+      ['arranger', common.arranger],
+      ['remixer', common.remixer],
+      ['mixer', common.mixer],
+      ['engineer', common.engineer],
+    ];
+    const credits = [
+      ...artists.map((name, position) => ({
+        name,
+        role: 'performer',
+        musicbrainzId: common.musicbrainz_artistid?.[position],
+        source: 'tag' as const,
+      })),
+      ...creditGroups.flatMap(([role, names]) =>
+        (names || []).map((name) => ({ name: name.trim(), role, source: 'tag' as const })),
+      ),
+    ].filter(
+      (credit, index, all) =>
+        credit.name &&
+        all.findIndex(
+          (candidate) => candidate.role === credit.role && candidate.name === credit.name,
+        ) === index,
+    );
 
     return {
       title: clean(common.title) || cleanMusicFilenameTitle(filename),
@@ -147,6 +187,9 @@ export class MusicMetadataService {
       replayGainTrackPeak: common.replaygain_track_peak?.ratio,
       replayGainAlbumDb: common.replaygain_album_gain?.dB,
       replayGainAlbumPeak: common.replaygain_album_peak?.ratio,
+      releaseType,
+      secondaryTypes: releaseTypes.slice(1).map((type) => type.toLowerCase()),
+      credits,
       musicbrainzRecordingId: common.musicbrainz_recordingid,
       musicbrainzArtistIds: common.musicbrainz_artistid || [],
       musicbrainzAlbumArtistId: common.musicbrainz_albumartistid?.[0],

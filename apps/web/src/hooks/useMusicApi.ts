@@ -6,6 +6,7 @@ import type {
   MusicPlaybackStateDto,
   MusicPlaylistDto,
   MusicTrackDto,
+  UpdateMusicTrackMetadataInput,
 } from '@cinedrive/shared';
 import { apiClient, parseApiError, type QueryParams } from '../api/client';
 
@@ -21,6 +22,20 @@ export interface MusicOverview {
     track: MusicTrackDto;
   }>;
   favoriteCount: number;
+}
+
+export interface MusicAlbumDetail extends MusicAlbumDto {
+  tracks: MusicTrackDto[];
+  totalDuration: number;
+  discCount: number;
+  qualitySummary: { formats: string[]; lossless: boolean; hiRes: boolean };
+  similarAlbums: MusicAlbumDto[];
+}
+
+export interface MusicArtistDetail extends MusicArtistDto {
+  albums: MusicAlbumDto[];
+  tracks: MusicTrackDto[];
+  similarArtists: MusicArtistDto[];
 }
 
 export const useMusicOverviewQuery = () =>
@@ -53,11 +68,7 @@ export const useMusicAlbumQuery = (id?: string) =>
     queryKey: ['music', 'album', id],
     enabled: !!id,
     queryFn: async () =>
-      (
-        await apiClient.get<{ album: MusicAlbumDto & { tracks: MusicTrackDto[] } }>(
-          `/music/albums/${id}`,
-        )
-      ).data.album,
+      (await apiClient.get<{ album: MusicAlbumDetail }>(`/music/albums/${id}`)).data.album,
   });
 
 export const useMusicArtistsQuery = () =>
@@ -74,7 +85,7 @@ export const useMusicArtistQuery = (id?: string) =>
     queryFn: async () =>
       (
         await apiClient.get<{
-          artist: MusicArtistDto & { albums: MusicAlbumDto[]; tracks: MusicTrackDto[] };
+          artist: MusicArtistDetail;
         }>(`/music/artists/${id}`)
       ).data.artist,
   });
@@ -85,6 +96,54 @@ export const useMusicFavoritesQuery = () =>
     queryFn: async () =>
       (await apiClient.get<{ tracks: MusicTrackDto[] }>('/music/favorites')).data.tracks,
   });
+
+export const useMusicTrackQuery = (id?: string) =>
+  useQuery({
+    queryKey: ['music', 'track', id],
+    enabled: !!id,
+    queryFn: async () =>
+      (await apiClient.get<{ track: MusicTrackDto }>(`/music/tracks/${id}`)).data.track,
+  });
+
+export const useUpdateMusicTrackMetadataMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      metadata,
+    }: {
+      trackId: string;
+      metadata: UpdateMusicTrackMetadataInput;
+    }) =>
+      (
+        await apiClient.patch<{ track: MusicTrackDto }>(
+          `/music/tracks/${trackId}/metadata`,
+          metadata,
+        )
+      ).data.track,
+    onSuccess: (track) => {
+      client.setQueryData(['music', 'track', track.id], track);
+      void client.invalidateQueries({ queryKey: ['music'] });
+    },
+  });
+};
+
+export const useRematchMusicTrackMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (trackId: string) =>
+      (
+        await apiClient.post<{
+          matchStatus: 'matched' | 'not_found';
+          track: MusicTrackDto | null;
+        }>(`/music/tracks/${trackId}/rematch`)
+      ).data,
+    onSuccess: (result, trackId) => {
+      if (result.track) client.setQueryData(['music', 'track', trackId], result.track);
+      void client.invalidateQueries({ queryKey: ['music'] });
+    },
+  });
+};
 
 export const useMusicHistoryQuery = () =>
   useQuery({

@@ -68,6 +68,8 @@ export class MusicLibraryService {
         artworkId,
         musicbrainzReleaseId: metadata.musicbrainzReleaseId,
         musicbrainzReleaseGroupId: metadata.musicbrainzReleaseGroupId,
+        releaseType: metadata.releaseType,
+        secondaryTypes: JSON.stringify(metadata.secondaryTypes),
       },
       update: {
         title: metadata.album,
@@ -76,7 +78,15 @@ export class MusicLibraryService {
         artworkId: artworkId || undefined,
         musicbrainzReleaseId: metadata.musicbrainzReleaseId || undefined,
         musicbrainzReleaseGroupId: metadata.musicbrainzReleaseGroupId || undefined,
+        releaseType: metadata.releaseType || undefined,
+        secondaryTypes: metadata.secondaryTypes.length
+          ? JSON.stringify(metadata.secondaryTypes)
+          : undefined,
       },
+    });
+    const existingTrack = await this.prisma.musicTrack.findUnique({
+      where: { driveFileId: options.driveFileId },
+      select: { metadataLocked: true },
     });
     const track = await this.prisma.musicTrack.upsert({
       where: { driveFileId: options.driveFileId },
@@ -101,15 +111,19 @@ export class MusicLibraryService {
       },
       update: {
         libraryId: options.libraryId,
-        albumId: album.id,
-        primaryArtistId: artists[0]?.id || albumArtist.id,
-        artworkId: artworkId || undefined,
-        title: metadata.title,
-        normalizedTitle: normalize(metadata.title),
-        discNumber: metadata.discNumber,
-        trackNumber: metadata.trackNumber,
-        year: metadata.year ?? undefined,
-        genres: JSON.stringify(metadata.genres),
+        ...(!existingTrack?.metadataLocked
+          ? {
+              albumId: album.id,
+              primaryArtistId: artists[0]?.id || albumArtist.id,
+              artworkId: artworkId || undefined,
+              title: metadata.title,
+              normalizedTitle: normalize(metadata.title),
+              discNumber: metadata.discNumber,
+              trackNumber: metadata.trackNumber,
+              year: metadata.year ?? undefined,
+              genres: JSON.stringify(metadata.genres),
+            }
+          : {}),
         duration: metadata.duration,
         musicbrainzRecordingId: metadata.musicbrainzRecordingId || undefined,
         replayGainTrackDb: metadata.replayGainTrackDb,
@@ -118,14 +132,45 @@ export class MusicLibraryService {
         replayGainAlbumPeak: metadata.replayGainAlbumPeak,
       },
     });
-    await this.prisma.musicTrackArtist.deleteMany({ where: { trackId: track.id } });
-    await this.prisma.musicTrackArtist.createMany({
-      data: (artists.length ? artists : [albumArtist]).map((artist, position) => ({
-        trackId: track.id,
-        artistId: artist.id,
-        position,
-      })),
+    if (!existingTrack?.metadataLocked) {
+      await this.prisma.musicTrackArtist.deleteMany({ where: { trackId: track.id } });
+      await this.prisma.musicTrackArtist.createMany({
+        data: (artists.length ? artists : [albumArtist]).map((artist, position) => ({
+          trackId: track.id,
+          artistId: artist.id,
+          position,
+        })),
+      });
+    }
+    await this.prisma.musicTrackCredit.deleteMany({
+      where: { trackId: track.id, source: { not: 'manual' } },
     });
+    const manualCredits = await this.prisma.musicTrackCredit.findMany({
+      where: { trackId: track.id, source: 'manual' },
+      select: { role: true, name: true, instrument: true },
+    });
+    const localCredits = metadata.credits.filter(
+      (credit) =>
+        !manualCredits.some(
+          (manual) =>
+            manual.role === credit.role &&
+            manual.name === credit.name &&
+            (manual.instrument || '') === (credit.instrument || ''),
+        ),
+    );
+    if (localCredits.length) {
+      await this.prisma.musicTrackCredit.createMany({
+        data: localCredits.map((credit, position) => ({
+          trackId: track.id,
+          name: credit.name,
+          role: credit.role,
+          instrument: credit.instrument || '',
+          musicbrainzId: credit.musicbrainzId,
+          source: credit.source,
+          position,
+        })),
+      });
+    }
 
     if (!album.musicbrainzReleaseGroupId || !album.artworkId) {
       const online = await this.musicbrainz.enrichAlbum(albumArtist.name, album.title);
@@ -139,6 +184,10 @@ export class MusicLibraryService {
           data: {
             musicbrainzReleaseId: album.musicbrainzReleaseId || online.releaseId,
             musicbrainzReleaseGroupId: online.releaseGroupId,
+            releaseType: online.releaseType || album.releaseType,
+            secondaryTypes: online.secondaryTypes.length
+              ? JSON.stringify(online.secondaryTypes)
+              : album.secondaryTypes,
             year: album.year || online.year,
             genres:
               album.genres && album.genres !== '[]' ? album.genres : JSON.stringify(online.genres),

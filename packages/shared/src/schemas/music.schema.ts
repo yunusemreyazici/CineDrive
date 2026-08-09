@@ -53,7 +53,42 @@ export const updateMusicLyricsSchema = z.object({
   language: z.string().trim().min(2).max(16).nullable().optional(),
 });
 
+export const musicTrackCreditInputSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  role: z
+    .enum([
+      'performer',
+      'composer',
+      'lyricist',
+      'songwriter',
+      'producer',
+      'conductor',
+      'arranger',
+      'remixer',
+      'mixer',
+      'engineer',
+    ])
+    .or(z.string().trim().min(1).max(50)),
+  instrument: z.string().trim().max(120).nullable().optional(),
+  musicbrainzId: z.string().uuid().nullable().optional(),
+});
+
+export const updateMusicTrackMetadataSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  artist: z.string().trim().min(1).max(200),
+  album: z.string().trim().min(1).max(300),
+  albumArtist: z.string().trim().min(1).max(200).optional(),
+  year: z.number().int().min(1000).max(3000).nullable().optional(),
+  genres: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+  discNumber: z.number().int().min(1).max(100).default(1),
+  trackNumber: z.number().int().min(0).max(10000).default(0),
+  releaseType: z.string().trim().min(1).max(50).default('album'),
+  credits: z.array(musicTrackCreditInputSchema).max(100).optional(),
+  metadataLocked: z.boolean().default(true),
+});
+
 export type MusicListQueryInput = z.infer<typeof musicListQuerySchema>;
 export type CreateMusicPlaylistInput = z.infer<typeof createMusicPlaylistSchema>;
 export type UpdateMusicPlaylistInput = z.infer<typeof updateMusicPlaylistSchema>;
 export type UpdateMusicPlaybackStateInput = z.infer<typeof updateMusicPlaybackStateSchema>;
+export type UpdateMusicTrackMetadataInput = z.infer<typeof updateMusicTrackMetadataSchema>;

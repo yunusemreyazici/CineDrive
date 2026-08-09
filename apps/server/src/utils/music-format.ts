@@ -6,9 +6,18 @@ export const musicTrackInclude = (userId: string) =>
     primaryArtist: true,
     artwork: { select: { id: true } },
     artists: { orderBy: { position: 'asc' as const }, include: { artist: true } },
+    credits: { orderBy: { position: 'asc' as const } },
     favorites: { where: { userId }, select: { id: true } },
+    _count: { select: { history: true } },
     driveFile: {
       select: {
+        name: true,
+        mimeType: true,
+        size: true,
+        modifiedTime: true,
+        storageType: true,
+        localFilePath: true,
+        googleDriveFileId: true,
         mediaContainer: true,
         audioCodec: true,
         audioChannels: true,
@@ -16,6 +25,7 @@ export const musicTrackInclude = (userId: string) =>
         audioBitrate: true,
         audioBitDepth: true,
         audioLossless: true,
+        library: { select: { id: true, name: true, storageType: true } },
       },
     },
   }) satisfies Prisma.MusicTrackInclude;
@@ -26,9 +36,18 @@ export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
     primaryArtist: true;
     artwork: { select: { id: true } };
     artists: { include: { artist: true } };
+    credits: true;
     favorites: { select: { id: true } };
+    _count: { select: { history: true } };
     driveFile: {
       select: {
+        name: true;
+        mimeType: true;
+        size: true;
+        modifiedTime: true;
+        storageType: true;
+        localFilePath: true;
+        googleDriveFileId: true;
         mediaContainer: true;
         audioCodec: true;
         audioChannels: true;
@@ -36,6 +55,7 @@ export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
         audioBitrate: true;
         audioBitDepth: true;
         audioLossless: true;
+        library: { select: { id: true; name: true; storageType: true } };
       };
     };
   };
@@ -69,6 +89,10 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
           title: track.album.title,
           year: track.album.year,
           genres: parseGenres(track.album.genres),
+          releaseType: track.album.releaseType,
+          secondaryTypes: parseGenres(track.album.secondaryTypes),
+          musicbrainzReleaseId: track.album.musicbrainzReleaseId,
+          musicbrainzReleaseGroupId: track.album.musicbrainzReleaseGroupId,
           artist: track.album.artist
             ? {
                 id: track.album.artist.id,
@@ -98,6 +122,17 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
     })),
     artworkUrl: artworkId ? `/api/music/artwork/${artworkId}` : null,
     isFavorite: track.favorites.length > 0,
+    playCount: track._count.history,
+    metadataLocked: track.metadataLocked,
+    musicbrainzRecordingId: track.musicbrainzRecordingId,
+    credits: track.credits.map((credit) => ({
+      id: credit.id,
+      name: credit.name,
+      role: credit.role,
+      instrument: credit.instrument || null,
+      musicbrainzId: credit.musicbrainzId,
+      source: credit.source,
+    })),
     audio: {
       container: track.driveFile.mediaContainer,
       codec: track.driveFile.audioCodec,
@@ -110,6 +145,16 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
       replayGainTrackPeak: track.replayGainTrackPeak,
       replayGainAlbumDb: track.replayGainAlbumDb,
       replayGainAlbumPeak: track.replayGainAlbumPeak,
+    },
+    source: {
+      fileName: track.driveFile.name,
+      mimeType: track.driveFile.mimeType,
+      sizeBytes: track.driveFile.size?.toString() || null,
+      modifiedAt: track.driveFile.modifiedTime?.toISOString() || null,
+      storageType: track.driveFile.storageType,
+      localPath: track.driveFile.localFilePath,
+      googleDriveFileId: track.driveFile.googleDriveFileId,
+      library: track.driveFile.library,
     },
     streamUrl: `/api/music/tracks/${track.id}/stream`,
     createdAt: track.createdAt.toISOString(),

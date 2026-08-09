@@ -91,14 +91,33 @@ test.describe('CineDrive smoke', () => {
     await expect(page.getByText('Fixture Album').first()).toBeVisible();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
 
+    await page.getByLabel(tr.music.moreActions).first().click();
+    await page.getByRole('button', { name: tr.music.trackInfo }).click();
+    const trackInfo = page.getByRole('dialog', { name: tr.music.trackInfo });
+    await expect(trackInfo).toBeVisible();
+    await expect(trackInfo.getByText('Fixture Composer')).toBeVisible();
+    await expect(trackInfo.getByText(tr.music.technicalDetails)).toBeVisible();
+    await trackInfo.getByRole('button', { name: tr.common.close }).click();
+
+    await page.getByRole('link', { name: 'Fixture Album Fixture Artist' }).first().click();
+    await expect(page.getByRole('heading', { name: 'Fixture Album' })).toBeVisible();
+    await expect(page.getByText(tr.music.qualitySummary)).toBeVisible();
+    await page.goto('/music');
+
     const streamResponse = page.waitForResponse(
       (response) =>
         response.url().includes('/api/music/tracks/00000000-0000-4000-8000-000000000105/stream') &&
         response.status() < 400,
     );
+    const stateResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/music/playback-state') &&
+        response.request().method() === 'PUT',
+    );
     await page.getByRole('button', { name: tr.music.playTrack('Smoke Test Song') }).click();
-    expect([200, 206]).toContain((await streamResponse).status());
     await expect(page.getByRole('slider', { name: tr.music.seek })).toBeVisible();
+    expect([200, 206]).toContain((await streamResponse).status());
+    expect((await stateResponse).status()).toBeLessThan(400);
 
     await page.getByRole('button', { name: tr.music.openNowPlaying }).click();
     await expect(page.getByRole('dialog', { name: tr.music.nowPlaying })).toBeVisible();
@@ -121,18 +140,6 @@ test.describe('CineDrive smoke', () => {
     await expect(page.getByRole('complementary', { name: tr.music.lyrics })).toBeVisible();
     await expect(page.getByText('Smoke test opening line')).toBeVisible();
     await page.getByRole('button', { name: tr.common.close, exact: true }).click();
-
-    const stateResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/music/playback-state') &&
-        response.request().method() === 'PUT',
-    );
-    if (!(await page.getByRole('button', { name: tr.music.pause }).first().isVisible())) {
-      await page.getByRole('button', { name: tr.music.play }).first().click();
-    }
-    await expect(page.getByRole('button', { name: tr.music.pause }).first()).toBeVisible();
-    await page.getByRole('button', { name: tr.music.pause }).first().click();
-    expect((await stateResponse).status()).toBeLessThan(400);
 
     await page.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');
     const playlistResponse = page.waitForResponse(
