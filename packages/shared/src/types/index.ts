@@ -310,6 +310,30 @@ export interface MusicDiscoveryDto {
 export interface MusicDuplicateGroupDto {
   key: string;
   tracks: MusicTrackDto[];
+  recommendedTrackId?: string;
+  quality?: Array<{ trackId: string; score: number; label: string }>;
+}
+
+export interface MusicMaintenanceSuggestionDto {
+  id: string;
+  targetType: string;
+  targetId: string;
+  kind: string;
+  provider: string;
+  confidence: number;
+  currentData: unknown;
+  proposedData: unknown;
+  status: string;
+  createdAt: string;
+}
+
+export interface MusicMaintenanceActionDto {
+  id: string;
+  actionType: string;
+  targetType: string;
+  targetId: string;
+  createdAt: string;
+  revertedAt?: string | null;
 }
 
 export interface MusicMaintenanceDto {
@@ -317,6 +341,8 @@ export interface MusicMaintenanceDto {
   missingMetadata: Array<MusicTrackDto & { confidence: number; issues: string[] }>;
   duplicates: MusicDuplicateGroupDto[];
   replayGainMissing: MusicTrackDto[];
+  suggestions?: MusicMaintenanceSuggestionDto[];
+  actions?: MusicMaintenanceActionDto[];
   totals: {
     missingArtwork: number;
     missingMetadata: number;
@@ -328,6 +354,16 @@ export interface MusicMaintenanceDto {
 export interface MusicLyricsLineDto {
   timeMs: number | null;
   text: string;
+  words?: Array<{ timeMs: number; text: string }>;
+}
+
+export interface MusicLyricsTranslationDto {
+  id: string;
+  language: string;
+  provider: string;
+  isMachine: boolean;
+  content: string;
+  lines: MusicLyricsLineDto[];
 }
 
 export interface MusicLyricsDto {
@@ -343,5 +379,28 @@ export interface MusicLyricsDto {
   translatedLines?: MusicLyricsLineDto[];
   romanizedLines?: MusicLyricsLineDto[];
   translationLanguage?: string | null;
+  translations?: MusicLyricsTranslationDto[];
+  revisions?: Array<{
+    id: string;
+    sourceName: string;
+    content: string;
+    status: string;
+    createdAt: string;
+  }>;
   updatedAt: string;
+}
+
+export interface MusicReplayDto {
+  period: 'week' | 'month' | 'year';
+  year: number | null;
+  range: { start: string; end: string };
+  totalSeconds: number;
+  totalPlays: number;
+  uniqueTracks: number;
+  topTracks: Array<{ track: MusicTrackDto; seconds: number; plays: number }>;
+  topAlbums: Array<{ id: string; title: string; artworkUrl: string | null; seconds: number; plays: number }>;
+  topArtists: Array<{ id: string; name: string; artworkUrl: string | null; seconds: number; plays: number }>;
+  hours: Array<{ hour: number; seconds: number; plays: number }>;
+  weekdays: Array<{ day: number; seconds: number; plays: number }>;
+  genres: Array<{ name: string; seconds: number }>;
 }

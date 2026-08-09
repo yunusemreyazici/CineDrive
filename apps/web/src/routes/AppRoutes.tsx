@@ -52,6 +52,9 @@ const MusicMaintenancePage = React.lazy(() =>
     default: module.MusicMaintenancePage,
   })),
 );
+const MusicReplayPage = React.lazy(() =>
+  import('../pages/MusicReplayPage').then((module) => ({ default: module.MusicReplayPage })),
+);
 const MediaDetailPage = React.lazy(() =>
   import('../pages/MediaDetailPage').then((module) => ({ default: module.MediaDetailPage })),
 );
@@ -115,6 +118,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/music/history" element={<MusicHistoryPage />} />
           <Route path="/music/playlists/:playlistId" element={<MusicPlaylistPage />} />
           <Route path="/music/maintenance" element={<MusicMaintenancePage />} />
+          <Route path="/music/replay" element={<MusicReplayPage />} />
           <Route path="/media/:mediaId" element={<MediaDetailPage />} />
           <Route path="/person/:personName" element={<PersonPage />} />
           <Route path="/manage" element={<Navigate to="/settings?tab=manage" replace />} />

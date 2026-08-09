@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ArrowRight,
+  BarChart3,
   Disc3,
   Heart,
   History,
@@ -266,6 +267,13 @@ export const MusicPage: React.FC = () => {
               tone="from-violet-500 to-purple-950"
             />
           )}
+          <QuickCard
+            href="/music/replay"
+            title={t.music.replay}
+            subtitle={t.music.replayHint}
+            icon={BarChart3}
+            tone="from-cyan-500 to-violet-950"
+          />
           <QuickCard
             href="/music/maintenance"
             title={t.music.libraryCare}

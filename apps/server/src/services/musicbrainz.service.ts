@@ -104,6 +104,10 @@ export class MusicBrainzService {
     });
   }
 
+  public fetchCoverArtwork(releaseGroupId: string) {
+    return this.fetchArtwork(releaseGroupId);
+  }
+
   private async throttledFetch(url: string) {
     const wait = Math.max(0, MIN_REQUEST_INTERVAL_MS - (Date.now() - this.lastRequestAt));
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));

@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 
 const MAX_LYRICS_BYTES = 1024 * 1024;
 const TIMESTAMP_PATTERN = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+const WORD_TIMESTAMP_PATTERN = /<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>/g;
 const METADATA_PATTERN = /^\[(ar|ti|al|by|length|re|ve|la):([^\]]*)\]$/i;
 const LRCLIB_API_BASE_URL = 'https://lrclib.net/api';
 const LRCLIB_USER_AGENT = `CineDrive/1.0.0 (${env.PUBLIC_URL})`;
@@ -184,7 +185,17 @@ export const parseLrc = (input: string): ParsedLrc => {
     }
 
     const timestamps = [...line.matchAll(TIMESTAMP_PATTERN)];
-    const text = line.replace(TIMESTAMP_PATTERN, '').trim();
+    const rawText = line.replace(TIMESTAMP_PATTERN, '').trim();
+    const wordMatches = [...rawText.matchAll(WORD_TIMESTAMP_PATTERN)];
+    const text = rawText.replace(WORD_TIMESTAMP_PATTERN, '').trim();
+    const words = wordMatches.map((match, index) => ({
+      timeMs:
+        Number(match[1]) * 60_000 +
+        Number(match[2]) * 1000 +
+        fractionToMilliseconds(match[3]) +
+        offsetMs,
+      text: rawText.slice((match.index || 0) + match[0].length, wordMatches[index + 1]?.index).trim(),
+    })).filter((word) => word.text);
     if (!timestamps.length) {
       plainLines.push({ timeMs: null, text });
       return;
@@ -196,6 +207,7 @@ export const parseLrc = (input: string): ParsedLrc => {
       timedLines.push({
         timeMs: minutes * 60_000 + seconds * 1000 + fractionToMilliseconds(match[3]),
         text,
+        ...(words.length ? { words } : {}),
         order,
       });
     }
@@ -205,8 +217,50 @@ export const parseLrc = (input: string): ParsedLrc => {
   const lines = timedLines
     .map((line) => ({ ...line, timeMs: Math.max(0, (line.timeMs || 0) + offsetMs) }))
     .sort((a, b) => (a.timeMs || 0) - (b.timeMs || 0) || a.order - b.order)
-    .map(({ timeMs, text }) => ({ timeMs, text }));
+    .map(({ timeMs, text, words }) => ({ timeMs, text, ...(words?.length ? { words } : {}) }));
   return { lines, isSynced: true, offsetMs, metadata };
+};
+
+const formatTimestamp = (milliseconds: number) => {
+  const safe = Math.max(0, milliseconds);
+  const minutes = Math.floor(safe / 60_000);
+  const seconds = Math.floor((safe % 60_000) / 1000);
+  const centiseconds = Math.floor((safe % 1000) / 10);
+  return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}]`;
+};
+
+export const alignPlainLyrics = (
+  input: string,
+  durationSeconds: number,
+  leadInMs = 1000,
+  endPaddingMs = 5000,
+) => {
+  const lines = parseLrc(input).lines.map((line) => line.text.trim()).filter(Boolean);
+  if (!lines.length) return '';
+  const available = Math.max(1000, durationSeconds * 1000 - leadInMs - endPaddingMs);
+  const step = lines.length === 1 ? 0 : available / (lines.length - 1);
+  return lines.map((line, index) => `${formatTimestamp(leadInMs + index * step)} ${line}`).join('\n');
+};
+
+const translateLine = async (text: string, source: string, target: string) => {
+  if (!env.LIBRETRANSLATE_URL) throw new Error('TRANSLATION_PROVIDER_NOT_CONFIGURED');
+  const endpoint = new URL('/translate', env.LIBRETRANSLATE_URL).toString();
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: text,
+      source: source || 'auto',
+      target,
+      format: 'text',
+      ...(env.LIBRETRANSLATE_API_KEY ? { api_key: env.LIBRETRANSLATE_API_KEY } : {}),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`TRANSLATION_PROVIDER_HTTP_${response.status}`);
+  const payload = (await response.json()) as { translatedText?: string };
+  if (!payload.translatedText) throw new Error('TRANSLATION_PROVIDER_INVALID_RESPONSE');
+  return payload.translatedText.trim();
 };
 
 export const inferLyricsLanguage = (sourceName: string, metadataLanguage?: string) => {
@@ -294,5 +348,27 @@ export class MusicLyricsService {
       sourceType: 'lrclib',
     });
     return { status: 'found', lyrics };
+  }
+
+  public async translate(trackId: string, targetLanguage: string) {
+    const lyrics = await this.prisma.musicLyrics.findUniqueOrThrow({ where: { trackId } });
+    const parsed = parseLrc(lyrics.content);
+    const translated: string[] = new Array(parsed.lines.length);
+    const sourceLanguage = (lyrics.language || 'auto').split('-')[0]!;
+    const normalizedTarget = targetLanguage.split('-')[0]!;
+    for (let index = 0; index < parsed.lines.length; index += 4) {
+      const batch = parsed.lines.slice(index, index + 4);
+      const results = await Promise.all(batch.map((line) => line.text ? translateLine(line.text, sourceLanguage, normalizedTarget) : Promise.resolve('')));
+      results.forEach((text, batchIndex) => {
+        const line = batch[batchIndex]!;
+        translated[index + batchIndex] = line.timeMs === null ? text : `${formatTimestamp(line.timeMs)} ${text}`;
+      });
+    }
+    const content = translated.join('\n');
+    return this.prisma.musicLyricsTranslation.upsert({
+      where: { lyricsId_language: { lyricsId: lyrics.id, language: targetLanguage } },
+      create: { lyricsId: lyrics.id, language: targetLanguage, content, provider: 'libretranslate', isMachine: true },
+      update: { content, provider: 'libretranslate', isMachine: true },
+    });
   }
 }

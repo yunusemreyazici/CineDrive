@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileText, Pencil, Save, Upload, X } from 'lucide-react';
+import { Download, FileText, Languages, Pencil, Save, TimerReset, Upload, Wand2, X } from 'lucide-react';
 import {
   useMusicLyricsQuery,
   useUpdateMusicLyricsMutation,
   useWriteLyricsSidecarMutation,
+  useAutoTranslateLyricsMutation,
+  useAlignLyricsMutation,
+  useImportLyricsRevisionMutation,
+  useApplyLyricsRevisionMutation,
 } from '../../hooks/useMusicApi';
 import { t } from '../../i18n';
 import { useMusicPlayer } from './MusicPlayerProvider';
@@ -17,13 +21,27 @@ interface Props {
 
 type LyricsMode = 'original' | 'translation' | 'romanization';
 
+const KaraokeText: React.FC<{ line: { timeMs: number | null; text: string; words?: Array<{ timeMs: number; text: string }> }; nextTimeMs?: number | null; positionMs: number }> = ({ line, nextTimeMs, positionMs }) => {
+  const explicit = line.words?.length ? line.words : null;
+  const words = explicit || line.text.split(/\s+/).filter(Boolean).map((text, index, all) => ({
+    text,
+    timeMs: (line.timeMs || 0) + ((nextTimeMs || (line.timeMs || 0) + 4000) - (line.timeMs || 0)) * index / Math.max(1, all.length),
+  }));
+  return <>{words.map((word, index) => <React.Fragment key={`${word.timeMs}-${index}`}><span className={positionMs >= word.timeMs ? 'text-white' : 'text-white/30'}>{word.text}</span>{index < words.length - 1 ? ' ' : ''}</React.Fragment>)}</>;
+};
+
 export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, onClose }) => {
   const query = useMusicLyricsQuery(trackId);
   const updateLyrics = useUpdateMusicLyricsMutation();
   const writeSidecar = useWriteLyricsSidecarMutation();
+  const autoTranslate = useAutoTranslateLyricsMutation();
+  const alignLyrics = useAlignLyricsMutation();
+  const importRevision = useImportLyricsRevisionMutation();
+  const applyRevision = useApplyLyricsRevisionMutation();
   const track = useMusicPlayer().currentTrack;
   const activeRef = useRef<HTMLButtonElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const communityFileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<LyricsMode>('original');
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState('');
@@ -32,13 +50,18 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
   const [offsetMs, setOffsetMs] = useState(0);
   const [language, setLanguage] = useState('');
   const [translationLanguage, setTranslationLanguage] = useState('');
+  const [selectedTranslation, setSelectedTranslation] = useState('');
 
   const lines = useMemo(() => {
     if (!query.data) return [];
-    if (mode === 'translation') return query.data.translatedLines || [];
+    if (mode === 'translation') {
+      const translation = query.data.translations?.find((item) => item.language === selectedTranslation) || query.data.translations?.[0];
+      return translation?.lines || query.data.translatedLines || [];
+    }
     if (mode === 'romanization') return query.data.romanizedLines || [];
     return query.data.lines;
-  }, [mode, query.data]);
+  }, [mode, query.data, selectedTranslation]);
+
   const activeIndex = useMemo(() => {
     if (!query.data?.isSynced) return -1;
     const positionMs = position * 1000;
@@ -77,6 +100,18 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
       },
       { onSuccess: () => setEditing(false) },
     );
+  };
+
+  const stampNextUntimedLine = () => {
+    const rows = content.split('\n');
+    const index = rows.findIndex((row) => row.trim() && !/^\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]/.test(row.trim()));
+    if (index < 0) return;
+    const milliseconds = Math.max(0, Math.round(position * 1000));
+    const minutes = Math.floor(milliseconds / 60_000);
+    const seconds = Math.floor((milliseconds % 60_000) / 1000);
+    const centiseconds = Math.floor((milliseconds % 1000) / 10);
+    rows[index] = `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}] ${rows[index]!.trim()}`;
+    setContent(rows.join('\n'));
   };
 
   return (
@@ -133,12 +168,13 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
       </div>
 
       {query.data &&
-        ((query.data.translatedLines?.length || 0) > 0 ||
+        ((query.data.translations?.length || 0) > 0 ||
+          (query.data.translatedLines?.length || 0) > 0 ||
           (query.data.romanizedLines?.length || 0) > 0) && (
           <div className="flex justify-center gap-1 border-b border-white/10 p-2">
             {(['original', 'translation', 'romanization'] as const).map((item) => {
               const disabled =
-                (item === 'translation' && !query.data?.translatedLines?.length) ||
+                (item === 'translation' && !query.data?.translations?.length && !query.data?.translatedLines?.length) ||
                 (item === 'romanization' && !query.data?.romanizedLines?.length);
               return (
                 <button
@@ -191,7 +227,7 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
                   onClick={() => onSeek(line.timeMs! / 1000)}
                   className={`block w-full rounded-2xl px-4 py-2 text-left font-display text-2xl font-semibold leading-snug transition duration-300 sm:text-4xl sm:leading-tight ${index === activeIndex ? 'translate-x-1 text-white drop-shadow-lg' : 'text-white/25 hover:text-white/55'}`}
                 >
-                  {line.text || '♪'}
+                  <KaraokeText line={line} nextTimeMs={lines[index + 1]?.timeMs} positionMs={position * 1000} />
                 </button>
               ) : (
                 <p
@@ -289,6 +325,12 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
                 />
               </label>
             </div>
+            <div className="mt-4 flex flex-wrap items-end gap-2 rounded-2xl border border-white/[.07] bg-white/[.025] p-3">
+              <label className="min-w-28 flex-1 space-y-1 text-xs font-bold text-white/50">{t.music.translationLanguage}<input value={translationLanguage} onChange={(event) => setTranslationLanguage(event.target.value)} className="music-field" placeholder="en" /></label>
+              <button onClick={() => translationLanguage.trim() && autoTranslate.mutate({ trackId, language: translationLanguage.trim() }, { onSuccess: (lyrics) => { const result = lyrics.translations?.find((item) => item.language === translationLanguage.trim()); if (result) { setSelectedTranslation(result.language); setMode('translation'); setTranslatedContent(result.content); } } })} disabled={!translationLanguage.trim() || autoTranslate.isPending || !query.data} className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2.5 text-sm font-bold text-cyan-200 disabled:opacity-40"><Languages className="h-4 w-4" /> {t.music.autoTranslate}</button>
+              <button onClick={() => alignLyrics.mutate({ trackId, content }, { onSuccess: setContent })} disabled={!content.trim() || alignLyrics.isPending} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-bold disabled:opacity-40"><TimerReset className="h-4 w-4" /> {t.music.autoAlign}</button>
+              <button onClick={stampNextUntimedLine} disabled={!content.trim()} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-bold disabled:opacity-40"><TimerReset className="h-4 w-4" /> {t.music.tapTiming}</button>
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -299,6 +341,7 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
                 if (file) void file.text().then(setContent);
               }}
             />
+            <input ref={communityFileRef} type="file" accept=".lrc,text/plain" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void file.text().then((revisionContent) => importRevision.mutate({ trackId, sourceName: file.name, content: revisionContent })); }} />
             <div className="mt-6 flex flex-wrap gap-2">
               <button
                 onClick={() => fileRef.current?.click()}
@@ -306,6 +349,7 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
               >
                 <Upload className="h-4 w-4" /> {t.music.importLrc}
               </button>
+              <button onClick={() => communityFileRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/10"><Wand2 className="h-4 w-4" /> {t.music.communityCorrection}</button>
               {query.data && (
                 <button
                   onClick={() => writeSidecar.mutate(trackId)}
@@ -323,6 +367,8 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
                 <Save className="h-4 w-4" /> {t.common.save}
               </button>
             </div>
+            {!!query.data?.translations?.length && <div className="mt-5 rounded-2xl border border-white/[.07] p-4"><p className="text-xs font-black uppercase tracking-wider text-white/35">{t.music.lyricsModes.translation}</p><div className="mt-3 flex flex-wrap gap-2">{query.data.translations.map((translation) => <button key={translation.id} onClick={() => { setSelectedTranslation(translation.language); setMode('translation'); }} className="rounded-full bg-white/[.06] px-3 py-2 text-xs font-bold">{translation.language.toUpperCase()} {translation.isMachine ? `· ${t.music.machineTranslation}` : ''}</button>)}</div></div>}
+            {!!query.data?.revisions?.filter((item) => item.status === 'pending').length && <div className="mt-5 rounded-2xl border border-white/[.07] p-4"><p className="text-xs font-black uppercase tracking-wider text-white/35">{t.music.communityCorrection}</p><div className="mt-3 space-y-2">{query.data.revisions.filter((item) => item.status === 'pending').map((revision) => <div key={revision.id} className="flex items-center gap-3 rounded-xl bg-white/[.035] p-3"><span className="min-w-0 flex-1 truncate text-sm">{revision.sourceName}</span><button onClick={() => applyRevision.mutate({ trackId, revisionId: revision.id }, { onSuccess: (lyrics) => setContent(lyrics.content || '') })} className="rounded-full bg-white px-3 py-2 text-xs font-black text-black">{t.music.applyCorrection}</button></div>)}</div></div>}
             {(writeSidecar.data || writeSidecar.error) && (
               <p className="mt-3 text-xs text-white/45">
                 {writeSidecar.data

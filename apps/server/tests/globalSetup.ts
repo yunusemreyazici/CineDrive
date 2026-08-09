@@ -24,7 +24,10 @@ export const setup = () => {
 
   execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'], {
     cwd: serverRoot,
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
+    // Prisma 6's macOS schema engine can exit before opening SQLite when no
+    // Rust log filter is present under an app sandbox. The engine currently
+    // needs its debug path enabled; Prisma still keeps successful runs quiet.
+    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, RUST_LOG: 'debug' },
     stdio: 'inherit',
   });
 };

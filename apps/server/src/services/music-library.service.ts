@@ -30,6 +30,10 @@ export class MusicLibraryService {
     this.lyrics = new MusicLyricsService(prisma);
   }
 
+  public saveArtwork(userId: string, artwork: { mimeType: string; data: Buffer }) {
+    return this.storeArtwork(userId, artwork);
+  }
+
   public async indexTrack(options: {
     userId: string;
     libraryId: string;

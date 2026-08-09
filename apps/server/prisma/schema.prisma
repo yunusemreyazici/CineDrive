@@ -34,6 +34,8 @@ model User {
   musicHistory          MusicHistory[]
   musicPlaylists        MusicPlaylist[]
   musicPlaybackState    MusicPlaybackState?
+  musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
+  musicMaintenanceActions MusicMaintenanceAction[]
 }
 
 model Session {
@@ -428,8 +430,72 @@ model MusicLyrics {
   offsetMs          Int        @default(0)
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
+  translations      MusicLyricsTranslation[]
+  revisions         MusicLyricsRevision[]
 
   @@index([language])
+}
+
+model MusicLyricsTranslation {
+  id        String      @id @default(uuid())
+  lyricsId  String
+  lyrics    MusicLyrics @relation(fields: [lyricsId], references: [id], onDelete: Cascade)
+  language  String
+  content   String
+  provider  String      @default("manual")
+  isMachine Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([lyricsId, language])
+  @@index([lyricsId])
+}
+
+model MusicLyricsRevision {
+  id         String      @id @default(uuid())
+  lyricsId   String
+  lyrics     MusicLyrics @relation(fields: [lyricsId], references: [id], onDelete: Cascade)
+  sourceName String
+  content    String
+  status     String      @default("pending")
+  createdAt  DateTime    @default(now())
+  appliedAt  DateTime?
+
+  @@index([lyricsId, status])
+}
+
+model MusicMaintenanceSuggestion {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType   String
+  targetId     String
+  kind         String
+  provider     String
+  confidence   Int
+  currentData  String
+  proposedData String
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+  resolvedAt   DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model MusicMaintenanceAction {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actionType String
+  targetType String
+  targetId   String
+  beforeData String
+  afterData  String
+  createdAt  DateTime @default(now())
+  revertedAt DateTime?
+
+  @@index([userId, createdAt])
 }
 
 model MusicTrackArtist {

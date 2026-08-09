@@ -11,7 +11,7 @@ import {
   cleanMusicFilenameTitle,
   isAudioFilename,
 } from '../src/services/music-metadata.service';
-import { parseLrc } from '../src/services/music-lyrics.service';
+import { alignPlainLyrics, parseLrc } from '../src/services/music-lyrics.service';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -291,6 +291,22 @@ describe('Music library', () => {
     ]);
   });
 
+  it('parses enhanced word timestamps and creates a conservative alignment draft', () => {
+    expect(parseLrc('[00:01.00]<00:01.00>Hello <00:01.50>world').lines).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { timeMs: 1000, text: 'Hello' },
+          { timeMs: 1500, text: 'world' },
+        ],
+      },
+    ]);
+    expect(alignPlainLyrics('First line\nSecond line', 10, 1000, 1000)).toBe(
+      '[00:01.00] First line\n[00:09.00] Second line',
+    );
+  });
+
   it('stores and serves owned track lyrics', async () => {
     const saved = await app.inject({
       method: 'PUT',
@@ -349,6 +365,46 @@ describe('Music library', () => {
     });
     expect(sidecar.statusCode).toBe(200);
     expect(fs.readFileSync(fixturePath.replace(/\.mp3$/i, '.lrc'), 'utf8')).toContain('Merhaba');
+  });
+
+  it('imports a community LRC correction, previews it, and applies it with a backup', async () => {
+    await app.inject({ method: 'PUT', url: `/api/music/tracks/${trackId}/lyrics`, cookies: { session_id: cookie }, payload: { sourceName: 'original.lrc', content: '[00:01.00]Original' } });
+    const imported = await app.inject({ method: 'POST', url: `/api/music/tracks/${trackId}/lyrics/revisions`, cookies: { session_id: cookie }, payload: { sourceName: 'community.lrc', content: '[00:01.20]Corrected' } });
+    expect(imported.statusCode).toBe(201);
+    const revisionId = JSON.parse(imported.body).revision.id;
+    const applied = await app.inject({ method: 'POST', url: `/api/music/tracks/${trackId}/lyrics/revisions/${revisionId}/apply`, cookies: { session_id: cookie } });
+    expect(applied.statusCode).toBe(200);
+    expect(JSON.parse(applied.body).lyrics).toMatchObject({ sourceName: 'community.lrc', lines: [{ timeMs: 1200, text: 'Corrected' }] });
+    expect(JSON.parse(applied.body).lyrics.revisions).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'backup' }), expect.objectContaining({ status: 'applied' })]));
+  });
+
+  it('returns weekly Replay listening summaries', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.create({ data: { userId: user.id, trackId, listenedSeconds: 75 } });
+    const response = await app.inject({ method: 'GET', url: '/api/music/replay?period=week', cookies: { session_id: cookie } });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({ period: 'week', totalSeconds: 75, totalPlays: 1, uniqueTracks: 1, topTracks: [{ track: { id: trackId }, seconds: 75, plays: 1 }] });
+  });
+
+  it('archives a lower-quality duplicate, replaces playlist items, and undoes the action', async () => {
+    const original = await app.prisma.musicTrack.findUniqueOrThrow({ where: { id: trackId }, include: { driveFile: true } });
+    const duplicatePath = path.join(os.tmpdir(), `cinedrive-music-duplicate-${randomUUID()}.mp3`);
+    fs.writeFileSync(duplicatePath, Buffer.alloc(64));
+    const file = await app.prisma.driveFile.create({ data: { libraryId, storageType: 'local', localFilePath: duplicatePath, name: 'duplicate.mp3', mimeType: 'audio/mpeg', status: 'active', audioCodec: 'mp3', audioBitrate: 128000 } });
+    const duplicate = await app.prisma.musicTrack.create({ data: { libraryId, driveFileId: file.id, albumId: original.albumId, primaryArtistId: original.primaryArtistId, title: original.title, normalizedTitle: original.normalizedTitle, duration: original.duration } });
+    const user = await app.authService.ensureAdminUserExists();
+    const playlist = await app.prisma.musicPlaylist.create({ data: { userId: user.id, name: 'Duplicates' } });
+    const item = await app.prisma.musicPlaylistItem.create({ data: { playlistId: playlist.id, trackId: duplicate.id, position: 0 } });
+    const archived = await app.inject({ method: 'POST', url: '/api/music/maintenance/duplicates/archive', cookies: { session_id: cookie }, payload: { keepTrackId: trackId, archiveTrackId: duplicate.id, replacePlaylistItems: true } });
+    expect(archived.statusCode).toBe(200);
+    expect(await app.prisma.driveFile.findUniqueOrThrow({ where: { id: file.id } })).toMatchObject({ status: 'archived' });
+    expect(await app.prisma.musicPlaylistItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ trackId });
+    const action = await app.prisma.musicMaintenanceAction.findFirstOrThrow({ where: { targetId: duplicate.id } });
+    const undone = await app.inject({ method: 'POST', url: `/api/music/maintenance/actions/${action.id}/undo`, cookies: { session_id: cookie } });
+    expect(undone.statusCode).toBe(200);
+    expect(await app.prisma.driveFile.findUniqueOrThrow({ where: { id: file.id } })).toMatchObject({ status: 'active' });
+    expect(await app.prisma.musicPlaylistItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ trackId: duplicate.id });
+    fs.rmSync(duplicatePath, { force: true });
   });
 
   it('builds personalized discovery, continue listening, and artist radio', async () => {

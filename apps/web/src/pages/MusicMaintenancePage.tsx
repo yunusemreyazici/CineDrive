@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Gauge, ImageOff, Layers3, Save } from 'lucide-react';
+import { AlertTriangle, Check, Gauge, ImageOff, Layers3, RotateCcw, Save, Sparkles, X } from 'lucide-react';
 import { ErrorState } from '../components/common/ErrorState';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import {
@@ -8,6 +8,10 @@ import {
   useEditMusicArtistMaintenanceMutation,
   useMusicMaintenanceQuery,
   useReplayGainScanMutation,
+  useGenerateMusicMaintenanceMutation,
+  useResolveMusicSuggestionMutation,
+  useArchiveDuplicateMutation,
+  useUndoMusicMaintenanceMutation,
 } from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
@@ -32,6 +36,10 @@ export const MusicMaintenancePage: React.FC = () => {
   const replayGain = useReplayGainScanMutation();
   const editAlbum = useEditMusicAlbumMaintenanceMutation();
   const editArtist = useEditMusicArtistMaintenanceMutation();
+  const generate = useGenerateMusicMaintenanceMutation();
+  const resolveSuggestion = useResolveMusicSuggestionMutation();
+  const archiveDuplicate = useArchiveDuplicateMutation();
+  const undo = useUndoMusicMaintenanceMutation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [genres, setGenres] = useState('');
   const [year, setYear] = useState('');
@@ -124,6 +132,26 @@ export const MusicMaintenancePage: React.FC = () => {
           value={data.totals.replayGainMissing}
           tone="bg-cyan-500/15 text-cyan-300"
         />
+      </section>
+
+      <section className="rounded-[28px] border border-cyan-400/15 bg-gradient-to-br from-cyan-950/25 to-violet-950/20 p-5 md:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div><h2 className="flex items-center gap-2 font-display text-2xl font-bold"><Sparkles className="h-5 w-5 text-cyan-300" /> {t.music.automaticCare}</h2><p className="mt-1 text-sm text-white/40">{t.music.automaticCareHint}</p></div>
+          <button onClick={() => generate.mutate()} disabled={generate.isPending} className="rounded-full bg-cyan-300 px-5 py-2.5 text-xs font-black text-black disabled:opacity-50">{generate.isPending ? t.music.scanning : t.music.findSuggestions}</button>
+        </div>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {!data.suggestions?.length && <p className="text-sm text-white/35">{t.music.noSuggestions}</p>}
+          {data.suggestions?.map((suggestion) => {
+            const proposed = suggestion.proposedData as Record<string, unknown>;
+            return <article key={suggestion.id} className="overflow-hidden rounded-2xl border border-white/[.08] bg-black/25 p-4">
+              <div className="flex items-start gap-4">
+                {suggestion.kind === 'artwork' && typeof proposed.previewUrl === 'string' ? <img src={proposed.previewUrl} alt="" className="h-20 w-20 rounded-xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/5"><Sparkles className="h-6 w-6 text-cyan-300" /></div>}
+                <div className="min-w-0 flex-1"><p className="text-xs font-black uppercase tracking-wider text-cyan-300">{suggestion.provider} · {suggestion.confidence}%</p><h3 className="mt-1 font-bold">{suggestion.kind === 'artwork' ? t.music.missingArtwork : t.music.missingMetadata}</h3><div className="mt-2 line-clamp-3 break-all text-[11px] leading-5 text-white/35">{Object.entries(proposed).filter(([key]) => key !== 'previewUrl' && key !== 'credits').map(([key, value]) => `${key}: ${String(value ?? '—')}`).join(' · ')}</div></div>
+              </div>
+              <div className="mt-4 flex gap-2"><button onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: true })} className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-black text-black"><Check className="h-3.5 w-3.5" /> {t.music.acceptSuggestion}</button><button onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: false })} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-2 text-xs font-bold text-white/55"><X className="h-3.5 w-3.5" /> {t.music.rejectSuggestion}</button></div>
+            </article>;
+          })}
+        </div>
       </section>
 
       <section className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] p-5 md:p-7">
@@ -264,15 +292,21 @@ export const MusicMaintenancePage: React.FC = () => {
                 </summary>
                 <div className="mt-3 space-y-2 text-xs text-white/45">
                   {group.tracks.map((track) => (
-                    <p key={track.id}>
-                      {track.source?.fileName} · {track.source?.library.name}
-                    </p>
+                    <div key={track.id} className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2">
+                      <span className="min-w-0 flex-1 truncate">{track.source?.fileName} · {group.quality?.find((item) => item.trackId === track.id)?.label || track.source?.library.name}</span>
+                      {track.id === group.recommendedTrackId ? <span className="rounded-full bg-cyan-300/15 px-2 py-1 text-[9px] font-black text-cyan-200">{t.music.recommendedQuality}</span> : <button onClick={() => group.recommendedTrackId && archiveDuplicate.mutate({ keepTrackId: group.recommendedTrackId, archiveTrackId: track.id, replacePlaylistItems: true })} className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10">{t.music.archiveLowerQuality}</button>}
+                    </div>
                   ))}
                 </div>
               </details>
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] p-5 md:p-7">
+        <h2 className="font-display text-2xl font-bold">{t.music.actionHistory}</h2>
+        <div className="mt-4 divide-y divide-white/[.06]">{data.actions?.map((action) => <div key={action.id} className="flex items-center gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{action.actionType}</p><p className="text-xs text-white/35">{new Date(action.createdAt).toLocaleString()}</p></div><button disabled={!!action.revertedAt || undo.isPending} onClick={() => undo.mutate(action.id)} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-bold disabled:opacity-30"><RotateCcw className="h-3.5 w-3.5" /> {t.music.undoAction}</button></div>)}</div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">

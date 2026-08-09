@@ -26,6 +26,11 @@ export const envSchema = z.object({
    * the interface language which each browser chooses for itself.
    */
   METADATA_LANGUAGE: z.string().min(2).default('tr-TR'),
+  LIBRETRANSLATE_URL: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  LIBRETRANSLATE_API_KEY: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

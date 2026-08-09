@@ -91,6 +91,38 @@ export const musicReplayGainScanSchema = z.object({
   trackIds: z.array(z.string().uuid()).min(1).max(100),
 });
 
+export const musicMaintenanceGenerateSchema = z.object({
+  trackIds: z.array(z.string().uuid()).max(20).optional(),
+  albumIds: z.array(z.string().uuid()).max(20).optional(),
+});
+
+export const musicDuplicateArchiveSchema = z.object({
+  keepTrackId: z.string().uuid(),
+  archiveTrackId: z.string().uuid(),
+  replacePlaylistItems: z.boolean().default(true),
+});
+
+export const musicReplayQuerySchema = z.object({
+  period: z.enum(['week', 'month', 'year']).default('week'),
+  year: z.coerce.number().int().min(2000).max(3000).optional(),
+});
+
+export const musicLyricsTranslationSchema = z.object({
+  language: z.string().trim().min(2).max(16),
+  content: z.string().max(1024 * 1024).optional(),
+});
+
+export const musicLyricsAlignSchema = z.object({
+  content: z.string().max(1024 * 1024),
+  leadInMs: z.number().int().min(0).max(60_000).default(1000),
+  endPaddingMs: z.number().int().min(0).max(60_000).default(5000),
+});
+
+export const musicLyricsRevisionSchema = z.object({
+  sourceName: z.string().trim().min(1).max(255),
+  content: z.string().min(1).max(1024 * 1024),
+});
+
 export const musicTrackCreditInputSchema = z.object({
   name: z.string().trim().min(1).max(200),
   role: z

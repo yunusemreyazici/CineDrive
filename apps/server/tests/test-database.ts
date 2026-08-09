@@ -4,14 +4,15 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const serverRoot = path.resolve(__dirname, '..');
-export const testDbPath = path.resolve(serverRoot, 'prisma/data/test.db');
+// Prisma's native SQLite schema engine can be denied writes inside macOS
+// protected Downloads folders even when Node itself can edit the workspace.
+// A disposable OS temp database also keeps test I/O out of the repository.
+export const testDbPath = '/tmp/cinedrive-vitest.db';
 
 /**
- * Absolute on purpose. Prisma resolves a relative `file:` URL against the
- * *schema* directory rather than the working directory, so the previous
- * `file:./prisma/data/test.db` created `prisma/prisma/data/test.db` while the
- * teardown deleted `prisma/data/test.db`. The throwaway database was never
- * thrown away and accumulated fixture rows across every run.
+ * Absolute on purpose. Prisma resolves relative `file:` URLs against the
+ * schema directory; the app and global setup must instead share one exact
+ * disposable path.
  *
  * The setup and the app under test must agree on this exact value, which is
  * why both `vitest.config.ts` and `globalSetup.ts` read it from here.
