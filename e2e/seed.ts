@@ -305,8 +305,12 @@ export const seedE2EDatabase = async () => {
       data: {
         trackId: musicTrack.id,
         content: lyricsContent,
+        translatedContent: '[00:00.00]Opening translation\n[00:02.00]Second translation',
+        romanizedContent: '[00:00.00]Smoke test opening line\n[00:02.00]Smoke test second line',
         sourceName: '01 - Smoke Test Song.lrc',
         sourceType: 'sidecar',
+        language: 'en',
+        translationLang: 'tr',
         isSynced: true,
       },
     });

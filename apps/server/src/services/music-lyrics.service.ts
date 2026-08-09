@@ -223,6 +223,9 @@ export class MusicLyricsService {
     sourceName: string;
     content: string;
     language?: string | null;
+    translatedContent?: string | null;
+    romanizedContent?: string | null;
+    translationLanguage?: string | null;
     sourceType?: 'sidecar' | 'manual' | 'lrclib';
   }) {
     if (Buffer.byteLength(options.content, 'utf8') > MAX_LYRICS_BYTES) {
@@ -230,6 +233,16 @@ export class MusicLyricsService {
     }
     const normalizedContent = options.content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
     const parsed = parseLrc(normalizedContent);
+    const translatedContent =
+      options.translatedContent?.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n') || null;
+    const romanizedContent =
+      options.romanizedContent?.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n') || null;
+    if (
+      (translatedContent && Buffer.byteLength(translatedContent, 'utf8') > MAX_LYRICS_BYTES) ||
+      (romanizedContent && Buffer.byteLength(romanizedContent, 'utf8') > MAX_LYRICS_BYTES)
+    ) {
+      throw new Error('LYRICS_FILE_TOO_LARGE');
+    }
     const language =
       options.language || inferLyricsLanguage(options.sourceName, parsed.metadata.la);
     return this.prisma.musicLyrics.upsert({
@@ -237,17 +250,23 @@ export class MusicLyricsService {
       create: {
         trackId: options.trackId,
         content: normalizedContent,
+        translatedContent,
+        romanizedContent,
         sourceName: options.sourceName,
         sourceType: options.sourceType || 'sidecar',
         language,
+        translationLang: options.translationLanguage,
         isSynced: parsed.isSynced,
         offsetMs: parsed.offsetMs,
       },
       update: {
         content: normalizedContent,
+        translatedContent,
+        romanizedContent,
         sourceName: options.sourceName,
         sourceType: options.sourceType || 'sidecar',
         language,
+        translationLang: options.translationLanguage,
         isSynced: parsed.isSynced,
         offsetMs: parsed.offsetMs,
       },

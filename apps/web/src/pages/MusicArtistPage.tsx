@@ -5,7 +5,7 @@ import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
-import { useMusicArtistQuery } from '../hooks/useMusicApi';
+import { useArtistRadioMutation, useMusicArtistQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
 const albumSection = (album: { releaseType?: string; secondaryTypes?: string[] }) => {
@@ -19,6 +19,7 @@ export const MusicArtistPage: React.FC = () => {
   const { artistId } = useParams();
   const query = useMusicArtistQuery(artistId);
   const player = useMusicPlayer();
+  const radio = useArtistRadioMutation();
   const artist = query.data;
   const palette = useArtworkPalette(artist?.artworkUrl);
   if (!artist) return <div className="h-64 animate-pulse rounded-3xl bg-zinc-900" />;
@@ -76,6 +77,19 @@ export const MusicArtistPage: React.FC = () => {
               >
                 <Play className="h-5 w-5 fill-current" />
                 {t.music.playAll}
+              </button>
+              <button
+                onClick={() =>
+                  artistId &&
+                  radio.mutate(artistId, {
+                    onSuccess: (result) => player.playTracks(result.tracks),
+                  })
+                }
+                disabled={radio.isPending}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/10 disabled:opacity-50"
+              >
+                <Radio className="h-5 w-5" />
+                {t.music.artistRadio}
               </button>
               {artist.musicbrainzId && (
                 <a

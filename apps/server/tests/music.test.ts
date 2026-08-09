@@ -103,6 +103,7 @@ describe('Music library', () => {
     });
     await app.close();
     fs.rmSync(fixturePath, { force: true });
+    fs.rmSync(fixturePath.replace(/\.mp3$/i, '.lrc'), { force: true });
   });
 
   it('cleans numbered music filenames', () => {
@@ -309,6 +310,125 @@ describe('Music library', () => {
       language: 'tr',
       isSynced: true,
       lines: [{ timeMs: 1000, text: 'Merhaba' }],
+    });
+  });
+
+  it('stores translation and romanization layers and exports a local sidecar', async () => {
+    const saved = await app.inject({
+      method: 'PUT',
+      url: `/api/music/tracks/${trackId}/lyrics`,
+      cookies: { session_id: cookie },
+      payload: {
+        content: '[00:01.00]Merhaba',
+        translatedContent: '[00:01.00]Hello',
+        romanizedContent: '[00:01.00]Merhaba',
+        sourceName: 'manual.lrc',
+        language: 'tr',
+        translationLanguage: 'en',
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(JSON.parse(saved.body).lyrics).toMatchObject({
+      translationLanguage: 'en',
+      translatedLines: [{ timeMs: 1000, text: 'Hello' }],
+      romanizedLines: [{ timeMs: 1000, text: 'Merhaba' }],
+    });
+
+    const exported = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/lyrics/lrc`,
+      cookies: { session_id: cookie },
+    });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.body).toContain('[00:01.00]Merhaba');
+
+    const sidecar = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/sidecar`,
+      cookies: { session_id: cookie },
+    });
+    expect(sidecar.statusCode).toBe(200);
+    expect(fs.readFileSync(fixturePath.replace(/\.mp3$/i, '.lrc'), 'utf8')).toContain('Merhaba');
+  });
+
+  it('builds personalized discovery, continue listening, and artist radio', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.create({
+      data: { userId: user.id, trackId, listenedSeconds: 45 },
+    });
+    await app.prisma.musicPlaybackState.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, currentTrackId: trackId, positionSeconds: 38 },
+      update: { currentTrackId: trackId, positionSeconds: 38 },
+    });
+    const discovery = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery',
+      cookies: { session_id: cookie },
+    });
+    expect(discovery.statusCode).toBe(200);
+    expect(JSON.parse(discovery.body)).toMatchObject({
+      continueListening: { track: { id: trackId }, positionSeconds: 38 },
+      mixes: expect.arrayContaining([
+        expect.objectContaining({ type: 'daily', tracks: expect.any(Array) }),
+      ]),
+    });
+    const artistId = (
+      await app.prisma.musicTrack.findUniqueOrThrow({
+        where: { id: trackId },
+        select: { primaryArtistId: true },
+      })
+    ).primaryArtistId!;
+    const radio = await app.inject({
+      method: 'GET',
+      url: `/api/music/radio/${artistId}`,
+      cookies: { session_id: cookie },
+    });
+    expect(radio.statusCode).toBe(200);
+    expect(JSON.parse(radio.body).mix).toMatchObject({
+      type: 'artist-radio',
+      tracks: [expect.objectContaining({ id: trackId })],
+    });
+  });
+
+  it('reports maintenance issues and applies owned bulk metadata updates', async () => {
+    const report = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance',
+      cookies: { session_id: cookie },
+    });
+    expect(report.statusCode).toBe(200);
+    expect(JSON.parse(report.body)).toMatchObject({
+      totals: { missingArtwork: 1, missingMetadata: 1 },
+      missingMetadata: [expect.objectContaining({ id: trackId, confidence: expect.any(Number) })],
+    });
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: '/api/music/maintenance/tracks',
+      cookies: { session_id: cookie },
+      payload: {
+        trackIds: [trackId],
+        artist: 'Bulk Artist',
+        album: 'Correct Album',
+        albumArtist: 'Bulk Artist',
+        genres: ['Jazz'],
+        year: 2024,
+        metadataLocked: true,
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(JSON.parse(updated.body).updated).toBe(1);
+    expect(
+      await app.prisma.musicTrack.findUniqueOrThrow({
+        where: { id: trackId },
+        include: { primaryArtist: true, album: true },
+      }),
+    ).toMatchObject({
+      genres: '["Jazz"]',
+      year: 2024,
+      metadataLocked: true,
+      primaryArtist: { name: 'Bulk Artist' },
+      album: { title: 'Correct Album' },
     });
   });
 

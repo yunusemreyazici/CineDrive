@@ -20,15 +20,38 @@ const MoviesPage = React.lazy(() =>
 const SeriesPage = React.lazy(() =>
   import('../pages/SeriesPage').then((module) => ({ default: module.SeriesPage })),
 );
-const MusicPage = React.lazy(() => import('../pages/MusicPage').then((module) => ({ default: module.MusicPage })));
-const MusicTracksPage = React.lazy(() => import('../pages/MusicTracksPage').then((module) => ({ default: module.MusicTracksPage })));
-const MusicAlbumsPage = React.lazy(() => import('../pages/MusicAlbumsPage').then((module) => ({ default: module.MusicAlbumsPage })));
-const MusicAlbumPage = React.lazy(() => import('../pages/MusicAlbumPage').then((module) => ({ default: module.MusicAlbumPage })));
-const MusicArtistsPage = React.lazy(() => import('../pages/MusicArtistsPage').then((module) => ({ default: module.MusicArtistsPage })));
-const MusicArtistPage = React.lazy(() => import('../pages/MusicArtistPage').then((module) => ({ default: module.MusicArtistPage })));
-const MusicLikedPage = React.lazy(() => import('../pages/MusicLikedPage').then((module) => ({ default: module.MusicLikedPage })));
-const MusicHistoryPage = React.lazy(() => import('../pages/MusicHistoryPage').then((module) => ({ default: module.MusicHistoryPage })));
-const MusicPlaylistPage = React.lazy(() => import('../pages/MusicPlaylistPage').then((module) => ({ default: module.MusicPlaylistPage })));
+const MusicPage = React.lazy(() =>
+  import('../pages/MusicPage').then((module) => ({ default: module.MusicPage })),
+);
+const MusicTracksPage = React.lazy(() =>
+  import('../pages/MusicTracksPage').then((module) => ({ default: module.MusicTracksPage })),
+);
+const MusicAlbumsPage = React.lazy(() =>
+  import('../pages/MusicAlbumsPage').then((module) => ({ default: module.MusicAlbumsPage })),
+);
+const MusicAlbumPage = React.lazy(() =>
+  import('../pages/MusicAlbumPage').then((module) => ({ default: module.MusicAlbumPage })),
+);
+const MusicArtistsPage = React.lazy(() =>
+  import('../pages/MusicArtistsPage').then((module) => ({ default: module.MusicArtistsPage })),
+);
+const MusicArtistPage = React.lazy(() =>
+  import('../pages/MusicArtistPage').then((module) => ({ default: module.MusicArtistPage })),
+);
+const MusicLikedPage = React.lazy(() =>
+  import('../pages/MusicLikedPage').then((module) => ({ default: module.MusicLikedPage })),
+);
+const MusicHistoryPage = React.lazy(() =>
+  import('../pages/MusicHistoryPage').then((module) => ({ default: module.MusicHistoryPage })),
+);
+const MusicPlaylistPage = React.lazy(() =>
+  import('../pages/MusicPlaylistPage').then((module) => ({ default: module.MusicPlaylistPage })),
+);
+const MusicMaintenancePage = React.lazy(() =>
+  import('../pages/MusicMaintenancePage').then((module) => ({
+    default: module.MusicMaintenancePage,
+  })),
+);
 const MediaDetailPage = React.lazy(() =>
   import('../pages/MediaDetailPage').then((module) => ({ default: module.MediaDetailPage })),
 );
@@ -91,6 +114,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/music/liked" element={<MusicLikedPage />} />
           <Route path="/music/history" element={<MusicHistoryPage />} />
           <Route path="/music/playlists/:playlistId" element={<MusicPlaylistPage />} />
+          <Route path="/music/maintenance" element={<MusicMaintenancePage />} />
           <Route path="/media/:mediaId" element={<MediaDetailPage />} />
           <Route path="/person/:personName" element={<PersonPage />} />
           <Route path="/manage" element={<Navigate to="/settings?tab=manage" replace />} />

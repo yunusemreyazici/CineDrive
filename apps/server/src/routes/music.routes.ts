@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
@@ -7,6 +8,10 @@ import {
   createMusicHistorySchema,
   createMusicPlaylistSchema,
   musicListQuerySchema,
+  musicAlbumMaintenanceSchema,
+  musicArtistMaintenanceSchema,
+  musicBulkMetadataSchema,
+  musicReplayGainScanSchema,
   reorderMusicPlaylistSchema,
   updateMusicLyricsSchema,
   updateMusicTrackMetadataSchema,
@@ -18,6 +23,8 @@ import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music
 import { driveSourceInput } from './media/shared.js';
 import { MusicLyricsService, parseLrc } from '../services/music-lyrics.service.js';
 import { MusicBrainzService } from '../services/musicbrainz.service.js';
+import { MusicDiscoveryService } from '../services/music-discovery.service.js';
+import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 
 const normalizeMusicName = (value: string) =>
   value
@@ -34,8 +41,11 @@ const ownedTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
 const formatLyrics = (lyrics: {
   trackId: string;
   content: string;
+  translatedContent: string | null;
+  romanizedContent: string | null;
   sourceName: string;
   language: string | null;
+  translationLang: string | null;
   updatedAt: Date;
 }) => {
   const parsed = parseLrc(lyrics.content);
@@ -46,6 +56,12 @@ const formatLyrics = (lyrics: {
     isSynced: parsed.isSynced,
     offsetMs: parsed.offsetMs,
     lines: parsed.lines,
+    content: lyrics.content,
+    translatedContent: lyrics.translatedContent,
+    romanizedContent: lyrics.romanizedContent,
+    translatedLines: lyrics.translatedContent ? parseLrc(lyrics.translatedContent).lines : [],
+    romanizedLines: lyrics.romanizedContent ? parseLrc(lyrics.romanizedContent).lines : [],
+    translationLanguage: lyrics.translationLang,
     updatedAt: lyrics.updatedAt.toISOString(),
   };
 };
@@ -84,6 +100,8 @@ const albumDto = (album: {
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const lyricsService = new MusicLyricsService(fastify.prisma);
   const musicbrainz = new MusicBrainzService();
+  const discoveryService = new MusicDiscoveryService(fastify.prisma);
+  const replayGainService = new MusicReplayGainService(fastify.prisma);
   fastify.addHook('preHandler', fastify.authenticate);
 
   fastify.get('/overview', async (request) => {
@@ -159,6 +177,250 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       })),
       favoriteCount,
     };
+  });
+
+  fastify.get('/discovery', async (request) => discoveryService.getDiscovery(request.user!.id));
+
+  fastify.get<{ Params: { artistId: string } }>('/radio/:artistId', async (request, reply) => {
+    const artist = await fastify.prisma.musicArtist.findFirst({
+      where: { id: request.params.artistId, userId: request.user!.id },
+      select: { id: true },
+    });
+    if (!artist)
+      return reply.status(404).send({
+        error: { code: 'ARTIST_NOT_FOUND', message: 'Sanatçı bulunamadı.', requestId: request.id },
+      });
+    return { mix: await discoveryService.getArtistRadio(request.user!.id, artist.id) };
+  });
+
+  fastify.get('/maintenance', async (request) => {
+    const userId = request.user!.id;
+    const rawTracks = await fastify.prisma.musicTrack.findMany({
+      where: ownedTrackWhere(userId),
+      include: musicTrackInclude(userId),
+      orderBy: { updatedAt: 'desc' },
+      take: 2000,
+    });
+    const tracks = rawTracks.map(formatMusicTrack);
+    const missingArtwork = tracks.filter((track) => !track.artworkUrl);
+    const missingMetadata = tracks
+      .map((track) => {
+        const issues: string[] = [];
+        if (!track.primaryArtist || /^bilinmeyen|^unknown/i.test(track.primaryArtist.name))
+          issues.push('artist');
+        if (!track.album || /^bilinmeyen|^unknown/i.test(track.album.title)) issues.push('album');
+        if (!track.year) issues.push('year');
+        if (!track.genres.length) issues.push('genres');
+        if (!track.musicbrainzRecordingId) issues.push('musicbrainz');
+        const confidence = track.metadataLocked
+          ? 100
+          : Math.max(10, 100 - issues.length * 16 - (track.musicbrainzRecordingId ? 0 : 8));
+        return { ...track, issues, confidence };
+      })
+      .filter((track) => track.issues.length > 0);
+    const duplicateMap = new Map<string, typeof tracks>();
+    tracks.forEach((track) => {
+      const durationBucket = Math.round((track.duration || 0) / 2) * 2;
+      const key = `${normalizeMusicName(track.title)}|${normalizeMusicName(track.primaryArtist?.name || '')}|${durationBucket}`;
+      const group = duplicateMap.get(key) || [];
+      group.push(track);
+      duplicateMap.set(key, group);
+    });
+    const duplicates = [...duplicateMap.entries()]
+      .filter(([, group]) => group.length > 1)
+      .map(([key, group]) => ({ key, tracks: group }));
+    const replayGainMissing = tracks.filter(
+      (track) => track.audio?.replayGainTrackDb == null && track.audio?.replayGainAlbumDb == null,
+    );
+    return {
+      missingArtwork: missingArtwork.slice(0, 100),
+      missingMetadata: missingMetadata.slice(0, 100),
+      duplicates: duplicates.slice(0, 100),
+      replayGainMissing: replayGainMissing.slice(0, 100),
+      totals: {
+        missingArtwork: missingArtwork.length,
+        missingMetadata: missingMetadata.length,
+        duplicates: duplicates.length,
+        replayGainMissing: replayGainMissing.length,
+      },
+    };
+  });
+
+  fastify.patch('/maintenance/tracks', async (request, reply) => {
+    const parsed = musicBulkMetadataSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz toplu işlem.',
+          requestId: request.id,
+        },
+      });
+    const ownedIds = await fastify.prisma.musicTrack.findMany({
+      where: { id: { in: parsed.data.trackIds }, ...ownedTrackWhere(request.user!.id) },
+      select: { id: true, primaryArtist: { select: { name: true } } },
+    });
+    const upsertArtist = (name: string) =>
+      fastify.prisma.musicArtist.upsert({
+        where: {
+          userId_normalizedName: {
+            userId: request.user!.id,
+            normalizedName: normalizeMusicName(name),
+          },
+        },
+        create: {
+          userId: request.user!.id,
+          name,
+          normalizedName: normalizeMusicName(name),
+        },
+        update: { name },
+      });
+    const data: Prisma.MusicTrackUncheckedUpdateManyInput = {};
+    let targetArtistId: string | undefined;
+    if (parsed.data.artist) {
+      targetArtistId = (await upsertArtist(parsed.data.artist)).id;
+      data.primaryArtistId = targetArtistId;
+    }
+    if (parsed.data.album) {
+      const albumArtistName =
+        parsed.data.albumArtist ||
+        parsed.data.artist ||
+        ownedIds[0]?.primaryArtist?.name ||
+        'Bilinmeyen Sanatçı';
+      const albumArtist = await upsertArtist(albumArtistName);
+      const album = await fastify.prisma.musicAlbum.upsert({
+        where: {
+          userId_artistId_normalizedTitle: {
+            userId: request.user!.id,
+            artistId: albumArtist.id,
+            normalizedTitle: normalizeMusicName(parsed.data.album),
+          },
+        },
+        create: {
+          userId: request.user!.id,
+          artistId: albumArtist.id,
+          title: parsed.data.album,
+          normalizedTitle: normalizeMusicName(parsed.data.album),
+          metadataStatus: 'manual',
+        },
+        update: { title: parsed.data.album, metadataStatus: 'manual' },
+      });
+      data.albumId = album.id;
+    }
+    if (parsed.data.genres !== undefined) data.genres = JSON.stringify(parsed.data.genres);
+    if (parsed.data.year !== undefined) data.year = parsed.data.year;
+    if (parsed.data.metadataLocked !== undefined) data.metadataLocked = parsed.data.metadataLocked;
+    const result = await fastify.prisma.musicTrack.updateMany({
+      where: { id: { in: ownedIds.map((track) => track.id) } },
+      data,
+    });
+    if (targetArtistId) {
+      await fastify.prisma.$transaction([
+        fastify.prisma.musicTrackArtist.deleteMany({
+          where: { trackId: { in: ownedIds.map((track) => track.id) } },
+        }),
+        fastify.prisma.musicTrackArtist.createMany({
+          data: ownedIds.map((track) => ({
+            trackId: track.id,
+            artistId: targetArtistId!,
+            position: 0,
+          })),
+        }),
+      ]);
+    }
+    return { updated: result.count };
+  });
+
+  fastify.patch<{ Params: { id: string } }>('/maintenance/albums/:id', async (request, reply) => {
+    const parsed = musicAlbumMaintenanceSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz albüm bilgisi.',
+          requestId: request.id,
+        },
+      });
+    const album = await fastify.prisma.musicAlbum.findFirst({
+      where: { id: request.params.id, userId: request.user!.id },
+    });
+    if (!album)
+      return reply.status(404).send({
+        error: { code: 'ALBUM_NOT_FOUND', message: 'Albüm bulunamadı.', requestId: request.id },
+      });
+    let artistId: string | undefined;
+    if (parsed.data.artist) {
+      const artist = await fastify.prisma.musicArtist.upsert({
+        where: {
+          userId_normalizedName: {
+            userId: request.user!.id,
+            normalizedName: normalizeMusicName(parsed.data.artist),
+          },
+        },
+        create: {
+          userId: request.user!.id,
+          name: parsed.data.artist,
+          normalizedName: normalizeMusicName(parsed.data.artist),
+        },
+        update: { name: parsed.data.artist },
+      });
+      artistId = artist.id;
+    }
+    await fastify.prisma.musicAlbum.update({
+      where: { id: album.id },
+      data: {
+        title: parsed.data.title,
+        normalizedTitle: parsed.data.title ? normalizeMusicName(parsed.data.title) : undefined,
+        artistId,
+        year: parsed.data.year,
+        genres: parsed.data.genres ? JSON.stringify(parsed.data.genres) : undefined,
+        releaseType: parsed.data.releaseType,
+        metadataStatus: 'manual',
+      },
+    });
+    return { updated: true };
+  });
+
+  fastify.patch<{ Params: { id: string } }>('/maintenance/artists/:id', async (request, reply) => {
+    const parsed = musicArtistMaintenanceSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz sanatçı bilgisi.',
+          requestId: request.id,
+        },
+      });
+    const artist = await fastify.prisma.musicArtist.findFirst({
+      where: { id: request.params.id, userId: request.user!.id },
+      select: { id: true },
+    });
+    if (!artist)
+      return reply.status(404).send({
+        error: { code: 'ARTIST_NOT_FOUND', message: 'Sanatçı bulunamadı.', requestId: request.id },
+      });
+    await fastify.prisma.musicArtist.update({
+      where: { id: artist.id },
+      data: {
+        name: parsed.data.name,
+        normalizedName: normalizeMusicName(parsed.data.name),
+        sortName: parsed.data.sortName,
+      },
+    });
+    return { updated: true };
+  });
+
+  fastify.post('/maintenance/replaygain', async (request, reply) => {
+    const parsed = musicReplayGainScanSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz ReplayGain işlemi.',
+          requestId: request.id,
+        },
+      });
+    return replayGainService.scan(request.user!.id, parsed.data.trackIds);
   });
 
   fastify.get('/tracks', async (request, reply) => {
@@ -1231,11 +1493,64 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     await lyricsService.syncTrackLyrics({
       trackId: track.id,
       content: parsed.data.content,
+      translatedContent: parsed.data.translatedContent,
+      romanizedContent: parsed.data.romanizedContent,
       sourceName: parsed.data.sourceName,
       language: parsed.data.language,
+      translationLanguage: parsed.data.translationLanguage,
       sourceType: 'manual',
     });
-    return { updated: true };
+    const lyrics = await fastify.prisma.musicLyrics.findUniqueOrThrow({
+      where: { trackId: track.id },
+    });
+    return { updated: true, lyrics: formatLyrics(lyrics) };
+  });
+
+  fastify.get<{ Params: { id: string } }>('/tracks/:id/lyrics/lrc', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      include: { lyrics: true },
+    });
+    if (!track?.lyrics)
+      return reply.status(404).send({
+        error: {
+          code: 'LYRICS_NOT_FOUND',
+          message: 'Şarkı sözü bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    const fileName = `${track.title.replace(/[\\/:*?"<>|]/g, '_')}.lrc`;
+    return reply
+      .type('text/plain; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`)
+      .send(track.lyrics.content);
+  });
+
+  fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/sidecar', async (request, reply) => {
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      include: { lyrics: true, driveFile: { select: { localFilePath: true } } },
+    });
+    if (!track?.lyrics)
+      return reply.status(404).send({
+        error: {
+          code: 'LYRICS_NOT_FOUND',
+          message: 'Şarkı sözü bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    if (!track.driveFile.localFilePath)
+      return reply.status(409).send({
+        error: {
+          code: 'LOCAL_FILE_REQUIRED',
+          message: 'Drive parçaları için LRC indirmeyi kullanın.',
+          requestId: request.id,
+        },
+      });
+    const parsedPath = path.parse(track.driveFile.localFilePath);
+    const lrcPath = path.join(parsedPath.dir, `${parsedPath.name}.lrc`);
+    await fs.promises.writeFile(lrcPath, track.lyrics.content, 'utf8');
+    return { path: lrcPath };
   });
 
   fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {

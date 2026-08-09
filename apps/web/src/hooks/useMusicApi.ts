@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   MusicAlbumDto,
   MusicArtistDto,
+  MusicDiscoveryDto,
   MusicLyricsDto,
+  MusicMaintenanceDto,
+  MusicMixDto,
   MusicPlaybackStateDto,
   MusicPlaylistDto,
   MusicTrackDto,
@@ -42,6 +45,19 @@ export const useMusicOverviewQuery = () =>
   useQuery({
     queryKey: ['music', 'overview'],
     queryFn: async () => (await apiClient.get<MusicOverview>('/music/overview')).data,
+  });
+
+export const useMusicDiscoveryQuery = () =>
+  useQuery({
+    queryKey: ['music', 'discovery'],
+    queryFn: async () => (await apiClient.get<MusicDiscoveryDto>('/music/discovery')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+export const useArtistRadioMutation = () =>
+  useMutation({
+    mutationFn: async (artistId: string) =>
+      (await apiClient.get<{ mix: MusicMixDto }>(`/music/radio/${artistId}`)).data.mix,
   });
 
 export const useMusicTracksQuery = (params?: QueryParams) =>
@@ -180,6 +196,116 @@ export const useMusicLyricsQuery = (trackId?: string, enabled = true) =>
     },
     staleTime: 5 * 60 * 1000,
   });
+
+export const useUpdateMusicLyricsMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      content,
+      translatedContent,
+      romanizedContent,
+      language,
+      translationLanguage,
+    }: {
+      trackId: string;
+      content: string;
+      translatedContent?: string | null;
+      romanizedContent?: string | null;
+      language?: string | null;
+      translationLanguage?: string | null;
+    }) =>
+      (
+        await apiClient.put<{ lyrics: MusicLyricsDto }>(`/music/tracks/${trackId}/lyrics`, {
+          content,
+          translatedContent,
+          romanizedContent,
+          language,
+          translationLanguage,
+          sourceName: 'manual.lrc',
+        })
+      ).data.lyrics,
+    onSuccess: (lyrics, variables) => {
+      client.setQueryData(['music', 'lyrics', variables.trackId], lyrics);
+    },
+  });
+};
+
+export const useWriteLyricsSidecarMutation = () =>
+  useMutation({
+    mutationFn: async (trackId: string) =>
+      (await apiClient.post<{ path: string }>(`/music/tracks/${trackId}/lyrics/sidecar`)).data,
+  });
+
+export const useMusicMaintenanceQuery = () =>
+  useQuery({
+    queryKey: ['music', 'maintenance'],
+    queryFn: async () => (await apiClient.get<MusicMaintenanceDto>('/music/maintenance')).data,
+  });
+
+export const useBulkMusicMetadataMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      trackIds: string[];
+      artist?: string;
+      album?: string;
+      albumArtist?: string;
+      genres?: string[];
+      year?: number | null;
+      metadataLocked?: boolean;
+    }) => (await apiClient.patch<{ updated: number }>('/music/maintenance/tracks', input)).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
+
+export const useReplayGainScanMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (trackIds: string[]) =>
+      (
+        await apiClient.post<{ updated: string[]; skipped: string[] }>(
+          '/music/maintenance/replaygain',
+          { trackIds },
+        )
+      ).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
+
+export const useEditMusicAlbumMaintenanceMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...input
+    }: {
+      id: string;
+      title?: string;
+      artist?: string;
+      year?: number | null;
+      genres?: string[];
+      releaseType?: string;
+    }) => (await apiClient.patch(`/music/maintenance/albums/${id}`, input)).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
+
+export const useEditMusicArtistMaintenanceMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      name,
+      sortName,
+    }: {
+      id: string;
+      name: string;
+      sortName?: string | null;
+    }) => (await apiClient.patch(`/music/maintenance/artists/${id}`, { name, sortName })).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
 
 export const useMusicPlaylistsQuery = () =>
   useQuery({

@@ -288,6 +288,43 @@ export interface MusicPlaybackStateDto {
   }>;
 }
 
+export interface MusicMixDto {
+  id: string;
+  type: 'daily' | 'recent' | 'artist-radio' | 'mood';
+  title: string;
+  subtitle: string;
+  description?: string;
+  accent: string;
+  artworkUrls: string[];
+  tracks: MusicTrackDto[];
+}
+
+export interface MusicDiscoveryDto {
+  mixes: MusicMixDto[];
+  moodCollections: MusicMixDto[];
+  continueListening?: { track: MusicTrackDto; positionSeconds: number } | null;
+  unfinishedAlbums: Array<MusicAlbumDto & { progress: number; tracks: MusicTrackDto[] }>;
+  radioArtists: MusicArtistDto[];
+}
+
+export interface MusicDuplicateGroupDto {
+  key: string;
+  tracks: MusicTrackDto[];
+}
+
+export interface MusicMaintenanceDto {
+  missingArtwork: MusicTrackDto[];
+  missingMetadata: Array<MusicTrackDto & { confidence: number; issues: string[] }>;
+  duplicates: MusicDuplicateGroupDto[];
+  replayGainMissing: MusicTrackDto[];
+  totals: {
+    missingArtwork: number;
+    missingMetadata: number;
+    duplicates: number;
+    replayGainMissing: number;
+  };
+}
+
 export interface MusicLyricsLineDto {
   timeMs: number | null;
   text: string;
@@ -300,5 +337,11 @@ export interface MusicLyricsDto {
   isSynced: boolean;
   offsetMs: number;
   lines: MusicLyricsLineDto[];
+  content?: string;
+  translatedContent?: string | null;
+  romanizedContent?: string | null;
+  translatedLines?: MusicLyricsLineDto[];
+  romanizedLines?: MusicLyricsLineDto[];
+  translationLanguage?: string | null;
   updatedAt: string;
 }

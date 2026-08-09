@@ -1,6 +1,10 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { FileText, X } from 'lucide-react';
-import { useMusicLyricsQuery } from '../../hooks/useMusicApi';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, FileText, Pencil, Save, Upload, X } from 'lucide-react';
+import {
+  useMusicLyricsQuery,
+  useUpdateMusicLyricsMutation,
+  useWriteLyricsSidecarMutation,
+} from '../../hooks/useMusicApi';
 import { t } from '../../i18n';
 import { useMusicPlayer } from './MusicPlayerProvider';
 
@@ -11,23 +15,69 @@ interface Props {
   onClose: () => void;
 }
 
+type LyricsMode = 'original' | 'translation' | 'romanization';
+
 export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, onClose }) => {
   const query = useMusicLyricsQuery(trackId);
+  const updateLyrics = useUpdateMusicLyricsMutation();
+  const writeSidecar = useWriteLyricsSidecarMutation();
   const track = useMusicPlayer().currentTrack;
   const activeRef = useRef<HTMLButtonElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<LyricsMode>('original');
+  const [editing, setEditing] = useState(false);
+  const [content, setContent] = useState('');
+  const [translatedContent, setTranslatedContent] = useState('');
+  const [romanizedContent, setRomanizedContent] = useState('');
+  const [offsetMs, setOffsetMs] = useState(0);
+  const [language, setLanguage] = useState('');
+  const [translationLanguage, setTranslationLanguage] = useState('');
+
+  const lines = useMemo(() => {
+    if (!query.data) return [];
+    if (mode === 'translation') return query.data.translatedLines || [];
+    if (mode === 'romanization') return query.data.romanizedLines || [];
+    return query.data.lines;
+  }, [mode, query.data]);
   const activeIndex = useMemo(() => {
     if (!query.data?.isSynced) return -1;
     const positionMs = position * 1000;
     let result = -1;
-    query.data.lines.forEach((line, index) => {
+    lines.forEach((line, index) => {
       if (line.timeMs !== null && line.timeMs <= positionMs) result = index;
     });
     return result;
-  }, [position, query.data]);
+  }, [lines, position, query.data?.isSynced]);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [activeIndex]);
+
+  const openEditor = () => {
+    setContent(query.data?.content || '');
+    setTranslatedContent(query.data?.translatedContent || '');
+    setRomanizedContent(query.data?.romanizedContent || '');
+    setOffsetMs(query.data?.offsetMs || 0);
+    setLanguage(query.data?.language || '');
+    setTranslationLanguage(query.data?.translationLanguage || '');
+    setEditing(true);
+  };
+
+  const save = () => {
+    const withoutOffset = content.replace(/^\[offset:[+-]?\d+\]\s*/im, '').trim();
+    const adjusted = offsetMs ? `[offset:${offsetMs}]\n${withoutOffset}` : withoutOffset;
+    updateLyrics.mutate(
+      {
+        trackId,
+        content: adjusted,
+        translatedContent: translatedContent.trim() || null,
+        romanizedContent: romanizedContent.trim() || null,
+        language: language.trim() || null,
+        translationLanguage: translationLanguage.trim() || null,
+      },
+      { onSuccess: () => setEditing(false) },
+    );
+  };
 
   return (
     <aside
@@ -54,14 +104,56 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
             </p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          aria-label={t.common.close}
-          className="rounded-full border border-white/10 bg-black/20 p-3 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={openEditor}
+            aria-label={t.music.editLyrics}
+            className="rounded-full p-3 text-white/60 hover:bg-white/10 hover:text-white"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          {query.data && (
+            <a
+              href={`/api/music/tracks/${trackId}/lyrics/lrc`}
+              download
+              aria-label={t.music.downloadLrc}
+              className="rounded-full p-3 text-white/60 hover:bg-white/10 hover:text-white"
+            >
+              <Download className="h-4 w-4" />
+            </a>
+          )}
+          <button
+            onClick={onClose}
+            aria-label={t.common.close}
+            className="rounded-full border border-white/10 bg-black/20 p-3 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {query.data &&
+        ((query.data.translatedLines?.length || 0) > 0 ||
+          (query.data.romanizedLines?.length || 0) > 0) && (
+          <div className="flex justify-center gap-1 border-b border-white/10 p-2">
+            {(['original', 'translation', 'romanization'] as const).map((item) => {
+              const disabled =
+                (item === 'translation' && !query.data?.translatedLines?.length) ||
+                (item === 'romanization' && !query.data?.romanizedLines?.length);
+              return (
+                <button
+                  key={item}
+                  disabled={disabled}
+                  onClick={() => setMode(item)}
+                  className={`rounded-full px-4 py-2 text-xs font-bold transition ${mode === item ? 'bg-white text-black' : 'text-white/45 hover:bg-white/10 hover:text-white'} disabled:hidden`}
+                >
+                  {t.music.lyricsModes[item]}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
       <div
         className="mx-auto min-h-48 w-full max-w-4xl flex-1 overflow-y-auto px-6 py-[28vh] sm:px-12"
         aria-live="polite"
@@ -75,17 +167,23 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
               <div key={item} className="h-8 animate-pulse rounded-xl bg-white/[0.06]" />
             ))}
           </div>
-        ) : !query.data || query.data.lines.length === 0 ? (
+        ) : !query.data || lines.length === 0 ? (
           <div className="flex min-h-40 flex-col items-center justify-center text-center">
             <div className="mb-5 rounded-full border border-white/10 bg-white/[0.04] p-5">
               <FileText className="h-8 w-8 text-white/35" />
             </div>
             <p className="font-display text-xl font-semibold text-white">{t.music.noLyrics}</p>
             <p className="mt-2 max-w-md text-sm leading-6 text-white/40">{t.music.lyricsHint}</p>
+            <button
+              onClick={openEditor}
+              className="mt-6 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black"
+            >
+              {t.music.importOrEditLrc}
+            </button>
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {query.data.lines.map((line, index) =>
+            {lines.map((line, index) =>
               query.data?.isSynced && line.timeMs !== null ? (
                 <button
                   key={`${line.timeMs}-${index}`}
@@ -111,6 +209,128 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
         <div className="border-t border-white/10 px-5 py-3 text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35 backdrop-blur-xl">
           {query.data.isSynced ? t.music.syncedLyrics : t.music.plainLyrics} ·{' '}
           {query.data.sourceName}
+        </div>
+      )}
+
+      {editing && (
+        <div className="absolute inset-0 z-20 overflow-y-auto bg-black/90 p-4 backdrop-blur-xl sm:p-8">
+          <div
+            role="dialog"
+            aria-label={t.music.lyricsEditor}
+            className="mx-auto max-w-5xl rounded-[28px] border border-white/10 bg-[#111214] p-5 shadow-2xl sm:p-8"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-display text-2xl font-bold">{t.music.lyricsEditor}</h3>
+                <p className="mt-1 text-sm text-white/40">{t.music.lyricsEditorHint}</p>
+              </div>
+              <button
+                onClick={() => setEditing(false)}
+                aria-label={t.common.close}
+                className="rounded-full p-3 hover:bg-white/10"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-6 grid gap-4 lg:grid-cols-3">
+              {[
+                { label: t.music.lyricsModes.original, value: content, set: setContent },
+                {
+                  label: t.music.lyricsModes.translation,
+                  value: translatedContent,
+                  set: setTranslatedContent,
+                },
+                {
+                  label: t.music.lyricsModes.romanization,
+                  value: romanizedContent,
+                  set: setRomanizedContent,
+                },
+              ].map((field) => (
+                <label key={field.label} className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-white/50">
+                    {field.label}
+                  </span>
+                  <textarea
+                    value={field.value}
+                    onChange={(event) => field.set(event.target.value)}
+                    rows={16}
+                    className="music-field resize-y font-mono text-xs leading-5"
+                    placeholder="[00:12.50] ..."
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <label className="space-y-2 text-xs font-bold text-white/50">
+                {t.music.timingOffset}
+                <input
+                  type="number"
+                  value={offsetMs}
+                  onChange={(event) => setOffsetMs(Number(event.target.value) || 0)}
+                  className="music-field"
+                />
+              </label>
+              <label className="space-y-2 text-xs font-bold text-white/50">
+                {t.music.originalLanguage}
+                <input
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value)}
+                  className="music-field"
+                  placeholder="tr"
+                />
+              </label>
+              <label className="space-y-2 text-xs font-bold text-white/50">
+                {t.music.translationLanguage}
+                <input
+                  value={translationLanguage}
+                  onChange={(event) => setTranslationLanguage(event.target.value)}
+                  className="music-field"
+                  placeholder="en"
+                />
+              </label>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".lrc,text/plain"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void file.text().then(setContent);
+              }}
+            />
+            <div className="mt-6 flex flex-wrap gap-2">
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/10"
+              >
+                <Upload className="h-4 w-4" /> {t.music.importLrc}
+              </button>
+              {query.data && (
+                <button
+                  onClick={() => writeSidecar.mutate(trackId)}
+                  disabled={writeSidecar.isPending}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-bold hover:bg-white/10 disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" /> {t.music.writeSidecar}
+                </button>
+              )}
+              <button
+                onClick={save}
+                disabled={!content.trim() || updateLyrics.isPending}
+                className="ml-auto inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" /> {t.common.save}
+              </button>
+            </div>
+            {(writeSidecar.data || writeSidecar.error) && (
+              <p className="mt-3 text-xs text-white/45">
+                {writeSidecar.data
+                  ? `${t.music.sidecarWritten}: ${writeSidecar.data.path}`
+                  : String(writeSidecar.error)}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </aside>

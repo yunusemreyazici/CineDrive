@@ -88,6 +88,7 @@ test.describe('CineDrive smoke', () => {
     await page.goto('/music');
 
     await expect(page.getByRole('heading', { name: tr.music.title })).toBeVisible();
+    await expect(page.getByRole('heading', { name: tr.music.smartMixes })).toBeVisible();
     await expect(page.getByText('Fixture Album').first()).toBeVisible();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
 
@@ -139,6 +140,14 @@ test.describe('CineDrive smoke', () => {
     await page.getByRole('button', { name: tr.music.lyrics }).click();
     await expect(page.getByRole('complementary', { name: tr.music.lyrics })).toBeVisible();
     await expect(page.getByText('Smoke test opening line')).toBeVisible();
+    await page.getByRole('button', { name: tr.music.lyricsModes.translation }).click();
+    await expect(page.getByText('Opening translation')).toBeVisible();
+    await page.getByRole('button', { name: tr.music.editLyrics }).click();
+    await expect(page.getByRole('dialog', { name: tr.music.lyricsEditor })).toBeVisible();
+    await page
+      .getByRole('dialog', { name: tr.music.lyricsEditor })
+      .getByRole('button', { name: tr.common.close })
+      .click();
     await page.getByRole('button', { name: tr.common.close, exact: true }).click();
 
     await page.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');

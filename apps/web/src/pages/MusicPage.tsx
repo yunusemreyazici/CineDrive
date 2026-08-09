@@ -10,15 +10,21 @@ import {
   Plus,
   Radio,
   Sparkles,
+  Wrench,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
+import { MusicMixCard } from '../components/music/MusicMixCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
-import { useCreateMusicPlaylistMutation, useMusicOverviewQuery } from '../hooks/useMusicApi';
+import {
+  useCreateMusicPlaylistMutation,
+  useMusicDiscoveryQuery,
+  useMusicOverviewQuery,
+} from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
 const Section: React.FC<
@@ -92,6 +98,7 @@ const QuickCard: React.FC<QuickCardProps> = ({
 
 export const MusicPage: React.FC = () => {
   const query = useMusicOverviewQuery();
+  const discoveryQuery = useMusicDiscoveryQuery();
   const player = useMusicPlayer();
   const createPlaylist = useCreateMusicPlaylistMutation();
   const [newName, setNewName] = useState('');
@@ -115,6 +122,7 @@ export const MusicPage: React.FC = () => {
       />
     );
   const data = query.data;
+  const discovery = discoveryQuery.data;
   if (!data || (!data.recentTracks.length && !data.recentAlbums.length))
     return (
       <EmptyState
@@ -124,10 +132,13 @@ export const MusicPage: React.FC = () => {
       />
     );
 
-  const heroTrack = data.recentHistory[0]?.track || data.recentTracks[0];
+  const heroTrack =
+    discovery?.continueListening?.track || data.recentHistory[0]?.track || data.recentTracks[0];
   const heroQueue = heroTrack
     ? [heroTrack, ...data.recentTracks.filter((track) => track.id !== heroTrack.id)]
     : data.recentTracks;
+  const resume = discovery?.continueListening;
+  const resumePosition = resume && resume.track.id === heroTrack?.id ? resume.positionSeconds : null;
   const firstAlbum = data.recentAlbums[0];
   const firstArtist = data.artists[0];
   const recentlyPlayedTracks = data.recentHistory
@@ -164,12 +175,17 @@ export const MusicPage: React.FC = () => {
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <button
-              onClick={() => player.playTracks(heroQueue)}
+              onClick={() => {
+                player.playTracks(heroQueue);
+                if (resumePosition !== null) {
+                  window.setTimeout(() => player.seek(resumePosition), 350);
+                }
+              }}
               disabled={!heroQueue.length}
               className="inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-3 text-sm font-bold text-black shadow-xl transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
               <Play className="h-4 w-4 fill-current" />
-              {t.music.play}
+              {resumePosition !== null ? t.music.continueTrack : t.music.play}
             </button>
             <Link
               to="/music/tracks"
@@ -181,6 +197,20 @@ export const MusicPage: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {!!discovery?.mixes.length && (
+        <Section title={t.music.smartMixes} eyebrow={t.music.madeForYou}>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 xl:grid-cols-4">
+            {discovery.mixes.slice(0, 4).map((item) => (
+              <MusicMixCard
+                key={item.id}
+                mix={item}
+                onPlay={() => player.playTracks(item.tracks)}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title={t.music.quickAccess} eyebrow={t.music.forYou}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -236,8 +266,53 @@ export const MusicPage: React.FC = () => {
               tone="from-violet-500 to-purple-950"
             />
           )}
+          <QuickCard
+            href="/music/maintenance"
+            title={t.music.libraryCare}
+            subtitle={t.music.libraryCareHint}
+            icon={Wrench}
+            tone="from-zinc-600 to-zinc-950"
+          />
         </div>
       </Section>
+
+      {!!discovery?.unfinishedAlbums.length && (
+        <Section title={t.music.unfinishedAlbums} eyebrow={t.music.pickUpWhereYouLeftOff}>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+            {discovery.unfinishedAlbums.map((album) => (
+              <div key={album.id} className="min-w-0">
+                <MusicCollectionCard
+                  href={`/music/albums/${album.id}`}
+                  title={album.title}
+                  subtitle={album.artist?.name}
+                  artworkUrl={album.artworkUrl}
+                />
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-brand-400"
+                    style={{ width: `${Math.round(album.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {!!discovery?.moodCollections.length && (
+        <Section title={t.music.moodsAndGenres} eyebrow={t.music.chooseYourMood}>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {discovery.moodCollections.map((item) => (
+              <MusicMixCard
+                key={item.id}
+                mix={item}
+                compact
+                onPlay={() => player.playTracks(item.tracks)}
+              />
+            ))}
+          </div>
+        </Section>
+      )}
 
       {data.recentAlbums.length > 0 && (
         <Section title={t.music.recentAlbums} eyebrow={t.music.freshForYou} href="/music/albums">

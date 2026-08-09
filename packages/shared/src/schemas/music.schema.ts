@@ -49,8 +49,46 @@ export const createMusicHistorySchema = z.object({
 
 export const updateMusicLyricsSchema = z.object({
   content: z.string().max(1024 * 1024),
+  translatedContent: z
+    .string()
+    .max(1024 * 1024)
+    .nullable()
+    .optional(),
+  romanizedContent: z
+    .string()
+    .max(1024 * 1024)
+    .nullable()
+    .optional(),
   sourceName: z.string().trim().min(1).max(255).default('manual.lrc'),
   language: z.string().trim().min(2).max(16).nullable().optional(),
+  translationLanguage: z.string().trim().min(2).max(16).nullable().optional(),
+});
+
+export const musicBulkMetadataSchema = z.object({
+  trackIds: z.array(z.string().uuid()).min(1).max(500),
+  artist: z.string().trim().min(1).max(200).optional(),
+  album: z.string().trim().min(1).max(300).optional(),
+  albumArtist: z.string().trim().min(1).max(200).optional(),
+  genres: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  year: z.number().int().min(1000).max(3000).nullable().optional(),
+  metadataLocked: z.boolean().optional(),
+});
+
+export const musicAlbumMaintenanceSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  artist: z.string().trim().min(1).max(200).optional(),
+  year: z.number().int().min(1000).max(3000).nullable().optional(),
+  genres: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+  releaseType: z.string().trim().min(1).max(50).optional(),
+});
+
+export const musicArtistMaintenanceSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  sortName: z.string().trim().max(200).nullable().optional(),
+});
+
+export const musicReplayGainScanSchema = z.object({
+  trackIds: z.array(z.string().uuid()).min(1).max(100),
 });
 
 export const musicTrackCreditInputSchema = z.object({

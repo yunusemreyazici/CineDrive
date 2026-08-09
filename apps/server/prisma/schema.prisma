@@ -414,17 +414,20 @@ model MusicTrackCredit {
 }
 
 model MusicLyrics {
-  id         String     @id @default(uuid())
-  trackId    String     @unique
-  track      MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
-  content    String
-  sourceName String
-  sourceType String     @default("sidecar")
-  language   String?
-  isSynced   Boolean    @default(false)
-  offsetMs   Int        @default(0)
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  id                String     @id @default(uuid())
+  trackId           String     @unique
+  track             MusicTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  content           String
+  translatedContent String?
+  romanizedContent  String?
+  sourceName        String
+  sourceType        String     @default("sidecar")
+  language          String?
+  translationLang   String?
+  isSynced          Boolean    @default(false)
+  offsetMs          Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   @@index([language])
 }
