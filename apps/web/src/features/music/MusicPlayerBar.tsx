@@ -83,39 +83,40 @@ export const MusicPlayerBar: React.FC = () => {
           </div>
           <div className="overflow-y-auto p-2">
             {player.queue.map((item) => (
-              <button
+              <div
                 key={item.id}
-                onClick={() => player.playQueueItem(item.id)}
                 className={`flex w-full items-center gap-3 rounded-xl p-2 text-left ${item.id === player.currentQueueItemId ? 'bg-brand-500/15 text-brand-300' : 'hover:bg-white/5'}`}
               >
-                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-zinc-800">
-                  {item.track.artworkUrl && (
-                    <img
-                      src={item.track.artworkUrl}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </div>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{item.track.title}</span>
-                  <span className="block truncate text-xs text-zinc-500">
-                    {item.track.primaryArtist?.name}
+                <button
+                  type="button"
+                  onClick={() => player.playQueueItem(item.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-zinc-800">
+                    {item.track.artworkUrl && (
+                      <img
+                        src={item.track.artworkUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    )}
                   </span>
-                </span>
-                <span className="p-0.5">
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      player.removeFromQueue(item.id);
-                    }}
-                    aria-label={t.common.delete}
-                    className="p-2 text-zinc-500 hover:text-white"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </span>
-              </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{item.track.title}</span>
+                    <span className="block truncate text-xs text-zinc-500">
+                      {item.track.primaryArtist?.name}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => player.removeFromQueue(item.id)}
+                  aria-label={t.common.delete}
+                  className="p-2 text-zinc-500 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -181,8 +182,10 @@ export const MusicPlayerBar: React.FC = () => {
             <div className="hidden min-w-0 flex-col items-center gap-1 md:flex">
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={player.toggleShuffle}
                   aria-label={t.music.shuffle}
+                  aria-pressed={player.shuffleEnabled}
                   className={`p-1.5 ${player.shuffleEnabled ? 'text-brand-400' : 'text-zinc-500'}`}
                 >
                   <Shuffle className="h-4 w-4" />

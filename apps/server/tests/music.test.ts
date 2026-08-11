@@ -489,6 +489,27 @@ describe('Music library', () => {
     });
   });
 
+  it('accepts small browser and scanner duration drift in listening history', async () => {
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { duration: 4 } });
+
+    const tooShort = await app.inject({
+      method: 'POST',
+      url: '/api/music/history',
+      cookies: { session_id: cookie },
+      payload: { trackId, listenedSeconds: 3.4 },
+    });
+    expect(tooShort.statusCode).toBe(400);
+    expect(JSON.parse(tooShort.body).error.code).toBe('LISTEN_THRESHOLD_NOT_MET');
+
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/api/music/history',
+      cookies: { session_id: cookie },
+      payload: { trackId, listenedSeconds: 3.7 },
+    });
+    expect(accepted.statusCode).toBe(201);
+  });
+
   it('archives a lower-quality duplicate, replaces playlist items, and undoes the action', async () => {
     const original = await app.prisma.musicTrack.findUniqueOrThrow({
       where: { id: trackId },

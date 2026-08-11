@@ -4,6 +4,7 @@ import {
   DEFAULT_MUSIC_AUDIO_SETTINGS,
   audioQualityTier,
   formatAudioQuality,
+  logicalMusicPosition,
   parseStoredAudioSettings,
   replayGainLinear,
   requiresMusicTranscode,
@@ -64,6 +65,11 @@ describe('premium music audio helpers', () => {
       }),
     ).toBe(true);
     expect(requiresMusicTranscode(track({ codec: 'mp3', container: 'mp3' }))).toBe(false);
+  });
+
+  it('keeps the transcode offset in the logical playback position', () => {
+    expect(logicalMusicPosition(2, true, 120)).toBe(122);
+    expect(logicalMusicPosition(2, false, 120)).toBe(2);
   });
 
   it('sanitizes persisted crossfade and equalizer settings', () => {

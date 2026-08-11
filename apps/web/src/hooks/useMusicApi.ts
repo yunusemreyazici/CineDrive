@@ -426,6 +426,35 @@ export const useCreateMusicPlaylistMutation = () => {
   });
 };
 
+export const useUpdateMusicPlaylistMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      playlistId,
+      input,
+    }: {
+      playlistId: string;
+      input: { name: string; description?: string | null };
+    }) => apiClient.patch(`/music/playlists/${playlistId}`, input),
+    onSuccess: (_data, variables) => {
+      void client.invalidateQueries({ queryKey: ['music', 'playlist', variables.playlistId] });
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+      void client.invalidateQueries({ queryKey: ['music', 'overview'] });
+    },
+  });
+};
+
+export const useDeleteMusicPlaylistMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (playlistId: string) => apiClient.delete(`/music/playlists/${playlistId}`),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+      void client.invalidateQueries({ queryKey: ['music', 'overview'] });
+    },
+  });
+};
+
 export const useAddPlaylistTrackMutation = () => {
   const client = useQueryClient();
   return useMutation({

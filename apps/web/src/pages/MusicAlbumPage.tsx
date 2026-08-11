@@ -1,5 +1,5 @@
 import React from 'react';
-import { Disc3, ExternalLink, Play, Radio, Sparkles } from 'lucide-react';
+import { Disc3, ExternalLink, Play, Radio, Shuffle } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
@@ -29,10 +29,6 @@ export const MusicAlbumPage: React.FC = () => {
     }),
     {},
   );
-  const popularTracks = [...album.tracks]
-    .filter((track) => (track.playCount || 0) > 0)
-    .sort((left, right) => (right.playCount || 0) - (left.playCount || 0))
-    .slice(0, 5);
   const releaseType =
     t.music.releaseTypes[album.releaseType as keyof typeof t.music.releaseTypes] ||
     album.releaseType;
@@ -129,6 +125,13 @@ export const MusicAlbumPage: React.FC = () => {
                 <Play className="h-5 w-5 fill-current" />
                 {t.music.playAll}
               </button>
+              <button
+                onClick={() => player.playShuffledTracks(album.tracks)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/10"
+              >
+                <Shuffle className="h-5 w-5" />
+                {t.music.shufflePlay}
+              </button>
               {album.musicbrainzReleaseGroupId && (
                 <a
                   href={`https://musicbrainz.org/release-group/${album.musicbrainzReleaseGroupId}`}
@@ -144,16 +147,6 @@ export const MusicAlbumPage: React.FC = () => {
           </div>
         </div>
       </header>
-
-      {popularTracks.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-cyan-300" />
-            <h2 className="font-display text-2xl font-bold">{t.music.popularTracks}</h2>
-          </div>
-          <MusicTrackList tracks={popularTracks} />
-        </section>
-      )}
 
       <section className="space-y-7">
         {Object.entries(discs).map(([discNumber, tracks]) => (

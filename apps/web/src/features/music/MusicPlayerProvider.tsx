@@ -14,20 +14,20 @@ import {
   DEFAULT_MUSIC_AUDIO_SETTINGS,
   EQ_FREQUENCIES,
   EQ_PRESETS,
+  logicalMusicPosition,
   parseStoredAudioSettings,
   replayGainLinear,
   requiresMusicTranscode,
   type EqPreset,
   type MusicAudioSettings,
 } from './musicAudio';
-
-export interface MusicQueueEntry {
-  id: string;
-  trackId: string;
-  sourceOrder: number;
-  playOrder: number;
-  track: MusicTrackDto;
-}
+import {
+  appendMusicQueueEntry,
+  insertNextMusicQueueEntry,
+  removeMusicQueueEntry,
+  shuffleMusicQueueEntries,
+  type MusicQueueEntry,
+} from './musicQueue';
 
 interface MusicPlayerContextValue {
   queue: MusicQueueEntry[];
@@ -41,6 +41,7 @@ interface MusicPlayerContextValue {
   repeatMode: 'off' | 'all' | 'one';
   audioSettings: MusicAudioSettings;
   playTracks: (tracks: MusicTrackDto[], startIndex?: number) => void;
+  playShuffledTracks: (tracks: MusicTrackDto[]) => void;
   playQueueItem: (id: string) => void;
   addToQueue: (track: MusicTrackDto) => void;
   playNext: (track: MusicTrackDto) => void;
@@ -86,6 +87,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const syncInFlightRef = useRef(false);
   const syncQueuedRef = useRef(false);
   const historyRecordedRef = useRef(new Set<string>());
+  const historyPendingRef = useRef(new Set<string>());
   const pendingPlayRef = useRef(false);
   const restoredPositionRef = useRef(0);
   const transitionTimerRef = useRef<number | null>(null);
@@ -225,8 +227,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         setQueue(state.queue);
         const restoredQueueItemId =
           state.currentQueueItemId ||
-            state.queue.find((item) => item.trackId === state.currentTrackId)?.id ||
-            null;
+          state.queue.find((item) => item.trackId === state.currentTrackId)?.id ||
+          null;
         setCurrentQueueItemId(restoredQueueItemId);
         const restoredTrack = state.queue.find((item) => item.id === restoredQueueItemId)?.track;
         setTranscode(requiresMusicTranscode(restoredTrack));
@@ -247,7 +249,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       revision: revisionRef.current,
       currentTrackId: currentTrack?.id || null,
       currentQueueItemId,
-      positionSeconds: audio ? audio.currentTime + (transcode ? transcodeStart : 0) : position,
+      positionSeconds: audio
+        ? logicalMusicPosition(audio.currentTime, transcode, transcodeStart)
+        : position,
       shuffleEnabled,
       repeatMode,
       queue: queue.map(({ id, trackId, sourceOrder, playOrder }) => ({
@@ -454,6 +458,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setTranscodeStart(0);
       pendingPlayRef.current = false;
       historyRecordedRef.current.delete(entry.id);
+      historyPendingRef.current.delete(entry.id);
       return true;
     },
     [applySlotGain, clearTransition, ensureAudioGraph, entryForSlot],
@@ -471,6 +476,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setTranscodeStart(0);
       pendingPlayRef.current = autoPlay;
       historyRecordedRef.current.delete(entry.id);
+      historyPendingRef.current.delete(entry.id);
     },
     [clearTransition],
   );
@@ -487,8 +493,14 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
 
   const previous = useCallback(() => {
     const audio = audioRefs.current[activeSlotRef.current];
-    if (audio && audio.currentTime > 5) {
-      audio.currentTime = 0;
+    const logicalPosition = audio
+      ? logicalMusicPosition(audio.currentTime, transcode, transcodeStart)
+      : 0;
+    if (audio && logicalPosition > 5) {
+      if (transcode) {
+        pendingPlayRef.current = !audio.paused;
+        setTranscodeStart(0);
+      } else audio.currentTime = 0;
       setPosition(0);
       return;
     }
@@ -496,7 +508,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     const index = entries.findIndex((item) => item.id === currentQueueItemIdRef.current);
     const candidate = entries[index - 1] || (repeatMode === 'all' ? entries.at(-1) : undefined);
     if (candidate) selectEntry(candidate);
-  }, [repeatMode, selectEntry]);
+  }, [repeatMode, selectEntry, transcode, transcodeStart]);
 
   const playTracks = useCallback(
     (tracks: MusicTrackDto[], startIndex = 0) => {
@@ -509,51 +521,45 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       }));
       queueRef.current = entries;
       setQueue(entries);
+      setShuffleEnabled(false);
       const first = entries[Math.max(0, Math.min(startIndex, entries.length - 1))];
       if (first) selectEntry(first);
     },
     [selectEntry],
   );
 
-  const addToQueue = useCallback((track: MusicTrackDto) => {
-    setQueue((items) => [
-      ...items,
-      {
+  const playShuffledTracks = useCallback(
+    (tracks: MusicTrackDto[]) => {
+      const entries = tracks.map((track, index) => ({
         id: makeId(),
         trackId: track.id,
-        sourceOrder: items.length,
-        playOrder: items.length,
+        sourceOrder: index,
+        playOrder: index,
         track,
-      },
-    ]);
+      }));
+      const shuffled = shuffleMusicQueueEntries(entries);
+      const first = [...shuffled].sort((left, right) => left.playOrder - right.playOrder)[0];
+      queueRef.current = shuffled;
+      setQueue(shuffled);
+      setShuffleEnabled(true);
+      if (first) selectEntry(first);
+    },
+    [selectEntry],
+  );
+
+  const addToQueue = useCallback((track: MusicTrackDto) => {
+    setQueue((items) => appendMusicQueueEntry(items, track, makeId()));
   }, []);
 
   const playNext = useCallback((track: MusicTrackDto) => {
-    setQueue((items) => {
-      const currentOrder =
-        items.find((item) => item.id === currentQueueItemIdRef.current)?.playOrder ?? -1;
-      return [
-        ...items.map((item) =>
-          item.playOrder > currentOrder ? { ...item, playOrder: item.playOrder + 1 } : item,
-        ),
-        {
-          id: makeId(),
-          trackId: track.id,
-          sourceOrder: items.length,
-          playOrder: currentOrder + 1,
-          track,
-        },
-      ];
-    });
+    setQueue((items) =>
+      insertNextMusicQueueEntry(items, currentQueueItemIdRef.current, track, makeId()),
+    );
   }, []);
 
   const removeFromQueue = useCallback(
     (id: string) => {
-      setQueue((items) =>
-        items
-          .filter((item) => item.id !== id)
-          .map((item, index) => ({ ...item, playOrder: index })),
-      );
+      setQueue((items) => removeMusicQueueEntry(items, id));
       if (id === currentQueueItemIdRef.current) next();
     },
     [next],
@@ -570,8 +576,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         if (transcode) pendingPlayRef.current = false;
         setIsPlaying(false);
       });
-    }
-    else audio.pause();
+    } else audio.pause();
   }, [ensureAudioGraph, transcode]);
 
   const seek = useCallback(
@@ -654,19 +659,30 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     [],
   );
 
+  const recordMusicHistory = useCallback((entry: MusicQueueEntry, listenedSeconds: number) => {
+    if (historyRecordedRef.current.has(entry.id) || historyPendingRef.current.has(entry.id)) return;
+    historyPendingRef.current.add(entry.id);
+    void apiClient
+      .post('/music/history', { trackId: entry.trackId, listenedSeconds })
+      .then(() => historyRecordedRef.current.add(entry.id))
+      .catch(() => {})
+      .finally(() => historyPendingRef.current.delete(entry.id));
+  }, []);
+
   const handleTimeUpdate = useCallback(
     (slot: 0 | 1, audio: HTMLAudioElement) => {
       if (slot !== activeSlotRef.current) return;
-      const seconds = audio.currentTime + (transcode ? transcodeStart : 0);
+      const seconds = logicalMusicPosition(audio.currentTime, transcode, transcodeStart);
       setPosition(seconds);
       const entry = entryForSlot(slot);
+      const historyThreshold = Math.min(30, entry?.track.duration || audio.duration || 30);
       if (
         entry &&
         !historyRecordedRef.current.has(entry.id) &&
-        seconds >= Math.min(30, audio.duration || 30)
+        !historyPendingRef.current.has(entry.id) &&
+        seconds + 0.5 >= historyThreshold
       ) {
-        historyRecordedRef.current.add(entry.id);
-        void apiClient.post('/music/history', { trackId: entry.trackId, listenedSeconds: seconds });
+        recordMusicHistory(entry, seconds);
       }
       const fade = audioSettings.crossfadeSeconds;
       if (!transitioning && fade >= 5 && repeatMode !== 'one' && Number.isFinite(audio.duration)) {
@@ -680,6 +696,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       audioSettings.crossfadeSeconds,
       entryForSlot,
       getNextEntry,
+      recordMusicHistory,
       repeatMode,
       switchToPrepared,
       transcode,
@@ -692,16 +709,37 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     (slot: 0 | 1) => {
       if (slot !== activeSlotRef.current) return;
       const audio = audioRefs.current[slot];
+      const entry = entryForSlot(slot);
+      if (audio && entry) {
+        const listenedSeconds = logicalMusicPosition(audio.currentTime, transcode, transcodeStart);
+        recordMusicHistory(entry, Math.max(entry.track.duration || 0, listenedSeconds));
+      }
       if (repeatMode === 'one' && audio) {
-        audio.currentTime = 0;
-        void audio.play();
+        if (transcode && transcodeStart > 0) {
+          pendingPlayRef.current = true;
+          setTranscodeStart(0);
+          setPosition(0);
+        } else {
+          audio.currentTime = 0;
+          void audio.play();
+        }
         return;
       }
       const candidate = getNextEntry();
       if (candidate && audioSettings.gaplessEnabled && switchToPrepared(candidate)) return;
       next();
     },
-    [audioSettings.gaplessEnabled, getNextEntry, next, repeatMode, switchToPrepared],
+    [
+      audioSettings.gaplessEnabled,
+      entryForSlot,
+      getNextEntry,
+      next,
+      recordMusicHistory,
+      repeatMode,
+      switchToPrepared,
+      transcode,
+      transcodeStart,
+    ],
   );
 
   const value = useMemo<MusicPlayerContextValue>(
@@ -717,6 +755,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       repeatMode,
       audioSettings,
       playTracks,
+      playShuffledTracks,
       playQueueItem: (id) => {
         const entry = queue.find((item) => item.id === id);
         if (entry) selectEntry(entry);
@@ -746,6 +785,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       next,
       orderedQueue,
       playNext,
+      playShuffledTracks,
       playTracks,
       position,
       previous,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, Play, Radio, Sparkles, UserRound } from 'lucide-react';
+import { ExternalLink, Play, Radio, Shuffle, UserRound } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
@@ -24,9 +24,14 @@ export const MusicArtistPage: React.FC = () => {
   const palette = useArtworkPalette(artist?.artworkUrl);
   if (!artist) return <div className="h-64 animate-pulse rounded-3xl bg-zinc-900" />;
 
-  const topTracks = [...artist.tracks]
-    .sort((left, right) => (right.playCount || 0) - (left.playCount || 0))
-    .slice(0, 5);
+  const allTracks = [...artist.tracks].sort(
+    (left, right) =>
+      (right.year || 0) - (left.year || 0) ||
+      (left.album?.title || '').localeCompare(right.album?.title || '') ||
+      left.discNumber - right.discNumber ||
+      left.trackNumber - right.trackNumber ||
+      left.title.localeCompare(right.title),
+  );
   const discography = artist.albums.reduce<Record<string, typeof artist.albums>>(
     (groups, album) => {
       const section = albumSection(album);
@@ -79,6 +84,13 @@ export const MusicArtistPage: React.FC = () => {
                 {t.music.playAll}
               </button>
               <button
+                onClick={() => player.playShuffledTracks(artist.tracks)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/10"
+              >
+                <Shuffle className="h-5 w-5" />
+                {t.music.shufflePlay}
+              </button>
+              <button
                 onClick={() =>
                   artistId &&
                   radio.mutate(artistId, {
@@ -107,13 +119,10 @@ export const MusicArtistPage: React.FC = () => {
         </div>
       </header>
 
-      {topTracks.length > 0 && (
+      {allTracks.length > 0 && (
         <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-cyan-300" />
-            <h2 className="font-display text-2xl font-bold">{t.music.popularTracks}</h2>
-          </div>
-          <MusicTrackList tracks={topTracks} />
+          <h2 className="font-display text-3xl font-black">{t.music.allTracks}</h2>
+          <MusicTrackList tracks={allTracks} />
         </section>
       )}
 
