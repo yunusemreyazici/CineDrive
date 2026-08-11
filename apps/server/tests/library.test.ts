@@ -347,6 +347,140 @@ describe('Library API Integration Tests', () => {
     await app.prisma.mediaItem.deleteMany({ where: { id: keeper.mediaItem.id } });
   });
 
+  it('lists Drive folders and removes only content indexed from the disconnected source', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const connection = await app.prisma.googleConnection.create({
+      data: {
+        userId: owner.id,
+        googleAccountId: `source-account-${Date.now()}`,
+        email: 'source-account@cinedrive.test',
+        encryptedRefreshToken: 'not-used-by-this-test',
+        scopes: 'drive.readonly',
+      },
+    });
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'Source Management', storageType: 'gdrive' },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const cookies = { session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value };
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources`,
+      cookies,
+      payload: { googleConnectionId: connection.id, rootFolderId: 'folder-one' },
+    });
+    const second = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources`,
+      cookies,
+      payload: { googleConnectionId: connection.id, rootFolderId: 'folder-two' },
+    });
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    const firstSourceId = JSON.parse(first.body).source.id as string;
+    const secondSourceId = JSON.parse(second.body).source.id as string;
+
+    const makeMovie = async (sourceId: string, suffix: string) => {
+      const file = await app.prisma.driveFile.create({
+        data: {
+          libraryId: library.id,
+          googleConnectionId: connection.id,
+          driveScanSourceId: sourceId,
+          googleDriveFileId: `source-file-${suffix}`,
+          name: `Source ${suffix}.mp4`,
+          mimeType: 'video/mp4',
+        },
+      });
+      const media = await app.prisma.mediaItem.create({
+        data: {
+          libraryId: library.id,
+          type: 'movie',
+          title: `Source ${suffix}`,
+          normalizedTitle: `source ${suffix}`,
+        },
+      });
+      await app.prisma.movie.create({ data: { mediaItemId: media.id, driveFileId: file.id } });
+      return { file, media };
+    };
+    const removedMovie = await makeMovie(firstSourceId, 'one');
+    const keptMovie = await makeMovie(secondSourceId, 'two');
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/api/libraries/${library.id}/drive-sources`,
+      cookies,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(JSON.parse(listed.body).sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rootFolderId: 'folder-one', fileCount: 1 }),
+        expect.objectContaining({ rootFolderId: 'folder-two', fileCount: 1 }),
+      ]),
+    );
+
+    const seriesMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: library.id,
+        type: 'series',
+        title: 'Shared Source Series',
+        normalizedTitle: 'shared source series',
+      },
+    });
+    const series = await app.prisma.series.create({ data: { mediaItemId: seriesMedia.id } });
+    const season = await app.prisma.season.create({
+      data: { seriesId: series.id, seasonNumber: 1 },
+    });
+    const removedEpisodeFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: firstSourceId,
+        googleDriveFileId: 'source-series-episode-one',
+        name: 'Shared Source Series S01E01.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    const keptEpisodeFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: secondSourceId,
+        googleDriveFileId: 'source-series-episode-two',
+        name: 'Shared Source Series S01E02.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    await app.prisma.episode.createMany({
+      data: [
+        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: removedEpisodeFile.id, seasonNumber: 1, episodeNumber: 1, title: 'Episode 1' },
+        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: keptEpisodeFile.id, seasonNumber: 1, episodeNumber: 2, title: 'Episode 2' },
+      ],
+    });
+
+    const disconnected = await app.inject({
+      method: 'DELETE',
+      url: `/api/libraries/${library.id}/drive-sources/${firstSourceId}`,
+      cookies,
+    });
+    expect(disconnected.statusCode).toBe(200);
+    expect(await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } })).toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } })).not.toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } })).not.toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } })).not.toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: seriesMedia.id } })).not.toBeNull();
+    expect(await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } })).toHaveLength(1);
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+    await app.prisma.googleConnection.delete({ where: { id: connection.id } });
+  });
+
   it("a second account can neither list nor address another user's library", async () => {
     const adminLogin = await app.inject({
       method: 'POST',

@@ -1,5 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { createLibrarySchema, updateLibrarySchema, type CreateLibraryInput, type UpdateLibraryInput } from '@cinedrive/shared';
+import {
+  createDriveScanSourceSchema,
+  createLibrarySchema,
+  updateLibrarySchema,
+  type CreateDriveScanSourceInput,
+  type CreateLibraryInput,
+  type UpdateLibraryInput,
+} from '@cinedrive/shared';
 import { env } from '../config/env.js';
 
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
@@ -114,6 +121,123 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return reply.status(200).send({ library: updated });
+    },
+  );
+
+  // Saved Google Drive folders are additive scan sources. Changing one no
+  // longer invalidates or silently replaces the files indexed from another.
+  fastify.get<{ Params: { id: string } }>('/:id/drive-sources', async (request, reply) => {
+    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+
+    const sources = await fastify.prisma.driveScanSource.findMany({
+      where: { libraryId: library.id },
+      orderBy: { createdAt: 'asc' },
+      include: { googleConnection: { select: { email: true } }, _count: { select: { files: true } } },
+    });
+    return reply.send({
+      sources: sources.map((source) => ({
+        id: source.id,
+        libraryId: source.libraryId,
+        googleConnectionId: source.googleConnectionId,
+        googleAccountEmail: source.googleConnection.email,
+        rootFolderId: source.rootFolderId,
+        fileCount: source._count.files,
+        createdAt: source.createdAt.toISOString(),
+      })),
+    });
+  });
+
+  fastify.post<{ Params: { id: string }; Body: CreateDriveScanSourceInput }>(
+    '/:id/drive-sources',
+    async (request, reply) => {
+      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+      const parsed = createDriveScanSourceSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Google hesabı ve klasör ID’si geçersiz.', requestId: request.id } });
+
+      const connection = await fastify.prisma.googleConnection.findFirst({
+        where: { id: parsed.data.googleConnectionId, userId: request.user!.id },
+      });
+      if (!connection) return reply.status(404).send({ error: { code: 'GOOGLE_CONNECTION_NOT_FOUND', message: 'Google hesabı bağlantısı bulunamadı.', requestId: request.id } });
+
+      const source = await fastify.prisma.driveScanSource.upsert({
+        where: {
+          libraryId_googleConnectionId_rootFolderId: {
+            libraryId: library.id,
+            googleConnectionId: connection.id,
+            rootFolderId: parsed.data.rootFolderId,
+          },
+        },
+        create: { libraryId: library.id, googleConnectionId: connection.id, rootFolderId: parsed.data.rootFolderId },
+        update: {},
+      });
+      await fastify.prisma.library.update({
+        where: { id: library.id },
+        data: { rootFolderId: source.rootFolderId, googleConnectionId: source.googleConnectionId },
+      });
+      return reply.status(201).send({ source: { ...source, googleAccountEmail: connection.email, fileCount: 0 } });
+    },
+  );
+
+  fastify.delete<{ Params: { id: string; sourceId: string } }>(
+    '/:id/drive-sources/:sourceId',
+    async (request, reply) => {
+      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+      if (fastify.libraryScanService.isScanning(library.id)) return reply.status(409).send({ error: { code: 'SCAN_ALREADY_IN_PROGRESS', message: 'Tarama sürerken kaynak kaldırılamaz.', requestId: request.id } });
+      const source = await fastify.prisma.driveScanSource.findFirst({
+        where: { id: request.params.sourceId, libraryId: library.id },
+      });
+      if (!source) return reply.status(404).send({ error: { code: 'DRIVE_SOURCE_NOT_FOUND', message: 'Drive klasör bağlantısı bulunamadı.', requestId: request.id } });
+
+      const movies = await fastify.prisma.mediaItem.findMany({
+        where: {
+          libraryId: library.id,
+          movie: { driveFile: { driveScanSourceId: source.id } },
+        },
+        select: { id: true },
+      });
+      const movieIds = movies.map((item) => item.id);
+      const removed = await fastify.prisma.$transaction(async (tx) => {
+        if (movieIds.length) await tx.mediaItem.deleteMany({ where: { id: { in: movieIds } } });
+        const files = await tx.driveFile.deleteMany({ where: { driveScanSourceId: source.id } });
+
+        // Deleting a Drive file cascades only its episode. Keep a series that
+        // still has episodes from another source, then prune empty containers.
+        await tx.season.deleteMany({
+          where: { series: { mediaItem: { libraryId: library.id } }, episodes: { none: {} } },
+        });
+        const emptySeries = await tx.series.findMany({
+          where: { mediaItem: { libraryId: library.id }, seasons: { none: {} } },
+          select: { mediaItemId: true },
+        });
+        if (emptySeries.length) {
+          await tx.mediaItem.deleteMany({
+            where: { id: { in: emptySeries.map((series) => series.mediaItemId) } },
+          });
+        }
+        await tx.driveScanSource.delete({ where: { id: source.id } });
+        const replacement = await tx.driveScanSource.findFirst({
+          where: { libraryId: library.id },
+          orderBy: { createdAt: 'asc' },
+        });
+        await tx.library.update({
+          where: { id: library.id },
+          data: {
+            rootFolderId: replacement?.rootFolderId || '',
+            googleConnectionId: replacement?.googleConnectionId || null,
+          },
+        });
+        return files.count;
+      });
+
+      await fastify.prisma.musicAlbum.deleteMany({ where: { userId: request.user!.id, tracks: { none: {} } } });
+      await fastify.prisma.musicArtist.deleteMany({ where: { userId: request.user!.id, trackCredits: { none: {} }, albums: { none: {} } } });
+      await fastify.prisma.musicArtwork.deleteMany({
+        where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+      });
+      return reply.send({ removed: { media: movieIds.length, files: removed } });
     },
   );
 

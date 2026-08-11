@@ -180,6 +180,16 @@ export interface LibraryDto {
   updatedAt: string;
 }
 
+export interface DriveScanSourceDto {
+  id: string;
+  libraryId: string;
+  googleConnectionId: string;
+  googleAccountEmail: string;
+  rootFolderId: string;
+  fileCount: number;
+  createdAt: string;
+}
+
 export interface MusicArtworkDto {
   id: string;
   url: string;

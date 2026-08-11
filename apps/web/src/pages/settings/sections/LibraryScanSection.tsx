@@ -1,8 +1,11 @@
-import React, { useId } from 'react';
-import { RefreshCw } from 'lucide-react';
+import React, { useId, useState } from 'react';
+import { AlertTriangle, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
+import type { DriveScanSourceDto } from '@cinedrive/shared';
 import {
   useLibrariesQuery,
-  useUpdateLibraryMutation,
+  useCreateDriveScanSourceMutation,
+  useDeleteDriveScanSourceMutation,
+  useDriveScanSourcesQuery,
   useScanLibraryMutation,
   useLibraryScansQuery,
 } from '../../../hooks/useApi';
@@ -17,17 +20,20 @@ import {
 } from '../SettingsCard';
 import { t } from '../../../i18n';
 import { connectionLabel, useGoogleConnections } from '../useGoogleConnections';
+import { Modal } from '../../../components/common/Modal';
 
 type ScanMode = 'all' | 'folder';
 
 export const LibraryScanSection: React.FC = () => {
   const fieldId = useId();
   const { data: libraries } = useLibrariesQuery();
-  const updateLibrary = useUpdateLibraryMutation();
+  const createSource = useCreateDriveScanSourceMutation();
+  const deleteSource = useDeleteDriveScanSourceMutation();
   const scanLibrary = useScanLibraryMutation();
   const allConnections = useGoogleConnections();
 
   const activeLibrary = libraries?.find((library) => library.storageType === 'gdrive');
+  const { data: sources = [] } = useDriveScanSourcesQuery(activeLibrary?.id);
   const { data: scanHistory } = useLibraryScansQuery(activeLibrary?.id);
   const lastScan = scanHistory?.[0];
 
@@ -41,6 +47,7 @@ export const LibraryScanSection: React.FC = () => {
   );
   const [folderId, setFolderId] = useSyncedState(savedRootFolderId);
   const [connectionId, setConnectionId] = useSyncedState(savedConnectionId);
+  const [sourceToRemove, setSourceToRemove] = useState<DriveScanSourceDto | null>(null);
 
   const isScanning = scanLibrary.isPending || lastScan?.status === 'running';
 
@@ -54,16 +61,28 @@ export const LibraryScanSection: React.FC = () => {
   const handleSaveScanSettings = async () => {
     if (!activeLibrary) return;
     try {
-      await updateLibrary.mutateAsync({
-        id: activeLibrary.id,
-        data: {
-          rootFolderId: scanMode === 'folder' ? folderId.trim() : '',
-          googleConnectionId: connectionId || null,
-        },
+      await createSource.mutateAsync({
+        libraryId: activeLibrary.id,
+        rootFolderId: scanMode === 'folder' ? folderId.trim() : '',
+        googleConnectionId: connectionId,
       });
       toast.success(t.settings.scan.scopeSaved);
     } catch (error) {
       toast.fromError(error, t.settings.scan.scopeSaveFailed);
+    }
+  };
+
+  const handleRemoveSource = async () => {
+    if (!activeLibrary || !sourceToRemove) return;
+    try {
+      const removed = await deleteSource.mutateAsync({
+        libraryId: activeLibrary.id,
+        sourceId: sourceToRemove.id,
+      });
+      setSourceToRemove(null);
+      toast.success(t.settings.scan.sourceRemoved(removed.files));
+    } catch (error) {
+      toast.fromError(error, t.settings.scan.sourceRemoveFailed);
     }
   };
 
@@ -154,7 +173,7 @@ export const LibraryScanSection: React.FC = () => {
               onChange={(event) => setConnectionId(event.target.value)}
               className={SETTINGS_INPUT_CLASSES}
             >
-              <option value="">{t.settings.scan.allAccounts}</option>
+              <option value="">{t.settings.scan.selectAccount}</option>
               {allConnections.map((connection, index) =>
                 connection.id ? (
                   <option key={connection.id} value={connection.id}>
@@ -168,12 +187,51 @@ export const LibraryScanSection: React.FC = () => {
           <SettingsButton
             variant="secondary"
             onClick={handleSaveScanSettings}
-            disabled={!activeLibrary || (scanMode === 'folder' && !folderId.trim())}
-            isLoading={updateLibrary.isPending}
+            disabled={
+              !activeLibrary || !connectionId || (scanMode === 'folder' && !folderId.trim())
+            }
+            isLoading={createSource.isPending}
             loadingLabel={t.common.saving}
           >
             {t.settings.scan.saveScope}
           </SettingsButton>
+        </div>
+
+        <div className="border-t border-zinc-800/60 pt-4">
+          <h4 className="text-[13px] font-medium text-zinc-300">
+            {t.settings.scan.savedSources}
+          </h4>
+          {sources.length === 0 ? (
+            <p className="mt-2 text-xs text-zinc-500">{t.settings.scan.noSavedSources}</p>
+          ) : (
+            <div className="mt-3 divide-y divide-zinc-800/60 rounded-xl border border-zinc-800/70">
+              {sources.map((source) => (
+                <div key={source.id} className="flex items-center gap-3 px-4 py-3">
+                  <FolderOpen className="h-4 w-4 shrink-0 text-zinc-500" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-medium text-zinc-200">
+                      {source.googleAccountEmail}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+                      {source.rootFolderId || t.settings.scan.entireDrive}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-zinc-500">
+                    {t.settings.scan.fileCount(source.fileCount)}
+                  </span>
+                  <SettingsButton
+                    variant="danger"
+                    icon={Trash2}
+                    onClick={() => setSourceToRemove(source)}
+                    disabled={isScanning}
+                    className="px-2.5"
+                  >
+                    {t.settings.scan.disconnect}
+                  </SettingsButton>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {lastScan && (
@@ -212,6 +270,40 @@ export const LibraryScanSection: React.FC = () => {
           </div>
         )}
       </div>
+
+      <Modal
+        isOpen={!!sourceToRemove}
+        onClose={() => setSourceToRemove(null)}
+        size="sm"
+        title={t.settings.scan.disconnectTitle}
+        description={sourceToRemove?.googleAccountEmail}
+        icon={
+          <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+        }
+        footer={
+          <div className="flex justify-end gap-2">
+            <SettingsButton variant="secondary" onClick={() => setSourceToRemove(null)}>
+              {t.common.cancel}
+            </SettingsButton>
+            <SettingsButton
+              variant="danger"
+              icon={Trash2}
+              onClick={handleRemoveSource}
+              isLoading={deleteSource.isPending}
+            >
+              {t.settings.scan.disconnectConfirm}
+            </SettingsButton>
+          </div>
+        }
+      >
+        <p className="p-6 text-sm leading-relaxed text-zinc-300">
+          {t.settings.scan.disconnectBody(
+            sourceToRemove?.rootFolderId || t.settings.scan.entireDrive,
+          )}
+        </p>
+      </Modal>
     </SettingsCard>
   );
 };

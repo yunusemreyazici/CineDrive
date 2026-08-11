@@ -26,5 +26,11 @@ export const updateLibrarySchema = z.object({
   googleConnectionId: z.string().nullable().optional(),
 });
 
+export const createDriveScanSourceSchema = z.object({
+  googleConnectionId: z.string().min(1),
+  rootFolderId: z.string().trim().default(''),
+});
+
 export type CreateLibraryInput = z.infer<typeof createLibrarySchema>;
 export type UpdateLibraryInput = z.infer<typeof updateLibrarySchema>;
+export type CreateDriveScanSourceInput = z.infer<typeof createDriveScanSourceSchema>;

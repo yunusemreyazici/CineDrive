@@ -63,6 +63,7 @@ model GoogleConnection {
   updatedAt             DateTime  @updatedAt
   libraries             Library[]
   driveFiles            DriveFile[]
+  scanSources           DriveScanSource[]
 
   @@index([userId])
 }
@@ -88,8 +89,25 @@ model Library {
   scans              LibraryScan[]
   mediaItems         MediaItem[]
   musicTracks        MusicTrack[]
+  driveScanSources   DriveScanSource[]
 
   @@index([userId])
+}
+
+model DriveScanSource {
+  id                 String           @id @default(uuid())
+  libraryId          String
+  library            Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  googleConnectionId String
+  googleConnection   GoogleConnection @relation(fields: [googleConnectionId], references: [id], onDelete: Cascade)
+  rootFolderId       String           @default("")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  files              DriveFile[]
+
+  @@unique([libraryId, googleConnectionId, rootFolderId])
+  @@index([libraryId])
+  @@index([googleConnectionId])
 }
 
 model DriveFile {
@@ -100,6 +118,8 @@ model DriveFile {
   // account is only its current scan scope and may change between scans.
   googleConnectionId String?
   googleConnection   GoogleConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
+  driveScanSourceId  String?
+  driveScanSource    DriveScanSource? @relation(fields: [driveScanSourceId], references: [id], onDelete: SetNull)
   storageType        String          @default("gdrive")
   localFilePath      String?         @unique
   googleDriveFileId  String?         @unique
@@ -134,6 +154,7 @@ model DriveFile {
 
   @@index([libraryId])
   @@index([googleConnectionId])
+  @@index([driveScanSourceId])
   @@index([parentDriveFileId])
   @@index([localFilePath])
 }

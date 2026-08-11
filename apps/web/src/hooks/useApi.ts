@@ -8,6 +8,7 @@ import type {
   CreateLibraryInput,
   LibraryDto,
   UpdateLibraryInput,
+  DriveScanSourceDto,
   UpdateProgressInput,
   UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
@@ -157,6 +158,54 @@ export function useCreateLibraryMutation() {
   });
 }
 
+export function useDriveScanSourcesQuery(libraryId?: string) {
+  return useQuery({
+    queryKey: ['driveScanSources', libraryId],
+    queryFn: async () => {
+      if (!libraryId) return [];
+      const res = await apiClient.get<{ sources: DriveScanSourceDto[] }>(
+        `/libraries/${libraryId}/drive-sources`,
+      );
+      return res.data.sources;
+    },
+    enabled: !!libraryId,
+  });
+}
+
+export function useCreateDriveScanSourceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, googleConnectionId, rootFolderId }: { libraryId: string; googleConnectionId: string; rootFolderId: string }) => {
+      const res = await apiClient.post<{ source: DriveScanSourceDto }>(
+        `/libraries/${libraryId}/drive-sources`,
+        { googleConnectionId, rootFolderId },
+      );
+      return res.data.source;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources', variables.libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+    },
+  });
+}
+
+export function useDeleteDriveScanSourceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, sourceId }: { libraryId: string; sourceId: string }) => {
+      const res = await apiClient.delete<{ removed: { media: number; files: number } }>(
+        `/libraries/${libraryId}/drive-sources/${sourceId}`,
+      );
+      return res.data.removed;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources', variables.libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+}
+
 /**
  * The server answers 202 as soon as the scan is registered and does the work in
  * the background, so this no longer needs a long timeout — progress arrives
@@ -213,9 +262,10 @@ export function useLibraryScansQuery(libraryId?: string) {
     if (wasRunningRef.current && !isRunning) {
       queryClient.invalidateQueries({ queryKey: ['media'] });
       queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources', libraryId] });
     }
     wasRunningRef.current = isRunning;
-  }, [isRunning, queryClient]);
+  }, [isRunning, libraryId, queryClient]);
 
   return query;
 }

@@ -63,18 +63,34 @@ export class LibraryScanService {
     }
 
     const allConnections = await this.googleOAuthService.getConnectionsInfo(userId);
-    const connections = library.googleConnectionId
-      ? allConnections.filter((connection) => connection.id === library.googleConnectionId)
-      : allConnections;
-    if (connections.length === 0) {
+    const savedSources = await this.prisma.driveScanSource.findMany({
+      where: { libraryId, googleConnection: { userId } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const targets = savedSources.length
+      ? savedSources.flatMap((source) => {
+          const connection = allConnections.find((item) => item.id === source.googleConnectionId);
+          return connection
+            ? [{ connection, rootFolderId: source.rootFolderId, sourceId: source.id }]
+            : [];
+        })
+      : (library.googleConnectionId
+          ? allConnections.filter((connection) => connection.id === library.googleConnectionId)
+          : allConnections
+        ).map((connection) => ({
+          connection,
+          rootFolderId: library.rootFolderId,
+          sourceId: null,
+        }));
+    if (targets.length === 0) {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
     }
 
     // Verify at least 1 connection can retrieve access token before acquiring lock
     let validTokenFound = false;
-    for (const connection of connections) {
+    for (const target of targets) {
       try {
-        await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+        await this.googleOAuthService.getValidAccessToken(userId, target.connection.id);
         validTokenFound = true;
         break;
       } catch {
@@ -99,9 +115,7 @@ export class LibraryScanService {
     });
 
     // Launch scan execution asynchronously in background
-    this.executeScanAsync(userId, libraryId, scan.id, connections, library.rootFolderId).catch(
-      () => {},
-    );
+    this.executeScanAsync(userId, libraryId, scan.id, targets).catch(() => {});
 
     return scan.id;
   }
@@ -110,8 +124,11 @@ export class LibraryScanService {
     userId: string,
     libraryId: string,
     scanId: string,
-    connections: Array<{ id: string }>,
-    rootFolderId: string,
+    targets: Array<{
+      connection: { id: string };
+      rootFolderId: string;
+      sourceId: string | null;
+    }>,
   ): Promise<void> {
     const startTime = Date.now();
     let addedCount = 0;
@@ -119,10 +136,13 @@ export class LibraryScanService {
     let errorCount = 0;
 
     try {
-      for (const connection of connections) {
+      for (const target of targets) {
         let accessToken: string;
         try {
-          accessToken = await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+          accessToken = await this.googleOAuthService.getValidAccessToken(
+            userId,
+            target.connection.id,
+          );
         } catch {
           continue;
         }
@@ -130,10 +150,11 @@ export class LibraryScanService {
         const result = await this.scanAccountFiles(
           userId,
           accessToken,
-          connection.id,
+          target.connection.id,
+          target.sourceId,
           libraryId,
           scanId,
-          rootFolderId,
+          target.rootFolderId,
         );
 
         addedCount += result.added;
@@ -186,6 +207,7 @@ export class LibraryScanService {
     userId: string,
     accessToken: string,
     googleConnectionId: string,
+    driveScanSourceId: string | null,
     libraryId: string,
     scanId: string,
     rootFolderId: string,
@@ -255,7 +277,12 @@ export class LibraryScanService {
     // 3. Process Videos across account
     for (const video of videos) {
       try {
-        const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, video);
+        const driveFile = await this.upsertDriveFile(
+          libraryId,
+          googleConnectionId,
+          driveScanSourceId,
+          video,
+        );
         if (driveFile.isNew) added++;
         else if (driveFile.sourceChanged) updated++;
 
@@ -387,7 +414,7 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Movie
-          await this.matchSubtitles(libraryId, googleConnectionId, allFiles, video.name, {
+          await this.matchSubtitles(libraryId, googleConnectionId, driveScanSourceId, allFiles, video.name, {
             mediaItemId: mediaItem.id,
           });
         } else {
@@ -465,7 +492,7 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Episode
-          await this.matchSubtitles(libraryId, googleConnectionId, allFiles, video.name, {
+          await this.matchSubtitles(libraryId, googleConnectionId, driveScanSourceId, allFiles, video.name, {
             episodeId: episode.id,
           });
         }
@@ -483,7 +510,12 @@ export class LibraryScanService {
 
     for (const audio of audioFiles) {
       try {
-        const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, audio);
+        const driveFile = await this.upsertDriveFile(
+          libraryId,
+          googleConnectionId,
+          driveScanSourceId,
+          audio,
+        );
         if (driveFile.isNew) added++;
         else if (driveFile.sourceChanged) updated++;
         if (!audio.size) throw new Error('AUDIO_SIZE_MISSING');
@@ -631,6 +663,7 @@ export class LibraryScanService {
   private async upsertDriveFile(
     libraryId: string,
     googleConnectionId: string,
+    driveScanSourceId: string | null,
     file: DriveFileMetadata,
   ) {
     const existing = await this.prisma.driveFile.findUnique({
@@ -648,6 +681,7 @@ export class LibraryScanService {
       create: {
         libraryId,
         googleConnectionId,
+        driveScanSourceId,
         googleDriveFileId: file.id,
         parentDriveFileId: file.parents?.[0] || null,
         name: file.name,
@@ -660,6 +694,7 @@ export class LibraryScanService {
       update: {
         libraryId,
         googleConnectionId,
+        driveScanSourceId,
         name: file.name,
         mimeType: file.mimeType,
         size: file.size ? BigInt(file.size) : null,
@@ -699,6 +734,7 @@ export class LibraryScanService {
   private async matchSubtitles(
     libraryId: string,
     googleConnectionId: string,
+    driveScanSourceId: string | null,
     allFiles: DriveFileMetadata[],
     videoName: string,
     target: { mediaItemId?: string; episodeId?: string },
@@ -711,7 +747,12 @@ export class LibraryScanService {
     );
 
     for (const sub of subtitles) {
-      const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, sub);
+      const driveFile = await this.upsertDriveFile(
+        libraryId,
+        googleConnectionId,
+        driveScanSourceId,
+        sub,
+      );
       const parsedSub = parseSubtitleFilename(sub.name);
 
       await this.prisma.subtitleTrack.upsert({
