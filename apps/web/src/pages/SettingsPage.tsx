@@ -3,14 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { Loader2, Search, ChevronRight } from 'lucide-react';
 import { ProfileSection } from './settings/sections/ProfileSection';
 import { SecuritySection } from './settings/sections/SecuritySection';
-import {
-  AppearanceSection,
-  LanguageSection,
-  LibraryVisibilitySection,
-} from './settings/sections/AppearanceSection';
+import { AppearanceSection, LanguageSection } from './settings/sections/AppearanceSection';
 import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
 import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
-import { DatabaseSection, DatabaseStatsSection } from './settings/sections/DatabaseSection';
 import { AboutSection } from './settings/sections/AboutSection';
 import { t } from '../i18n';
 import {
@@ -46,18 +41,11 @@ const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
   security: <SecuritySection />,
   appearance: <AppearanceSection />,
   language: <LanguageSection />,
-  visibility: <LibraryVisibilitySection />,
   libraries: <LibrarySourcesSection />,
   openSubtitles: <OpenSubtitlesSection />,
   manage: <MediaManagerPage />,
   storage: <InsightsPage />,
   health: <MediaHealthPage />,
-  database: (
-    <>
-      <DatabaseStatsSection />
-      <DatabaseSection />
-    </>
-  ),
   about: <AboutSection />,
 };
 

@@ -801,7 +801,7 @@ export const tr = {
     librarySources: {
       title: 'Kütüphane ve Depolama Kaynakları',
       description:
-        'Google Drive hesaplarını, taranacak Drive klasörlerini ve yerel kütüphaneleri tek yerden bağlayın, tarayın ve yönetin.',
+        'Google Drive hesaplarını, yerel klasörleri, içerik görünürlüğünü ve kütüphane veritabanını tek yerden yönetin.',
       googleAccounts: 'Bağlı Google hesabı',
       driveSources: 'Drive tarama kaynağı',
       localLibraries: 'Yerel kütüphane',
@@ -978,7 +978,7 @@ export const tr = {
       visibility: { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin' },
       librarySources: {
         label: 'Kütüphane Kaynakları',
-        description: 'Google Drive, tarama ve yerel klasörler',
+        description: 'Drive, yerel klasörler, görünürlük ve veritabanı',
       },
       google: { label: 'Google Drive', description: 'Bağlı Google hesapları' },
       scan: { label: 'Kütüphane Taraması', description: 'Medya taramasını başlatın' },

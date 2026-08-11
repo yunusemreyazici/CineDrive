@@ -799,7 +799,7 @@ export const en: Translations = {
     librarySources: {
       title: 'Library & storage sources',
       description:
-        'Connect, scan and manage Google Drive accounts, Drive folders and local libraries in one place.',
+        'Manage Google Drive accounts, local folders, content visibility and the library database in one place.',
       googleAccounts: 'Connected Google accounts',
       driveSources: 'Drive scan sources',
       localLibraries: 'Local libraries',
@@ -976,7 +976,7 @@ export const en: Translations = {
       visibility: { label: 'Library visibility', description: 'Manage the metadata filter' },
       librarySources: {
         label: 'Library sources',
-        description: 'Google Drive, scanning and local folders',
+        description: 'Drive, local folders, visibility and database',
       },
       google: { label: 'Google Drive', description: 'Connected Google accounts' },
       scan: { label: 'Library scan', description: 'Start a media scan' },

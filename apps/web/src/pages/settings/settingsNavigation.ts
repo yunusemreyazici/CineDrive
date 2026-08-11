@@ -3,7 +3,6 @@ import {
   Activity,
   Captions,
   Database,
-  EyeOff,
   FolderTree,
   HardDrive,
   Info,
@@ -28,13 +27,11 @@ export type SettingsPane =
   | 'security'
   | 'appearance'
   | 'language'
-  | 'visibility'
   | 'libraries'
   | 'openSubtitles'
   | 'manage'
   | 'storage'
   | 'health'
-  | 'database'
   | 'about';
 
 export interface SettingsPaneDefinition {
@@ -64,7 +61,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     panes: [
       { id: 'appearance', label: t.settings.search.appearance.label, icon: Palette },
       { id: 'language', label: t.settings.search.language.label, icon: Languages },
-      { id: 'visibility', label: t.settings.search.visibility.label, icon: EyeOff },
     ],
   },
   {
@@ -82,7 +78,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'manage', label: t.settings.search.manage.label, icon: Database },
       { id: 'storage', label: t.settings.search.storage.label, icon: HardDrive },
       { id: 'health', label: t.settings.search.health.label, icon: Activity },
-      { id: 'database', label: t.settings.search.database.label, icon: Database },
     ],
   },
   {
@@ -108,6 +103,8 @@ const LEGACY_TABS: Record<string, SettingsPane> = {
   google: 'libraries',
   scan: 'libraries',
   localLibrary: 'libraries',
+  visibility: 'libraries',
+  database: 'libraries',
   manage: 'manage',
   storage: 'storage',
   health: 'health',
@@ -130,12 +127,10 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.security, pane: 'security' },
   { ...t.settings.search.appearance, pane: 'appearance' },
   { ...t.settings.search.language, pane: 'language' },
-  { ...t.settings.search.visibility, pane: 'visibility' },
   { ...t.settings.search.librarySources, pane: 'libraries' },
   { ...t.settings.search.openSubtitles, pane: 'openSubtitles' },
   { ...t.settings.search.manage, pane: 'manage' },
   { ...t.settings.search.storage, pane: 'storage' },
   { ...t.settings.search.health, pane: 'health' },
-  { ...t.settings.search.database, pane: 'database' },
   { ...t.settings.search.about, pane: 'about' },
 ];
