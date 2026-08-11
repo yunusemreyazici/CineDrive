@@ -1,5 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { loginSchema, updateProfileSchema, changePasswordSchema, type LoginInput, type UserDto } from '@cinedrive/shared';
+import {
+  loginSchema,
+  updateProfileSchema,
+  changePasswordSchema,
+  type LoginInput,
+  type UserDto,
+} from '@cinedrive/shared';
 import { env } from '../config/env.js';
 import {
   GoogleConnectionCleanupService,
@@ -204,6 +210,14 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.redirect(authUrl);
   });
 
+  // Native clients obtain the Google URL through their authenticated API
+  // session, then complete consent in ASWebAuthenticationSession. The signed
+  // state keeps the user binding and native return target off the public URL.
+  fastify.get('/google/native', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const authUrl = fastify.googleOAuthService.generateAuthUrl(request.user!.id, 'native');
+    return reply.status(200).send({ authUrl });
+  });
+
   // GET /api/auth/google/callback: Handles Google OAuth redirect
   fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     '/google/callback',
@@ -211,15 +225,45 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const { code, state, error } = request.query;
 
       if (error || !code || !state) {
-        return reply.redirect(`${env.APP_URL}/settings?error=oauth_rejected`);
+        const isNative = (() => {
+          try {
+            return state
+              ? fastify.googleOAuthService.verifyStateToken(state).flow === 'native'
+              : false;
+          } catch {
+            return false;
+          }
+        })();
+        return reply.redirect(
+          isNative
+            ? 'cinedrive://google-oauth?error=oauth_rejected'
+            : `${env.APP_URL}/settings?error=oauth_rejected`,
+        );
       }
 
       try {
-        await fastify.googleOAuthService.handleCallback(code, state);
-        return reply.redirect(`${env.APP_URL}/settings?google_connected=true`);
+        const result = await fastify.googleOAuthService.handleCallback(code, state);
+        return reply.redirect(
+          result.flow === 'native'
+            ? 'cinedrive://google-oauth?success=true'
+            : `${env.APP_URL}/settings?google_connected=true`,
+        );
       } catch (err: unknown) {
         fastify.log.error({ err, requestId: request.id }, 'Google OAuth callback error');
-        return reply.redirect(`${env.APP_URL}/settings?error=oauth_failed`);
+        const isNative = (() => {
+          try {
+            return state
+              ? fastify.googleOAuthService.verifyStateToken(state).flow === 'native'
+              : false;
+          } catch {
+            return false;
+          }
+        })();
+        return reply.redirect(
+          isNative
+            ? 'cinedrive://google-oauth?error=oauth_failed'
+            : `${env.APP_URL}/settings?error=oauth_failed`,
+        );
       }
     },
   );
@@ -260,20 +304,16 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /api/auth/google/status: Check Google Connection Status
-  fastify.get(
-    '/google/status',
-    { preHandler: [fastify.authenticate] },
-    async (request, reply) => {
-      const userId = request.user!.id;
-      const connections = await fastify.googleOAuthService.getConnectionsInfo(userId);
+  fastify.get('/google/status', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const userId = request.user!.id;
+    const connections = await fastify.googleOAuthService.getConnectionsInfo(userId);
 
-      return reply.status(200).send({
-        connected: connections.length > 0,
-        connection: connections[0] || null,
-        connections,
-      });
-    },
-  );
+    return reply.status(200).send({
+      connected: connections.length > 0,
+      connection: connections[0] || null,
+      connections,
+    });
+  });
 
   // GET /api/auth/google/connections: List all connected Google accounts
   fastify.get(
@@ -307,7 +347,9 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
       const affectedLibraryIds = await googleConnectionCleanup.getAffectedLibraryIds(userId, [id]);
-      if (affectedLibraryIds.some((libraryId) => fastify.libraryScanService.isScanning(libraryId))) {
+      if (
+        affectedLibraryIds.some((libraryId) => fastify.libraryScanService.isScanning(libraryId))
+      ) {
         return reply.status(409).send({
           error: {
             code: 'SCAN_ALREADY_IN_PROGRESS',
@@ -333,7 +375,10 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const userId = request.user!.id;
       const { connectionId } = request.params;
-      const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId, connectionId);
+      const accessToken = await fastify.googleOAuthService.getValidAccessToken(
+        userId,
+        connectionId,
+      );
 
       const drives = await fastify.driveService.listSharedDrives(accessToken);
       return reply.status(200).send({ drives });

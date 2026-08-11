@@ -37,9 +37,10 @@ export class GoogleOAuthService {
   /**
    * Generates a signed, encrypted state token to prevent CSRF in OAuth callback
    */
-  public generateStateToken(userId: string): string {
+  public generateStateToken(userId: string, flow: 'web' | 'native' = 'web'): string {
     const payload = JSON.stringify({
       userId,
+      flow,
       timestamp: Date.now(),
       nonce: crypto.randomBytes(16).toString('hex'),
     });
@@ -49,10 +50,14 @@ export class GoogleOAuthService {
   /**
    * Validates state token and returns userId if valid and not expired
    */
-  public verifyStateToken(stateToken: string): { userId: string } {
+  public verifyStateToken(stateToken: string): { userId: string; flow: 'web' | 'native' } {
     try {
       const decrypted = this.cryptoService.decrypt(stateToken);
-      const parsed = JSON.parse(decrypted) as { userId: string; timestamp: number };
+      const parsed = JSON.parse(decrypted) as {
+        userId: string;
+        timestamp: number;
+        flow?: 'web' | 'native';
+      };
 
       if (!parsed.userId || !parsed.timestamp) {
         throw new Error('INVALID_STATE');
@@ -62,7 +67,7 @@ export class GoogleOAuthService {
         throw new Error('STATE_EXPIRED');
       }
 
-      return { userId: parsed.userId };
+      return { userId: parsed.userId, flow: parsed.flow === 'native' ? 'native' : 'web' };
     } catch {
       throw new Error('INVALID_STATE_TOKEN');
     }
@@ -71,9 +76,9 @@ export class GoogleOAuthService {
   /**
    * Generates Google OAuth consent screen URL
    */
-  public generateAuthUrl(userId: string): string {
+  public generateAuthUrl(userId: string, flow: 'web' | 'native' = 'web'): string {
     const oauth2Client = this.createOAuth2Client();
-    const state = this.generateStateToken(userId);
+    const state = this.generateStateToken(userId, flow);
 
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
@@ -89,8 +94,8 @@ export class GoogleOAuthService {
   public async handleCallback(
     code: string,
     stateToken: string,
-  ): Promise<{ userId: string; googleEmail: string }> {
-    const { userId } = this.verifyStateToken(stateToken);
+  ): Promise<{ userId: string; googleEmail: string; flow: 'web' | 'native' }> {
+    const { userId, flow } = this.verifyStateToken(stateToken);
 
     const oauth2Client = this.createOAuth2Client();
     const { tokens } = await oauth2Client.getToken(code);
@@ -167,7 +172,7 @@ export class GoogleOAuthService {
       expiresAt,
     });
 
-    return { userId, googleEmail };
+    return { userId, googleEmail, flow };
   }
 
   /**

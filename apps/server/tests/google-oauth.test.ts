@@ -85,6 +85,15 @@ describe('GoogleOAuthService Unit Tests', () => {
 
     const verified = googleService.verifyStateToken(stateToken);
     expect(verified.userId).toBe(userId);
+    expect(verified.flow).toBe('web');
+  });
+
+  it('should preserve the native callback flow in the encrypted state token', () => {
+    const stateToken = googleService.generateStateToken('native-user', 'native');
+    expect(googleService.verifyStateToken(stateToken)).toEqual({
+      userId: 'native-user',
+      flow: 'native',
+    });
   });
 
   it('should throw error for invalid state token', () => {
@@ -210,6 +219,30 @@ describe('Google OAuth Routes Integration Tests', () => {
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toContain('https://accounts.google.com');
+  });
+
+  it('GET /api/auth/google/native should return a user-bound native authorization URL', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google/native',
+      cookies: { session_id: sessionCookie!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as { authUrl: string };
+    const state = new URL(body.authUrl).searchParams.get('state');
+    expect(state).toBeTruthy();
+    expect(app.googleOAuthService.verifyStateToken(state!).flow).toBe('native');
   });
 
   it('GET /api/auth/google/status with valid login should return connection status', async () => {
@@ -341,8 +374,24 @@ describe('Google OAuth Routes Integration Tests', () => {
     });
     await app.prisma.episode.createMany({
       data: [
-        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: removedEpisodeFile.id, seasonNumber: 1, episodeNumber: 1, title: 'Episode 1' },
-        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: keptEpisodeFile.id, seasonNumber: 1, episodeNumber: 2, title: 'Episode 2' },
+        {
+          seriesId: series.id,
+          seasonId: season.id,
+          mediaItemId: seriesMedia.id,
+          driveFileId: removedEpisodeFile.id,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: 'Episode 1',
+        },
+        {
+          seriesId: series.id,
+          seasonId: season.id,
+          mediaItemId: seriesMedia.id,
+          driveFileId: keptEpisodeFile.id,
+          seasonNumber: 1,
+          episodeNumber: 2,
+          title: 'Episode 2',
+        },
       ],
     });
 
@@ -399,21 +448,41 @@ describe('Google OAuth Routes Integration Tests', () => {
       files: 4,
       media: 1,
     });
-    expect(await app.prisma.googleConnection.findUnique({ where: { id: connection.id } })).toBeNull();
+    expect(
+      await app.prisma.googleConnection.findUnique({ where: { id: connection.id } }),
+    ).toBeNull();
     expect(await app.prisma.driveScanSource.findUnique({ where: { id: source.id } })).toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } })).toBeNull();
-    expect(await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } })).toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } })).toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } }),
+    ).toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } }),
+    ).toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } }),
+    ).toBeNull();
     expect(await app.prisma.subtitleTrack.findUnique({ where: { id: subtitle.id } })).toBeNull();
     expect(await app.prisma.musicTrack.findUnique({ where: { id: musicTrack.id } })).toBeNull();
 
-    expect(await app.prisma.googleConnection.findUnique({ where: { id: keeperConnection.id } })).not.toBeNull();
-    expect(await app.prisma.driveScanSource.findUnique({ where: { id: keeperSource.id } })).not.toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } })).not.toBeNull();
-    expect(await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } })).not.toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } })).not.toBeNull();
+    expect(
+      await app.prisma.googleConnection.findUnique({ where: { id: keeperConnection.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.driveScanSource.findUnique({ where: { id: keeperSource.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } }),
+    ).not.toBeNull();
     expect(await app.prisma.mediaItem.findUnique({ where: { id: seriesMedia.id } })).not.toBeNull();
-    expect(await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } })).toHaveLength(1);
+    expect(
+      await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } }),
+    ).toHaveLength(1);
     expect(await app.prisma.library.findUnique({ where: { id: library.id } })).toEqual(
       expect.objectContaining({
         googleConnectionId: keeperConnection.id,
