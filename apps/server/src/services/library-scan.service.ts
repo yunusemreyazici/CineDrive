@@ -31,7 +31,8 @@ export class LibraryScanService {
   private metadataService = new MetadataService();
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
-  private activeScans = new Set<string>();
+  private activeLibraryScans = new Set<string>();
+  private activeSourceScans = new Map<string, string>();
 
   constructor(
     private prisma: PrismaClient,
@@ -49,14 +50,19 @@ export class LibraryScanService {
   }
 
   public isScanning(libraryId: string): boolean {
-    return this.activeScans.has(libraryId);
+    return (
+      this.activeLibraryScans.has(libraryId) ||
+      Array.from(this.activeSourceScans.values()).some(
+        (activeLibraryId) => activeLibraryId === libraryId,
+      )
+    );
   }
 
   /**
    * Scans all connected Google Drive accounts and Shared Drives asynchronously in the background
    */
   public async scanLibrary(userId: string, libraryId: string): Promise<string> {
-    if (this.activeScans.has(libraryId)) {
+    if (this.isScanning(libraryId)) {
       throw new Error('SCAN_ALREADY_IN_PROGRESS');
     }
 
@@ -112,12 +118,8 @@ export class LibraryScanService {
   }
 
   /** Scan one saved Drive source without walking the other accounts/folders. */
-  public async scanSource(
-    userId: string,
-    libraryId: string,
-    sourceId: string,
-  ): Promise<string> {
-    if (this.activeScans.has(libraryId)) {
+  public async scanSource(userId: string, libraryId: string, sourceId: string): Promise<string> {
+    if (this.activeLibraryScans.has(libraryId) || this.activeSourceScans.has(sourceId)) {
       throw new Error('SCAN_ALREADY_IN_PROGRESS');
     }
 
@@ -140,41 +142,73 @@ export class LibraryScanService {
 
     await this.googleOAuthService.getValidAccessToken(userId, connection.id);
 
-    return this.startScan(userId, libraryId, [
-      {
-        connection,
-        rootFolderId: source.rootFolderId,
-        sourceId: source.id,
-      },
-    ]);
+    return this.startScan(
+      userId,
+      libraryId,
+      [
+        {
+          connection,
+          rootFolderId: source.rootFolderId,
+          sourceId: source.id,
+        },
+      ],
+      source.id,
+    );
   }
 
   private async startScan(
     userId: string,
     libraryId: string,
     targets: DriveScanTarget[],
+    exclusiveSourceId?: string,
   ): Promise<string> {
     // Token checks happen before this method, so repeat the lock check to close
     // the small race between two requests validating access simultaneously.
-    if (this.activeScans.has(libraryId)) {
+    if (
+      this.activeLibraryScans.has(libraryId) ||
+      (exclusiveSourceId
+        ? this.activeSourceScans.has(exclusiveSourceId)
+        : Array.from(this.activeSourceScans.values()).some(
+            (activeLibraryId) => activeLibraryId === libraryId,
+          ))
+    ) {
       throw new Error('SCAN_ALREADY_IN_PROGRESS');
     }
-    this.activeScans.add(libraryId);
+    if (exclusiveSourceId) this.activeSourceScans.set(exclusiveSourceId, libraryId);
+    else this.activeLibraryScans.add(libraryId);
 
     try {
+      const sourceIds = targets.flatMap((target) => (target.sourceId ? [target.sourceId] : []));
+      if (sourceIds.length > 0) {
+        await this.prisma.driveScanSource.updateMany({
+          where: { id: { in: sourceIds } },
+          data: {
+            lastScanStatus: 'running',
+            lastScannedAt: new Date(),
+            lastScanDurationMs: null,
+            lastScanAddedCount: 0,
+            lastScanUpdatedCount: 0,
+            lastScanDeletedCount: 0,
+            lastScanErrorCount: 0,
+            lastScanError: null,
+          },
+        });
+      }
       const scan = await this.prisma.libraryScan.create({
         data: {
           libraryId,
+          driveScanSourceId: targets.length === 1 ? targets[0]?.sourceId : null,
           status: 'running',
           startedAt: new Date(),
         },
       });
 
       // Launch scan execution asynchronously in background.
-      this.executeScanAsync(userId, libraryId, scan.id, targets).catch(() => {});
+      this.executeScanAsync(userId, libraryId, scan.id, targets, exclusiveSourceId).catch(() => {});
       return scan.id;
     } catch (error) {
-      this.activeScans.delete(libraryId);
+      if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
+      else this.activeLibraryScans.delete(libraryId);
       throw error;
     }
   }
@@ -184,6 +218,7 @@ export class LibraryScanService {
     libraryId: string,
     scanId: string,
     targets: DriveScanTarget[],
+    exclusiveSourceId?: string,
   ): Promise<void> {
     const startTime = Date.now();
     let addedCount = 0;
@@ -192,13 +227,35 @@ export class LibraryScanService {
 
     try {
       for (const target of targets) {
+        const targetStartedAt = Date.now();
         let accessToken: string;
         try {
           accessToken = await this.googleOAuthService.getValidAccessToken(
             userId,
             target.connection.id,
           );
-        } catch {
+        } catch (tokenError) {
+          errorCount++;
+          const message =
+            tokenError instanceof Error ? tokenError.message : 'GOOGLE_ACCOUNT_NOT_CONNECTED';
+          await this.prisma.libraryScanError.create({
+            data: { scanId, errorMessage: `Google hesabına erişilemedi: ${message}` },
+          });
+          if (target.sourceId) {
+            await this.prisma.driveScanSource.update({
+              where: { id: target.sourceId },
+              data: {
+                lastScanStatus: 'failed',
+                lastScannedAt: new Date(),
+                lastScanDurationMs: Date.now() - targetStartedAt,
+                lastScanAddedCount: 0,
+                lastScanUpdatedCount: 0,
+                lastScanDeletedCount: 0,
+                lastScanErrorCount: 1,
+                lastScanError: message,
+              },
+            });
+          }
           continue;
         }
 
@@ -215,6 +272,29 @@ export class LibraryScanService {
         addedCount += result.added;
         updatedCount += result.updated;
         errorCount += result.errors;
+
+        if (target.sourceId) {
+          const latestError = result.errors
+            ? await this.prisma.libraryScanError.findFirst({
+                where: { scanId },
+                orderBy: { createdAt: 'desc' },
+                select: { errorMessage: true },
+              })
+            : null;
+          await this.prisma.driveScanSource.update({
+            where: { id: target.sourceId },
+            data: {
+              lastScanStatus: 'completed',
+              lastScannedAt: new Date(),
+              lastScanDurationMs: Date.now() - targetStartedAt,
+              lastScanAddedCount: result.added,
+              lastScanUpdatedCount: result.updated,
+              lastScanDeletedCount: 0,
+              lastScanErrorCount: result.errors,
+              lastScanError: latestError?.errorMessage || null,
+            },
+          });
+        }
       }
 
       const durationMs = Date.now() - startTime;
@@ -253,8 +333,20 @@ export class LibraryScanService {
           errorMessage: `Fatal scan error: ${errorMessage}`,
         },
       });
+      const sourceIds = targets.flatMap((target) => (target.sourceId ? [target.sourceId] : []));
+      if (sourceIds.length > 0) {
+        await this.prisma.driveScanSource.updateMany({
+          where: { id: { in: sourceIds }, lastScanStatus: 'running' },
+          data: {
+            lastScanStatus: 'failed',
+            lastScannedAt: new Date(),
+            lastScanError: errorMessage,
+          },
+        });
+      }
     } finally {
-      this.activeScans.delete(libraryId);
+      if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
+      else this.activeLibraryScans.delete(libraryId);
     }
   }
 
@@ -361,6 +453,18 @@ export class LibraryScanService {
             },
           })
           .catch(() => {});
+        if (driveScanSourceId) {
+          await this.prisma.driveScanSource
+            .update({
+              where: { id: driveScanSourceId },
+              data: {
+                lastScanAddedCount: added,
+                lastScanUpdatedCount: updated,
+                lastScanErrorCount: errors,
+              },
+            })
+            .catch(() => {});
+        }
 
         const parsedName = parseMediaFilename(video.name);
         const title = parsedName.title;
@@ -469,9 +573,16 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Movie
-          await this.matchSubtitles(libraryId, googleConnectionId, driveScanSourceId, allFiles, video.name, {
-            mediaItemId: mediaItem.id,
-          });
+          await this.matchSubtitles(
+            libraryId,
+            googleConnectionId,
+            driveScanSourceId,
+            allFiles,
+            video.name,
+            {
+              mediaItemId: mediaItem.id,
+            },
+          );
         } else {
           // Series Episode Processing
           const series = await this.prisma.series.upsert({
@@ -547,9 +658,16 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Episode
-          await this.matchSubtitles(libraryId, googleConnectionId, driveScanSourceId, allFiles, video.name, {
-            episodeId: episode.id,
-          });
+          await this.matchSubtitles(
+            libraryId,
+            googleConnectionId,
+            driveScanSourceId,
+            allFiles,
+            video.name,
+            {
+              episodeId: episode.id,
+            },
+          );
         }
       } catch (err: unknown) {
         errors++;
@@ -641,6 +759,18 @@ export class LibraryScanService {
             data: { addedCount: added, updatedCount: updated, errorCount: errors },
           })
           .catch(() => {});
+        if (driveScanSourceId) {
+          await this.prisma.driveScanSource
+            .update({
+              where: { id: driveScanSourceId },
+              data: {
+                lastScanAddedCount: added,
+                lastScanUpdatedCount: updated,
+                lastScanErrorCount: errors,
+              },
+            })
+            .catch(() => {});
+        }
       } catch (error) {
         errors++;
         await this.prisma.libraryScanError.create({

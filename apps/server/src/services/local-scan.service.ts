@@ -72,6 +72,7 @@ export class LocalScanService {
   ): Promise<{ success: boolean; filesScanned: number }> {
     const library = { localFolderPath };
     const scan = { id: scanId };
+    const startedAt = Date.now();
 
     let filesScannedCount = 0;
     let addedCount = 0;
@@ -508,12 +509,15 @@ export class LocalScanService {
       }
 
       // Mark scan completed
+      const errorCount = await this.prisma.libraryScanError.count({ where: { scanId: scan.id } });
       await this.prisma.libraryScan.update({
         where: { id: scan.id },
         data: {
           status: 'completed',
           addedCount,
           updatedCount,
+          errorCount,
+          durationMs: Date.now() - startedAt,
           completedAt: new Date(),
         },
       });
@@ -532,6 +536,8 @@ export class LocalScanService {
         where: { id: scan.id },
         data: {
           status: 'failed',
+          durationMs: Date.now() - startedAt,
+          errorCount: { increment: 1 },
           completedAt: new Date(),
           errors: {
             create: {

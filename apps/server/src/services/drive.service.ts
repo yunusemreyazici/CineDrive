@@ -14,6 +14,21 @@ export interface DriveFileMetadata {
   videoMediaMetadata?: drive_v3.Schema$File['videoMediaMetadata'];
 }
 
+export interface DriveFolderInspection {
+  id: string;
+  name: string;
+  path: string;
+  driveName?: string;
+  ownerName?: string;
+  webViewLink?: string;
+  ancestorIds: string[];
+  hasMediaFiles: boolean;
+}
+
+const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const MEDIA_FILE_PATTERN =
+  /\.(mp4|mkv|webm|avi|mov|m4v|m2ts|ts|flv|wmv|3gp|mp3|m4a|aac|flac|ogg|opus|wav|wma|srt|vtt|lrc)$/i;
+
 export class GoogleDriveService {
   private createDriveClient(accessToken: string): drive_v3.Drive {
     const auth = new google.auth.OAuth2();
@@ -128,6 +143,118 @@ export class GoogleDriveService {
         nextPageToken: response.data.nextPageToken || undefined,
       };
     });
+  }
+
+  /** Resolve a Drive folder into user-facing metadata and verify it contains media. */
+  public async inspectFolder(
+    accessToken: string,
+    folderId: string,
+    checkForMedia = true,
+  ): Promise<DriveFolderInspection> {
+    const drive = this.createDriveClient(accessToken);
+    const folder = await this.withExponentialBackoff(() =>
+      drive.files.get({
+        fileId: folderId,
+        fields: 'id,name,mimeType,parents,driveId,webViewLink,owners(displayName,emailAddress)',
+        supportsAllDrives: true,
+      }),
+    );
+
+    if (folder.data.mimeType !== DRIVE_FOLDER_MIME_TYPE) {
+      throw new Error('DRIVE_SOURCE_NOT_FOLDER');
+    }
+
+    const names = [folder.data.name || folderId];
+    const ancestorIds: string[] = [];
+    let parentId = folder.data.parents?.[0];
+    const seen = new Set<string>([folderId]);
+
+    // Drive folders can technically have more than one parent. The first path
+    // is the one users see here; every visited id is still useful for overlap
+    // protection when adding nested scan sources.
+    while (parentId && !seen.has(parentId) && ancestorIds.length < 100) {
+      seen.add(parentId);
+      ancestorIds.push(parentId);
+      const parent = await this.withExponentialBackoff(() =>
+        drive.files.get({
+          fileId: parentId!,
+          fields: 'id,name,parents',
+          supportsAllDrives: true,
+        }),
+      );
+      if (parent.data.name) names.unshift(parent.data.name);
+      parentId = parent.data.parents?.[0];
+    }
+
+    let driveName: string | undefined;
+    if (folder.data.driveId) {
+      const sharedDrive = await this.withExponentialBackoff(() =>
+        drive.drives.get({ driveId: folder.data.driveId!, fields: 'id,name' }),
+      );
+      driveName = sharedDrive.data.name || undefined;
+    }
+
+    return {
+      id: folder.data.id || folderId,
+      name: folder.data.name || folderId,
+      path: names.join(' / '),
+      driveName,
+      ownerName:
+        folder.data.owners?.[0]?.displayName || folder.data.owners?.[0]?.emailAddress || undefined,
+      webViewLink: folder.data.webViewLink || undefined,
+      ancestorIds,
+      hasMediaFiles: checkForMedia ? await this.folderContainsMedia(accessToken, folderId) : true,
+    };
+  }
+
+  /** Walk until the first playable/indexable file is found. */
+  public async folderContainsMedia(accessToken: string, folderId: string): Promise<boolean> {
+    const queue = [folderId];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const currentFolderId = queue.shift()!;
+      if (visited.has(currentFolderId)) continue;
+      visited.add(currentFolderId);
+
+      let pageToken: string | undefined;
+      do {
+        const page = await this.listFolderContents(accessToken, currentFolderId, pageToken);
+        for (const file of page.files) {
+          if (file.mimeType === DRIVE_FOLDER_MIME_TYPE) queue.push(file.id);
+          else if (
+            file.mimeType.startsWith('video/') ||
+            file.mimeType.startsWith('audio/') ||
+            MEDIA_FILE_PATTERN.test(file.name)
+          ) {
+            return true;
+          }
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+    }
+
+    return false;
+  }
+
+  public async accountContainsMedia(accessToken: string): Promise<boolean> {
+    let pageToken: string | undefined;
+    do {
+      const page = await this.listAccountFiles(accessToken, pageToken);
+      if (
+        page.files.some(
+          (file) =>
+            file.mimeType !== DRIVE_FOLDER_MIME_TYPE &&
+            (file.mimeType.startsWith('video/') ||
+              file.mimeType.startsWith('audio/') ||
+              MEDIA_FILE_PATTERN.test(file.name)),
+        )
+      ) {
+        return true;
+      }
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+    return false;
   }
 
   /** Cheap ownership probe used to repair files indexed before account IDs were stored. */

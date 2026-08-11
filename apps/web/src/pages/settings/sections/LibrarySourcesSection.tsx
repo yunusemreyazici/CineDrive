@@ -1,16 +1,14 @@
 import React from 'react';
-import { Cloud, FolderSync, HardDrive, LibraryBig } from 'lucide-react';
+import { AlertTriangle, Clock, Files, FolderSync, LibraryBig, RefreshCw } from 'lucide-react';
 import { useDriveScanSourcesQuery, useLibrariesQuery } from '../../../hooks/useApi';
 import { t } from '../../../i18n';
-import { useGoogleConnections } from '../useGoogleConnections';
 import { GoogleDriveSection } from './GoogleDriveSection';
-import { LibraryScanSection } from './LibraryScanSection';
-import { LocalLibrarySection } from './LocalLibrarySection';
+import { LibrarySourceManagerSection } from './LibrarySourceManagerSection';
 
 interface SourceSummaryProps {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: number;
+  value: React.ReactNode;
 }
 
 const SourceSummary: React.FC<SourceSummaryProps> = ({ icon: Icon, label, value }) => (
@@ -28,10 +26,31 @@ const SourceSummary: React.FC<SourceSummaryProps> = ({ icon: Icon, label, value 
 /** One workflow for every location CineDrive can scan. */
 export const LibrarySourcesSection: React.FC = () => {
   const { data: libraries = [] } = useLibrariesQuery();
-  const connections = useGoogleConnections();
   const driveLibrary = libraries.find((library) => library.storageType === 'gdrive');
   const { data: driveSources = [] } = useDriveScanSourcesQuery(driveLibrary?.id);
-  const localLibraryCount = libraries.filter((library) => library.storageType === 'local').length;
+  const localLibraries = libraries.filter((library) => library.storageType === 'local');
+  const allScanSummaries = [
+    ...driveSources.map((source) => source.lastScan),
+    ...localLibraries.map((library) => library.lastScan),
+  ].filter(Boolean);
+  const lastScanTimestamp = allScanSummaries
+    .flatMap((scan) =>
+      scan?.completedAt || scan?.startedAt ? [scan.completedAt || scan.startedAt] : [],
+    )
+    .sort((left, right) => new Date(right!).getTime() - new Date(left!).getTime())[0];
+  const lastScanLabel = lastScanTimestamp
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(
+        new Date(lastScanTimestamp),
+      )
+    : t.settings.librarySources.neverScanned;
+  const activeSourceCount = driveSources.length + localLibraries.length;
+  const totalFileCount =
+    driveSources.reduce((total, source) => total + source.fileCount, 0) +
+    localLibraries.reduce((total, library) => total + (library.fileCount || 0), 0);
+  const accessIssueCount = allScanSummaries.filter(
+    (scan) => scan?.status === 'failed' || (scan?.errorCount || 0) > 0,
+  ).length;
+  const runningScanCount = allScanSummaries.filter((scan) => scan?.status === 'running').length;
 
   return (
     <>
@@ -53,28 +72,37 @@ export const LibrarySourcesSection: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <SourceSummary
-            icon={Cloud}
-            label={t.settings.librarySources.googleAccounts}
-            value={connections.length}
-          />
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-5">
           <SourceSummary
             icon={FolderSync}
-            label={t.settings.librarySources.driveSources}
-            value={driveSources.length}
+            label={t.settings.librarySources.activeSources}
+            value={activeSourceCount}
           />
           <SourceSummary
-            icon={HardDrive}
-            label={t.settings.librarySources.localLibraries}
-            value={localLibraryCount}
+            icon={Files}
+            label={t.settings.librarySources.totalFiles}
+            value={totalFileCount}
+          />
+          <SourceSummary
+            icon={Clock}
+            label={t.settings.librarySources.lastScan}
+            value={<span className="text-sm">{lastScanLabel}</span>}
+          />
+          <SourceSummary
+            icon={AlertTriangle}
+            label={t.settings.librarySources.accessIssues}
+            value={accessIssueCount}
+          />
+          <SourceSummary
+            icon={RefreshCw}
+            label={t.settings.librarySources.runningScans}
+            value={runningScanCount}
           />
         </div>
       </section>
 
       <GoogleDriveSection driveSources={driveSources} />
-      <LibraryScanSection />
-      <LocalLibrarySection />
+      <LibrarySourceManagerSection />
     </>
   );
 };

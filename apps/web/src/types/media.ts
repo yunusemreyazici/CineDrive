@@ -120,12 +120,24 @@ export interface WatchHistoryType {
 
 export interface LibraryScanType {
   id: string;
+  libraryId?: string;
+  driveScanSourceId?: string | null;
+  sourceType?: 'drive' | 'local' | 'all';
+  sourceName?: string;
+  sourceLocation?: string | null;
   status: 'running' | 'completed' | 'failed';
   addedCount: number;
   updatedCount: number;
   deletedCount: number;
   errorCount: number;
-  durationMs?: number;
+  durationMs?: number | null;
   startedAt: string;
-  completedAt?: string;
+  completedAt?: string | null;
+  lastError?: string | null;
+  errors?: Array<{
+    id: string;
+    driveFileId?: string | null;
+    errorMessage: string;
+    createdAt: string;
+  }>;
 }

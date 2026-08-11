@@ -176,8 +176,22 @@ export interface LibraryDto {
   googleConnectionId?: string | null;
   driveId?: string | null;
   lastScannedAt?: string | null;
+  fileCount?: number;
+  lastScan?: SourceScanSummaryDto | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SourceScanSummaryDto {
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  addedCount: number;
+  updatedCount: number;
+  deletedCount: number;
+  errorCount: number;
+  lastError?: string | null;
 }
 
 export interface DriveScanSourceDto {
@@ -186,8 +200,23 @@ export interface DriveScanSourceDto {
   googleConnectionId: string;
   googleAccountEmail: string;
   rootFolderId: string;
+  folderName?: string | null;
+  folderPath?: string | null;
+  driveName?: string | null;
+  ownerName?: string | null;
+  webViewLink?: string | null;
   fileCount: number;
+  lastScan?: SourceScanSummaryDto | null;
   createdAt: string;
+}
+
+export interface DriveSourceValidationDto {
+  folderName: string;
+  folderPath: string;
+  driveName?: string | null;
+  ownerName?: string | null;
+  webViewLink?: string | null;
+  hasMediaFiles: boolean;
 }
 
 export interface MusicArtworkDto {
@@ -421,8 +450,20 @@ export interface MusicReplayDto {
   totalPlays: number;
   uniqueTracks: number;
   topTracks: Array<{ track: MusicTrackDto; seconds: number; plays: number }>;
-  topAlbums: Array<{ id: string; title: string; artworkUrl: string | null; seconds: number; plays: number }>;
-  topArtists: Array<{ id: string; name: string; artworkUrl: string | null; seconds: number; plays: number }>;
+  topAlbums: Array<{
+    id: string;
+    title: string;
+    artworkUrl: string | null;
+    seconds: number;
+    plays: number;
+  }>;
+  topArtists: Array<{
+    id: string;
+    name: string;
+    artworkUrl: string | null;
+    seconds: number;
+    plays: number;
+  }>;
   hours: Array<{ hour: number; seconds: number; plays: number }>;
   weekdays: Array<{ day: number; seconds: number; plays: number }>;
   genres: Array<{ name: string; seconds: number }>;

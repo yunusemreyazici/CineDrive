@@ -103,48 +103,44 @@ describe('Library API Integration Tests', () => {
     expect(body.library.rootFolderId).toBe('folder_abc123');
   });
 
-  it(
-    'POST /api/libraries/:id/scan without Google connection should return 400',
-    async () => {
-      const loginRes = await app.inject({
-        method: 'POST',
-        url: '/api/auth/login',
-        payload: {
-          email: env.ADMIN_EMAIL,
-          password: env.ADMIN_PASSWORD,
-        },
-      });
+  it('POST /api/libraries/:id/scan without Google connection should return 400', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        email: env.ADMIN_EMAIL,
+        password: env.ADMIN_PASSWORD,
+      },
+    });
 
-      const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
+    const sessionCookie = loginRes.cookies.find((c) => c.name === 'session_id');
 
-      const createRes = await app.inject({
-        method: 'POST',
-        url: '/api/libraries',
-        cookies: {
-          session_id: sessionCookie!.value,
-        },
-        payload: {
-          name: 'Test Lib',
-          rootFolderId: 'root_folder_test',
-        },
-      });
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/libraries',
+      cookies: {
+        session_id: sessionCookie!.value,
+      },
+      payload: {
+        name: 'Test Lib',
+        rootFolderId: 'root_folder_test',
+      },
+    });
 
-      const libId = JSON.parse(createRes.body).library.id;
+    const libId = JSON.parse(createRes.body).library.id;
 
-      const response = await app.inject({
-        method: 'POST',
-        url: `/api/libraries/${libId}/scan`,
-        cookies: {
-          session_id: sessionCookie!.value,
-        },
-      });
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${libId}/scan`,
+      cookies: {
+        session_id: sessionCookie!.value,
+      },
+    });
 
-      expect(response.statusCode).toBe(400);
-      const body = JSON.parse(response.body);
-      expect(body.error.code).toBe('GOOGLE_ACCOUNT_NOT_CONNECTED');
-    },
-    15000,
-  );
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.body);
+    expect(body.error.code).toBe('GOOGLE_ACCOUNT_NOT_CONNECTED');
+  }, 15000);
 
   it("refuses to edit, delete or favourite another account's media", async () => {
     const owner = await app.authService.ensureAdminUserExists();
@@ -332,13 +328,15 @@ describe('Library API Integration Tests', () => {
     expect(response.statusCode).toBe(200);
 
     // The whole point: this used to be an unfiltered deleteMany.
-    expect(await app.prisma.mediaItem.findUnique({ where: { id: doomed.mediaItem.id } })).toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: doomed.mediaItem.id } }),
+    ).toBeNull();
     expect(
       await app.prisma.mediaItem.findUnique({ where: { id: keeper.mediaItem.id } }),
     ).not.toBeNull();
-    expect(
-      await app.prisma.favorite.count({ where: { mediaItemId: keeper.mediaItem.id } }),
-    ).toBe(1);
+    expect(await app.prisma.favorite.count({ where: { mediaItemId: keeper.mediaItem.id } })).toBe(
+      1,
+    );
     expect(await app.prisma.driveFile.count({ where: { libraryId: keeper.library.id } })).toBe(1);
 
     await app.prisma.library.deleteMany({
@@ -487,7 +485,9 @@ describe('Library API Integration Tests', () => {
     expect(JSON.parse(response.body).removed).toEqual({ media: 2, files: 2 });
     expect(await app.prisma.library.findUnique({ where: { id: driveLibrary.id } })).not.toBeNull();
     expect(await app.prisma.library.findUnique({ where: { id: localLibrary.id } })).not.toBeNull();
-    expect(await app.prisma.driveScanSource.findUnique({ where: { id: source.id } })).not.toBeNull();
+    expect(
+      await app.prisma.driveScanSource.findUnique({ where: { id: source.id } }),
+    ).not.toBeNull();
     expect(await app.prisma.driveFile.findUnique({ where: { id: driveFile.id } })).toBeNull();
     expect(await app.prisma.driveFile.findUnique({ where: { id: localFile.id } })).toBeNull();
     expect(
@@ -594,7 +594,24 @@ describe('Library API Integration Tests', () => {
       url: '/api/auth/login',
       payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
     });
-    const cookies = { session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value };
+    const cookies = {
+      session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+    };
+
+    const tokenLookup = vi
+      .spyOn(app.googleOAuthService, 'getValidAccessToken')
+      .mockResolvedValue('test-access-token');
+    const folderInspection = vi
+      .spyOn(app.driveService, 'inspectFolder')
+      .mockImplementation(async (_token, folderId) => ({
+        id: folderId,
+        name: folderId === 'folder-one' ? 'Folder One' : 'Folder Two',
+        path: folderId === 'folder-one' ? 'My Drive / Folder One' : 'My Drive / Folder Two',
+        ownerName: 'Source Account',
+        webViewLink: `https://drive.google.com/drive/folders/${folderId}`,
+        ancestorIds: [],
+        hasMediaFiles: true,
+      }));
 
     const first = await app.inject({
       method: 'POST',
@@ -610,6 +627,36 @@ describe('Library API Integration Tests', () => {
     });
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources/validate`,
+      cookies,
+      payload: { googleConnectionId: connection.id, rootFolderId: 'folder-one' },
+    });
+    expect(duplicate.statusCode).toBe(400);
+    expect(JSON.parse(duplicate.body).error.code).toBe('DRIVE_SOURCE_DUPLICATE');
+
+    folderInspection.mockImplementationOnce(async (_token, folderId) => ({
+      id: folderId,
+      name: 'Nested Folder',
+      path: 'My Drive / Folder One / Nested Folder',
+      ownerName: 'Source Account',
+      webViewLink: `https://drive.google.com/drive/folders/${folderId}`,
+      ancestorIds: ['folder-one'],
+      hasMediaFiles: true,
+    }));
+    const overlap = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources/validate`,
+      cookies,
+      payload: { googleConnectionId: connection.id, rootFolderId: 'nested-folder' },
+    });
+    expect(overlap.statusCode).toBe(400);
+    expect(JSON.parse(overlap.body).error.code).toBe('DRIVE_SOURCE_OVERLAP');
+    expect(tokenLookup).toHaveBeenCalledTimes(4);
+    expect(folderInspection).toHaveBeenCalledTimes(5);
+    tokenLookup.mockRestore();
+    folderInspection.mockRestore();
     const firstSourceId = JSON.parse(first.body).source.id as string;
     const secondSourceId = JSON.parse(second.body).source.id as string;
 
@@ -646,8 +693,40 @@ describe('Library API Integration Tests', () => {
     expect(listed.statusCode).toBe(200);
     expect(JSON.parse(listed.body).sources).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ rootFolderId: 'folder-one', fileCount: 1 }),
-        expect.objectContaining({ rootFolderId: 'folder-two', fileCount: 1 }),
+        expect.objectContaining({
+          rootFolderId: 'folder-one',
+          folderName: 'Folder One',
+          fileCount: 1,
+        }),
+        expect.objectContaining({
+          rootFolderId: 'folder-two',
+          folderName: 'Folder Two',
+          fileCount: 1,
+        }),
+      ]),
+    );
+
+    const scan = await app.prisma.libraryScan.create({
+      data: {
+        libraryId: library.id,
+        driveScanSourceId: secondSourceId,
+        status: 'completed',
+        addedCount: 1,
+        durationMs: 250,
+        completedAt: new Date(),
+        errors: { create: { errorMessage: 'Test scan warning' } },
+      },
+    });
+    const history = await app.inject({ method: 'GET', url: '/api/libraries/scans', cookies });
+    expect(history.statusCode).toBe(200);
+    expect(JSON.parse(history.body).scans).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: scan.id,
+          sourceName: 'Folder Two',
+          sourceType: 'drive',
+          errors: [expect.objectContaining({ errorMessage: 'Test scan warning' })],
+        }),
       ]),
     );
 
@@ -685,8 +764,24 @@ describe('Library API Integration Tests', () => {
     });
     await app.prisma.episode.createMany({
       data: [
-        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: removedEpisodeFile.id, seasonNumber: 1, episodeNumber: 1, title: 'Episode 1' },
-        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: keptEpisodeFile.id, seasonNumber: 1, episodeNumber: 2, title: 'Episode 2' },
+        {
+          seriesId: series.id,
+          seasonId: season.id,
+          mediaItemId: seriesMedia.id,
+          driveFileId: removedEpisodeFile.id,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: 'Episode 1',
+        },
+        {
+          seriesId: series.id,
+          seasonId: season.id,
+          mediaItemId: seriesMedia.id,
+          driveFileId: keptEpisodeFile.id,
+          seasonNumber: 1,
+          episodeNumber: 2,
+          title: 'Episode 2',
+        },
       ],
     });
 
@@ -696,14 +791,28 @@ describe('Library API Integration Tests', () => {
       cookies,
     });
     expect(disconnected.statusCode).toBe(200);
-    expect(await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } })).toBeNull();
-    expect(await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } })).toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } })).not.toBeNull();
-    expect(await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } })).not.toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } })).toBeNull();
-    expect(await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } })).not.toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } }),
+    ).toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } }),
+    ).toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } }),
+    ).not.toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } }),
+    ).toBeNull();
+    expect(
+      await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } }),
+    ).not.toBeNull();
     expect(await app.prisma.mediaItem.findUnique({ where: { id: seriesMedia.id } })).not.toBeNull();
-    expect(await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } })).toHaveLength(1);
+    expect(
+      await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } }),
+    ).toHaveLength(1);
 
     await app.prisma.library.delete({ where: { id: library.id } });
     await app.prisma.googleConnection.delete({ where: { id: connection.id } });

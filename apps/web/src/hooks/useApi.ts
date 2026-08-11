@@ -9,6 +9,7 @@ import type {
   LibraryDto,
   UpdateLibraryInput,
   DriveScanSourceDto,
+  DriveSourceValidationDto,
   UpdateProgressInput,
   UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
@@ -143,6 +144,8 @@ export function useLibrariesQuery() {
       }>('/libraries');
       return res.data.libraries;
     },
+    refetchInterval: (query) =>
+      query.state.data?.some((library) => library.lastScan?.status === 'running') ? 2000 : false,
   });
 }
 
@@ -207,13 +210,43 @@ export function useDriveScanSourcesQuery(libraryId?: string) {
       return res.data.sources;
     },
     enabled: !!libraryId,
+    refetchInterval: (query) =>
+      query.state.data?.some((source) => source.lastScan?.status === 'running') ? 2000 : false,
+  });
+}
+
+export function useValidateDriveScanSourceMutation() {
+  return useMutation({
+    mutationFn: async ({
+      libraryId,
+      googleConnectionId,
+      rootFolderId,
+    }: {
+      libraryId: string;
+      googleConnectionId: string;
+      rootFolderId: string;
+    }) =>
+      (
+        await apiClient.post<{ validation: DriveSourceValidationDto }>(
+          `/libraries/${libraryId}/drive-sources/validate`,
+          { googleConnectionId, rootFolderId },
+        )
+      ).data.validation,
   });
 }
 
 export function useCreateDriveScanSourceMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ libraryId, googleConnectionId, rootFolderId }: { libraryId: string; googleConnectionId: string; rootFolderId: string }) => {
+    mutationFn: async ({
+      libraryId,
+      googleConnectionId,
+      rootFolderId,
+    }: {
+      libraryId: string;
+      googleConnectionId: string;
+      rootFolderId: string;
+    }) => {
       const res = await apiClient.post<{ source: DriveScanSourceDto }>(
         `/libraries/${libraryId}/drive-sources`,
         { googleConnectionId, rootFolderId },
@@ -260,6 +293,8 @@ export function useScanDriveSourceMutation() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['libraryScans', variables.libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['libraryScansAll'] });
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources', variables.libraryId] });
     },
   });
 }
@@ -287,6 +322,9 @@ export function useScanLibraryMutation() {
       // Only the scan list is meaningful right now; the media list is
       // refreshed by the poller once the scan actually finishes.
       queryClient.invalidateQueries({ queryKey: ['libraryScans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['libraryScansAll'] });
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources', libraryId] });
     },
   });
 }
@@ -324,6 +362,30 @@ export function useLibraryScansQuery(libraryId?: string) {
     }
     wasRunningRef.current = isRunning;
   }, [isRunning, libraryId, queryClient]);
+
+  return query;
+}
+
+export function useAllLibraryScansQuery() {
+  const queryClient = useQueryClient();
+  const wasRunningRef = useRef(false);
+  const query = useQuery({
+    queryKey: ['libraryScansAll'],
+    queryFn: async () =>
+      (await apiClient.get<{ scans: LibraryScanType[] }>('/libraries/scans')).data.scans || [],
+    refetchInterval: (query) =>
+      query.state.data?.some((scan) => scan.status === 'running') ? SCAN_POLL_INTERVAL_MS : false,
+  });
+  const isRunning = query.data?.some((scan) => scan.status === 'running') || false;
+
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning) {
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['driveScanSources'] });
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning, queryClient]);
 
   return query;
 }

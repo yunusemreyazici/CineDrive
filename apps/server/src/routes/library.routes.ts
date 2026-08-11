@@ -8,9 +8,11 @@ import {
   type UpdateLibraryInput,
 } from '@cinedrive/shared';
 import { env } from '../config/env.js';
+import type { DriveFolderInspection } from '../services/drive.service.js';
 
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
+  const driveService = fastify.driveService;
 
   /**
    * Every route addressing a single library goes through this. A library owned
@@ -20,6 +22,90 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   const findOwnedLibrary = (id: string, userId: string) =>
     fastify.prisma.library.findFirst({ where: { id, userId } });
 
+  const serializeScanSummary = (scan: {
+    status: string;
+    startedAt: Date;
+    completedAt: Date | null;
+    durationMs: number | null;
+    addedCount: number;
+    updatedCount: number;
+    deletedCount: number;
+    errorCount: number;
+    errors?: Array<{ errorMessage: string }>;
+  }) => ({
+    status: scan.status,
+    startedAt: scan.startedAt.toISOString(),
+    completedAt: scan.completedAt?.toISOString() || null,
+    durationMs: scan.durationMs,
+    addedCount: scan.addedCount,
+    updatedCount: scan.updatedCount,
+    deletedCount: scan.deletedCount,
+    errorCount: scan.errorCount,
+    lastError: scan.errors?.[0]?.errorMessage || null,
+  });
+
+  const inspectDriveSource = async (
+    userId: string,
+    libraryId: string,
+    googleConnectionId: string,
+    rootFolderId: string,
+  ): Promise<DriveFolderInspection> => {
+    const connection = await fastify.prisma.googleConnection.findFirst({
+      where: { id: googleConnectionId, userId },
+    });
+    if (!connection) throw new Error('GOOGLE_CONNECTION_NOT_FOUND');
+
+    const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId, connection.id);
+    const normalizedFolderId = rootFolderId.trim();
+    const inspection = normalizedFolderId
+      ? await driveService.inspectFolder(accessToken, normalizedFolderId)
+      : {
+          id: '',
+          name: 'Tüm Google Drive',
+          path: 'Tüm Google Drive',
+          webViewLink: 'https://drive.google.com/drive/my-drive',
+          ancestorIds: [],
+          hasMediaFiles: await driveService.accountContainsMedia(accessToken),
+        };
+
+    const existingSources = await fastify.prisma.driveScanSource.findMany({
+      where: { libraryId },
+      select: { id: true, googleConnectionId: true, rootFolderId: true },
+    });
+    if (existingSources.some((source) => source.rootFolderId === normalizedFolderId)) {
+      throw new Error('DRIVE_SOURCE_DUPLICATE');
+    }
+
+    const sameConnectionSources = existingSources.filter(
+      (source) => source.googleConnectionId === googleConnectionId,
+    );
+    if (
+      sameConnectionSources.some(
+        (source) =>
+          !source.rootFolderId ||
+          !normalizedFolderId ||
+          inspection.ancestorIds.includes(source.rootFolderId),
+      )
+    ) {
+      throw new Error('DRIVE_SOURCE_OVERLAP');
+    }
+
+    for (const source of sameConnectionSources) {
+      if (!source.rootFolderId) continue;
+      const existingInspection = await driveService.inspectFolder(
+        accessToken,
+        source.rootFolderId,
+        false,
+      );
+      if (existingInspection.ancestorIds.includes(normalizedFolderId)) {
+        throw new Error('DRIVE_SOURCE_OVERLAP');
+      }
+    }
+
+    if (!inspection.hasMediaFiles) throw new Error('DRIVE_SOURCE_NO_MEDIA');
+    return inspection;
+  };
+
   // GET /api/libraries: List the caller's libraries
   fastify.get('/', async (request, reply) => {
     const userId = request.user!.id;
@@ -27,12 +113,20 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     let libraries = await fastify.prisma.library.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
+      include: {
+        _count: { select: { files: true } },
+        scans: {
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          include: { errors: { orderBy: { createdAt: 'desc' }, take: 1 } },
+        },
+      },
     });
 
     // Keep one configurable Google Drive library available. The environment
     // value is only an initial default and never overwrites UI changes.
     if (!libraries.some((library) => library.storageType === 'gdrive')) {
-      const defaultLib = await fastify.prisma.library.create({
+      await fastify.prisma.library.create({
         data: {
           userId,
           name: 'Google Drive',
@@ -40,10 +134,27 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',
         },
       });
-      libraries = [...libraries, defaultLib];
+      libraries = await fastify.prisma.library.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          _count: { select: { files: true } },
+          scans: {
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            include: { errors: { orderBy: { createdAt: 'desc' }, take: 1 } },
+          },
+        },
+      });
     }
 
-    return reply.status(200).send({ libraries });
+    return reply.status(200).send({
+      libraries: libraries.map(({ _count, scans, ...library }) => ({
+        ...library,
+        fileCount: _count.files,
+        lastScan: scans[0] ? serializeScanSummary(scans[0]) : null,
+      })),
+    });
   });
 
   // POST /api/libraries: Create a new library
@@ -60,7 +171,8 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { name, storageType, rootFolderId, localFolderPath, googleConnectionId } = parseResult.data;
+    const { name, storageType, rootFolderId, localFolderPath, googleConnectionId } =
+      parseResult.data;
 
     try {
       const library = await fastify.prisma.library.create({
@@ -128,13 +240,60 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   // longer invalidates or silently replaces the files indexed from another.
   fastify.get<{ Params: { id: string } }>('/:id/drive-sources', async (request, reply) => {
     const library = await findOwnedLibrary(request.params.id, request.user!.id);
-    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    if (!library)
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
 
     const sources = await fastify.prisma.driveScanSource.findMany({
       where: { libraryId: library.id },
       orderBy: { createdAt: 'asc' },
-      include: { googleConnection: { select: { email: true } }, _count: { select: { files: true } } },
+      include: {
+        googleConnection: { select: { email: true } },
+        _count: { select: { files: true } },
+      },
     });
+
+    // Sources created before folder metadata was introduced are repaired on
+    // first read. A failed/expired account still leaves the original id usable.
+    for (const source of sources) {
+      if (source.folderName) continue;
+      try {
+        const metadata = source.rootFolderId
+          ? await driveService.inspectFolder(
+              await fastify.googleOAuthService.getValidAccessToken(
+                request.user!.id,
+                source.googleConnectionId,
+              ),
+              source.rootFolderId,
+              false,
+            )
+          : {
+              name: 'Tüm Google Drive',
+              path: 'Tüm Google Drive',
+              driveName: undefined,
+              ownerName: undefined,
+              webViewLink: 'https://drive.google.com/drive/my-drive',
+            };
+        const repaired = await fastify.prisma.driveScanSource.update({
+          where: { id: source.id },
+          data: {
+            folderName: metadata.name,
+            folderPath: metadata.path,
+            driveName: metadata.driveName || null,
+            ownerName: metadata.ownerName || null,
+            webViewLink: metadata.webViewLink || null,
+          },
+        });
+        Object.assign(source, repaired);
+      } catch (error) {
+        fastify.log.warn({ error, sourceId: source.id }, 'Drive source metadata repair failed');
+      }
+    }
     return reply.send({
       sources: sources.map((source) => ({
         id: source.id,
@@ -142,41 +301,180 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         googleConnectionId: source.googleConnectionId,
         googleAccountEmail: source.googleConnection.email,
         rootFolderId: source.rootFolderId,
+        folderName: source.folderName,
+        folderPath: source.folderPath,
+        driveName: source.driveName,
+        ownerName: source.ownerName,
+        webViewLink: source.webViewLink,
         fileCount: source._count.files,
+        lastScan: source.lastScanStatus
+          ? {
+              status: source.lastScanStatus,
+              startedAt: new Date(
+                (source.lastScannedAt || source.updatedAt).getTime() -
+                  (source.lastScanDurationMs || 0),
+              ).toISOString(),
+              completedAt:
+                source.lastScanStatus === 'running'
+                  ? null
+                  : source.lastScannedAt?.toISOString() || null,
+              durationMs: source.lastScanDurationMs,
+              addedCount: source.lastScanAddedCount,
+              updatedCount: source.lastScanUpdatedCount,
+              deletedCount: source.lastScanDeletedCount,
+              errorCount: source.lastScanErrorCount,
+              lastError: source.lastScanError,
+            }
+          : null,
         createdAt: source.createdAt.toISOString(),
       })),
     });
   });
 
   fastify.post<{ Params: { id: string }; Body: CreateDriveScanSourceInput }>(
+    '/:id/drive-sources/validate',
+    async (request, reply) => {
+      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      if (!library) {
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+      const parsed = createDriveScanSourceSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Google hesabı ve klasör ID’si geçersiz.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      try {
+        const inspection = await inspectDriveSource(
+          request.user!.id,
+          library.id,
+          parsed.data.googleConnectionId,
+          parsed.data.rootFolderId,
+        );
+        return reply.send({
+          validation: {
+            folderName: inspection.name,
+            folderPath: inspection.path,
+            driveName: inspection.driveName || null,
+            ownerName: inspection.ownerName || null,
+            webViewLink: inspection.webViewLink || null,
+            hasMediaFiles: inspection.hasMediaFiles,
+          },
+        });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'DRIVE_SOURCE_VALIDATION_FAILED';
+        const messages: Record<string, string> = {
+          GOOGLE_CONNECTION_NOT_FOUND: 'Google hesabı bağlantısı bulunamadı.',
+          DRIVE_SOURCE_NOT_FOLDER: 'Girilen Drive kimliği bir klasöre ait değil.',
+          DRIVE_SOURCE_DUPLICATE: 'Bu Drive klasörü zaten kaynak olarak kayıtlı.',
+          DRIVE_SOURCE_OVERLAP: 'Bu klasör kayıtlı başka bir kaynağın içinde veya üstünde.',
+          DRIVE_SOURCE_NO_MEDIA: 'Bu klasörde veya alt klasörlerinde desteklenen medya bulunamadı.',
+        };
+        return reply.status(code === 'GOOGLE_CONNECTION_NOT_FOUND' ? 404 : 400).send({
+          error: {
+            code,
+            message: messages[code] || 'Drive klasörü doğrulanamadı veya hesaptan erişilemiyor.',
+            requestId: request.id,
+          },
+        });
+      }
+    },
+  );
+
+  fastify.post<{ Params: { id: string }; Body: CreateDriveScanSourceInput }>(
     '/:id/drive-sources',
     async (request, reply) => {
       const library = await findOwnedLibrary(request.params.id, request.user!.id);
-      if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+      if (!library)
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
       const parsed = createDriveScanSourceSchema.safeParse(request.body);
-      if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Google hesabı ve klasör ID’si geçersiz.', requestId: request.id } });
+      if (!parsed.success)
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Google hesabı ve klasör ID’si geçersiz.',
+            requestId: request.id,
+          },
+        });
 
       const connection = await fastify.prisma.googleConnection.findFirst({
         where: { id: parsed.data.googleConnectionId, userId: request.user!.id },
       });
-      if (!connection) return reply.status(404).send({ error: { code: 'GOOGLE_CONNECTION_NOT_FOUND', message: 'Google hesabı bağlantısı bulunamadı.', requestId: request.id } });
-
-      const source = await fastify.prisma.driveScanSource.upsert({
-        where: {
-          libraryId_googleConnectionId_rootFolderId: {
-            libraryId: library.id,
-            googleConnectionId: connection.id,
-            rootFolderId: parsed.data.rootFolderId,
+      if (!connection)
+        return reply.status(404).send({
+          error: {
+            code: 'GOOGLE_CONNECTION_NOT_FOUND',
+            message: 'Google hesabı bağlantısı bulunamadı.',
+            requestId: request.id,
           },
+        });
+
+      let inspection: DriveFolderInspection;
+      try {
+        inspection = await inspectDriveSource(
+          request.user!.id,
+          library.id,
+          connection.id,
+          parsed.data.rootFolderId,
+        );
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'DRIVE_SOURCE_VALIDATION_FAILED';
+        const messages: Record<string, string> = {
+          DRIVE_SOURCE_NOT_FOLDER: 'Girilen Drive kimliği bir klasöre ait değil.',
+          DRIVE_SOURCE_DUPLICATE: 'Bu Drive klasörü zaten kaynak olarak kayıtlı.',
+          DRIVE_SOURCE_OVERLAP: 'Bu klasör kayıtlı başka bir kaynağın içinde veya üstünde.',
+          DRIVE_SOURCE_NO_MEDIA: 'Bu klasörde veya alt klasörlerinde desteklenen medya bulunamadı.',
+        };
+        return reply.status(400).send({
+          error: {
+            code,
+            message: messages[code] || 'Drive klasörü doğrulanamadı veya hesaptan erişilemiyor.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const source = await fastify.prisma.driveScanSource.create({
+        data: {
+          libraryId: library.id,
+          googleConnectionId: connection.id,
+          rootFolderId: parsed.data.rootFolderId.trim(),
+          folderName: inspection.name,
+          folderPath: inspection.path,
+          driveName: inspection.driveName || null,
+          ownerName: inspection.ownerName || null,
+          webViewLink: inspection.webViewLink || null,
         },
-        create: { libraryId: library.id, googleConnectionId: connection.id, rootFolderId: parsed.data.rootFolderId },
-        update: {},
       });
       await fastify.prisma.library.update({
         where: { id: library.id },
         data: { rootFolderId: source.rootFolderId, googleConnectionId: source.googleConnectionId },
       });
-      return reply.status(201).send({ source: { ...source, googleAccountEmail: connection.email, fileCount: 0 } });
+      return reply.status(201).send({
+        source: {
+          ...source,
+          googleAccountEmail: connection.email,
+          fileCount: 0,
+          lastScan: null,
+        },
+      });
     },
   );
 
@@ -251,12 +549,33 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     '/:id/drive-sources/:sourceId',
     async (request, reply) => {
       const library = await findOwnedLibrary(request.params.id, request.user!.id);
-      if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
-      if (fastify.libraryScanService.isScanning(library.id)) return reply.status(409).send({ error: { code: 'SCAN_ALREADY_IN_PROGRESS', message: 'Tarama sürerken kaynak kaldırılamaz.', requestId: request.id } });
+      if (!library)
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      if (fastify.libraryScanService.isScanning(library.id))
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message: 'Tarama sürerken kaynak kaldırılamaz.',
+            requestId: request.id,
+          },
+        });
       const source = await fastify.prisma.driveScanSource.findFirst({
         where: { id: request.params.sourceId, libraryId: library.id },
       });
-      if (!source) return reply.status(404).send({ error: { code: 'DRIVE_SOURCE_NOT_FOUND', message: 'Drive klasör bağlantısı bulunamadı.', requestId: request.id } });
+      if (!source)
+        return reply.status(404).send({
+          error: {
+            code: 'DRIVE_SOURCE_NOT_FOUND',
+            message: 'Drive klasör bağlantısı bulunamadı.',
+            requestId: request.id,
+          },
+        });
 
       const movies = await fastify.prisma.mediaItem.findMany({
         where: {
@@ -299,7 +618,9 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         return files.count;
       });
 
-      await fastify.prisma.musicAlbum.deleteMany({ where: { userId: request.user!.id, tracks: { none: {} } } });
+      await fastify.prisma.musicAlbum.deleteMany({
+        where: { userId: request.user!.id, tracks: { none: {} } },
+      });
       await fastify.prisma.musicArtist.deleteMany({
         where: {
           userId: request.user!.id,
@@ -414,7 +735,8 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(500).send({
           error: {
             code: 'LOCAL_SCAN_FAILED',
-            message: err instanceof Error ? err.message : 'Yerel kütüphane taraması başarısız oldu.',
+            message:
+              err instanceof Error ? err.message : 'Yerel kütüphane taraması başarısız oldu.',
             requestId: request.id,
           },
         });
@@ -456,11 +778,62 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           code: isNotConnected ? 'GOOGLE_ACCOUNT_NOT_CONNECTED' : 'SCAN_FAILED',
           message: isNotConnected
             ? 'Lütfen önce Google Drive hesabınızı bağlayın.'
-            : (err instanceof Error ? err.message : 'Kütüphane taraması başarısız oldu.'),
+            : err instanceof Error
+              ? err.message
+              : 'Kütüphane taraması başarısız oldu.',
           requestId: request.id,
         },
       });
     }
+  });
+
+  // GET /api/libraries/scans: Unified history for every source owned by the caller.
+  fastify.get('/scans', async (request, reply) => {
+    const scans = await fastify.prisma.libraryScan.findMany({
+      where: { library: { userId: request.user!.id } },
+      orderBy: { startedAt: 'desc' },
+      take: 50,
+      include: {
+        library: { select: { id: true, name: true, storageType: true, localFolderPath: true } },
+        driveScanSource: {
+          select: {
+            id: true,
+            folderName: true,
+            folderPath: true,
+            rootFolderId: true,
+            googleConnection: { select: { email: true } },
+          },
+        },
+        errors: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+
+    return reply.send({
+      scans: scans.map((scan) => ({
+        id: scan.id,
+        libraryId: scan.libraryId,
+        driveScanSourceId: scan.driveScanSourceId,
+        sourceType:
+          scan.library.storageType === 'local' ? 'local' : scan.driveScanSource ? 'drive' : 'all',
+        sourceName:
+          scan.library.storageType === 'local'
+            ? scan.library.name
+            : scan.driveScanSource?.folderName || 'Tüm Drive kaynakları',
+        sourceLocation:
+          scan.library.storageType === 'local'
+            ? scan.library.localFolderPath
+            : scan.driveScanSource
+              ? `${scan.driveScanSource.googleConnection.email} · ${scan.driveScanSource.folderPath || scan.driveScanSource.rootFolderId}`
+              : scan.library.name,
+        ...serializeScanSummary(scan),
+        errors: scan.errors.map((error) => ({
+          id: error.id,
+          driveFileId: error.driveFileId,
+          errorMessage: error.errorMessage,
+          createdAt: error.createdAt.toISOString(),
+        })),
+      })),
+    });
   });
 
   // GET /api/libraries/:id/scans: Get scan history
