@@ -134,6 +134,8 @@ export const en: Translations = {
 
   music: {
     title: 'Music',
+    homeSubtitle: 'All your music. In one place.',
+    newArrivals: 'New arrivals',
     musicNavigation: 'Music navigation',
     musicHome: 'Home',
     discover: 'Discover',

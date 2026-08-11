@@ -132,6 +132,8 @@ export const tr = {
 
   music: {
     title: 'Müzik',
+    homeSubtitle: 'Tüm müziklerin. Tek bir yerde.',
+    newArrivals: 'Yeni Gelenler',
     musicNavigation: 'Müzik gezinmesi',
     musicHome: 'Ana Sayfa',
     discover: 'Keşfet',
