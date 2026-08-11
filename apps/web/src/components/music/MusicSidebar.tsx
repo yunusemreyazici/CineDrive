@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowUpDown,
   BarChart3,
@@ -8,22 +8,22 @@ import {
   Home,
   ListMusic,
   Loader2,
+  Menu,
   Music2,
   Plus,
   Radio,
   Search,
   UserRound,
   Wrench,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Modal } from '../common/Modal';
-import {
-  useCreateMusicPlaylistMutation,
-  useMusicPlaylistsQuery,
-} from '../../hooks/useMusicApi';
+import { useCreateMusicPlaylistMutation, useMusicPlaylistsQuery } from '../../hooks/useMusicApi';
 import { t } from '../../i18n';
 import { toast } from '../../stores/useToastStore';
+import { useUiStore } from '../../stores/useUiStore';
 
 interface MusicNavItem {
   to: string;
@@ -32,6 +32,8 @@ interface MusicNavItem {
   end?: boolean;
   hash?: string;
 }
+
+const DESKTOP_QUERY = '(min-width: 1024px)';
 
 const discoveryItems: MusicNavItem[] = [
   { to: '/music', label: t.music.musicHome, icon: Home, end: true },
@@ -51,7 +53,11 @@ const libraryItems: MusicNavItem[] = [
   { to: '/music/maintenance', label: t.music.libraryCare, icon: Wrench },
 ];
 
-const MusicNavSection: React.FC<{ title: string; items: MusicNavItem[] }> = ({ title, items }) => {
+const MusicNavSection: React.FC<{
+  title: string;
+  items: MusicNavItem[];
+  onNavigate?: () => void;
+}> = ({ title, items, onNavigate }) => {
   const location = useLocation();
 
   return (
@@ -65,6 +71,7 @@ const MusicNavSection: React.FC<{ title: string; items: MusicNavItem[] }> = ({ t
             key={item.to}
             to={item.to}
             end={item.end}
+            onClick={onNavigate}
             className={({ isActive }) => {
               const selected = item.hash
                 ? location.pathname === '/music' && location.hash === item.hash
@@ -87,12 +94,17 @@ const MusicNavSection: React.FC<{ title: string; items: MusicNavItem[] }> = ({ t
 
 export const MusicSidebar: React.FC = () => {
   const navigate = useNavigate();
+  const setMainSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const playlistsQuery = useMusicPlaylistsQuery();
   const createPlaylist = useCreateMusicPlaylistMutation();
   const [createOpen, setCreateOpen] = useState(false);
   const [playlistName, setPlaylistName] = useState('');
   const [search, setSearch] = useState('');
   const [sortAscending, setSortAscending] = useState(true);
+  const [mobileMusicOpen, setMobileMusicOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
+  );
   const playlists = useMemo(
     () =>
       [...(playlistsQuery.data || [])].sort((left, right) => {
@@ -108,12 +120,89 @@ export const MusicSidebar: React.FC = () => {
     setPlaylistName('');
   };
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(DESKTOP_QUERY);
+    const sync = (event: MediaQueryList | MediaQueryListEvent) => setIsDesktop(event.matches);
+    mediaQuery.addEventListener('change', sync);
+    return () => mediaQuery.removeEventListener('change', sync);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileMusicOpen || isDesktop) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMusicOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isDesktop, mobileMusicOpen]);
+
   return (
     <>
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-white/[0.07] bg-[#090a0c]/95 px-3 shadow-[0_12px_35px_rgba(0,0,0,.24)] backdrop-blur-xl lg:hidden">
+        <button
+          type="button"
+          onClick={() => {
+            setMobileMusicOpen(false);
+            setMainSidebarOpen(true);
+          }}
+          aria-label={t.nav.toggleMenu}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-zinc-400 transition hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
+        <Link
+          to="/music"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-1 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-500/10 text-brand-400">
+            <Music2 className="h-[18px] w-[18px]" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate font-display text-sm font-bold text-white">
+              {t.music.title}
+            </span>
+            <span className="block truncate text-[10px] text-zinc-600">
+              {t.music.yourCollection}
+            </span>
+          </span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => navigate('/music/tracks')}
+          aria-label={t.music.searchMusic}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-zinc-400 transition hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        >
+          <Search className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileMusicOpen(true)}
+          aria-label={t.music.musicNavigation}
+          aria-expanded={mobileMusicOpen}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-zinc-300 transition hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+        >
+          <ListMusic className="h-5 w-5" />
+        </button>
+      </header>
+
+      {mobileMusicOpen && (
+        <button
+          type="button"
+          aria-label={t.common.close}
+          onClick={() => setMobileMusicOpen(false)}
+          className="fixed inset-0 z-[64] cursor-default bg-black/70 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
       <aside
         aria-label={t.music.musicNavigation}
-        className="fixed bottom-0 top-0 z-30 hidden w-[272px] flex-col border-r border-white/[0.06] bg-[#0b0c0e]/95 shadow-[24px_0_70px_rgba(0,0,0,.16)] backdrop-blur-xl transition-[left] duration-300 lg:flex"
-        style={{ left: 'var(--app-sidebar-offset, 220px)' }}
+        aria-hidden={!isDesktop && !mobileMusicOpen ? true : undefined}
+        inert={!isDesktop && !mobileMusicOpen ? true : undefined}
+        className={`fixed bottom-0 left-0 top-0 z-[65] flex w-[min(320px,calc(100vw-32px))] flex-col border-r border-white/[0.06] bg-[#0b0c0e]/98 shadow-[24px_0_70px_rgba(0,0,0,.32)] backdrop-blur-xl transition-[left,transform] duration-300 lg:left-[var(--app-sidebar-offset,220px)] lg:z-30 lg:w-[272px] lg:translate-x-0 lg:bg-[#0b0c0e]/95 ${
+          mobileMusicOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         <div className="border-b border-white/[0.06] px-4 pb-4 pt-4">
           <div className="mb-3 flex h-9 items-center gap-2 px-2">
@@ -124,12 +213,23 @@ export const MusicSidebar: React.FC = () => {
               <p className="font-display text-sm font-bold text-white">{t.music.title}</p>
               <p className="text-[10px] text-zinc-600">{t.music.yourCollection}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => setMobileMusicOpen(false)}
+              aria-label={t.common.close}
+              className="ml-auto flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
           <form
             onSubmit={(event) => {
               event.preventDefault();
               const query = search.trim();
-              navigate(query ? `/music/tracks?search=${encodeURIComponent(query)}` : '/music/tracks');
+              setMobileMusicOpen(false);
+              navigate(
+                query ? `/music/tracks?search=${encodeURIComponent(query)}` : '/music/tracks',
+              );
             }}
             role="search"
           >
@@ -147,11 +247,26 @@ export const MusicSidebar: React.FC = () => {
         </div>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-color:rgb(63_63_70)_transparent] [scrollbar-width:thin]">
-          <MusicNavSection title={t.music.discover} items={discoveryItems} />
-          <MusicNavSection title={t.music.yourMusic} items={personalItems} />
-          <MusicNavSection title={t.music.musicLibrary} items={libraryItems} />
+          <MusicNavSection
+            title={t.music.discover}
+            items={discoveryItems}
+            onNavigate={() => setMobileMusicOpen(false)}
+          />
+          <MusicNavSection
+            title={t.music.yourMusic}
+            items={personalItems}
+            onNavigate={() => setMobileMusicOpen(false)}
+          />
+          <MusicNavSection
+            title={t.music.musicLibrary}
+            items={libraryItems}
+            onNavigate={() => setMobileMusicOpen(false)}
+          />
 
-          <section className="border-t border-white/[0.07] pt-4" aria-labelledby="music-playlists-title">
+          <section
+            className="border-t border-white/[0.07] pt-4"
+            aria-labelledby="music-playlists-title"
+          >
             <div className="flex items-center justify-between px-2">
               <h2
                 id="music-playlists-title"
@@ -195,6 +310,7 @@ export const MusicSidebar: React.FC = () => {
                     key={playlist.id}
                     to={`/music/playlists/${playlist.id}`}
                     title={playlist.name}
+                    onClick={() => setMobileMusicOpen(false)}
                     className={({ isActive }) =>
                       `group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm transition ${
                         isActive

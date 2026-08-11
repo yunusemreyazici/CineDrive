@@ -54,7 +54,7 @@ export const Sidebar: React.FC = () => {
           type="button"
           aria-label={t.nav.closeMenu}
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 cursor-default bg-zinc-950/80 backdrop-blur-sm transition-opacity lg:hidden"
+          className="fixed inset-0 z-[69] cursor-default bg-zinc-950/80 backdrop-blur-sm transition-opacity lg:hidden"
         />
       )}
 
@@ -64,11 +64,9 @@ export const Sidebar: React.FC = () => {
         aria-label={t.nav.mainNavigation}
         aria-hidden={!sidebarOpen && !isDesktop}
         inert={!sidebarOpen && !isDesktop ? true : undefined}
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[220px] flex-col border-r border-white/[0.06] bg-[#090a0c]/98 p-3 transition-[width,transform] duration-300 ease-in-out lg:bg-[#090a0c] ${
+        className={`fixed left-0 top-0 z-[70] flex h-screen w-[220px] flex-col border-r border-white/[0.06] bg-[#090a0c]/98 p-3 transition-[width,transform] duration-300 ease-in-out lg:z-50 lg:bg-[#090a0c] ${
           sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-[220px]'
-        } ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+        } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         <div className="min-h-0 flex-1">
           <div className="mb-5 flex h-12 items-center justify-between px-2">
@@ -76,7 +74,9 @@ export const Sidebar: React.FC = () => {
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-400">
                 <Film className="h-[18px] w-[18px]" />
               </div>
-              <span className={`font-display text-lg font-bold tracking-tight text-white ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+              <span
+                className={`font-display text-lg font-bold tracking-tight text-white ${sidebarCollapsed ? 'lg:hidden' : ''}`}
+              >
                 CineDrive
               </span>
             </Link>
@@ -112,7 +112,6 @@ export const Sidebar: React.FC = () => {
             ))}
           </nav>
         </div>
-
       </aside>
     </>
   );

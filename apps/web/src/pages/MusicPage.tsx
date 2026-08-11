@@ -190,7 +190,7 @@ export const MusicPage: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <header className="relative -top-1 pt-1">
+      <header className="relative -top-1 hidden pt-1 sm:block">
         <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] text-white">
           {t.music.title}
         </h1>
