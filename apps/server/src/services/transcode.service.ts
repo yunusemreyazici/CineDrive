@@ -62,6 +62,7 @@ export class TranscodeService {
       ownerSessionId?: string;
       inputOptions?: string[];
       audioOnly?: boolean;
+      realtime?: boolean;
     } = {},
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
@@ -139,8 +140,7 @@ export class TranscodeService {
       // Keep a modest lead over playback so Safari's buffer grows instead of
       // draining on small encode/load spikes. This remains tightly bounded,
       // unlike an unrestricted pipe that consumed hundreds of MB per second.
-      '-readrate',
-      '1.25',
+      ...(options.realtime === false ? [] : ['-readrate', '1.25']),
       // Some MKV files start audio and video on slightly different clocks.
       // Generate a clean monotonic timeline before fragmented MP4 muxing.
       '-fflags',

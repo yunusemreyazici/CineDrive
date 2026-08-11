@@ -1742,6 +1742,190 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(204).send();
   });
 
+  const downloadDisposition = (name: string) => {
+    const safeName = name.replace(/[\r\n"]/g, '_');
+    const fallback = safeName.replace(/[^\x20-\x7e]/g, '_');
+    return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
+  };
+
+  const handleTrackDownload = async (
+    request: FastifyRequest<{
+      Params: { id: string };
+      Querystring: { format?: string };
+    }>,
+    reply: FastifyReply,
+    head = false,
+  ) => {
+    const format = request.query.format || 'original';
+    if (format !== 'original' && format !== 'aac')
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_DOWNLOAD_FORMAT',
+          message: 'Geçersiz indirme formatı.',
+          requestId: request.id,
+        },
+      });
+
+    const userId = request.user!.id;
+    const track = await fastify.prisma.musicTrack.findFirst({
+      where: { id: request.params.id, ...ownedTrackWhere(userId) },
+      include: { driveFile: { include: { library: true } } },
+    });
+    if (!track)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+
+    const file = track.driveFile;
+    const extension = path.extname(file.name);
+    const downloadName =
+      format === 'aac'
+        ? `${track.title.replace(/[\\/:*?"<>|]/g, '_')}.m4a`
+        : extension
+          ? file.name
+          : `${file.name}.audio`;
+    reply
+      .header('Content-Disposition', downloadDisposition(downloadName))
+      .header('Cache-Control', 'private, no-store');
+
+    if (format === 'aac') {
+      if (request.headers.range) {
+        return reply.status(416).send({
+          error: {
+            code: 'RANGE_NOT_SUPPORTED',
+            message: 'AAC indirmeleri kaldığı yerden devam ettirilemez.',
+            requestId: request.id,
+          },
+        });
+      }
+      reply.header('Content-Type', 'audio/mp4').header('Accept-Ranges', 'none');
+      if (head) return reply.send();
+      const source =
+        file.storageType === 'local' && file.localFilePath
+          ? { input: file.localFilePath, inputOptions: [] as string[] }
+          : (() => {
+              const remote = driveSourceInput(fastify, file, userId);
+              return { input: remote.url, inputOptions: remote.inputOptions };
+            })();
+      try {
+        const output = fastify.transcodeService.createTranscodedStream(source.input, {
+          audioOnly: true,
+          realtime: false,
+          inputOptions: source.inputOptions,
+        });
+        request.raw.once('aborted', output.kill);
+        reply.raw.once('close', output.kill);
+        return reply.send(output.stream);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'TRANSCODE_CAPACITY_REACHED')
+          return reply.status(503).send({
+            error: {
+              code: 'TRANSCODE_CAPACITY_REACHED',
+              message: 'Dönüştürme kapasitesi dolu. Daha sonra tekrar deneyin.',
+              requestId: request.id,
+            },
+          });
+        throw error;
+      }
+    }
+
+    const range = request.headers.range;
+    const size = file.size === null ? null : Number(file.size);
+    const resolution = resolveRangeRequest(range, size);
+    if (
+      resolution.kind === 'multi' ||
+      resolution.kind === 'invalid' ||
+      resolution.kind === 'unsatisfiable'
+    ) {
+      if (size !== null) reply.header('Content-Range', `bytes */${size}`);
+      return reply.status(resolution.kind === 'multi' ? 400 : 416).send({
+        error: {
+          code: 'RANGE_NOT_SATISFIABLE',
+          message: 'Geçersiz Range isteği.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    if (file.storageType === 'local' && file.localFilePath) {
+      if (!fs.existsSync(file.localFilePath))
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Ses dosyası diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      const stat = fs.statSync(file.localFilePath);
+      const localResolution = resolveRangeRequest(range, stat.size);
+      if (
+        localResolution.kind === 'invalid' ||
+        localResolution.kind === 'multi' ||
+        localResolution.kind === 'unsatisfiable'
+      )
+        return reply.status(416).send();
+      const start = localResolution.kind === 'range' ? localResolution.start : 0;
+      const end =
+        localResolution.kind === 'range' ? localResolution.end : Math.max(0, stat.size - 1);
+      reply
+        .status(localResolution.kind === 'range' ? 206 : 200)
+        .header('Content-Type', file.mimeType || 'application/octet-stream')
+        .header('Accept-Ranges', 'bytes')
+        .header('Content-Length', Math.max(0, end - start + 1));
+      if (localResolution.kind === 'range')
+        reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      return head
+        ? reply.send()
+        : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
+    }
+
+    let token: string;
+    try {
+      token = await fastify.googleOAuthService.getValidAccessToken(
+        userId,
+        file.library.googleConnectionId || undefined,
+      );
+    } catch {
+      return reply.status(401).send({
+        error: {
+          code: 'GOOGLE_AUTH_REQUIRED',
+          message: 'Google Drive bağlantısını yenileyin.',
+          requestId: request.id,
+        },
+      });
+    }
+    if (head) {
+      reply
+        .header('Content-Type', file.mimeType || 'application/octet-stream')
+        .header('Accept-Ranges', 'bytes');
+      if (size !== null) reply.header('Content-Length', size);
+      return reply.send();
+    }
+    const upstreamRange =
+      resolution.kind === 'range' ? `bytes=${resolution.start}-${resolution.end}` : range;
+    const upstream = await fastify.driveService.createMediaStream(
+      token,
+      file.googleDriveFileId!,
+      upstreamRange,
+    );
+    for (const [key, value] of Object.entries(upstream.headers)) reply.header(key, value);
+    reply
+      .header('Content-Disposition', downloadDisposition(downloadName))
+      .header('Content-Type', upstream.headers['content-type'] || file.mimeType || 'application/octet-stream')
+      .header('Accept-Ranges', 'bytes')
+      .status(upstream.status);
+    return reply.send(upstream.stream);
+  };
+
+  fastify.get<{ Params: { id: string }; Querystring: { format?: string } }>(
+    '/tracks/:id/download',
+    (request, reply) => handleTrackDownload(request, reply),
+  );
+  fastify.head<{ Params: { id: string }; Querystring: { format?: string } }>(
+    '/tracks/:id/download',
+    (request, reply) => handleTrackDownload(request, reply, true),
+  );
+
   const handleTrackStream = async (
     request: FastifyRequest<{
       Params: { id: string };

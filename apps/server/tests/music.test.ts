@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
@@ -139,6 +140,64 @@ describe('Music library', () => {
         localPath: fixturePath,
       },
     });
+  });
+
+  it('downloads original tracks with HEAD and Range semantics', async () => {
+    const head = await app.inject({
+      method: 'HEAD',
+      url: `/api/music/tracks/${trackId}/download?format=original`,
+      cookies: { session_id: cookie },
+    });
+    expect(head.statusCode).toBe(200);
+    expect(head.headers['content-length']).toBe('256');
+    expect(head.headers['accept-ranges']).toBe('bytes');
+    expect(head.headers['content-disposition']).toContain('01%20-%20Test%20Song.mp3');
+
+    const range = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/download?format=original`,
+      headers: { range: 'bytes=10-19' },
+      cookies: { session_id: cookie },
+    });
+    expect(range.statusCode).toBe(206);
+    expect(range.headers['content-range']).toBe('bytes 10-19/256');
+    expect(range.rawPayload).toEqual(Buffer.from(Array.from({ length: 10 }, (_, index) => index + 10)));
+  });
+
+  it('validates download format and ownership', async () => {
+    const invalid = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/download?format=wav`,
+      cookies: { session_id: cookie },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(JSON.parse(invalid.body).error.code).toBe('INVALID_DOWNLOAD_FORMAT');
+
+    const unauthenticated = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/download`,
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+  });
+
+  it('uses an unthrottled audio-only transcode for AAC downloads', async () => {
+    const kill = vi.fn();
+    const transcode = vi
+      .spyOn(app.transcodeService, 'createTranscodedStream')
+      .mockReturnValue({ stream: Readable.from(Buffer.from('aac')), kill });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/download?format=aac`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('audio/mp4');
+    expect(response.body).toBe('aac');
+    expect(transcode).toHaveBeenCalledWith(
+      fixturePath,
+      expect.objectContaining({ audioOnly: true, realtime: false }),
+    );
+    expect(kill).toHaveBeenCalled();
   });
 
   it('edits and locks metadata with manual credits', async () => {
