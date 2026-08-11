@@ -61,6 +61,7 @@ export class MusicFingerprintService {
     input: { trackIds: string[]; force?: boolean },
     remoteSource?: (file: {
       googleDriveFileId: string | null;
+      googleConnectionId: string | null;
       library: { googleConnectionId: string | null } | null;
     }) => string | null,
   ) {

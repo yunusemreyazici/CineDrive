@@ -295,10 +295,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
     // 3. Get valid Google access token for library connection
     let accessToken: string;
     try {
-      accessToken = await fastify.googleOAuthService.getValidAccessToken(
-        userId,
-        driveFile.library?.googleConnectionId || undefined,
-      );
+      ({ accessToken } = await fastify.driveAccessService.getAccess(userId, driveFile));
     } catch {
       cleanupListeners();
       return reply.status(401).send({

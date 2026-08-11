@@ -69,10 +69,7 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
 
           // Resolved eagerly so a disconnected Google account fails the request
           // instead of the encoder. The token itself stays server-side.
-          await fastify.googleOAuthService.getValidAccessToken(
-            request.user!.id,
-            driveFile.library?.googleConnectionId || undefined,
-          );
+          await fastify.driveAccessService.getAccess(request.user!.id, driveFile);
           return driveSourceInput(fastify, driveFile, request.user!.id);
         },
         startSeconds,

@@ -35,10 +35,10 @@ export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
     let googleAccessToken: string | undefined;
     if (driveFile.storageType !== 'local') {
       try {
-        googleAccessToken = await fastify.googleOAuthService.getValidAccessToken(
+        ({ accessToken: googleAccessToken } = await fastify.driveAccessService.getAccess(
           request.user!.id,
-          driveFile.library?.googleConnectionId || undefined,
-        );
+          driveFile,
+        ));
       } catch {
         return reply.status(401).send({
           error: {

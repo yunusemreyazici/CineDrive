@@ -109,6 +109,7 @@ export const driveSourceInput = (
   fastify: FastifyInstance,
   driveFile: {
     googleDriveFileId: string | null;
+    googleConnectionId: string | null;
     library: { googleConnectionId: string | null } | null;
   },
   userId: string,
@@ -116,8 +117,11 @@ export const driveSourceInput = (
   const capability = fastify.driveSourceService.issue({
     googleDriveFileId: driveFile.googleDriveFileId || '',
     userId,
-    ...(driveFile.library?.googleConnectionId
-      ? { connectionId: driveFile.library.googleConnectionId }
+    ...(driveFile.googleConnectionId || driveFile.library?.googleConnectionId
+      ? {
+          connectionId:
+            driveFile.googleConnectionId || driveFile.library?.googleConnectionId || undefined,
+        }
       : {}),
   });
   return {

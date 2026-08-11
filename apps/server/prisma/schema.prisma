@@ -62,6 +62,7 @@ model GoogleConnection {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   libraries             Library[]
+  driveFiles            DriveFile[]
 
   @@index([userId])
 }
@@ -95,6 +96,10 @@ model DriveFile {
   id                 String          @id @default(uuid())
   libraryId          String
   library            Library         @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  // The account that can actually read this Drive object. A library's selected
+  // account is only its current scan scope and may change between scans.
+  googleConnectionId String?
+  googleConnection   GoogleConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
   storageType        String          @default("gdrive")
   localFilePath      String?         @unique
   googleDriveFileId  String?         @unique
@@ -128,6 +133,7 @@ model DriveFile {
   musicTrack         MusicTrack?
 
   @@index([libraryId])
+  @@index([googleConnectionId])
   @@index([parentDriveFileId])
   @@index([localFilePath])
 }

@@ -59,9 +59,10 @@ describe('Subtitle API Integration Tests', () => {
     });
 
     vi.spyOn(app.googleOAuthService, 'getValidAccessToken').mockResolvedValue('mock-access-token');
-    vi.spyOn(app.subtitleService['googleOAuthService'], 'getValidAccessToken').mockResolvedValue(
-      'mock-access-token',
-    );
+    vi.spyOn(app.driveAccessService, 'getAccess').mockResolvedValue({
+      accessToken: 'mock-access-token',
+      connectionId: 'mock-connection-id',
+    });
     vi.spyOn(app.subtitleService['driveService'], 'getFileTextContent').mockResolvedValue(`1
 00:00:01,000 --> 00:00:04,000
 Test altyazı metni

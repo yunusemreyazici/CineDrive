@@ -130,6 +130,17 @@ export class GoogleDriveService {
     });
   }
 
+  /** Cheap ownership probe used to repair files indexed before account IDs were stored. */
+  public async canAccessFile(accessToken: string, fileId: string): Promise<boolean> {
+    try {
+      const drive = this.createDriveClient(accessToken);
+      await drive.files.get({ fileId, fields: 'id', supportsAllDrives: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Fetches text content of a file (e.g. metadata.json or SRT/VTT subtitles)
    */

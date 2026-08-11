@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { convertSrtToVtt } from '@cinedrive/shared';
 import { GoogleDriveService } from './drive.service.js';
-import { GoogleOAuthService } from './google-oauth.service.js';
+import { DriveAccessService } from './drive-access.service.js';
 import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
 
 const CACHE_DIR = path.resolve(process.cwd(), 'data', 'subtitle_cache');
@@ -15,7 +15,7 @@ export class SubtitleService {
 
   constructor(
     private prisma: PrismaClient,
-    private googleOAuthService: GoogleOAuthService,
+    private driveAccessService: DriveAccessService,
   ) {
     // Ensure cache directory exists on startup
     fs.mkdir(CACHE_DIR, { recursive: true }).catch(() => {});
@@ -91,7 +91,7 @@ export class SubtitleService {
     if (track.driveFile.storageType === 'local' && track.driveFile.localFilePath) {
       rawContent = decodeSubtitleBytes(await fs.readFile(track.driveFile.localFilePath));
     } else {
-      const accessToken = await this.googleOAuthService.getValidAccessToken(userId);
+      const { accessToken } = await this.driveAccessService.getAccess(userId, track.driveFile);
       rawContent = await this.driveService.getFileTextContent(
         accessToken,
         track.driveFile.googleDriveFileId || '',

@@ -130,6 +130,7 @@ export class LibraryScanService {
         const result = await this.scanAccountFiles(
           userId,
           accessToken,
+          connection.id,
           libraryId,
           scanId,
           rootFolderId,
@@ -184,6 +185,7 @@ export class LibraryScanService {
   private async scanAccountFiles(
     userId: string,
     accessToken: string,
+    googleConnectionId: string,
     libraryId: string,
     scanId: string,
     rootFolderId: string,
@@ -253,7 +255,7 @@ export class LibraryScanService {
     // 3. Process Videos across account
     for (const video of videos) {
       try {
-        const driveFile = await this.upsertDriveFile(libraryId, video);
+        const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, video);
         if (driveFile.isNew) added++;
         else if (driveFile.sourceChanged) updated++;
 
@@ -385,7 +387,9 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Movie
-          await this.matchSubtitles(libraryId, allFiles, video.name, { mediaItemId: mediaItem.id });
+          await this.matchSubtitles(libraryId, googleConnectionId, allFiles, video.name, {
+            mediaItemId: mediaItem.id,
+          });
         } else {
           // Series Episode Processing
           const series = await this.prisma.series.upsert({
@@ -461,7 +465,9 @@ export class LibraryScanService {
           });
 
           // Match Subtitles for this Episode
-          await this.matchSubtitles(libraryId, allFiles, video.name, { episodeId: episode.id });
+          await this.matchSubtitles(libraryId, googleConnectionId, allFiles, video.name, {
+            episodeId: episode.id,
+          });
         }
       } catch (err: unknown) {
         errors++;
@@ -477,7 +483,7 @@ export class LibraryScanService {
 
     for (const audio of audioFiles) {
       try {
-        const driveFile = await this.upsertDriveFile(libraryId, audio);
+        const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, audio);
         if (driveFile.isNew) added++;
         else if (driveFile.sourceChanged) updated++;
         if (!audio.size) throw new Error('AUDIO_SIZE_MISSING');
@@ -622,7 +628,11 @@ export class LibraryScanService {
     return files;
   }
 
-  private async upsertDriveFile(libraryId: string, file: DriveFileMetadata) {
+  private async upsertDriveFile(
+    libraryId: string,
+    googleConnectionId: string,
+    file: DriveFileMetadata,
+  ) {
     const existing = await this.prisma.driveFile.findUnique({
       where: { googleDriveFileId: file.id },
     });
@@ -637,6 +647,7 @@ export class LibraryScanService {
       where: { googleDriveFileId: file.id },
       create: {
         libraryId,
+        googleConnectionId,
         googleDriveFileId: file.id,
         parentDriveFileId: file.parents?.[0] || null,
         name: file.name,
@@ -648,6 +659,7 @@ export class LibraryScanService {
       },
       update: {
         libraryId,
+        googleConnectionId,
         name: file.name,
         mimeType: file.mimeType,
         size: file.size ? BigInt(file.size) : null,
@@ -686,6 +698,7 @@ export class LibraryScanService {
 
   private async matchSubtitles(
     libraryId: string,
+    googleConnectionId: string,
     allFiles: DriveFileMetadata[],
     videoName: string,
     target: { mediaItemId?: string; episodeId?: string },
@@ -698,7 +711,7 @@ export class LibraryScanService {
     );
 
     for (const sub of subtitles) {
-      const driveFile = await this.upsertDriveFile(libraryId, sub);
+      const driveFile = await this.upsertDriveFile(libraryId, googleConnectionId, sub);
       const parsedSub = parseSubtitleFilename(sub.name);
 
       await this.prisma.subtitleTrack.upsert({

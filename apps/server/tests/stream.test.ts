@@ -49,6 +49,10 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     // Mock GoogleOAuthService getValidAccessToken
     app.googleOAuthService.getValidAccessToken = vi.fn().mockResolvedValue('mock-access-token');
+    app.driveAccessService.getAccess = vi.fn().mockResolvedValue({
+      accessToken: 'mock-access-token',
+      connectionId: 'mock-connection-id',
+    });
 
     // Mock GoogleDriveService createMediaStream
     app.driveService.createMediaStream = vi.fn().mockImplementation(

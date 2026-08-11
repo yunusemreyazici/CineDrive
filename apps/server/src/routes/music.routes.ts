@@ -1881,10 +1881,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
     let token: string;
     try {
-      token = await fastify.googleOAuthService.getValidAccessToken(
-        userId,
-        file.library.googleConnectionId || undefined,
-      );
+      ({ accessToken: token } = await fastify.driveAccessService.getAccess(userId, file));
     } catch {
       return reply.status(401).send({
         error: {
@@ -2022,10 +2019,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     }
     let token: string;
     try {
-      token = await fastify.googleOAuthService.getValidAccessToken(
-        userId,
-        file.library.googleConnectionId || undefined,
-      );
+      ({ accessToken: token } = await fastify.driveAccessService.getAccess(userId, file));
     } catch {
       return reply.status(401).send({
         error: {

@@ -366,10 +366,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         if (driveFile.storageType === 'local' && driveFile.localFilePath) {
           metadata = await mediaProbeService.probeLocalFile(driveFile.localFilePath);
         } else {
-          const accessToken = await fastify.googleOAuthService.getValidAccessToken(
-            userId,
-            driveFile.library.googleConnectionId || undefined,
-          );
+          const { accessToken } = await fastify.driveAccessService.getAccess(userId, driveFile);
           metadata = await mediaProbeService.probeRemoteFile({
             name: driveFile.name,
             size: driveFile.size || 0n,

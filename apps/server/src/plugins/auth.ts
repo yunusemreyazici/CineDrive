@@ -12,6 +12,7 @@ import { HlsService } from '../services/hls.service.js';
 import { PlayerTelemetryService } from '../services/player-telemetry.service.js';
 import { PreviewService } from '../services/preview.service.js';
 import { DriveSourceService } from '../services/drive-source.service.js';
+import { DriveAccessService } from '../services/drive-access.service.js';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 
@@ -33,6 +34,7 @@ declare module 'fastify' {
     playerTelemetryService: PlayerTelemetryService;
     previewService: PreviewService;
     driveSourceService: DriveSourceService;
+    driveAccessService: DriveAccessService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -42,7 +44,12 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const googleOAuthService = new GoogleOAuthService(fastify.prisma);
   const libraryScanService = new LibraryScanService(fastify.prisma, googleOAuthService);
   const driveService = new GoogleDriveService();
-  const subtitleService = new SubtitleService(fastify.prisma, googleOAuthService);
+  const driveAccessService = new DriveAccessService(
+    fastify.prisma,
+    googleOAuthService,
+    driveService,
+  );
+  const subtitleService = new SubtitleService(fastify.prisma, driveAccessService);
   const playbackService = new PlaybackService(fastify.prisma);
   const transcodeService = new TranscodeService();
   const localScanService = new LocalScanService(fastify.prisma);
@@ -63,6 +70,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('playerTelemetryService', playerTelemetryService);
   fastify.decorate('previewService', previewService);
   fastify.decorate('driveSourceService', driveSourceService);
+  fastify.decorate('driveAccessService', driveAccessService);
   fastify.addHook('onClose', async () => {
     hlsService.shutdown();
     transcodeService.shutdown();
