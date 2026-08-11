@@ -793,6 +793,43 @@ describe('Music library', () => {
     expect(stream.rawPayload).toHaveLength(10);
   });
 
+  it('serves an iOS-compatible audio transcode until the response closes', async () => {
+    const kill = vi.fn();
+    const transcode = vi
+      .spyOn(app.transcodeService, 'createTranscodedStream')
+      .mockReturnValue({ stream: Readable.from(Buffer.from('fragmented-aac')), kill });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/stream?transcode=1`,
+      headers: { range: 'bytes=0-' },
+      cookies: { session_id: cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('audio/mp4');
+    expect(response.headers['content-range']).toBeUndefined();
+    expect(response.body).toBe('fragmented-aac');
+    expect(transcode).toHaveBeenCalledWith(
+      fixturePath,
+      expect.objectContaining({ audioOnly: true, startSeconds: 0 }),
+    );
+    expect(kill).toHaveBeenCalled();
+  });
+
+  it('returns a structured error when music transcode capacity is full', async () => {
+    vi.spyOn(app.transcodeService, 'createTranscodedStream').mockImplementation(() => {
+      throw new Error('TRANSCODE_CAPACITY_REACHED');
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/stream?transcode=1`,
+      cookies: { session_id: cookie },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(JSON.parse(response.body).error.code).toBe('TRANSCODE_CAPACITY_REACHED');
+  });
+
   it('creates playlists and rejects stale playback revisions', async () => {
     const created = await app.inject({
       method: 'POST',

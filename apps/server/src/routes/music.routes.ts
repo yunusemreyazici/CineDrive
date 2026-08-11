@@ -1969,8 +1969,11 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     if (transcode) {
-      reply.header('Content-Type', 'audio/mp4').header('Cache-Control', 'no-store');
-      if (head) return reply.send();
+      if (head)
+        return reply
+          .header('Content-Type', 'audio/mp4')
+          .header('Cache-Control', 'no-store')
+          .send();
       const source =
         file.storageType === 'local' && file.localFilePath
           ? { input: file.localFilePath, inputOptions: [] as string[] }
@@ -1978,13 +1981,30 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
               const remote = driveSourceInput(fastify, file, userId);
               return { input: remote.url, inputOptions: remote.inputOptions };
             })();
-      const output = fastify.transcodeService.createTranscodedStream(source.input, {
-        audioOnly: true,
-        startSeconds,
-        inputOptions: source.inputOptions,
-      });
-      request.raw.on('close', output.kill);
-      return reply.send(output.stream);
+      try {
+        const output = fastify.transcodeService.createTranscodedStream(source.input, {
+          audioOnly: true,
+          startSeconds,
+          inputOptions: source.inputOptions,
+        });
+        reply.header('Content-Type', 'audio/mp4').header('Cache-Control', 'no-store');
+        // IncomingMessage `close` may fire after the GET request itself has
+        // been consumed while the response is still streaming. Killing FFmpeg
+        // there truncated the fragmented MP4 before AVPlayer could decode it.
+        request.raw.once('aborted', output.kill);
+        reply.raw.once('close', output.kill);
+        return reply.send(output.stream);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'TRANSCODE_CAPACITY_REACHED')
+          return reply.status(503).send({
+            error: {
+              code: 'TRANSCODE_CAPACITY_REACHED',
+              message: 'Dönüştürme kapasitesi dolu. Daha sonra tekrar deneyin.',
+              requestId: request.id,
+            },
+          });
+        throw error;
+      }
     }
     if (file.storageType === 'local' && file.localFilePath) {
       if (!fs.existsSync(file.localFilePath))
