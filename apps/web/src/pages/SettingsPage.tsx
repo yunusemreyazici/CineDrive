@@ -8,9 +8,7 @@ import {
   LanguageSection,
   LibraryVisibilitySection,
 } from './settings/sections/AppearanceSection';
-import { GoogleDriveSection } from './settings/sections/GoogleDriveSection';
-import { LibraryScanSection } from './settings/sections/LibraryScanSection';
-import { LocalLibrarySection } from './settings/sections/LocalLibrarySection';
+import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
 import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
 import { DatabaseSection, DatabaseStatsSection } from './settings/sections/DatabaseSection';
 import { AboutSection } from './settings/sections/AboutSection';
@@ -49,9 +47,7 @@ const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
   appearance: <AppearanceSection />,
   language: <LanguageSection />,
   visibility: <LibraryVisibilitySection />,
-  google: <GoogleDriveSection />,
-  scan: <LibraryScanSection />,
-  localLibrary: <LocalLibrarySection />,
+  libraries: <LibrarySourcesSection />,
   openSubtitles: <OpenSubtitlesSection />,
   manage: <MediaManagerPage />,
   storage: <InsightsPage />,

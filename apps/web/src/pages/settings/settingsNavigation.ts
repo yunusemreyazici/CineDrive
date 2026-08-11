@@ -10,8 +10,6 @@ import {
   Languages,
   Lock,
   Palette,
-  RefreshCw,
-  ShieldCheck,
   User,
 } from 'lucide-react';
 import { t } from '../../i18n';
@@ -31,9 +29,7 @@ export type SettingsPane =
   | 'appearance'
   | 'language'
   | 'visibility'
-  | 'google'
-  | 'scan'
-  | 'localLibrary'
+  | 'libraries'
   | 'openSubtitles'
   | 'manage'
   | 'storage'
@@ -75,9 +71,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     id: 'libraries',
     label: t.settings.groups.libraries,
     panes: [
-      { id: 'google', label: t.settings.search.google.label, icon: ShieldCheck },
-      { id: 'scan', label: t.settings.search.scan.label, icon: RefreshCw },
-      { id: 'localLibrary', label: t.settings.search.localLibrary.label, icon: FolderTree },
+      { id: 'libraries', label: t.settings.search.librarySources.label, icon: FolderTree },
       { id: 'openSubtitles', label: t.settings.search.openSubtitles.label, icon: Captions },
     ],
   },
@@ -111,6 +105,9 @@ export const isSettingsPane = (value: string | null): value is SettingsPane =>
  */
 const LEGACY_TABS: Record<string, SettingsPane> = {
   general: 'profile',
+  google: 'libraries',
+  scan: 'libraries',
+  localLibrary: 'libraries',
   manage: 'manage',
   storage: 'storage',
   health: 'health',
@@ -134,9 +131,7 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.appearance, pane: 'appearance' },
   { ...t.settings.search.language, pane: 'language' },
   { ...t.settings.search.visibility, pane: 'visibility' },
-  { ...t.settings.search.google, pane: 'google' },
-  { ...t.settings.search.scan, pane: 'scan' },
-  { ...t.settings.search.localLibrary, pane: 'localLibrary' },
+  { ...t.settings.search.librarySources, pane: 'libraries' },
   { ...t.settings.search.openSubtitles, pane: 'openSubtitles' },
   { ...t.settings.search.manage, pane: 'manage' },
   { ...t.settings.search.storage, pane: 'storage' },

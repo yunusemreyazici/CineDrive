@@ -798,6 +798,15 @@ export const tr = {
         'TMDB eşleşmesi bulunmayan filmler ana sayfa ve film listelerinde gösterilmez. Medya Yönetimi ekranında erişilebilir kalırlar.',
     },
 
+    librarySources: {
+      title: 'Kütüphane ve Depolama Kaynakları',
+      description:
+        'Google Drive hesaplarını, taranacak Drive klasörlerini ve yerel kütüphaneleri tek yerden bağlayın, tarayın ve yönetin.',
+      googleAccounts: 'Bağlı Google hesabı',
+      driveSources: 'Drive tarama kaynağı',
+      localLibraries: 'Yerel kütüphane',
+    },
+
     google: {
       title: 'Google Drive Bağlantısı & Ortak Sürücüler',
       description: 'OAuth 2.0 Salt Okunur Medya & Shared Drive Erişimi',
@@ -805,6 +814,8 @@ export const tr = {
       notConnected: 'Bağlı Değil',
       connectedAccounts: 'Bağlı Google Hesapları:',
       remove: 'Kaldır',
+      sourcesInUse: (count: number) => `${count} Drive kaynağı tarafından kullanılıyor`,
+      removeSourcesFirst: 'Önce bu hesaba bağlı Drive kaynaklarını kaldırın.',
       removed: 'Google hesabı bağlantısı kaldırıldı.',
       removeFailed: 'Bağlantı kaldırılamadı.',
       addAnother: '+ Başka Google Hesabı Bağla',
@@ -965,6 +976,10 @@ export const tr = {
       appearance: { label: 'Görünüm ve Temalar', description: 'Arayüz renk temasını seçin' },
       language: { label: 'Dil', description: 'Arayüz dilini değiştirin' },
       visibility: { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin' },
+      librarySources: {
+        label: 'Kütüphane Kaynakları',
+        description: 'Google Drive, tarama ve yerel klasörler',
+      },
       google: { label: 'Google Drive', description: 'Bağlı Google hesapları' },
       scan: { label: 'Kütüphane Taraması', description: 'Medya taramasını başlatın' },
       localLibrary: { label: 'Yerel Kütüphane', description: 'Yerel klasörleri yönetin' },

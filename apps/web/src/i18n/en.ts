@@ -796,6 +796,15 @@ export const en: Translations = {
         'Movies with no TMDB match are hidden from the home page and movie lists. They stay reachable in Data management.',
     },
 
+    librarySources: {
+      title: 'Library & storage sources',
+      description:
+        'Connect, scan and manage Google Drive accounts, Drive folders and local libraries in one place.',
+      googleAccounts: 'Connected Google accounts',
+      driveSources: 'Drive scan sources',
+      localLibraries: 'Local libraries',
+    },
+
     google: {
       title: 'Google Drive connection & shared drives',
       description: 'OAuth 2.0 read-only media and shared drive access',
@@ -803,6 +812,8 @@ export const en: Translations = {
       notConnected: 'Not connected',
       connectedAccounts: 'Connected Google accounts:',
       remove: 'Remove',
+      sourcesInUse: (count: number) => `Used by ${count} Drive source${count === 1 ? '' : 's'}`,
+      removeSourcesFirst: 'Remove the Drive sources connected to this account first.',
       removed: 'The Google account was disconnected.',
       removeFailed: 'The connection could not be removed.',
       addAnother: '+ Connect another Google account',
@@ -963,6 +974,10 @@ export const en: Translations = {
       appearance: { label: 'Appearance & themes', description: 'Pick the interface colour theme' },
       language: { label: 'Language', description: 'Change the interface language' },
       visibility: { label: 'Library visibility', description: 'Manage the metadata filter' },
+      librarySources: {
+        label: 'Library sources',
+        description: 'Google Drive, scanning and local folders',
+      },
       google: { label: 'Google Drive', description: 'Connected Google accounts' },
       scan: { label: 'Library scan', description: 'Start a media scan' },
       localLibrary: { label: 'Local library', description: 'Manage local folders' },

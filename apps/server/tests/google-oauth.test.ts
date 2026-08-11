@@ -236,4 +236,47 @@ describe('Google OAuth Routes Integration Tests', () => {
     const body = JSON.parse(response.body);
     expect(body.connected).toBeDefined();
   });
+
+  it('does not unlink a Google account while a Drive scan source still uses it', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const connection = await app.prisma.googleConnection.create({
+      data: {
+        userId: owner.id,
+        googleAccountId: `guarded-source-${Date.now()}`,
+        email: 'guarded-source@cinedrive.test',
+        encryptedRefreshToken: 'not-used-by-this-test',
+        scopes: 'drive.readonly',
+      },
+    });
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'Guarded Drive', storageType: 'gdrive' },
+    });
+    await app.prisma.driveScanSource.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        rootFolderId: 'guarded-folder',
+      },
+    });
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/auth/google/connections/${connection.id}`,
+      cookies: {
+        session_id: loginRes.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body).error.code).toBe('GOOGLE_CONNECTION_HAS_SOURCES');
+    expect(await app.prisma.googleConnection.findUnique({ where: { id: connection.id } })).not.toBeNull();
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+    await app.prisma.googleConnection.delete({ where: { id: connection.id } });
+  });
 });

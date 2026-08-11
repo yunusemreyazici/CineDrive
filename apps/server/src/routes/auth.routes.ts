@@ -211,6 +211,18 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/auth/google: Unlinks Google account
   fastify.delete('/google', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const userId = request.user!.id;
+    const sourceCount = await fastify.prisma.driveScanSource.count({
+      where: { googleConnection: { userId } },
+    });
+    if (sourceCount > 0) {
+      return reply.status(409).send({
+        error: {
+          code: 'GOOGLE_CONNECTION_HAS_SOURCES',
+          message: 'Önce bu hesaplara bağlı Drive tarama kaynaklarını kaldırın.',
+          requestId: request.id,
+        },
+      });
+    }
     await fastify.googleOAuthService.unlinkGoogleAccount(userId);
     return reply.status(200).send({ success: true });
   });
@@ -249,6 +261,18 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const userId = request.user!.id;
       const { id } = request.params;
+      const sourceCount = await fastify.prisma.driveScanSource.count({
+        where: { googleConnectionId: id, googleConnection: { userId } },
+      });
+      if (sourceCount > 0) {
+        return reply.status(409).send({
+          error: {
+            code: 'GOOGLE_CONNECTION_HAS_SOURCES',
+            message: 'Önce bu hesaba bağlı Drive tarama kaynaklarını kaldırın.',
+            requestId: request.id,
+          },
+        });
+      }
       await fastify.googleOAuthService.unlinkGoogleAccount(userId, id);
       return reply.status(200).send({ success: true });
     },
