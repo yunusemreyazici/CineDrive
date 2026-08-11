@@ -6,6 +6,7 @@ import {
   useCreateDriveScanSourceMutation,
   useDeleteDriveScanSourceMutation,
   useDriveScanSourcesQuery,
+  useScanDriveSourceMutation,
   useScanLibraryMutation,
   useLibraryScansQuery,
 } from '../../../hooks/useApi';
@@ -29,6 +30,7 @@ export const LibraryScanSection: React.FC = () => {
   const { data: libraries } = useLibrariesQuery();
   const createSource = useCreateDriveScanSourceMutation();
   const deleteSource = useDeleteDriveScanSourceMutation();
+  const scanSource = useScanDriveSourceMutation();
   const scanLibrary = useScanLibraryMutation();
   const allConnections = useGoogleConnections();
 
@@ -83,6 +85,16 @@ export const LibraryScanSection: React.FC = () => {
       toast.success(t.settings.scan.sourceRemoved(removed.files));
     } catch (error) {
       toast.fromError(error, t.settings.scan.sourceRemoveFailed);
+    }
+  };
+
+  const handleScanSource = async (source: DriveScanSourceDto) => {
+    if (!activeLibrary) return;
+    try {
+      await scanSource.mutateAsync({ libraryId: activeLibrary.id, sourceId: source.id });
+      toast.success(t.settings.scan.sourceScanStarted);
+    } catch (error) {
+      toast.fromError(error, t.settings.scan.sourceScanFailed);
     }
   };
 
@@ -219,15 +231,30 @@ export const LibraryScanSection: React.FC = () => {
                   <span className="shrink-0 text-xs text-zinc-500">
                     {t.settings.scan.fileCount(source.fileCount)}
                   </span>
-                  <SettingsButton
-                    variant="danger"
-                    icon={Trash2}
-                    onClick={() => setSourceToRemove(source)}
-                    disabled={isScanning}
-                    className="px-2.5"
-                  >
-                    {t.settings.scan.disconnect}
-                  </SettingsButton>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <SettingsButton
+                      variant="secondary"
+                      icon={RefreshCw}
+                      onClick={() => handleScanSource(source)}
+                      disabled={isScanning || scanSource.isPending}
+                      isLoading={
+                        scanSource.isPending && scanSource.variables?.sourceId === source.id
+                      }
+                      loadingLabel={t.settings.scan.sourceScanning}
+                      className="px-2.5"
+                    >
+                      {t.settings.scan.rescanSource}
+                    </SettingsButton>
+                    <SettingsButton
+                      variant="danger"
+                      icon={Trash2}
+                      onClick={() => setSourceToRemove(source)}
+                      disabled={isScanning || scanSource.isPending}
+                      className="px-2.5"
+                    >
+                      {t.settings.scan.disconnect}
+                    </SettingsButton>
+                  </div>
                 </div>
               ))}
             </div>

@@ -223,6 +223,26 @@ export function useDeleteDriveScanSourceMutation() {
   });
 }
 
+export function useScanDriveSourceMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, sourceId }: { libraryId: string; sourceId: string }) => {
+      try {
+        const res = await apiClient.post<{ scan: LibraryScanType }>(
+          `/libraries/${libraryId}/drive-sources/${sourceId}/scan`,
+          {},
+        );
+        return res.data.scan;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['libraryScans', variables.libraryId] });
+    },
+  });
+}
+
 /**
  * The server answers 202 as soon as the scan is registered and does the work in
  * the background, so this no longer needs a long timeout — progress arrives

@@ -6,8 +6,6 @@ import { useGoogleConnections } from '../useGoogleConnections';
 import { GoogleDriveSection } from './GoogleDriveSection';
 import { LibraryScanSection } from './LibraryScanSection';
 import { LocalLibrarySection } from './LocalLibrarySection';
-import { LibraryVisibilitySection } from './AppearanceSection';
-import { DatabaseSection, DatabaseStatsSection } from './DatabaseSection';
 
 interface SourceSummaryProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -77,9 +75,6 @@ export const LibrarySourcesSection: React.FC = () => {
       <GoogleDriveSection driveSources={driveSources} />
       <LibraryScanSection />
       <LocalLibrarySection />
-      <LibraryVisibilitySection />
-      <DatabaseStatsSection />
-      <DatabaseSection />
     </>
   );
 };

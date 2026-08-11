@@ -180,6 +180,73 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // Rescan exactly one saved folder. A library-wide scan remains available at
+  // POST /:id/scan for users who want to refresh every connected source.
+  fastify.post<{ Params: { id: string; sourceId: string } }>(
+    '/:id/drive-sources/:sourceId/scan',
+    async (request, reply) => {
+      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      if (!library) {
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      try {
+        const scanId = await fastify.libraryScanService.scanSource(
+          request.user!.id,
+          library.id,
+          request.params.sourceId,
+        );
+        const scan = await fastify.prisma.libraryScan.findUnique({
+          where: { id: scanId },
+          include: { errors: true },
+        });
+        return reply.status(202).send({
+          message: 'Drive klasörü yeniden taranmaya başlandı.',
+          scan,
+        });
+      } catch (err: unknown) {
+        const code = err instanceof Error ? err.message : 'SCAN_FAILED';
+        if (code === 'DRIVE_SOURCE_NOT_FOUND') {
+          return reply.status(404).send({
+            error: {
+              code,
+              message: 'Drive klasör bağlantısı bulunamadı.',
+              requestId: request.id,
+            },
+          });
+        }
+        if (code === 'SCAN_ALREADY_IN_PROGRESS') {
+          return reply.status(409).send({
+            error: {
+              code,
+              message: 'Bu kütüphane için eşzamanlı bir tarama zaten devam ediyor.',
+              requestId: request.id,
+            },
+          });
+        }
+        const isNotConnected =
+          code === 'GOOGLE_ACCOUNT_NOT_CONNECTED' ||
+          code === 'GOOGLE_REAUTHORIZATION_REQUIRED' ||
+          code.includes('File not found');
+        return reply.status(isNotConnected ? 400 : 500).send({
+          error: {
+            code: isNotConnected ? 'GOOGLE_ACCOUNT_NOT_CONNECTED' : 'SCAN_FAILED',
+            message: isNotConnected
+              ? 'Bu klasöre bağlı Google hesabını yeniden bağlayın.'
+              : 'Drive klasörü yeniden taranamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    },
+  );
+
   fastify.delete<{ Params: { id: string; sourceId: string } }>(
     '/:id/drive-sources/:sourceId',
     async (request, reply) => {

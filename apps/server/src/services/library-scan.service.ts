@@ -20,6 +20,12 @@ const VIDEO_MIME_TYPES = [
   'video/x-msvideo',
 ];
 
+interface DriveScanTarget {
+  connection: { id: string };
+  rootFolderId: string;
+  sourceId: string | null;
+}
+
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
   private metadataService = new MetadataService();
@@ -102,33 +108,82 @@ export class LibraryScanService {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
     }
 
-    // Acquire lock
-    this.activeScans.add(libraryId);
+    return this.startScan(userId, libraryId, targets);
+  }
 
-    // Create LibraryScan record
-    const scan = await this.prisma.libraryScan.create({
-      data: {
+  /** Scan one saved Drive source without walking the other accounts/folders. */
+  public async scanSource(
+    userId: string,
+    libraryId: string,
+    sourceId: string,
+  ): Promise<string> {
+    if (this.activeScans.has(libraryId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+
+    const source = await this.prisma.driveScanSource.findFirst({
+      where: {
+        id: sourceId,
         libraryId,
-        status: 'running',
-        startedAt: new Date(),
+        googleConnection: { userId },
       },
     });
+    if (!source) {
+      throw new Error('DRIVE_SOURCE_NOT_FOUND');
+    }
 
-    // Launch scan execution asynchronously in background
-    this.executeScanAsync(userId, libraryId, scan.id, targets).catch(() => {});
+    const connections = await this.googleOAuthService.getConnectionsInfo(userId);
+    const connection = connections.find((item) => item.id === source.googleConnectionId);
+    if (!connection) {
+      throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+    }
 
-    return scan.id;
+    await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+
+    return this.startScan(userId, libraryId, [
+      {
+        connection,
+        rootFolderId: source.rootFolderId,
+        sourceId: source.id,
+      },
+    ]);
+  }
+
+  private async startScan(
+    userId: string,
+    libraryId: string,
+    targets: DriveScanTarget[],
+  ): Promise<string> {
+    // Token checks happen before this method, so repeat the lock check to close
+    // the small race between two requests validating access simultaneously.
+    if (this.activeScans.has(libraryId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+    this.activeScans.add(libraryId);
+
+    try {
+      const scan = await this.prisma.libraryScan.create({
+        data: {
+          libraryId,
+          status: 'running',
+          startedAt: new Date(),
+        },
+      });
+
+      // Launch scan execution asynchronously in background.
+      this.executeScanAsync(userId, libraryId, scan.id, targets).catch(() => {});
+      return scan.id;
+    } catch (error) {
+      this.activeScans.delete(libraryId);
+      throw error;
+    }
   }
 
   private async executeScanAsync(
     userId: string,
     libraryId: string,
     scanId: string,
-    targets: Array<{
-      connection: { id: string };
-      rootFolderId: string;
-      sourceId: string | null;
-    }>,
+    targets: DriveScanTarget[],
   ): Promise<void> {
     const startTime = Date.now();
     let addedCount = 0;

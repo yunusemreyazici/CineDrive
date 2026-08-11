@@ -507,6 +507,74 @@ describe('Library API Integration Tests', () => {
     await app.prisma.googleConnection.delete({ where: { id: connection.id } });
   });
 
+  it('starts a scan for the selected Drive source only', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const suffix = Date.now();
+    const connection = await app.prisma.googleConnection.create({
+      data: {
+        userId: owner.id,
+        googleAccountId: `rescan-source-${suffix}`,
+        email: `rescan-source-${suffix}@cinedrive.test`,
+        encryptedRefreshToken: 'not-used-by-this-test',
+        scopes: 'drive.readonly',
+      },
+    });
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: `Rescan Source ${suffix}`, storageType: 'gdrive' },
+    });
+    const source = await app.prisma.driveScanSource.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        rootFolderId: `folder-${suffix}`,
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const cookies = {
+      session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+    };
+
+    const scanSource = vi
+      .spyOn(app.libraryScanService, 'scanSource')
+      .mockImplementation(async (userId, libraryId, sourceId) => {
+        expect(userId).toBe(owner.id);
+        expect(libraryId).toBe(library.id);
+        expect(sourceId).toBe(source.id);
+        const scan = await app.prisma.libraryScan.create({
+          data: { libraryId, status: 'running' },
+        });
+        return scan.id;
+      });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources/${source.id}/scan`,
+      cookies,
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(scanSource).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(response.body).scan).toEqual(
+      expect.objectContaining({ libraryId: library.id, status: 'running' }),
+    );
+
+    scanSource.mockRestore();
+    const missing = await app.inject({
+      method: 'POST',
+      url: `/api/libraries/${library.id}/drive-sources/missing-source/scan`,
+      cookies,
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(JSON.parse(missing.body).error.code).toBe('DRIVE_SOURCE_NOT_FOUND');
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+    await app.prisma.googleConnection.delete({ where: { id: connection.id } });
+  });
+
   it('lists Drive folders and removes only content indexed from the disconnected source', async () => {
     const owner = await app.authService.ensureAdminUserExists();
     const connection = await app.prisma.googleConnection.create({

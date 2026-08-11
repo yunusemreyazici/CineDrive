@@ -801,7 +801,7 @@ export const tr = {
     librarySources: {
       title: 'Kütüphane ve Depolama Kaynakları',
       description:
-        'Google Drive hesaplarını, yerel klasörleri, içerik görünürlüğünü ve kütüphane veritabanını tek yerden yönetin.',
+        'Google Drive hesaplarını, bağlı Drive klasörlerini ve yerel kütüphaneleri tek yerden yönetin.',
       googleAccounts: 'Bağlı Google hesabı',
       driveSources: 'Drive tarama kaynağı',
       localLibraries: 'Yerel kütüphane',
@@ -854,6 +854,10 @@ export const tr = {
       savedSources: 'Bağlı Drive Klasörleri',
       noSavedSources: 'Henüz yönetilebilir bir Drive klasörü eklenmedi.',
       entireDrive: 'Tüm Google Drive',
+      rescanSource: 'Klasörü Yeniden Tara',
+      sourceScanning: 'Klasör Taranıyor...',
+      sourceScanStarted: 'Drive klasörü yeniden taranmaya başladı.',
+      sourceScanFailed: 'Drive klasörü yeniden taranamadı.',
       disconnect: 'Bağlantıyı Kes',
       disconnectTitle: 'Drive klasör bağlantısını kaldır',
       disconnectConfirm: 'Bağlantıyı Kes ve İçerikleri Kaldır',

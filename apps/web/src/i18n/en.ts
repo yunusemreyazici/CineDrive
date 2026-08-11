@@ -799,7 +799,7 @@ export const en: Translations = {
     librarySources: {
       title: 'Library & storage sources',
       description:
-        'Manage Google Drive accounts, local folders, content visibility and the library database in one place.',
+        'Manage Google Drive accounts, connected Drive folders and local libraries in one place.',
       googleAccounts: 'Connected Google accounts',
       driveSources: 'Drive scan sources',
       localLibraries: 'Local libraries',
@@ -852,6 +852,10 @@ export const en: Translations = {
       savedSources: 'Connected Drive folders',
       noSavedSources: 'No manageable Drive folder has been added yet.',
       entireDrive: 'Entire Google Drive',
+      rescanSource: 'Rescan folder',
+      sourceScanning: 'Scanning folder…',
+      sourceScanStarted: 'The Drive folder rescan has started.',
+      sourceScanFailed: 'The Drive folder could not be rescanned.',
       disconnect: 'Disconnect',
       disconnectTitle: 'Remove Drive folder connection',
       disconnectConfirm: 'Disconnect and Remove Content',
