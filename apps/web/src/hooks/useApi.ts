@@ -737,6 +737,49 @@ export interface OpenSubtitlesSettingsDto {
   hasApiKey: boolean;
 }
 
+export type ApiKeySource = 'user' | 'environment' | 'none';
+
+export interface ApiSettingsDto {
+  openSubtitles: {
+    username: string;
+    preferredLanguages: string;
+    hasApiKey: boolean;
+    source: ApiKeySource;
+  };
+  tmdb: {
+    hasApiKey: boolean;
+    source: ApiKeySource;
+  };
+}
+
+export interface UpdateApiSettingsInput {
+  openSubtitlesApiKey?: string;
+  openSubtitlesUsername?: string;
+  preferredLanguages?: string;
+  tmdbApiKey?: string;
+  clearOpenSubtitlesApiKey?: boolean;
+  clearTmdbApiKey?: boolean;
+}
+
+export function useApiSettingsQuery() {
+  return useQuery({
+    queryKey: ['apiSettings'],
+    queryFn: async () => (await apiClient.get<ApiSettingsDto>('/settings/api-keys')).data,
+  });
+}
+
+export function useUpdateApiSettingsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: UpdateApiSettingsInput) =>
+      (await apiClient.put<ApiSettingsDto>('/settings/api-keys', data)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['openSubtitlesSettings'] });
+    },
+  });
+}
+
 export function useOpenSubtitlesSettingsQuery() {
   return useQuery({
     queryKey: ['openSubtitlesSettings'],

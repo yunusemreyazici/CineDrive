@@ -8,18 +8,11 @@ import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { isDriveVideoFile } from './media-file-types.js';
 
 // Each probe issues a handful of ranged Drive reads. Enough of them run at once
 // to hide the latency, few enough to stay well inside Google's per-user quota.
 const MEDIA_PROBE_CONCURRENCY = 4;
-
-const VIDEO_MIME_TYPES = [
-  'video/mp4',
-  'video/x-matroska',
-  'video/webm',
-  'video/quicktime',
-  'video/x-msvideo',
-];
 
 interface DriveScanTarget {
   connection: { id: string };
@@ -394,6 +387,12 @@ export class LibraryScanService {
     // An empty root folder scans the whole account. Otherwise only the selected
     // folder and its descendants are included.
     const allFiles: DriveFileMetadata[] = [];
+    const tmdbApiKey = (
+      await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tmdbApiKey: true },
+      })
+    )?.tmdbApiKey;
 
     try {
       if (rootFolderId.trim()) {
@@ -435,9 +434,7 @@ export class LibraryScanService {
     }
 
     // 2. Separate into videos, images, subtitles, metadata
-    const videos = allFiles.filter(
-      (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
-    );
+    const videos = allFiles.filter((file) => isDriveVideoFile(file.name, file.mimeType));
     const audioFiles = allFiles.filter(
       (file) =>
         !isPlaylistFilename(file.name, file.mimeType) &&
@@ -536,7 +533,11 @@ export class LibraryScanService {
           !existingMediaItem ||
           !existingMediaItem.tmdbId;
         const onlineMeta = shouldRefreshMetadata
-          ? await this.metadataService.fetchMetadata(title, type as 'movie' | 'series')
+          ? await this.metadataService.fetchMetadata(
+              title,
+              type as 'movie' | 'series',
+              tmdbApiKey || undefined,
+            )
           : null;
         if (onlineMeta) {
           onlinePosterUrl = onlineMeta.posterUrl;
@@ -1018,22 +1019,5 @@ export class LibraryScanService {
         },
       });
     }
-  }
-
-  private isVideoExtension(filename: string): boolean {
-    const lower = filename.toLowerCase();
-    return (
-      lower.endsWith('.mp4') ||
-      lower.endsWith('.mkv') ||
-      lower.endsWith('.webm') ||
-      lower.endsWith('.m4v') ||
-      lower.endsWith('.avi') ||
-      lower.endsWith('.mov') ||
-      lower.endsWith('.ts') ||
-      lower.endsWith('.m2ts') ||
-      lower.endsWith('.flv') ||
-      lower.endsWith('.wmv') ||
-      lower.endsWith('.3gp')
-    );
   }
 }

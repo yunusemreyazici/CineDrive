@@ -32,8 +32,8 @@ export interface OnlineEpisodeMetadata {
 export class MetadataService {
   private episodeCache = new Map<string, Map<string, OnlineEpisodeMetadata>>();
 
-  private get tmdbApiKey(): string | undefined {
-    const key = process.env.TMDB_API_KEY?.trim();
+  private resolveTmdbApiKey(userApiKey?: string): string | undefined {
+    const key = userApiKey?.trim() || process.env.TMDB_API_KEY?.trim();
     if (!key || key === 'your_tmdb_api_key_here') return undefined;
     return key;
   }
@@ -54,9 +54,12 @@ export class MetadataService {
 
     const map = new Map<string, OnlineEpisodeMetadata>();
     try {
-      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}&embed=episodes`, {
-        signal: AbortSignal.timeout(5000),
-      });
+      const res = await fetch(
+        `https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}&embed=episodes`,
+        {
+          signal: AbortSignal.timeout(5000),
+        },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           _embedded?: {
@@ -97,8 +100,12 @@ export class MetadataService {
   /**
    * Fetches poster image URL, backdrop URL, overview, year, ratings, genres, cast, and trailer automatically
    */
-  public async fetchMetadata(title: string, type: 'movie' | 'series'): Promise<OnlineMetadataResult | null> {
-    const apiKey = this.tmdbApiKey;
+  public async fetchMetadata(
+    title: string,
+    type: 'movie' | 'series',
+    userApiKey?: string,
+  ): Promise<OnlineMetadataResult | null> {
+    const apiKey = this.resolveTmdbApiKey(userApiKey);
     const cleanTitle = title
       .replace(/\b(19|20)\d{2}\b/g, '')
       .replace(/[._\-]/g, ' ')
@@ -122,13 +129,13 @@ export class MetadataService {
   private async fetchTmdbMetadata(
     cleanTitle: string,
     type: 'movie' | 'series',
-    apiKey: string
+    apiKey: string,
   ): Promise<OnlineMetadataResult | null> {
     try {
       const endpoint = type === 'movie' ? 'search/movie' : 'search/tv';
       const searchRes = await fetch(
         `https://api.themoviedb.org/3/${endpoint}?api_key=${apiKey}&query=${encodeURIComponent(cleanTitle)}&language=${env.METADATA_LANGUAGE}`,
-        { signal: AbortSignal.timeout(5000) }
+        { signal: AbortSignal.timeout(5000) },
       );
 
       if (!searchRes.ok) return null;
@@ -153,10 +160,11 @@ export class MetadataService {
 
       // Fetch full details with append_to_response
       const detailEndpoint = type === 'movie' ? `movie/${match.id}` : `tv/${match.id}`;
-      const appendParams = type === 'movie' ? 'videos,credits,release_dates' : 'videos,credits,content_ratings';
+      const appendParams =
+        type === 'movie' ? 'videos,credits,release_dates' : 'videos,credits,content_ratings';
       const detailRes = await fetch(
         `https://api.themoviedb.org/3/${detailEndpoint}?api_key=${apiKey}&append_to_response=${appendParams}&language=${env.METADATA_LANGUAGE}`,
-        { signal: AbortSignal.timeout(5000) }
+        { signal: AbortSignal.timeout(5000) },
       );
 
       if (!detailRes.ok) return null;
@@ -207,7 +215,11 @@ export class MetadataService {
         ? `https://image.tmdb.org/t/p/w1280${details.backdrop_path}`
         : posterUrl;
 
-      const releaseDateStr = details.release_date || details.first_air_date || match.release_date || match.first_air_date;
+      const releaseDateStr =
+        details.release_date ||
+        details.first_air_date ||
+        match.release_date ||
+        match.first_air_date;
       const year = releaseDateStr ? parseInt(releaseDateStr.substring(0, 4), 10) : undefined;
 
       const genres = details.genres?.map((g) => g.name) || [];
@@ -216,23 +228,29 @@ export class MetadataService {
       const cast: CastMember[] = (details.credits?.cast || []).slice(0, 10).map((actor) => ({
         name: actor.name,
         character: actor.character || undefined,
-        profileUrl: actor.profile_path ? `https://image.tmdb.org/t/p/w185${actor.profile_path}` : undefined,
+        profileUrl: actor.profile_path
+          ? `https://image.tmdb.org/t/p/w185${actor.profile_path}`
+          : undefined,
       }));
 
       // Trailer
       const trailer = details.videos?.results?.find(
-        (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
+        (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'),
       );
       const trailerUrl = trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : undefined;
 
       // Age Content Rating
       let contentRating: string | undefined;
       if (type === 'movie' && details.release_dates?.results) {
-        const usRating = details.release_dates.results.find((r) => r.iso_3166_1 === 'US' || r.iso_3166_1 === 'TR');
+        const usRating = details.release_dates.results.find(
+          (r) => r.iso_3166_1 === 'US' || r.iso_3166_1 === 'TR',
+        );
         const cert = usRating?.release_dates?.find((d) => d.certification)?.certification;
         if (cert) contentRating = cert;
       } else if (type === 'series' && details.content_ratings?.results) {
-        const ratingObj = details.content_ratings.results.find((r) => r.iso_3166_1 === 'US' || r.iso_3166_1 === 'TR');
+        const ratingObj = details.content_ratings.results.find(
+          (r) => r.iso_3166_1 === 'US' || r.iso_3166_1 === 'TR',
+        );
         if (ratingObj?.rating) contentRating = ratingObj.rating;
       }
 
@@ -260,9 +278,12 @@ export class MetadataService {
    */
   private async fetchTvMazeMetadata(cleanTitle: string): Promise<OnlineMetadataResult | null> {
     try {
-      const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}`, {
-        signal: AbortSignal.timeout(5000),
-      });
+      const res = await fetch(
+        `https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(cleanTitle)}`,
+        {
+          signal: AbortSignal.timeout(5000),
+        },
+      );
       if (res.ok) {
         const data = (await res.json()) as {
           name?: string;

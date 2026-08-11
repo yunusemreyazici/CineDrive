@@ -7,6 +7,7 @@ import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { isVideoFilename } from './media-file-types.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
@@ -90,25 +91,17 @@ export class LocalScanService {
 
     try {
       await this.scanLifecycle.heartbeat(scanId, true);
+      const tmdbApiKey = (
+        await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { tmdbApiKey: true },
+        })
+      )?.tmdbApiKey;
       const allFiles = await this.readdirRecursive(library.localFolderPath, scanId, signal);
 
-      const videoExtensions = [
-        '.mp4',
-        '.mkv',
-        '.avi',
-        '.webm',
-        '.mov',
-        '.m4v',
-        '.m2ts',
-        '.flv',
-        '.wmv',
-        '.3gp',
-      ];
       const subtitleExtensions = ['.srt', '.vtt'];
 
-      const videoFiles = allFiles.filter((f) =>
-        videoExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
-      );
+      const videoFiles = allFiles.filter((file) => isVideoFilename(file.name));
       const subtitleFiles = allFiles.filter((f) =>
         subtitleExtensions.some((ext) => f.name.toLowerCase().endsWith(ext)),
       );
@@ -211,7 +204,11 @@ export class LocalScanService {
 
           const onlineMeta =
             !existingDriveFile || sourceChanged || !existingMediaItem || !existingMediaItem.tmdbId
-              ? await this.metadataService.fetchMetadata(title, type as 'movie' | 'series')
+              ? await this.metadataService.fetchMetadata(
+                  title,
+                  type as 'movie' | 'series',
+                  tmdbApiKey || undefined,
+                )
               : null;
           if (onlineMeta) {
             onlinePosterUrl = onlineMeta.posterUrl;

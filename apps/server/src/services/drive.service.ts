@@ -2,6 +2,8 @@ import { google, type drive_v3 } from 'googleapis';
 import { Readable } from 'stream';
 import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
 import { buffer } from 'node:stream/consumers';
+import { isDriveVideoFile } from './media-file-types.js';
+import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
 
 export interface DriveFileMetadata {
   id: string;
@@ -237,8 +239,9 @@ export class GoogleDriveService {
         for (const file of page.files) {
           if (file.mimeType === DRIVE_FOLDER_MIME_TYPE) queue.push(file.id);
           else if (
-            file.mimeType.startsWith('video/') ||
-            file.mimeType.startsWith('audio/') ||
+            isDriveVideoFile(file.name, file.mimeType) ||
+            (!isPlaylistFilename(file.name, file.mimeType) &&
+              (file.mimeType.startsWith('audio/') || isAudioFilename(file.name))) ||
             MEDIA_FILE_PATTERN.test(file.name)
           ) {
             return true;
@@ -259,8 +262,9 @@ export class GoogleDriveService {
         page.files.some(
           (file) =>
             file.mimeType !== DRIVE_FOLDER_MIME_TYPE &&
-            (file.mimeType.startsWith('video/') ||
-              file.mimeType.startsWith('audio/') ||
+            (isDriveVideoFile(file.name, file.mimeType) ||
+              (!isPlaylistFilename(file.name, file.mimeType) &&
+                (file.mimeType.startsWith('audio/') || isAudioFilename(file.name))) ||
               MEDIA_FILE_PATTERN.test(file.name)),
         )
       ) {

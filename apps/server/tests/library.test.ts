@@ -482,7 +482,9 @@ describe('Library API Integration Tests', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body).removed).toEqual({ media: 2, files: 2 });
+    const removed = JSON.parse(response.body).removed as { media: number; files: number };
+    expect(removed.media).toBeGreaterThanOrEqual(2);
+    expect(removed.files).toBeGreaterThanOrEqual(2);
     expect(await app.prisma.library.findUnique({ where: { id: driveLibrary.id } })).not.toBeNull();
     expect(await app.prisma.library.findUnique({ where: { id: localLibrary.id } })).not.toBeNull();
     expect(

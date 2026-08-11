@@ -1,12 +1,5 @@
 import type React from 'react';
-import {
-  Captions,
-  Database,
-  FolderTree,
-  HardDrive,
-  Palette,
-  User,
-} from 'lucide-react';
+import { Database, FolderTree, HardDrive, Info, KeyRound, Palette, User } from 'lucide-react';
 import { t } from '../../i18n';
 
 /**
@@ -19,12 +12,7 @@ import { t } from '../../i18n';
  * compensate for that; it is now a shortcut rather than the only way through.
  */
 export type SettingsPane =
-  | 'profile'
-  | 'appearance'
-  | 'libraries'
-  | 'openSubtitles'
-  | 'manage'
-  | 'storage';
+  'profile' | 'appearance' | 'about' | 'libraries' | 'api' | 'manage' | 'storage';
 
 export interface SettingsPaneDefinition {
   id: SettingsPane;
@@ -47,14 +35,17 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'interface',
     label: t.settings.groups.interface,
-    panes: [{ id: 'appearance', label: t.settings.search.appearance.label, icon: Palette }],
+    panes: [
+      { id: 'appearance', label: t.settings.search.appearance.label, icon: Palette },
+      { id: 'about', label: t.settings.search.about.label, icon: Info },
+    ],
   },
   {
     id: 'libraries',
     label: t.settings.groups.libraries,
     panes: [
       { id: 'libraries', label: t.settings.search.librarySources.label, icon: FolderTree },
-      { id: 'openSubtitles', label: t.settings.search.openSubtitles.label, icon: Captions },
+      { id: 'api', label: t.settings.search.apiManagement.label, icon: KeyRound },
     ],
   },
   {
@@ -85,7 +76,8 @@ const LEGACY_TABS: Record<string, SettingsPane> = {
   scan: 'libraries',
   localLibrary: 'libraries',
   language: 'appearance',
-  about: 'appearance',
+  about: 'about',
+  openSubtitles: 'api',
   visibility: 'manage',
   database: 'manage',
   manage: 'manage',
@@ -111,9 +103,9 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.appearance, pane: 'appearance' },
   { ...t.settings.search.language, pane: 'appearance' },
   { ...t.settings.search.librarySources, pane: 'libraries' },
-  { ...t.settings.search.openSubtitles, pane: 'openSubtitles' },
+  { ...t.settings.search.apiManagement, pane: 'api' },
   { ...t.settings.search.manage, pane: 'manage' },
   { ...t.settings.search.storage, pane: 'storage' },
   { ...t.settings.search.health, pane: 'storage' },
-  { ...t.settings.search.about, pane: 'appearance' },
+  { ...t.settings.search.about, pane: 'about' },
 ];

@@ -801,9 +801,8 @@ export const en: Translations = {
     },
 
     librarySources: {
-      title: 'Library & storage sources',
-      description:
-        'Manage Google Drive accounts, connected Drive folders and local libraries in one place.',
+      title: 'Library management',
+      description: 'Manage Google Drive accounts, scan locations and local libraries in one place.',
       googleAccounts: 'Connected Google accounts',
       driveSources: 'Drive scan sources',
       localLibraries: 'Local libraries',
@@ -816,7 +815,7 @@ export const en: Translations = {
     },
 
     sourceManager: {
-      title: 'Library sources',
+      title: 'Sources & scanning',
       description: 'Manage Drive folders and local disk sources from the same table.',
       scanAll: 'Scan all sources',
       scanningAll: 'Starting scans…',
@@ -980,6 +979,27 @@ export const en: Translations = {
       saveFailed: 'The settings could not be saved.',
     },
 
+    apiManagement: {
+      title: 'API management',
+      description: 'Manage external metadata and subtitle service API keys for your user account.',
+      openSubtitlesTitle: 'OpenSubtitles',
+      openSubtitlesDescription: 'Online subtitle search and automatic download service.',
+      tmdbTitle: 'The Movie Database (TMDB)',
+      tmdbDescription: 'Movie and series metadata, poster, cast and rating service.',
+      tmdbApiKey: 'TMDB API key',
+      userKey: 'User key active',
+      environmentKey: 'Environment key active',
+      missingKey: 'API key missing',
+      writeOnlyHint: 'The stored key is never displayed again for security.',
+      keepExistingPlaceholder: 'Leave blank to keep the existing key',
+      saveProvider: 'Save settings',
+      removeUserKey: 'Remove user key',
+      openSubtitlesSaved: 'OpenSubtitles API settings saved.',
+      tmdbSaved: 'TMDB API key saved.',
+      keyRemoved: 'The user API key was removed.',
+      saveFailed: 'The API settings could not be saved.',
+    },
+
     database: {
       title: 'Database management',
       description: 'Reset and clean up the library database',
@@ -1054,19 +1074,23 @@ export const en: Translations = {
       profile: { label: 'Profile & security', description: 'Profile details and account password' },
       security: { label: 'Security & password', description: 'Change your account password' },
       appearance: {
-        label: 'Appearance, language & about',
-        description: 'Theme, interface language and application information',
+        label: 'Appearance & language',
+        description: 'Theme and interface language settings',
       },
       language: { label: 'Language', description: 'Change the interface language' },
       visibility: { label: 'Library visibility', description: 'Manage the metadata filter' },
       librarySources: {
-        label: 'Library sources',
-        description: 'Drive, local folders, visibility and database',
+        label: 'Library management',
+        description: 'Manage Drive accounts, scan locations and local folders',
       },
       google: { label: 'Google Drive', description: 'Connected Google accounts' },
       scan: { label: 'Library scan', description: 'Start a media scan' },
       localLibrary: { label: 'Local library', description: 'Manage local folders' },
       openSubtitles: { label: 'OpenSubtitles', description: 'Subtitle service settings' },
+      apiManagement: {
+        label: 'API management',
+        description: 'OpenSubtitles and TMDB API keys',
+      },
       database: { label: 'Database', description: 'Clear library data' },
       about: { label: 'About', description: 'CineDrive version information' },
       manage: { label: 'Data management', description: 'Bulk content operations' },

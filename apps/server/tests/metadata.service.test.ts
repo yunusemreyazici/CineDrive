@@ -65,7 +65,10 @@ describe('MetadataService', () => {
       const detailResponse = {
         id: 27205,
         imdb_id: 'tt1375666',
-        genres: [{ id: 28, name: 'Action' }, { id: 878, name: 'Science Fiction' }],
+        genres: [
+          { id: 28, name: 'Action' },
+          { id: 878, name: 'Science Fiction' },
+        ],
         poster_path: '/poster.jpg',
         backdrop_path: '/backdrop.jpg',
         overview: 'Dream within a dream.',
@@ -79,14 +82,10 @@ describe('MetadataService', () => {
           ],
         },
         videos: {
-          results: [
-            { key: 'YoHD9XEInc0', site: 'YouTube', type: 'Trailer' },
-          ],
+          results: [{ key: 'YoHD9XEInc0', site: 'YouTube', type: 'Trailer' }],
         },
         release_dates: {
-          results: [
-            { iso_3166_1: 'US', release_dates: [{ certification: 'PG-13' }] },
-          ],
+          results: [{ iso_3166_1: 'US', release_dates: [{ certification: 'PG-13' }] }],
         },
       };
 
@@ -119,6 +118,18 @@ describe('MetadataService', () => {
       expect(result?.contentRating).toBe('PG-13');
     });
 
+    it('prefers the user TMDB key over the deployment key', async () => {
+      process.env.TMDB_API_KEY = 'environment_key';
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ results: [] }), { status: 200 }));
+
+      await metadataService.fetchMetadata('User Key Movie', 'movie', 'user_key');
+
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('api_key=user_key');
+      expect(String(fetchSpy.mock.calls[0]?.[0])).not.toContain('environment_key');
+    });
+
     it('should return null when network requests throw error', async () => {
       delete process.env.TMDB_API_KEY;
 
@@ -145,9 +156,9 @@ describe('MetadataService', () => {
         },
       };
 
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify(tvMazeEmbeddedResponse), { status: 200 })
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify(tvMazeEmbeddedResponse), { status: 200 }));
 
       const episodesMap1 = await metadataService.fetchShowEpisodes('Breaking Bad');
       expect(episodesMap1.has('1x1')).toBe(true);

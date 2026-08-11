@@ -4,7 +4,8 @@ import { Loader2, Search, ChevronRight } from 'lucide-react';
 import { AccountSection } from './settings/sections/AccountSection';
 import { InterfaceSection } from './settings/sections/InterfaceSection';
 import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
-import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
+import { ApiManagementSection } from './settings/sections/ApiManagementSection';
+import { AboutSection } from './settings/sections/AboutSection';
 import { t } from '../i18n';
 import {
   SETTINGS_GROUPS,
@@ -34,8 +35,9 @@ const SettingsToolFallback: React.FC = () => (
 const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
   profile: <AccountSection />,
   appearance: <InterfaceSection />,
+  about: <AboutSection />,
   libraries: <LibrarySourcesSection />,
-  openSubtitles: <OpenSubtitlesSection />,
+  api: <ApiManagementSection />,
   manage: <MediaManagerPage />,
   storage: <StorageHealthPage />,
 };
@@ -101,9 +103,7 @@ export const SettingsPage: React.FC = () => {
                       <span className="block text-[13px] font-medium text-zinc-100">
                         {item.label}
                       </span>
-                      <span className="mt-0.5 block text-xs text-zinc-500">
-                        {item.description}
-                      </span>
+                      <span className="mt-0.5 block text-xs text-zinc-500">{item.description}</span>
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" />
                   </button>

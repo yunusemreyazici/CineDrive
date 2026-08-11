@@ -802,9 +802,9 @@ export const tr = {
     },
 
     librarySources: {
-      title: 'Kütüphane ve Depolama Kaynakları',
+      title: 'Kütüphane Yönetimi',
       description:
-        'Google Drive hesaplarını, bağlı Drive klasörlerini ve yerel kütüphaneleri tek yerden yönetin.',
+        'Google Drive hesaplarını, tarama alanlarını ve yerel kütüphaneleri tek yerden yönetin.',
       googleAccounts: 'Bağlı Google hesabı',
       driveSources: 'Drive tarama kaynağı',
       localLibraries: 'Yerel kütüphane',
@@ -817,7 +817,7 @@ export const tr = {
     },
 
     sourceManager: {
-      title: 'Kütüphane Kaynakları',
+      title: 'Kaynaklar ve Tarama',
       description: 'Drive klasörlerini ve yerel disk kaynaklarını aynı tablodan yönetin.',
       scanAll: 'Tüm Kaynakları Tara',
       scanningAll: 'Taramalar başlatılıyor...',
@@ -981,6 +981,28 @@ export const tr = {
       saveFailed: 'Ayarlar kaydedilemedi.',
     },
 
+    apiManagement: {
+      title: 'API Yönetimi',
+      description:
+        'Harici metadata ve altyazı servislerinin API anahtarlarını kullanıcı hesabınız için yönetin.',
+      openSubtitlesTitle: 'OpenSubtitles',
+      openSubtitlesDescription: 'Çevrimiçi altyazı arama ve otomatik indirme servisi.',
+      tmdbTitle: 'The Movie Database (TMDB)',
+      tmdbDescription: 'Film ve dizi metadata, poster, oyuncu ve derecelendirme servisi.',
+      tmdbApiKey: 'TMDB API Anahtarı',
+      userKey: 'Kullanıcı anahtarı aktif',
+      environmentKey: 'Ortam değişkeni aktif',
+      missingKey: 'API anahtarı eksik',
+      writeOnlyHint: 'Kayıtlı anahtar güvenlik nedeniyle tekrar gösterilmez.',
+      keepExistingPlaceholder: 'Boş bırakırsanız mevcut anahtar korunur',
+      saveProvider: 'Ayarları Kaydet',
+      removeUserKey: 'Kullanıcı Anahtarını Kaldır',
+      openSubtitlesSaved: 'OpenSubtitles API ayarları kaydedildi.',
+      tmdbSaved: 'TMDB API anahtarı kaydedildi.',
+      keyRemoved: 'Kullanıcı API anahtarı kaldırıldı.',
+      saveFailed: 'API ayarları kaydedilemedi.',
+    },
+
     database: {
       title: 'Veritabanı Yönetimi',
       description: 'Kütüphane veritabanı sıfırlama ve temizlik işlemleri',
@@ -1055,19 +1077,23 @@ export const tr = {
       profile: { label: 'Profil ve Güvenlik', description: 'Profil bilgileri ve hesap şifresi' },
       security: { label: 'Güvenlik ve Şifre', description: 'Hesap şifresini değiştirin' },
       appearance: {
-        label: 'Görünüm, Dil ve Hakkında',
-        description: 'Tema, arayüz dili ve uygulama bilgileri',
+        label: 'Görünüm ve Dil',
+        description: 'Tema ve arayüz dili ayarları',
       },
       language: { label: 'Dil', description: 'Arayüz dilini değiştirin' },
       visibility: { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin' },
       librarySources: {
-        label: 'Kütüphane Kaynakları',
-        description: 'Drive, yerel klasörler, görünürlük ve veritabanı',
+        label: 'Kütüphane Yönetimi',
+        description: 'Drive hesaplarını, tarama alanlarını ve yerel klasörleri yönetin',
       },
       google: { label: 'Google Drive', description: 'Bağlı Google hesapları' },
       scan: { label: 'Kütüphane Taraması', description: 'Medya taramasını başlatın' },
       localLibrary: { label: 'Yerel Kütüphane', description: 'Yerel klasörleri yönetin' },
       openSubtitles: { label: 'OpenSubtitles', description: 'Altyazı servisi ayarları' },
+      apiManagement: {
+        label: 'API Yönetimi',
+        description: 'OpenSubtitles ve TMDB API anahtarları',
+      },
       database: { label: 'Veritabanı', description: 'Kütüphane verilerini temizleyin' },
       about: { label: 'Hakkında', description: 'CineDrive sürüm bilgisi' },
       manage: { label: 'Veri Yönetimi', description: 'Toplu içerik işlemleri' },
