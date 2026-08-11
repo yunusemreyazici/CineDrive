@@ -35,12 +35,11 @@ export function useLoginMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: LoginInput) => {
-      try {
-        const res = await apiClient.post<{ user: UserDto }>('/auth/login', data);
-        return res.data.user;
-      } catch (err) {
-        throw parseApiError(err);
-      }
+      // Keep ApiRequestError intact. LoginPage is the presentation boundary
+      // that parses it; converting it here and parsing the plain object again
+      // hid useful server errors behind the generic "unexpected" message.
+      const res = await apiClient.post<{ user: UserDto }>('/auth/login', data);
+      return res.data.user;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session'] });

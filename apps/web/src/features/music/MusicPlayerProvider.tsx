@@ -82,6 +82,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const queueRef = useRef<MusicQueueEntry[]>([]);
   const currentQueueItemIdRef = useRef<string | null>(null);
   const revisionRef = useRef(0);
+  const syncInFlightRef = useRef(false);
+  const syncQueuedRef = useRef(false);
   const historyRecordedRef = useRef(new Set<string>());
   const pendingPlayRef = useRef(false);
   const restoredPositionRef = useRef(0);
@@ -265,20 +267,36 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   ]);
 
   const sync = useCallback(async () => {
-    const state = snapshot();
+    // Slow SQLite writes used to let the ten-second timer start another full
+    // queue transaction before the previous one completed. Coalesce every
+    // overlapping request into one follow-up write with the latest snapshot.
+    if (syncInFlightRef.current) {
+      syncQueuedRef.current = true;
+      return;
+    }
+
+    syncInFlightRef.current = true;
     try {
-      const result = await saveMusicPlaybackState(state);
-      revisionRef.current = result.revision;
-    } catch (error) {
-      if (!(error instanceof ApiRequestError) || error.status !== 409) return;
-      try {
-        const remote = await fetchMusicPlaybackState();
-        revisionRef.current = remote.revision;
-        const result = await saveMusicPlaybackState({ ...state, revision: remote.revision });
-        revisionRef.current = result.revision;
-      } catch {
-        // The next periodic sync retries without interrupting playback.
-      }
+      do {
+        syncQueuedRef.current = false;
+        const state = snapshot();
+        try {
+          const result = await saveMusicPlaybackState(state);
+          revisionRef.current = result.revision;
+        } catch (error) {
+          if (!(error instanceof ApiRequestError) || error.status !== 409) continue;
+          try {
+            const remote = await fetchMusicPlaybackState();
+            revisionRef.current = remote.revision;
+            const result = await saveMusicPlaybackState({ ...state, revision: remote.revision });
+            revisionRef.current = result.revision;
+          } catch {
+            // The next queued or periodic sync retries without interrupting playback.
+          }
+        }
+      } while (syncQueuedRef.current);
+    } finally {
+      syncInFlightRef.current = false;
     }
   }, [snapshot]);
 

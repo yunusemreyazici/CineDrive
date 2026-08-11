@@ -4,6 +4,7 @@ import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import type { FastifyPluginAsync, FastifyInstance } from 'fastify';
 import { env } from '../config/env.js';
+import { configureDatabaseUrl } from '../config/database-url.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -23,6 +24,7 @@ export const prismaPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstan
   }
 
   const prisma = new PrismaClient({
+    datasourceUrl: configureDatabaseUrl(env.DATABASE_URL),
     log: fastify.log.level === 'debug' ? ['query', 'info', 'warn', 'error'] : ['error'],
   });
 
