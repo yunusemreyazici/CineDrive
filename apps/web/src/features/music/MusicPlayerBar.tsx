@@ -122,7 +122,7 @@ export const MusicPlayerBar: React.FC = () => {
         </aside>
       )}
       {drawer !== 'nowPlaying' && !(drawer === 'audio' && audioReturnDrawer === 'nowPlaying') && (
-        <div className="fixed bottom-0 left-0 right-0 z-[60] isolate overflow-hidden border-t border-white/10 bg-[#0a0b0d]/90 px-3 py-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.35)] backdrop-blur-2xl lg:left-[var(--music-sidebar-offset,220px)]">
+        <div className="fixed bottom-0 left-0 right-0 z-[60] isolate overflow-hidden border-t border-white/10 bg-[#0a0b0d]/90 px-3 py-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.35)] backdrop-blur-2xl lg:left-[var(--app-sidebar-offset,220px)]">
           {track.artworkUrl && (
             <img
               src={track.artworkUrl}

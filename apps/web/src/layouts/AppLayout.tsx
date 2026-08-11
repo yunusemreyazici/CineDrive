@@ -23,7 +23,6 @@ export const AppLayout: React.FC = () => {
   const location = useLocation();
   const isMusicRoute = location.pathname === '/music' || location.pathname.startsWith('/music/');
   const appSidebarOffset = sidebarCollapsed ? 72 : 220;
-  const playerOffset = appSidebarOffset + (isMusicRoute ? 272 : 0);
 
   return (
     <MusicPlayerProvider>
@@ -32,7 +31,6 @@ export const AppLayout: React.FC = () => {
         style={
           {
             '--app-sidebar-offset': `${appSidebarOffset}px`,
-            '--music-sidebar-offset': `${playerOffset}px`,
           } as React.CSSProperties
         }
       >
@@ -48,7 +46,7 @@ export const AppLayout: React.FC = () => {
               isMusicRoute ? 'min-w-0 transition-[margin] duration-300 lg:ml-[272px]' : 'min-w-0'
             }
           >
-            <Navbar />
+            {!isMusicRoute && <Navbar />}
             <main
               className={`mx-auto w-full max-w-[1600px] py-4 pb-28 md:pb-28 ${
                 isMusicRoute ? 'px-4 md:px-[18px] md:py-4' : 'px-4 md:px-6 md:py-5'
