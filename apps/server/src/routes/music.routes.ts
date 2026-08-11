@@ -45,6 +45,11 @@ import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicMaintenanceService, audioQuality } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
 
+// A native media player can probe many queued assets at once. Keep one client
+// from turning those probes into hundreds of simultaneous Google Drive streams
+// that exhaust the server's sockets and collapse unrelated network traffic.
+const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 4;
+
 const normalizeMusicName = (value: string) =>
   value
     .normalize('NFKD')
@@ -140,6 +145,59 @@ const albumDto = (album: {
 });
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
+  const activeDirectTransfers = new Map<string, Set<AbortController>>();
+
+  const beginDirectTransfer = (
+    userId: string,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): { signal: AbortSignal; abort: () => void; release: () => void } | null => {
+    const active = activeDirectTransfers.get(userId) || new Set<AbortController>();
+    if (active.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER) return null;
+
+    const controller = new AbortController();
+    active.add(controller);
+    activeDirectTransfers.set(userId, active);
+    let released = false;
+
+    const release = () => {
+      if (released) return;
+      released = true;
+      request.raw.removeListener('aborted', abort);
+      reply.raw.removeListener('close', onResponseClose);
+      reply.raw.removeListener('finish', release);
+      reply.raw.removeListener('error', abort);
+      active.delete(controller);
+      if (active.size === 0) activeDirectTransfers.delete(userId);
+    };
+    const abort = () => {
+      controller.abort();
+      release();
+    };
+    const onResponseClose = () => {
+      if (!reply.raw.writableEnded) abort();
+      else release();
+    };
+
+    request.raw.once('aborted', abort);
+    reply.raw.once('close', onResponseClose);
+    reply.raw.once('finish', release);
+    reply.raw.once('error', abort);
+    return { signal: controller.signal, abort, release };
+  };
+
+  const transferCapacityError = (request: FastifyRequest, reply: FastifyReply) =>
+    reply
+      .header('Retry-After', '2')
+      .status(429)
+      .send({
+        error: {
+          code: 'MUSIC_TRANSFER_CAPACITY_REACHED',
+          message: 'Aynı anda çok fazla müzik aktarımı açık. Kısa süre sonra tekrar deneyin.',
+          requestId: request.id,
+        },
+      });
+
   const lyricsService = new MusicLyricsService(fastify.prisma);
   const musicbrainz = new MusicBrainzService();
   const discoveryService = new MusicDiscoveryService(fastify.prisma);
@@ -2182,10 +2240,22 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
     }
 
+    if (head) {
+      reply
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
+        .header('Accept-Ranges', 'bytes');
+      if (size !== null) reply.header('Content-Length', size);
+      return reply.send();
+    }
+
+    const transfer = beginDirectTransfer(userId, request, reply);
+    if (!transfer) return transferCapacityError(request, reply);
+
     let token: string;
     try {
       ({ accessToken: token } = await fastify.driveAccessService.getAccess(userId, file));
     } catch {
+      transfer.release();
       return reply.status(401).send({
         error: {
           code: 'GOOGLE_AUTH_REQUIRED',
@@ -2194,20 +2264,28 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-    if (head) {
-      reply
-        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
-        .header('Accept-Ranges', 'bytes');
-      if (size !== null) reply.header('Content-Length', size);
-      return reply.send();
+    if (transfer.signal.aborted) {
+      transfer.release();
+      return reply.status(499).send();
     }
     const upstreamRange =
       resolution.kind === 'range' ? `bytes=${resolution.start}-${resolution.end}` : range;
-    const upstream = await fastify.driveService.createMediaStream(
-      token,
-      file.googleDriveFileId!,
-      upstreamRange,
-    );
+    let upstream: Awaited<ReturnType<typeof fastify.driveService.createMediaStream>>;
+    try {
+      upstream = await fastify.driveService.createMediaStream(
+        token,
+        file.googleDriveFileId!,
+        upstreamRange,
+        transfer.signal,
+      );
+    } catch (error) {
+      transfer.release();
+      throw error;
+    }
+    upstream.stream.on('error', (streamError) => {
+      transfer.abort();
+      if (!reply.raw.writableEnded) reply.raw.destroy(streamError);
+    });
     for (const [key, value] of Object.entries(upstream.headers)) reply.header(key, value);
     reply
       .header('Content-Disposition', downloadDisposition(downloadName))
@@ -2347,10 +2425,22 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         ? reply.send()
         : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
     }
+    if (head) {
+      reply
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
+        .header('Accept-Ranges', 'bytes');
+      if (size !== null) reply.header('Content-Length', size);
+      return reply.send();
+    }
+
+    const transfer = beginDirectTransfer(userId, request, reply);
+    if (!transfer) return transferCapacityError(request, reply);
+
     let token: string;
     try {
       ({ accessToken: token } = await fastify.driveAccessService.getAccess(userId, file));
     } catch {
+      transfer.release();
       return reply.status(401).send({
         error: {
           code: 'GOOGLE_AUTH_REQUIRED',
@@ -2359,18 +2449,28 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-    if (head)
-      return reply
-        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
-        .header('Accept-Ranges', 'bytes')
-        .send();
+    if (transfer.signal.aborted) {
+      transfer.release();
+      return reply.status(499).send();
+    }
     const upstreamRange =
       resolution.kind === 'range' ? `bytes=${resolution.start}-${resolution.end}` : range;
-    const upstream = await fastify.driveService.createMediaStream(
-      token,
-      file.googleDriveFileId!,
-      upstreamRange,
-    );
+    let upstream: Awaited<ReturnType<typeof fastify.driveService.createMediaStream>>;
+    try {
+      upstream = await fastify.driveService.createMediaStream(
+        token,
+        file.googleDriveFileId!,
+        upstreamRange,
+        transfer.signal,
+      );
+    } catch (error) {
+      transfer.release();
+      throw error;
+    }
+    upstream.stream.on('error', (streamError) => {
+      transfer.abort();
+      if (!reply.raw.writableEnded) reply.raw.destroy(streamError);
+    });
     for (const [key, value] of Object.entries(upstream.headers)) reply.header(key, value);
     reply
       .header(

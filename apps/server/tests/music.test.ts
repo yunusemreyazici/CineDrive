@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
@@ -816,6 +816,122 @@ describe('Music library', () => {
     expect(stream.statusCode).toBe(206);
     expect(stream.headers['content-range']).toBe('bytes 10-19/256');
     expect(stream.rawPayload).toHaveLength(10);
+  });
+
+  it('reports remote stream length on HEAD without opening a Drive transfer', async () => {
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: trackId } },
+      data: {
+        storageType: 'gdrive',
+        localFilePath: null,
+        googleDriveFileId: `music-head-${randomUUID()}`,
+      },
+    });
+    const access = vi.spyOn(app.driveAccessService, 'getAccess');
+    const mediaStream = vi.spyOn(app.driveService, 'createMediaStream');
+
+    const response = await app.inject({
+      method: 'HEAD',
+      url: `/api/music/tracks/${trackId}/stream`,
+      cookies: { session_id: cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-length']).toBe('256');
+    expect(response.headers['accept-ranges']).toBe('bytes');
+    expect(access).not.toHaveBeenCalled();
+    expect(mediaStream).not.toHaveBeenCalled();
+  });
+
+  it('cancels remote Drive music transfers through an AbortSignal', async () => {
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: trackId } },
+      data: {
+        storageType: 'gdrive',
+        localFilePath: null,
+        googleDriveFileId: `music-stream-${randomUUID()}`,
+      },
+    });
+    vi.spyOn(app.driveAccessService, 'getAccess').mockResolvedValue({
+      accessToken: 'music-access-token',
+      connectionId: 'music-connection',
+    });
+    const mediaStream = vi.spyOn(app.driveService, 'createMediaStream').mockImplementation(
+      async (_token, _fileId, _range, _signal) => ({
+        stream: Readable.from(Buffer.from('remote-music')),
+        status: 206,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': '12',
+          'content-range': `bytes 0-11/256`,
+          'accept-ranges': 'bytes',
+        },
+      }),
+    );
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/music/tracks/${trackId}/stream`,
+        headers: { range: 'bytes=0-11' },
+        cookies: { session_id: cookie },
+      });
+      expect(response.statusCode).toBe(206);
+      expect(response.body).toBe('remote-music');
+    }
+
+    expect(mediaStream).toHaveBeenCalledTimes(5);
+    const signal = mediaStream.mock.calls[0]?.[3];
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('limits concurrent remote music transfers per user', async () => {
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: trackId } },
+      data: {
+        storageType: 'gdrive',
+        localFilePath: null,
+        googleDriveFileId: `music-capacity-${randomUUID()}`,
+      },
+    });
+    vi.spyOn(app.driveAccessService, 'getAccess').mockResolvedValue({
+      accessToken: 'music-access-token',
+      connectionId: 'music-connection',
+    });
+    const streams: PassThrough[] = [];
+    vi.spyOn(app.driveService, 'createMediaStream').mockImplementation(async () => {
+      const stream = new PassThrough();
+      streams.push(stream);
+      return {
+        stream,
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg', 'accept-ranges': 'bytes' },
+      };
+    });
+
+    const activeRequests = Array.from({ length: 4 }, () =>
+      app.inject({
+        method: 'GET',
+        url: `/api/music/tracks/${trackId}/stream`,
+        cookies: { session_id: cookie },
+      }),
+    );
+    for (let attempt = 0; attempt < 50 && streams.length < 4; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(streams).toHaveLength(4);
+
+    const overflow = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/stream`,
+      cookies: { session_id: cookie },
+    });
+    expect(overflow.statusCode).toBe(429);
+    expect(JSON.parse(overflow.body).error.code).toBe('MUSIC_TRANSFER_CAPACITY_REACHED');
+
+    streams.forEach((stream) => stream.end('music'));
+    const completed = await Promise.all(activeRequests);
+    expect(completed.every((response) => response.statusCode === 200)).toBe(true);
   });
 
   it('normalizes generic stored MIME types before direct music streaming', async () => {
