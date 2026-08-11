@@ -237,27 +237,147 @@ describe('Google OAuth Routes Integration Tests', () => {
     expect(body.connected).toBeDefined();
   });
 
-  it('does not unlink a Google account while a Drive scan source still uses it', async () => {
+  it('removes a Google account and its indexed content while preserving other accounts', async () => {
     const owner = await app.authService.ensureAdminUserExists();
+    const suffix = Date.now();
     const connection = await app.prisma.googleConnection.create({
       data: {
         userId: owner.id,
-        googleAccountId: `guarded-source-${Date.now()}`,
-        email: 'guarded-source@cinedrive.test',
+        googleAccountId: `remove-account-${suffix}`,
+        email: `remove-account-${suffix}@cinedrive.test`,
+        encryptedRefreshToken: 'not-used-by-this-test',
+        scopes: 'drive.readonly',
+      },
+    });
+    const keeperConnection = await app.prisma.googleConnection.create({
+      data: {
+        userId: owner.id,
+        googleAccountId: `keep-account-${suffix}`,
+        email: `keep-account-${suffix}@cinedrive.test`,
         encryptedRefreshToken: 'not-used-by-this-test',
         scopes: 'drive.readonly',
       },
     });
     const library = await app.prisma.library.create({
-      data: { userId: owner.id, name: 'Guarded Drive', storageType: 'gdrive' },
+      data: {
+        userId: owner.id,
+        name: `Account Cleanup ${suffix}`,
+        storageType: 'gdrive',
+        googleConnectionId: connection.id,
+        rootFolderId: `remove-folder-${suffix}`,
+      },
     });
-    await app.prisma.driveScanSource.create({
+    const source = await app.prisma.driveScanSource.create({
       data: {
         libraryId: library.id,
         googleConnectionId: connection.id,
-        rootFolderId: 'guarded-folder',
+        rootFolderId: `remove-folder-${suffix}`,
       },
     });
+    const keeperSource = await app.prisma.driveScanSource.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: keeperConnection.id,
+        rootFolderId: `keep-folder-${suffix}`,
+      },
+    });
+
+    const makeMovie = async (prefix: string, connectionId: string, sourceId: string) => {
+      const file = await app.prisma.driveFile.create({
+        data: {
+          libraryId: library.id,
+          googleConnectionId: connectionId,
+          driveScanSourceId: sourceId,
+          googleDriveFileId: `${prefix}-movie-file-${suffix}`,
+          name: `${prefix} Movie.mp4`,
+          mimeType: 'video/mp4',
+        },
+      });
+      const media = await app.prisma.mediaItem.create({
+        data: {
+          libraryId: library.id,
+          type: 'movie',
+          title: `${prefix} Movie`,
+          normalizedTitle: `${prefix.toLowerCase()} movie ${suffix}`,
+        },
+      });
+      await app.prisma.movie.create({ data: { mediaItemId: media.id, driveFileId: file.id } });
+      return { file, media };
+    };
+    const removedMovie = await makeMovie('Removed', connection.id, source.id);
+    const keptMovie = await makeMovie('Kept', keeperConnection.id, keeperSource.id);
+
+    const seriesMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: library.id,
+        type: 'series',
+        title: 'Shared Account Series',
+        normalizedTitle: `shared account series ${suffix}`,
+      },
+    });
+    const series = await app.prisma.series.create({ data: { mediaItemId: seriesMedia.id } });
+    const season = await app.prisma.season.create({
+      data: { seriesId: series.id, seasonNumber: 1 },
+    });
+    const removedEpisodeFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: source.id,
+        googleDriveFileId: `removed-episode-${suffix}`,
+        name: 'Shared Account Series S01E01.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    const keptEpisodeFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: keeperConnection.id,
+        driveScanSourceId: keeperSource.id,
+        googleDriveFileId: `kept-episode-${suffix}`,
+        name: 'Shared Account Series S01E02.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    await app.prisma.episode.createMany({
+      data: [
+        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: removedEpisodeFile.id, seasonNumber: 1, episodeNumber: 1, title: 'Episode 1' },
+        { seriesId: series.id, seasonId: season.id, mediaItemId: seriesMedia.id, driveFileId: keptEpisodeFile.id, seasonNumber: 1, episodeNumber: 2, title: 'Episode 2' },
+      ],
+    });
+
+    const subtitleFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: source.id,
+        googleDriveFileId: `removed-subtitle-${suffix}`,
+        name: 'Kept Movie.tr.srt',
+        mimeType: 'application/x-subrip',
+      },
+    });
+    const subtitle = await app.prisma.subtitleTrack.create({
+      data: { mediaItemId: keptMovie.media.id, driveFileId: subtitleFile.id, language: 'tr' },
+    });
+    const audioFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: source.id,
+        googleDriveFileId: `removed-audio-${suffix}`,
+        name: 'Removed Song.flac',
+        mimeType: 'audio/flac',
+      },
+    });
+    const musicTrack = await app.prisma.musicTrack.create({
+      data: {
+        libraryId: library.id,
+        driveFileId: audioFile.id,
+        title: 'Removed Song',
+        normalizedTitle: `removed song ${suffix}`,
+      },
+    });
+
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
@@ -272,11 +392,36 @@ describe('Google OAuth Routes Integration Tests', () => {
       },
     });
 
-    expect(response.statusCode).toBe(409);
-    expect(JSON.parse(response.body).error.code).toBe('GOOGLE_CONNECTION_HAS_SOURCES');
-    expect(await app.prisma.googleConnection.findUnique({ where: { id: connection.id } })).not.toBeNull();
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).removed).toEqual({
+      connections: 1,
+      sources: 1,
+      files: 4,
+      media: 1,
+    });
+    expect(await app.prisma.googleConnection.findUnique({ where: { id: connection.id } })).toBeNull();
+    expect(await app.prisma.driveScanSource.findUnique({ where: { id: source.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: removedMovie.file.id } })).toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: removedMovie.media.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: removedEpisodeFile.id } })).toBeNull();
+    expect(await app.prisma.subtitleTrack.findUnique({ where: { id: subtitle.id } })).toBeNull();
+    expect(await app.prisma.musicTrack.findUnique({ where: { id: musicTrack.id } })).toBeNull();
+
+    expect(await app.prisma.googleConnection.findUnique({ where: { id: keeperConnection.id } })).not.toBeNull();
+    expect(await app.prisma.driveScanSource.findUnique({ where: { id: keeperSource.id } })).not.toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: keptMovie.file.id } })).not.toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: keptMovie.media.id } })).not.toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: keptEpisodeFile.id } })).not.toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: seriesMedia.id } })).not.toBeNull();
+    expect(await app.prisma.episode.findMany({ where: { mediaItemId: seriesMedia.id } })).toHaveLength(1);
+    expect(await app.prisma.library.findUnique({ where: { id: library.id } })).toEqual(
+      expect.objectContaining({
+        googleConnectionId: keeperConnection.id,
+        rootFolderId: keeperSource.rootFolderId,
+      }),
+    );
 
     await app.prisma.library.delete({ where: { id: library.id } });
-    await app.prisma.googleConnection.delete({ where: { id: connection.id } });
+    await app.prisma.googleConnection.delete({ where: { id: keeperConnection.id } });
   });
 });

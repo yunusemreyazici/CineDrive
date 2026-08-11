@@ -1,8 +1,24 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { loginSchema, updateProfileSchema, changePasswordSchema, type LoginInput, type UserDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
+import {
+  GoogleConnectionCleanupService,
+  type RemovedGoogleConnectionContent,
+} from '../services/google-connection-cleanup.service.js';
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
+  const googleConnectionCleanup = new GoogleConnectionCleanupService(fastify.prisma);
+
+  const emptyRemoval = (): RemovedGoogleConnectionContent => ({ sources: 0, files: 0, media: 0 });
+  const addRemoval = (
+    total: RemovedGoogleConnectionContent,
+    removed: RemovedGoogleConnectionContent,
+  ) => ({
+    sources: total.sources + removed.sources,
+    files: total.files + removed.files,
+    media: total.media + removed.media,
+  });
+
   // POST /api/auth/login (Brute-force protection: max 5 requests per minute per IP)
   fastify.post<{ Body: LoginInput }>(
     '/login',
@@ -211,20 +227,36 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/auth/google: Unlinks Google account
   fastify.delete('/google', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const userId = request.user!.id;
-    const sourceCount = await fastify.prisma.driveScanSource.count({
-      where: { googleConnection: { userId } },
+    const connections = await fastify.prisma.googleConnection.findMany({
+      where: { userId },
+      select: { id: true },
     });
-    if (sourceCount > 0) {
+    const affectedLibraryIds = await googleConnectionCleanup.getAffectedLibraryIds(
+      userId,
+      connections.map((connection) => connection.id),
+    );
+    if (affectedLibraryIds.some((libraryId) => fastify.libraryScanService.isScanning(libraryId))) {
       return reply.status(409).send({
         error: {
-          code: 'GOOGLE_CONNECTION_HAS_SOURCES',
-          message: 'Önce bu hesaplara bağlı Drive tarama kaynaklarını kaldırın.',
+          code: 'SCAN_ALREADY_IN_PROGRESS',
+          message: 'Tarama sürerken Google hesapları kaldırılamaz.',
           requestId: request.id,
         },
       });
     }
+
+    let removed = emptyRemoval();
+    for (const connection of connections) {
+      removed = addRemoval(
+        removed,
+        await googleConnectionCleanup.removeConnectionContent(userId, connection.id),
+      );
+    }
     await fastify.googleOAuthService.unlinkGoogleAccount(userId);
-    return reply.status(200).send({ success: true });
+    return reply.status(200).send({
+      success: true,
+      removed: { connections: connections.length, ...removed },
+    });
   });
 
   // GET /api/auth/google/status: Check Google Connection Status
@@ -261,20 +293,36 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const userId = request.user!.id;
       const { id } = request.params;
-      const sourceCount = await fastify.prisma.driveScanSource.count({
-        where: { googleConnectionId: id, googleConnection: { userId } },
+      const connection = await fastify.prisma.googleConnection.findFirst({
+        where: { id, userId },
+        select: { id: true },
       });
-      if (sourceCount > 0) {
-        return reply.status(409).send({
+      if (!connection) {
+        return reply.status(404).send({
           error: {
-            code: 'GOOGLE_CONNECTION_HAS_SOURCES',
-            message: 'Önce bu hesaba bağlı Drive tarama kaynaklarını kaldırın.',
+            code: 'GOOGLE_CONNECTION_NOT_FOUND',
+            message: 'Google hesabı bağlantısı bulunamadı.',
             requestId: request.id,
           },
         });
       }
+      const affectedLibraryIds = await googleConnectionCleanup.getAffectedLibraryIds(userId, [id]);
+      if (affectedLibraryIds.some((libraryId) => fastify.libraryScanService.isScanning(libraryId))) {
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message: 'Tarama sürerken Google hesabı kaldırılamaz.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const removed = await googleConnectionCleanup.removeConnectionContent(userId, id);
       await fastify.googleOAuthService.unlinkGoogleAccount(userId, id);
-      return reply.status(200).send({ success: true });
+      return reply.status(200).send({
+        success: true,
+        removed: { connections: 1, ...removed },
+      });
     },
   );
 

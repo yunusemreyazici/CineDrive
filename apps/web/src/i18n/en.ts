@@ -813,12 +813,22 @@ export const en: Translations = {
       connectedAccounts: 'Connected Google accounts:',
       remove: 'Remove',
       sourcesInUse: (count: number) => `Used by ${count} Drive source${count === 1 ? '' : 's'}`,
-      removeSourcesFirst: 'Remove the Drive sources connected to this account first.',
-      removed: 'The Google account was disconnected.',
+      removeTitle: 'Remove Google account and content',
+      removeBody: (sourceCount: number) =>
+        `This account's ${sourceCount} Drive source${sourceCount === 1 ? '' : 's'} and indexed movies, episodes, subtitles and music will be removed from CineDrive. Files in Google Drive will not be changed.`,
+      removeConfirm: 'Remove Account and Content',
+      removing: 'Removing…',
+      removed: (files: number, media: number) =>
+        `The Google account was removed along with ${files} files and ${media} media records.`,
       removeFailed: 'The connection could not be removed.',
       addAnother: '+ Connect another Google account',
       clearAll: 'Remove all account connections',
-      cleared: 'All Google connections were removed.',
+      clearTitle: 'Remove all Google accounts and content',
+      clearBody: (connectionCount: number, sourceCount: number) =>
+        `${connectionCount} Google account${connectionCount === 1 ? '' : 's'} and content indexed from ${sourceCount} Drive source${sourceCount === 1 ? '' : 's'} will be removed from CineDrive. Files in Google Drive will be preserved.`,
+      clearConfirm: 'Remove All Accounts and Content',
+      cleared: (files: number, media: number) =>
+        `All Google connections were removed along with ${files} files and ${media} media records.`,
       clearFailed: 'The connections could not be removed.',
       connectPrompt:
         'Authorise Google to scan and stream the media folders in your Google Drive or shared drives.',

@@ -815,12 +815,22 @@ export const tr = {
       connectedAccounts: 'Bağlı Google Hesapları:',
       remove: 'Kaldır',
       sourcesInUse: (count: number) => `${count} Drive kaynağı tarafından kullanılıyor`,
-      removeSourcesFirst: 'Önce bu hesaba bağlı Drive kaynaklarını kaldırın.',
-      removed: 'Google hesabı bağlantısı kaldırıldı.',
+      removeTitle: 'Google hesabını ve içeriklerini kaldır',
+      removeBody: (sourceCount: number) =>
+        `Bu hesaba bağlı ${sourceCount} Drive kaynağı, indekslenmiş filmler, bölümler, altyazılar ve müzikler CineDrive’dan kaldırılacak. Google Drive’daki gerçek dosyalara dokunulmayacak.`,
+      removeConfirm: 'Hesabı ve İçerikleri Kaldır',
+      removing: 'Kaldırılıyor...',
+      removed: (files: number, media: number) =>
+        `Google hesabı kaldırıldı; ${files} dosya ve ${media} medya kaydı temizlendi.`,
       removeFailed: 'Bağlantı kaldırılamadı.',
       addAnother: '+ Başka Google Hesabı Bağla',
       clearAll: 'Tüm Hesap Bağlantılarını Temizle',
-      cleared: 'Tüm Google bağlantıları temizlendi.',
+      clearTitle: 'Tüm Google hesaplarını ve içeriklerini kaldır',
+      clearBody: (connectionCount: number, sourceCount: number) =>
+        `${connectionCount} Google hesabı ve bunlara bağlı ${sourceCount} Drive kaynağından indekslenen bütün içerikler CineDrive’dan kaldırılacak. Google Drive’daki gerçek dosyalar korunacak.`,
+      clearConfirm: 'Tüm Hesapları ve İçerikleri Kaldır',
+      cleared: (files: number, media: number) =>
+        `Tüm Google bağlantıları kaldırıldı; ${files} dosya ve ${media} medya kaydı temizlendi.`,
       clearFailed: 'Bağlantılar temizlenemedi.',
       connectPrompt:
         'Google Drive hesabınızdaki veya Ortak Sürücülerinizdeki (Shared Drives) medya klasörlerini taramak ve izlemek için Google yetkilendirmesini tamamlamalısınız.',

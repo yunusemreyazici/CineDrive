@@ -86,15 +86,29 @@ export function useGoogleConnectionsQuery() {
   });
 }
 
+interface GoogleConnectionRemovalResult {
+  connections: number;
+  sources: number;
+  files: number;
+  media: number;
+}
+
 export function useUnlinkGoogleMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await apiClient.delete('/auth/google');
+      try {
+        const response = await apiClient.delete<{
+          success: boolean;
+          removed: GoogleConnectionRemovalResult;
+        }>('/auth/google');
+        return response.data.removed;
+      } catch (err) {
+        throw parseApiError(err);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['googleStatus'] });
-      queryClient.invalidateQueries({ queryKey: ['googleConnections'] });
+      queryClient.invalidateQueries();
     },
   });
 }
@@ -103,11 +117,18 @@ export function useUnlinkGoogleConnectionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      await apiClient.delete(`/auth/google/connections/${id}`);
+      try {
+        const response = await apiClient.delete<{
+          success: boolean;
+          removed: GoogleConnectionRemovalResult;
+        }>(`/auth/google/connections/${id}`);
+        return response.data.removed;
+      } catch (err) {
+        throw parseApiError(err);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['googleStatus'] });
-      queryClient.invalidateQueries({ queryKey: ['googleConnections'] });
+      queryClient.invalidateQueries();
     },
   });
 }
