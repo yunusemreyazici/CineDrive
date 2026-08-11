@@ -994,7 +994,10 @@ export const tr = {
     search: {
       profile: { label: 'Profil Bilgileri', description: 'Ad ve e-posta' },
       security: { label: 'Güvenlik ve Şifre', description: 'Hesap şifresini değiştirin' },
-      appearance: { label: 'Görünüm ve Temalar', description: 'Arayüz renk temasını seçin' },
+      appearance: {
+        label: 'Görünüm, Dil ve Hakkında',
+        description: 'Tema, arayüz dili ve uygulama bilgileri',
+      },
       language: { label: 'Dil', description: 'Arayüz dilini değiştirin' },
       visibility: { label: 'Kütüphane Görünürlüğü', description: 'Metadata filtresini yönetin' },
       librarySources: {

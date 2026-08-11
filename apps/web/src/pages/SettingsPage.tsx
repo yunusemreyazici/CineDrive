@@ -3,10 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { Loader2, Search, ChevronRight } from 'lucide-react';
 import { ProfileSection } from './settings/sections/ProfileSection';
 import { SecuritySection } from './settings/sections/SecuritySection';
-import { AppearanceSection, LanguageSection } from './settings/sections/AppearanceSection';
+import { InterfaceSection } from './settings/sections/InterfaceSection';
 import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
 import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
-import { AboutSection } from './settings/sections/AboutSection';
 import { t } from '../i18n';
 import {
   SETTINGS_GROUPS,
@@ -39,14 +38,12 @@ const SettingsToolFallback: React.FC = () => (
 const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
   profile: <ProfileSection />,
   security: <SecuritySection />,
-  appearance: <AppearanceSection />,
-  language: <LanguageSection />,
+  appearance: <InterfaceSection />,
   libraries: <LibrarySourcesSection />,
   openSubtitles: <OpenSubtitlesSection />,
   manage: <MediaManagerPage />,
   storage: <InsightsPage />,
   health: <MediaHealthPage />,
-  about: <AboutSection />,
 };
 
 export const SettingsPage: React.FC = () => {
@@ -101,7 +98,7 @@ export const SettingsPage: React.FC = () => {
               {searchResults.length > 0 ? (
                 searchResults.map((item) => (
                   <button
-                    key={item.pane}
+                    key={`${item.pane}-${item.label}`}
                     type="button"
                     onClick={() => openSearchResult(item)}
                     className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-900 focus:outline-none focus-visible:bg-zinc-900"

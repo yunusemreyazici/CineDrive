@@ -992,7 +992,10 @@ export const en: Translations = {
     search: {
       profile: { label: 'Profile', description: 'Name and email' },
       security: { label: 'Security & password', description: 'Change your account password' },
-      appearance: { label: 'Appearance & themes', description: 'Pick the interface colour theme' },
+      appearance: {
+        label: 'Appearance, language & about',
+        description: 'Theme, interface language and application information',
+      },
       language: { label: 'Language', description: 'Change the interface language' },
       visibility: { label: 'Library visibility', description: 'Manage the metadata filter' },
       librarySources: {

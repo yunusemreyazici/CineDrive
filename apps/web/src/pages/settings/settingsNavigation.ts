@@ -5,8 +5,6 @@ import {
   Database,
   FolderTree,
   HardDrive,
-  Info,
-  Languages,
   Lock,
   Palette,
   User,
@@ -26,13 +24,11 @@ export type SettingsPane =
   | 'profile'
   | 'security'
   | 'appearance'
-  | 'language'
   | 'libraries'
   | 'openSubtitles'
   | 'manage'
   | 'storage'
-  | 'health'
-  | 'about';
+  | 'health';
 
 export interface SettingsPaneDefinition {
   id: SettingsPane;
@@ -58,10 +54,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'interface',
     label: t.settings.groups.interface,
-    panes: [
-      { id: 'appearance', label: t.settings.search.appearance.label, icon: Palette },
-      { id: 'language', label: t.settings.search.language.label, icon: Languages },
-    ],
+    panes: [{ id: 'appearance', label: t.settings.search.appearance.label, icon: Palette }],
   },
   {
     id: 'libraries',
@@ -79,11 +72,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'storage', label: t.settings.search.storage.label, icon: HardDrive },
       { id: 'health', label: t.settings.search.health.label, icon: Activity },
     ],
-  },
-  {
-    id: 'other',
-    label: t.settings.groups.other,
-    panes: [{ id: 'about', label: t.settings.search.about.label, icon: Info }],
   },
 ];
 
@@ -103,6 +91,8 @@ const LEGACY_TABS: Record<string, SettingsPane> = {
   google: 'libraries',
   scan: 'libraries',
   localLibrary: 'libraries',
+  language: 'appearance',
+  about: 'appearance',
   visibility: 'manage',
   database: 'manage',
   manage: 'manage',
@@ -126,11 +116,11 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.profile, pane: 'profile' },
   { ...t.settings.search.security, pane: 'security' },
   { ...t.settings.search.appearance, pane: 'appearance' },
-  { ...t.settings.search.language, pane: 'language' },
+  { ...t.settings.search.language, pane: 'appearance' },
   { ...t.settings.search.librarySources, pane: 'libraries' },
   { ...t.settings.search.openSubtitles, pane: 'openSubtitles' },
   { ...t.settings.search.manage, pane: 'manage' },
   { ...t.settings.search.storage, pane: 'storage' },
   { ...t.settings.search.health, pane: 'health' },
-  { ...t.settings.search.about, pane: 'about' },
+  { ...t.settings.search.about, pane: 'appearance' },
 ];
