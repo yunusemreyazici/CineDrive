@@ -1,6 +1,19 @@
 import React from 'react';
 import type { MusicMixDto } from '@cinedrive/shared';
-import { Play, Radio, Sparkles } from 'lucide-react';
+import {
+  Camera,
+  CloudRain,
+  Compass,
+  Globe2,
+  Heart,
+  Leaf,
+  Play,
+  Radio,
+  Sparkles,
+  Target,
+  Zap,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { t } from '../../i18n';
 
 const gradients: Record<string, string> = {
@@ -10,6 +23,17 @@ const gradients: Record<string, string> = {
   rose: 'from-rose-950 via-rose-700 to-pink-300',
   emerald: 'from-emerald-950 via-emerald-700 to-teal-300',
   indigo: 'from-indigo-950 via-indigo-700 to-blue-300',
+};
+
+const moodVisuals: Record<string, { icon: LucideIcon; color: string }> = {
+  relax: { icon: Leaf, color: 'text-emerald-300' },
+  focus: { icon: Target, color: 'text-violet-300' },
+  energy: { icon: Zap, color: 'text-amber-300' },
+  sad: { icon: CloudRain, color: 'text-sky-300' },
+  romantic: { icon: Heart, color: 'text-rose-300' },
+  party: { icon: Globe2, color: 'text-fuchsia-300' },
+  memories: { icon: Camera, color: 'text-zinc-300' },
+  discover: { icon: Compass, color: 'text-cyan-300' },
 };
 
 export const MusicMixCard: React.FC<{
@@ -33,14 +57,31 @@ export const MusicMixCard: React.FC<{
         : mix.type === 'mood'
           ? t.music.moodCollectionHint
           : mix.subtitle;
+  const moodVisual = moodVisuals[moodId] || moodVisuals.focus!;
+
+  if (compact && landscape) {
+    const MoodIcon = moodVisual.icon;
+    return (
+      <button
+        type="button"
+        onClick={onPlay}
+        aria-label={t.music.playMix(title)}
+        className="group flex h-12 min-w-0 items-center gap-3 rounded-[11px] border border-white/[0.1] bg-[#0c0e10] px-4 text-left shadow-[0_10px_28px_rgba(0,0,0,.18)] transition hover:border-white/[0.18] hover:bg-[#111316] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+      >
+        <MoodIcon className={`h-[19px] w-[19px] shrink-0 ${moodVisual.color}`} />
+        <span className="truncate text-xs font-semibold text-zinc-200">{title}</span>
+      </button>
+    );
+  }
+
   return (
     <article className="group min-w-0">
       <div
         className={`relative overflow-hidden bg-gradient-to-br ${gradients[mix.accent] || gradients.violet} shadow-xl shadow-black/25 ${
           landscape
             ? compact
-              ? 'aspect-[2.35/1] rounded-[18px]'
-              : 'aspect-[1.8/1] rounded-[20px]'
+              ? 'aspect-[2.35/1] rounded-[11px]'
+              : 'aspect-[2.25/1] rounded-[12px]'
             : 'aspect-square rounded-[24px]'
         }`}
       >
@@ -52,7 +93,7 @@ export const MusicMixCard: React.FC<{
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/15 to-transparent" />
         <div
           className={`absolute flex items-center gap-2 font-extrabold uppercase tracking-[0.22em] text-white/75 ${
-            landscape ? 'left-4 top-4 text-[8px]' : 'left-5 top-5 text-[10px]'
+            landscape ? 'left-3 top-3 text-[7px]' : 'left-5 top-5 text-[10px]'
           } ${compact ? 'hidden' : ''}`}
         >
           {mix.type === 'artist-radio' ? (
@@ -62,15 +103,13 @@ export const MusicMixCard: React.FC<{
           )}
           CineDrive Mix
         </div>
-        <div
-          className={`absolute ${landscape ? 'inset-x-4 bottom-4 pr-9' : 'inset-x-5 bottom-5'}`}
-        >
+        <div className={`absolute ${landscape ? 'inset-x-3 bottom-3 pr-9' : 'inset-x-5 bottom-5'}`}>
           <p
-            className={`font-display font-extrabold leading-none tracking-tight text-white ${
+            className={`truncate font-display font-extrabold leading-none tracking-tight text-white ${
               landscape
                 ? compact
                   ? 'text-base'
-                  : 'text-lg'
+                  : 'text-base'
                 : compact
                   ? 'text-xl'
                   : 'text-2xl md:text-3xl'
@@ -92,7 +131,7 @@ export const MusicMixCard: React.FC<{
           aria-label={t.music.playMix(title)}
           className={`absolute rounded-full bg-white text-black shadow-2xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${
             landscape
-              ? 'bottom-3.5 right-3.5 p-2 opacity-90 hover:scale-105 hover:opacity-100'
+              ? 'bottom-3 right-3 p-2 opacity-90 hover:scale-105 hover:opacity-100'
               : 'bottom-5 right-5 translate-y-3 p-3 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100'
           }`}
         >

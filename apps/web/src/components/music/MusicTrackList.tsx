@@ -33,6 +33,7 @@ interface Props {
   onRemoveItem?: (id: string) => void;
   draggable?: boolean;
   onMoveItem?: (sourceId: string, targetId: string) => void;
+  homeLayout?: boolean;
 }
 
 export const MusicTrackList: React.FC<Props> = ({
@@ -41,6 +42,7 @@ export const MusicTrackList: React.FC<Props> = ({
   onRemoveItem,
   draggable,
   onMoveItem,
+  homeLayout,
 }) => {
   const player = useMusicPlayer();
   const favorite = useToggleMusicFavoriteMutation();
@@ -56,7 +58,22 @@ export const MusicTrackList: React.FC<Props> = ({
           onClose={() => setInfoTrackId(null)}
         />
       )}
-      <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0e0f11]">
+      <div
+        className={
+          homeLayout
+            ? 'border-y border-white/[0.08] bg-transparent'
+            : 'overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0e0f11]'
+        }
+      >
+        {homeLayout && (
+          <div className="hidden grid-cols-[44px_minmax(160px,1.2fr)_minmax(130px,.7fr)_minmax(130px,.7fr)_58px_76px] gap-4 border-b border-white/[0.06] px-2 py-2 text-[8px] font-bold uppercase tracking-[0.2em] text-zinc-600 md:grid">
+            <span className="col-span-2">{t.music.track}</span>
+            <span>{t.music.artist}</span>
+            <span>{t.music.album}</span>
+            <span aria-hidden="true">◷</span>
+            <span />
+          </div>
+        )}
         {tracks.map((track, index) => {
           // A playlist may intentionally contain the same track more than once.
           // Item order mirrors `tracks`, so index-based lookup preserves each row's identity.
@@ -74,20 +91,25 @@ export const MusicTrackList: React.FC<Props> = ({
                 if (source && playlistItemId && source !== playlistItemId)
                   onMoveItem?.(source, playlistItemId);
               }}
-              className="group grid grid-cols-[auto_44px_minmax(0,1fr)_auto] items-center gap-3 border-b border-white/[0.05] px-3 py-2.5 last:border-0 md:grid-cols-[auto_44px_minmax(0,1fr)_minmax(120px,.6fr)_60px_auto]"
+              className={`group grid items-center border-b border-white/[0.05] last:border-0 ${
+                homeLayout
+                  ? 'grid-cols-[44px_minmax(0,1fr)_auto] gap-3 px-2 py-2 md:grid-cols-[44px_minmax(160px,1.2fr)_minmax(130px,.7fr)_minmax(130px,.7fr)_58px_76px] md:gap-4'
+                  : 'grid-cols-[auto_44px_minmax(0,1fr)_auto] gap-3 px-3 py-2.5 md:grid-cols-[auto_44px_minmax(0,1fr)_minmax(120px,.6fr)_60px_auto]'
+              }`}
             >
-              {draggable ? (
-                <GripVertical className="h-4 w-4 cursor-grab text-zinc-700" />
-              ) : (
-                <button
-                  onClick={() => player.playTracks(tracks, index)}
-                  aria-label={t.music.playTrack(track.title)}
-                  className="w-5 text-xs text-zinc-600 group-hover:text-brand-400"
-                >
-                  <span className="group-hover:hidden">{track.trackNumber || index + 1}</span>
-                  <Play className="hidden h-4 w-4 fill-current group-hover:block" />
-                </button>
-              )}
+              {!homeLayout &&
+                (draggable ? (
+                  <GripVertical className="h-4 w-4 cursor-grab text-zinc-700" />
+                ) : (
+                  <button
+                    onClick={() => player.playTracks(tracks, index)}
+                    aria-label={t.music.playTrack(track.title)}
+                    className="w-5 text-xs text-zinc-600 group-hover:text-brand-400"
+                  >
+                    <span className="group-hover:hidden">{track.trackNumber || index + 1}</span>
+                    <Play className="hidden h-4 w-4 fill-current group-hover:block" />
+                  </button>
+                ))}
               <button
                 onClick={() => player.playTracks(tracks, index)}
                 className="h-11 w-11 overflow-hidden rounded-lg bg-zinc-800"
@@ -100,7 +122,7 @@ export const MusicTrackList: React.FC<Props> = ({
               </button>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-zinc-100">{track.title}</p>
-                {track.primaryArtist && (
+                {!homeLayout && track.primaryArtist && (
                   <Link
                     to={`/music/artists/${track.primaryArtist.id}`}
                     className="truncate text-xs text-zinc-500 hover:text-brand-400"
@@ -109,6 +131,18 @@ export const MusicTrackList: React.FC<Props> = ({
                   </Link>
                 )}
               </div>
+              {homeLayout && (
+                <div className="hidden min-w-0 md:block">
+                  {track.primaryArtist && (
+                    <Link
+                      to={`/music/artists/${track.primaryArtist.id}`}
+                      className="block truncate text-xs text-zinc-500 hover:text-brand-400"
+                    >
+                      {track.primaryArtist.name}
+                    </Link>
+                  )}
+                </div>
+              )}
               <div className="hidden min-w-0 md:block">
                 {track.album && (
                   <Link

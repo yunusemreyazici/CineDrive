@@ -45,13 +45,15 @@ export const AppLayout: React.FC = () => {
           {isMusicRoute && <MusicSidebar />}
           <div
             className={
-              isMusicRoute
-                ? 'min-w-0 transition-[margin] duration-300 lg:ml-[272px]'
-                : 'min-w-0'
+              isMusicRoute ? 'min-w-0 transition-[margin] duration-300 lg:ml-[272px]' : 'min-w-0'
             }
           >
             <Navbar />
-            <main className="mx-auto w-full max-w-[1600px] px-4 py-4 pb-28 md:px-6 md:py-5 md:pb-28">
+            <main
+              className={`mx-auto w-full max-w-[1600px] py-4 pb-28 md:pb-28 ${
+                isMusicRoute ? 'px-4 md:px-[18px] md:py-4' : 'px-4 md:px-6 md:py-5'
+              }`}
+            >
               <Suspense fallback={<PageFallback />}>
                 <Outlet />
               </Suspense>

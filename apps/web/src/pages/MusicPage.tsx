@@ -1,6 +1,15 @@
 import React from 'react';
 import type { MusicTrackDto } from '@cinedrive/shared';
-import { ArrowRight, Disc3, LibraryBig, Play, Shuffle } from 'lucide-react';
+import {
+  ArrowRight,
+  Disc3,
+  LibraryBig,
+  ListEnd,
+  MoreHorizontal,
+  Play,
+  Shuffle,
+  StepForward,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
@@ -22,7 +31,7 @@ const SectionHeading: React.FC<{
           {eyebrow}
         </p>
       )}
-      <h2 className="font-display text-xl font-bold tracking-[-0.02em] text-white md:text-2xl">
+      <h2 className="font-display text-xl font-bold leading-none tracking-[-0.02em] text-white">
         {title}
       </h2>
     </div>
@@ -53,7 +62,7 @@ const ArrivalTile: React.FC<{
 }> = ({ item, onPlay }) => {
   const content = (
     <>
-      <span className="relative block aspect-square overflow-hidden rounded-[18px] border border-white/[0.08] bg-[#121417] shadow-[0_16px_35px_rgba(0,0,0,.24)]">
+      <span className="relative block aspect-square overflow-hidden rounded-[10px] border border-white/[0.08] bg-[#121417] shadow-[0_12px_28px_rgba(0,0,0,.2)]">
         {item.artworkUrl ? (
           <img
             src={item.artworkUrl}
@@ -83,7 +92,7 @@ const ArrivalTile: React.FC<{
   return item.href ? (
     <Link
       to={item.href}
-      className="group block min-w-0 rounded-[18px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      className="group block min-w-0 flex-[1_0_112px] rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
     >
       {content}
     </Link>
@@ -92,7 +101,7 @@ const ArrivalTile: React.FC<{
       type="button"
       onClick={() => item.track && onPlay(item.track)}
       aria-label={item.track ? t.music.playTrack(item.title) : item.title}
-      className="group block min-w-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      className="group block min-w-0 flex-[1_0_112px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
     >
       {content}
     </button>
@@ -103,6 +112,7 @@ export const MusicPage: React.FC = () => {
   const query = useMusicOverviewQuery();
   const discoveryQuery = useMusicDiscoveryQuery();
   const player = useMusicPlayer();
+  const arrivalsRailRef = React.useRef<HTMLDivElement>(null);
 
   if (query.isLoading) {
     return (
@@ -179,17 +189,17 @@ export const MusicPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-12 pb-32 md:space-y-16">
-      <header className="pt-1">
-        <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] text-white md:text-4xl">
+    <div className="pb-32">
+      <header className="relative -top-1 pt-1">
+        <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] text-white">
           {t.music.title}
         </h1>
-        <p className="mt-1.5 text-sm text-zinc-500">{t.music.homeSubtitle}</p>
+        <p className="mt-1 text-xs text-zinc-500">{t.music.homeSubtitle}</p>
       </header>
 
       <section
         aria-labelledby="music-spotlight-title"
-        className="relative overflow-hidden rounded-[24px] border border-white/[0.08] bg-[#0c0e10] p-4 shadow-[0_24px_70px_rgba(0,0,0,.26)] sm:p-5 md:p-6"
+        className="relative mt-4 overflow-hidden rounded-[12px] border border-white/[0.09] bg-[#0c0e10] p-4 shadow-[0_20px_55px_rgba(0,0,0,.22)]"
       >
         {spotlightTrack?.artworkUrl && (
           <img
@@ -198,8 +208,8 @@ export const MusicPage: React.FC = () => {
             className="pointer-events-none absolute -right-20 -top-40 h-[520px] w-[520px] scale-125 object-cover opacity-[0.08] blur-3xl"
           />
         )}
-        <div className="relative grid items-center gap-6 md:grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)] lg:gap-9">
-          <div className="aspect-square overflow-hidden rounded-[20px] border border-white/[0.1] bg-[#131519] shadow-[0_22px_55px_rgba(0,0,0,.4)]">
+        <div className="relative grid items-center gap-6 md:grid-cols-[250px_minmax(0,1fr)] md:gap-8">
+          <div className="aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] md:h-[218px] md:aspect-auto">
             {spotlightTrack?.artworkUrl ? (
               <img src={spotlightTrack.artworkUrl} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -209,10 +219,10 @@ export const MusicPage: React.FC = () => {
             )}
           </div>
 
-          <div className="min-w-0 py-2 md:pr-4 lg:pr-8">
+          <div className="min-w-0 py-1 md:translate-y-[15px] md:pr-4 lg:pr-8">
             <h2
               id="music-spotlight-title"
-              className="font-display text-3xl font-extrabold leading-[1.02] tracking-[-0.035em] text-white sm:text-4xl lg:text-5xl"
+              className="font-display text-3xl font-extrabold leading-[1.02] tracking-[-0.035em] text-white lg:text-[32px]"
             >
               {spotlightTrack?.title || t.music.title}
             </h2>
@@ -224,12 +234,12 @@ export const MusicPage: React.FC = () => {
               {spotlightTrack?.year && <span>· {spotlightTrack.year}</span>}
               <span>· {t.music.trackCount(spotlightQueue.length)}</span>
             </p>
-            <div className="mt-7 flex flex-wrap gap-3">
+            <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={playSpotlight}
                 disabled={!spotlightQueue.length}
-                className="inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-3 text-sm font-bold text-black shadow-xl transition hover:scale-[1.015] hover:bg-zinc-100 active:scale-[0.985] disabled:opacity-50"
+                className="inline-flex h-[42px] items-center gap-2.5 rounded-full bg-white px-6 text-sm font-bold text-black shadow-xl transition hover:scale-[1.015] hover:bg-zinc-100 active:scale-[0.985] disabled:opacity-50"
               >
                 <Play className="h-4 w-4 fill-current" />
                 {resumePosition !== null ? t.music.continueTrack : t.music.play}
@@ -238,38 +248,78 @@ export const MusicPage: React.FC = () => {
                 type="button"
                 onClick={() => player.playShuffledTracks(spotlightQueue)}
                 disabled={!spotlightQueue.length}
-                className="inline-flex items-center gap-2.5 rounded-full border border-white/[0.14] bg-white/[0.025] px-5 py-3 text-sm font-semibold text-zinc-200 transition hover:border-white/25 hover:bg-white/[0.06] disabled:opacity-50"
+                className="inline-flex h-[42px] items-center gap-2.5 rounded-full border border-white/[0.14] bg-white/[0.025] px-5 text-sm font-semibold text-zinc-200 transition hover:border-white/25 hover:bg-white/[0.06] disabled:opacity-50"
               >
                 <Shuffle className="h-4 w-4" />
                 {t.music.shufflePlay}
               </button>
+              {spotlightTrack && (
+                <details className="relative">
+                  <summary
+                    aria-label={t.music.moreActions}
+                    className="flex h-[42px] w-[42px] list-none cursor-pointer items-center justify-center rounded-full border border-white/[0.14] text-zinc-300 transition hover:border-white/25 hover:bg-white/[0.06]"
+                  >
+                    <MoreHorizontal className="h-5 w-5" />
+                  </summary>
+                  <div className="absolute left-0 z-30 mt-2 w-48 rounded-xl border border-white/10 bg-zinc-950 p-1.5 shadow-xl">
+                    <button
+                      type="button"
+                      onClick={() => player.playNext(spotlightTrack)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-white/5"
+                    >
+                      <StepForward className="h-4 w-4" />
+                      {t.music.playNext}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => player.addToQueue(spotlightTrack)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-white/5"
+                    >
+                      <ListEnd className="h-4 w-4" />
+                      {t.music.addQueue}
+                    </button>
+                  </div>
+                </details>
+              )}
             </div>
           </div>
         </div>
       </section>
 
       {!!arrivals.length && (
-        <section className="space-y-5">
+        <section className="mt-4 space-y-3">
           <SectionHeading title={t.music.newArrivals} href="/music/albums" />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-            {arrivals.slice(0, 6).map((item) => (
-              <ArrivalTile
-                key={item.id}
-                item={item}
-                onPlay={(track) => player.playTracks([track])}
-              />
-            ))}
+          <div className="relative">
+            <div
+              ref={arrivalsRailRef}
+              className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {arrivals.slice(0, 8).map((item) => (
+                <ArrivalTile
+                  key={item.id}
+                  item={item}
+                  onPlay={(track) => player.playTracks([track])}
+                />
+              ))}
+            </div>
+            {arrivals.length > 6 && (
+              <button
+                type="button"
+                onClick={() => arrivalsRailRef.current?.scrollBy({ left: 420, behavior: 'smooth' })}
+                aria-label={t.music.next}
+                className="absolute right-0 top-[42px] hidden h-10 w-10 translate-x-1/3 items-center justify-center rounded-full border border-white/10 bg-[#101214]/95 text-zinc-300 shadow-xl transition hover:bg-[#17191c] xl:flex"
+              >
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </section>
       )}
 
       {!!discovery?.mixes.length && (
-        <section id="music-mixes" className="scroll-mt-24 space-y-5">
-          <SectionHeading
-            title={t.music.smartMixes}
-            eyebrow={t.music.madeForYou}
-          />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section id="music-mixes" className="mt-6 scroll-mt-24 space-y-3">
+          <SectionHeading title={t.music.smartMixes} eyebrow={t.music.madeForYou} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {discovery.mixes.slice(0, 4).map((item) => (
               <MusicMixCard
                 key={item.id}
@@ -283,9 +333,9 @@ export const MusicPage: React.FC = () => {
       )}
 
       {!!discovery?.moodCollections.length && (
-        <section className="space-y-5">
+        <section className="mt-5 space-y-3">
           <SectionHeading title={t.music.moodsAndGenres} eyebrow={t.music.chooseYourMood} />
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
             {discovery.moodCollections.map((item) => (
               <MusicMixCard
                 key={item.id}
@@ -300,11 +350,9 @@ export const MusicPage: React.FC = () => {
       )}
 
       {!!listeningTracks.length && (
-        <section className="space-y-5">
+        <section className="mt-4 space-y-3">
           <SectionHeading title={t.music.recentlyPlayed} href="/music/history" />
-          <div className="border-t border-white/[0.08] pt-2">
-            <MusicTrackList tracks={listeningTracks} />
-          </div>
+          <MusicTrackList tracks={listeningTracks} homeLayout />
         </section>
       )}
     </div>

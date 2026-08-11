@@ -41,10 +41,22 @@ const mix = (
 });
 
 const moodRules = [
-  { id: 'focus', title: 'Odak', genres: ['ambient', 'classical', 'instrumental', 'lo-fi', 'jazz'] },
+  { id: 'relax', title: 'Rahatla', genres: ['chill', 'ambient', 'acoustic', 'folk', 'new age'] },
+  {
+    id: 'focus',
+    title: 'Odaklan',
+    genres: ['ambient', 'classical', 'instrumental', 'lo-fi', 'jazz'],
+  },
   { id: 'energy', title: 'Enerji', genres: ['rock', 'metal', 'dance', 'electronic', 'hip hop'] },
-  { id: 'calm', title: 'Sakin', genres: ['acoustic', 'folk', 'soul', 'blues', 'chill'] },
-  { id: 'night', title: 'Gece', genres: ['rap', 'r&b', 'trip hop', 'alternative', 'indie'] },
+  { id: 'sad', title: 'Hüzünlü', genres: ['sad', 'blues', 'emo', 'melancholy', 'slowcore'] },
+  { id: 'romantic', title: 'Romantik', genres: ['romance', 'love', 'r&b', 'soul'] },
+  { id: 'party', title: 'Parti', genres: ['party', 'dance', 'pop', 'house', 'disco'] },
+  { id: 'memories', title: 'Anıların', genres: ['nostalgia', 'oldies', 'retro', 'classic'] },
+  {
+    id: 'discover',
+    title: 'Keşfet',
+    genres: ['alternative', 'indie', 'world', 'experimental'],
+  },
 ];
 
 export class MusicDiscoveryService {
