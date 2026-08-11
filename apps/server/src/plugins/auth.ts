@@ -13,6 +13,7 @@ import { PlayerTelemetryService } from '../services/player-telemetry.service.js'
 import { PreviewService } from '../services/preview.service.js';
 import { DriveSourceService } from '../services/drive-source.service.js';
 import { DriveAccessService } from '../services/drive-access.service.js';
+import { ScanLifecycleService } from '../services/scan-lifecycle.service.js';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 
@@ -35,6 +36,7 @@ declare module 'fastify' {
     previewService: PreviewService;
     driveSourceService: DriveSourceService;
     driveAccessService: DriveAccessService;
+    scanLifecycleService: ScanLifecycleService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -42,7 +44,12 @@ declare module 'fastify' {
 export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance) => {
   const authService = new AuthService(fastify.prisma);
   const googleOAuthService = new GoogleOAuthService(fastify.prisma);
-  const libraryScanService = new LibraryScanService(fastify.prisma, googleOAuthService);
+  const scanLifecycleService = new ScanLifecycleService(fastify.prisma);
+  const libraryScanService = new LibraryScanService(
+    fastify.prisma,
+    googleOAuthService,
+    scanLifecycleService,
+  );
   const driveService = new GoogleDriveService();
   const driveAccessService = new DriveAccessService(
     fastify.prisma,
@@ -52,7 +59,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const subtitleService = new SubtitleService(fastify.prisma, driveAccessService);
   const playbackService = new PlaybackService(fastify.prisma);
   const transcodeService = new TranscodeService();
-  const localScanService = new LocalScanService(fastify.prisma);
+  const localScanService = new LocalScanService(fastify.prisma, scanLifecycleService);
   const hlsService = new HlsService();
   const playerTelemetryService = new PlayerTelemetryService();
   const previewService = new PreviewService();
@@ -71,7 +78,9 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('previewService', previewService);
   fastify.decorate('driveSourceService', driveSourceService);
   fastify.decorate('driveAccessService', driveAccessService);
+  fastify.decorate('scanLifecycleService', scanLifecycleService);
   fastify.addHook('onClose', async () => {
+    await scanLifecycleService.shutdown();
     hlsService.shutdown();
     transcodeService.shutdown();
   });
@@ -79,6 +88,8 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   // Ensure initial admin user exists at server startup
   await authService.ensureAdminUserExists();
   await playbackService.repairDuplicateTrackingRecords();
+  await scanLifecycleService.reconcileAbandonedScans({ reason: 'server_restarted' });
+  scanLifecycleService.startWatchdog();
 
   // Attach session decorator to each request
   fastify.decorateRequest('user', null);

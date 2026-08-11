@@ -53,7 +53,12 @@ describe('GoogleDriveService Unit Tests', () => {
     await expect(
       driveService.getMediaRangeBuffer('token', 'file', 0, 5),
     ).resolves.toEqual(Buffer.from('header'));
-    expect(createMediaStream).toHaveBeenCalledWith('token', 'file', 'bytes=0-5');
+    expect(createMediaStream).toHaveBeenCalledWith(
+      'token',
+      'file',
+      'bytes=0-5',
+      expect.any(AbortSignal),
+    );
   });
 
   it('refuses a full-file response to a bounded media probe', async () => {

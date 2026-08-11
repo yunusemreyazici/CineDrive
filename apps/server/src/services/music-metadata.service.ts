@@ -13,6 +13,15 @@ export const AUDIO_EXTENSIONS = [
   '.wav',
   '.wma',
 ] as const;
+const PLAYLIST_EXTENSIONS = ['.m3u', '.m3u8', '.pls', '.xspf'] as const;
+const PLAYLIST_MIME_TYPES = new Set([
+  'audio/mpegurl',
+  'audio/x-mpegurl',
+  'application/mpegurl',
+  'application/vnd.apple.mpegurl',
+  'application/x-mpegurl',
+  'application/xspf+xml',
+]);
 const REMOTE_HEAD_BYTES = 8 * 1024 * 1024;
 const REMOTE_TAIL_BYTES = 4 * 1024 * 1024;
 // Covers are normalized before persistence. This input cap blocks malformed
@@ -59,6 +68,10 @@ export interface ParsedMusicMetadata {
 
 export const isAudioFilename = (name: string) =>
   AUDIO_EXTENSIONS.some((extension) => name.toLowerCase().endsWith(extension));
+
+export const isPlaylistFilename = (name: string, mimeType?: string) =>
+  PLAYLIST_EXTENSIONS.some((extension) => name.toLowerCase().endsWith(extension)) ||
+  (mimeType ? PLAYLIST_MIME_TYPES.has(mimeType.toLowerCase()) : false);
 
 export const cleanMusicFilenameTitle = (name: string) =>
   path

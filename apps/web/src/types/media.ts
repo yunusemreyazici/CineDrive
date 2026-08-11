@@ -125,14 +125,16 @@ export interface LibraryScanType {
   sourceType?: 'drive' | 'local' | 'all';
   sourceName?: string;
   sourceLocation?: string | null;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'interrupted';
   addedCount: number;
   updatedCount: number;
   deletedCount: number;
   errorCount: number;
   durationMs?: number | null;
   startedAt: string;
+  heartbeatAt?: string | null;
   completedAt?: string | null;
+  interruptionReason?: 'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | null;
   lastError?: string | null;
   errors?: Array<{
     id: string;

@@ -25,7 +25,9 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   const serializeScanSummary = (scan: {
     status: string;
     startedAt: Date;
+    heartbeatAt?: Date | null;
     completedAt: Date | null;
+    interruptionReason?: string | null;
     durationMs: number | null;
     addedCount: number;
     updatedCount: number;
@@ -35,7 +37,9 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   }) => ({
     status: scan.status,
     startedAt: scan.startedAt.toISOString(),
+    heartbeatAt: scan.heartbeatAt?.toISOString() || null,
     completedAt: scan.completedAt?.toISOString() || null,
+    interruptionReason: scan.interruptionReason || null,
     durationMs: scan.durationMs,
     addedCount: scan.addedCount,
     updatedCount: scan.updatedCount,
@@ -324,6 +328,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
               deletedCount: source.lastScanDeletedCount,
               errorCount: source.lastScanErrorCount,
               lastError: source.lastScanError,
+              interruptionReason: source.lastScanInterruptionReason,
             }
           : null,
         createdAt: source.createdAt.toISOString(),
@@ -789,6 +794,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/libraries/scans: Unified history for every source owned by the caller.
   fastify.get('/scans', async (request, reply) => {
+    await fastify.scanLifecycleService.reconcileAbandonedScans({
+      userId: request.user!.id,
+      reason: 'server_restarted',
+    });
     const scans = await fastify.prisma.libraryScan.findMany({
       where: { library: { userId: request.user!.id } },
       orderBy: { startedAt: 'desc' },
@@ -851,13 +860,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    // Auto-cleanup any orphaned scans marked as 'running' in DB if not actively scanning in memory
-    if (!fastify.libraryScanService.isScanning(id)) {
-      await fastify.prisma.libraryScan.updateMany({
-        where: { libraryId: id, status: 'running' },
-        data: { status: 'failed', completedAt: new Date() },
-      });
-    }
+    await fastify.scanLifecycleService.reconcileAbandonedScans({
+      userId: request.user!.id,
+      reason: 'server_restarted',
+    });
 
     const scans = await fastify.prisma.libraryScan.findMany({
       where: { libraryId: id },

@@ -26,10 +26,16 @@ export interface DriveFolderInspection {
 }
 
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const DRIVE_REQUEST_TIMEOUT_MS = 30_000;
 const MEDIA_FILE_PATTERN =
   /\.(mp4|mkv|webm|avi|mov|m4v|m2ts|ts|flv|wmv|3gp|mp3|m4a|aac|flac|ogg|opus|wav|wma|srt|vtt|lrc)$/i;
 
 export class GoogleDriveService {
+  private requestSignal(signal?: AbortSignal): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(DRIVE_REQUEST_TIMEOUT_MS);
+    return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  }
+
   private createDriveClient(accessToken: string): drive_v3.Drive {
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
@@ -73,20 +79,24 @@ export class GoogleDriveService {
   public async listAccountFiles(
     accessToken: string,
     pageToken?: string,
+    signal?: AbortSignal,
   ): Promise<{ files: DriveFileMetadata[]; nextPageToken?: string }> {
     return this.withExponentialBackoff(async () => {
       const drive = this.createDriveClient(accessToken);
 
-      const response = await drive.files.list({
-        q: "trashed = false and (mimeType contains 'video/' or mimeType contains 'audio/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder' or name contains '.mp4' or name contains '.mkv' or name contains '.webm' or name contains '.avi' or name contains '.mov' or name contains '.ts' or name contains '.m2ts' or name contains '.flv' or name contains '.wmv' or name contains '.3gp' or name contains '.mp3' or name contains '.m4a' or name contains '.aac' or name contains '.flac' or name contains '.ogg' or name contains '.opus' or name contains '.wav' or name contains '.wma' or name contains '.srt' or name contains '.vtt' or name contains '.lrc')",
-        fields:
-          'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
-        pageSize: 1000,
-        pageToken,
-        corpora: 'allDrives',
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-      });
+      const response = await drive.files.list(
+        {
+          q: "trashed = false and (mimeType contains 'video/' or mimeType contains 'audio/' or mimeType contains 'image/' or mimeType = 'application/vnd.google-apps.folder' or name contains '.mp4' or name contains '.mkv' or name contains '.webm' or name contains '.avi' or name contains '.mov' or name contains '.ts' or name contains '.m2ts' or name contains '.flv' or name contains '.wmv' or name contains '.3gp' or name contains '.mp3' or name contains '.m4a' or name contains '.aac' or name contains '.flac' or name contains '.ogg' or name contains '.opus' or name contains '.wav' or name contains '.wma' or name contains '.srt' or name contains '.vtt' or name contains '.lrc')",
+          fields:
+            'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
+          pageSize: 1000,
+          pageToken,
+          corpora: 'allDrives',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        },
+        { signal: this.requestSignal(signal) },
+      );
 
       const files = (response.data.files || []).map((file) => ({
         id: file.id || '',
@@ -113,19 +123,23 @@ export class GoogleDriveService {
     accessToken: string,
     folderId: string,
     pageToken?: string,
+    signal?: AbortSignal,
   ): Promise<{ files: DriveFileMetadata[]; nextPageToken?: string }> {
     return this.withExponentialBackoff(async () => {
       const drive = this.createDriveClient(accessToken);
 
-      const response = await drive.files.list({
-        q: `'${folderId}' in parents and trashed = false`,
-        fields:
-          'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
-        pageSize: 1000,
-        pageToken,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-      });
+      const response = await drive.files.list(
+        {
+          q: `'${folderId}' in parents and trashed = false`,
+          fields:
+            'nextPageToken, files(id, name, mimeType, size, modifiedTime, md5Checksum, parents, videoMediaMetadata)',
+          pageSize: 1000,
+          pageToken,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        },
+        { signal: this.requestSignal(signal) },
+      );
 
       const files = (response.data.files || []).map((file) => ({
         id: file.id || '',
@@ -271,12 +285,16 @@ export class GoogleDriveService {
   /**
    * Fetches text content of a file (e.g. metadata.json or SRT/VTT subtitles)
    */
-  public async getFileTextContent(accessToken: string, fileId: string): Promise<string> {
+  public async getFileTextContent(
+    accessToken: string,
+    fileId: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     return this.withExponentialBackoff(async () => {
       const drive = this.createDriveClient(accessToken);
       const response = await drive.files.get(
         { fileId, alt: 'media', supportsAllDrives: true },
-        { responseType: 'arraybuffer' },
+        { responseType: 'arraybuffer', signal: this.requestSignal(signal) },
       );
       if (typeof response.data === 'string') return response.data;
       return decodeSubtitleBytes(Buffer.from(response.data as ArrayBuffer));
@@ -342,13 +360,19 @@ export class GoogleDriveService {
     fileId: string,
     start: number,
     end: number,
+    signal?: AbortSignal,
   ): Promise<Buffer> {
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
       throw new Error('INVALID_MEDIA_RANGE');
     }
 
     const expectedLength = end - start + 1;
-    const response = await this.createMediaStream(accessToken, fileId, `bytes=${start}-${end}`);
+    const response = await this.createMediaStream(
+      accessToken,
+      fileId,
+      `bytes=${start}-${end}`,
+      this.requestSignal(signal),
+    );
 
     if (response.status !== 206) {
       response.stream.destroy();

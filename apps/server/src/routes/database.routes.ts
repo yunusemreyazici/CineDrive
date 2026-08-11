@@ -81,22 +81,10 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       where: orphanMediaFilter,
     });
 
-    // A scan that died with the process stays "running" forever and blocks the
-    // next one for that library.
-    const stale = await fastify.prisma.libraryScan.findMany({
-      where: { status: 'running', library: { userId: request.user!.id } },
-      select: { id: true, libraryId: true },
+    const interruptedScans = await fastify.scanLifecycleService.reconcileAbandonedScans({
+      userId,
+      reason: 'server_restarted',
     });
-    const abandoned = stale.filter(
-      (scan) => !fastify.libraryScanService.isScanning(scan.libraryId),
-    );
-
-    if (abandoned.length > 0) {
-      await fastify.prisma.libraryScan.updateMany({
-        where: { id: { in: abandoned.map((scan) => scan.id) } },
-        data: { status: 'failed', completedAt: new Date() },
-      });
-    }
 
     // Track deletion is driven by DriveFile/Library cascades. The shared
     // artist, album and artwork rows become collectible once no owned track
@@ -119,7 +107,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(200).send({
       removed: {
         media: removedMedia,
-        staleScans: abandoned.length,
+        staleScans: interruptedScans,
         musicAlbums: removedMusicAlbums,
         musicArtists: removedMusicArtists,
         musicArtwork: removedMusicArtwork,

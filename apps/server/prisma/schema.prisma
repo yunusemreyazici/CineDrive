@@ -95,29 +95,30 @@ model Library {
 }
 
 model DriveScanSource {
-  id                   String           @id @default(uuid())
-  libraryId            String
-  library              Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  googleConnectionId   String
-  googleConnection     GoogleConnection @relation(fields: [googleConnectionId], references: [id], onDelete: Cascade)
-  rootFolderId         String           @default("")
-  folderName           String?
-  folderPath           String?
-  driveName            String?
-  ownerName            String?
-  webViewLink          String?
-  lastScanStatus       String?
-  lastScannedAt        DateTime?
-  lastScanDurationMs   Int?
-  lastScanAddedCount   Int              @default(0)
-  lastScanUpdatedCount Int              @default(0)
-  lastScanDeletedCount Int              @default(0)
-  lastScanErrorCount   Int              @default(0)
-  lastScanError        String?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  files                DriveFile[]
-  scans                LibraryScan[]
+  id                         String           @id @default(uuid())
+  libraryId                  String
+  library                    Library          @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  googleConnectionId         String
+  googleConnection           GoogleConnection @relation(fields: [googleConnectionId], references: [id], onDelete: Cascade)
+  rootFolderId               String           @default("")
+  folderName                 String?
+  folderPath                 String?
+  driveName                  String?
+  ownerName                  String?
+  webViewLink                String?
+  lastScanStatus             String?
+  lastScannedAt              DateTime?
+  lastScanDurationMs         Int?
+  lastScanAddedCount         Int              @default(0)
+  lastScanUpdatedCount       Int              @default(0)
+  lastScanDeletedCount       Int              @default(0)
+  lastScanErrorCount         Int              @default(0)
+  lastScanError              String?
+  lastScanInterruptionReason String?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  files                      DriveFile[]
+  scans                      LibraryScan[]
 
   @@unique([libraryId, googleConnectionId, rootFolderId])
   @@index([libraryId])
@@ -655,20 +656,22 @@ model MusicQueueItem {
 }
 
 model LibraryScan {
-  id                String             @id @default(uuid())
-  libraryId         String
-  library           Library            @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  driveScanSourceId String?
-  driveScanSource   DriveScanSource?   @relation(fields: [driveScanSourceId], references: [id], onDelete: SetNull)
-  status            String
-  addedCount        Int                @default(0)
-  updatedCount      Int                @default(0)
-  deletedCount      Int                @default(0)
-  errorCount        Int                @default(0)
-  durationMs        Int?
-  startedAt         DateTime           @default(now())
-  completedAt       DateTime?
-  errors            LibraryScanError[]
+  id                 String             @id @default(uuid())
+  libraryId          String
+  library            Library            @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  driveScanSourceId  String?
+  driveScanSource    DriveScanSource?   @relation(fields: [driveScanSourceId], references: [id], onDelete: SetNull)
+  status             String
+  addedCount         Int                @default(0)
+  updatedCount       Int                @default(0)
+  deletedCount       Int                @default(0)
+  errorCount         Int                @default(0)
+  durationMs         Int?
+  startedAt          DateTime           @default(now())
+  heartbeatAt        DateTime?
+  completedAt        DateTime?
+  interruptionReason String?
+  errors             LibraryScanError[]
 
   @@index([driveScanSourceId])
 }

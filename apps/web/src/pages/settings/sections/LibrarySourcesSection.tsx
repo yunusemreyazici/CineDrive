@@ -48,7 +48,10 @@ export const LibrarySourcesSection: React.FC = () => {
     driveSources.reduce((total, source) => total + source.fileCount, 0) +
     localLibraries.reduce((total, library) => total + (library.fileCount || 0), 0);
   const accessIssueCount = allScanSummaries.filter(
-    (scan) => scan?.status === 'failed' || (scan?.errorCount || 0) > 0,
+    (scan) =>
+      scan?.status === 'failed' ||
+      scan?.status === 'interrupted' ||
+      (scan?.errorCount || 0) > 0,
   ).length;
   const runningScanCount = allScanSummaries.filter((scan) => scan?.status === 'running').length;
 

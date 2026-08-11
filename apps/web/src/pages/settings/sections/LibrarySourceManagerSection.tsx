@@ -66,12 +66,24 @@ const formatDuration = (durationMs?: number | null) =>
     : t.settings.sourceManager.duration(Math.max(1, Math.round(durationMs / 1000)));
 
 const scanTone = (status?: SourceScanSummaryDto['status']) =>
-  status === 'failed' ? 'warning' : status === 'completed' ? 'ok' : 'neutral';
+  status === 'failed' || status === 'interrupted'
+    ? 'warning'
+    : status === 'completed'
+      ? 'ok'
+      : 'neutral';
 
-const scanStatusLabel = (status?: SourceScanSummaryDto['status']) => {
+const scanStatusLabel = (
+  status?: SourceScanSummaryDto['status'],
+  reason?: SourceScanSummaryDto['interruptionReason'],
+) => {
   if (status === 'running') return t.settings.sourceManager.running;
   if (status === 'completed') return t.settings.sourceManager.completed;
   if (status === 'failed') return t.settings.sourceManager.failed;
+  if (status === 'interrupted') {
+    return reason === 'watchdog_timeout'
+      ? t.settings.sourceManager.watchdogInterrupted
+      : t.settings.sourceManager.interrupted;
+  }
   return t.settings.sourceManager.notScanned;
 };
 
@@ -340,7 +352,10 @@ export const LibrarySourceManagerSection: React.FC = () => {
                         <SettingsStatus
                           tone={scanTone(rowScanning ? 'running' : row.lastScan?.status)}
                         >
-                          {scanStatusLabel(rowScanning ? 'running' : row.lastScan?.status)}
+                          {scanStatusLabel(
+                            rowScanning ? 'running' : row.lastScan?.status,
+                            row.lastScan?.interruptionReason,
+                          )}
                         </SettingsStatus>
                         {!!row.lastScan?.errorCount && (
                           <p
@@ -553,7 +568,7 @@ export const LibrarySourceManagerSection: React.FC = () => {
                       {t.settings.sourceManager.deleted(scan.deletedCount)}
                     </div>
                     <SettingsStatus tone={scanTone(scan.status)}>
-                      {scanStatusLabel(scan.status)}
+                      {scanStatusLabel(scan.status, scan.interruptionReason)}
                     </SettingsStatus>
                   </div>
                   {!!scan.errors?.length && (

@@ -6,7 +6,8 @@ import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
-import { isAudioFilename } from './music-metadata.service.js';
+import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
+import type { ScanLifecycleService } from './scan-lifecycle.service.js';
 
 // Each probe issues a handful of ranged Drive reads. Enough of them run at once
 // to hide the latency, few enough to stay well inside Google's per-user quota.
@@ -37,6 +38,7 @@ export class LibraryScanService {
   constructor(
     private prisma: PrismaClient,
     private googleOAuthService: GoogleOAuthService,
+    private scanLifecycle: ScanLifecycleService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
   }
@@ -191,6 +193,7 @@ export class LibraryScanService {
             lastScanDeletedCount: 0,
             lastScanErrorCount: 0,
             lastScanError: null,
+            lastScanInterruptionReason: null,
           },
         });
       }
@@ -200,11 +203,18 @@ export class LibraryScanService {
           driveScanSourceId: targets.length === 1 ? targets[0]?.sourceId : null,
           status: 'running',
           startedAt: new Date(),
+          heartbeatAt: new Date(),
         },
+      });
+      const signal = this.scanLifecycle.register(scan.id, libraryId, sourceIds, () => {
+        if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
+        else this.activeLibraryScans.delete(libraryId);
       });
 
       // Launch scan execution asynchronously in background.
-      this.executeScanAsync(userId, libraryId, scan.id, targets, exclusiveSourceId).catch(() => {});
+      this.executeScanAsync(userId, libraryId, scan.id, targets, signal, exclusiveSourceId).catch(
+        () => {},
+      );
       return scan.id;
     } catch (error) {
       if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
@@ -218,6 +228,7 @@ export class LibraryScanService {
     libraryId: string,
     scanId: string,
     targets: DriveScanTarget[],
+    signal: AbortSignal,
     exclusiveSourceId?: string,
   ): Promise<void> {
     const startTime = Date.now();
@@ -226,7 +237,10 @@ export class LibraryScanService {
     let errorCount = 0;
 
     try {
+      await this.scanLifecycle.heartbeat(scanId, true);
       for (const target of targets) {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId);
         const targetStartedAt = Date.now();
         let accessToken: string;
         try {
@@ -235,6 +249,7 @@ export class LibraryScanService {
             target.connection.id,
           );
         } catch (tokenError) {
+          if (signal.aborted) throw tokenError;
           errorCount++;
           const message =
             tokenError instanceof Error ? tokenError.message : 'GOOGLE_ACCOUNT_NOT_CONNECTED';
@@ -253,6 +268,7 @@ export class LibraryScanService {
                 lastScanDeletedCount: 0,
                 lastScanErrorCount: 1,
                 lastScanError: message,
+                lastScanInterruptionReason: null,
               },
             });
           }
@@ -267,7 +283,9 @@ export class LibraryScanService {
           libraryId,
           scanId,
           target.rootFolderId,
+          signal,
         );
+        signal.throwIfAborted();
 
         addedCount += result.added;
         updatedCount += result.updated;
@@ -281,8 +299,8 @@ export class LibraryScanService {
                 select: { errorMessage: true },
               })
             : null;
-          await this.prisma.driveScanSource.update({
-            where: { id: target.sourceId },
+          await this.prisma.driveScanSource.updateMany({
+            where: { id: target.sourceId, lastScanStatus: 'running' },
             data: {
               lastScanStatus: 'completed',
               lastScannedAt: new Date(),
@@ -292,6 +310,7 @@ export class LibraryScanService {
               lastScanDeletedCount: 0,
               lastScanErrorCount: result.errors,
               lastScanError: latestError?.errorMessage || null,
+              lastScanInterruptionReason: null,
             },
           });
         }
@@ -299,8 +318,9 @@ export class LibraryScanService {
 
       const durationMs = Date.now() - startTime;
 
-      await this.prisma.libraryScan.update({
-        where: { id: scanId },
+      signal.throwIfAborted();
+      await this.prisma.libraryScan.updateMany({
+        where: { id: scanId, status: 'running' },
         data: {
           status: 'completed',
           completedAt: new Date(),
@@ -308,6 +328,8 @@ export class LibraryScanService {
           addedCount,
           updatedCount,
           errorCount,
+          heartbeatAt: new Date(),
+          interruptionReason: null,
         },
       });
 
@@ -316,14 +338,17 @@ export class LibraryScanService {
         data: { lastScannedAt: new Date() },
       });
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : String(err);
-      await this.prisma.libraryScan.update({
-        where: { id: scanId },
+      await this.prisma.libraryScan.updateMany({
+        where: { id: scanId, status: 'running' },
         data: {
           status: 'failed',
           completedAt: new Date(),
           durationMs: Date.now() - startTime,
           errorCount: errorCount + 1,
+          heartbeatAt: new Date(),
+          interruptionReason: null,
         },
       });
 
@@ -341,10 +366,12 @@ export class LibraryScanService {
             lastScanStatus: 'failed',
             lastScannedAt: new Date(),
             lastScanError: errorMessage,
+            lastScanInterruptionReason: null,
           },
         });
       }
     } finally {
+      this.scanLifecycle.finish(scanId);
       if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
       else this.activeLibraryScans.delete(libraryId);
     }
@@ -358,6 +385,7 @@ export class LibraryScanService {
     libraryId: string,
     scanId: string,
     rootFolderId: string,
+    signal: AbortSignal,
   ): Promise<{ added: number; updated: number; errors: number }> {
     let added = 0;
     let updated = 0;
@@ -369,16 +397,21 @@ export class LibraryScanService {
 
     try {
       if (rootFolderId.trim()) {
-        allFiles.push(...(await this.listFolderTree(accessToken, rootFolderId.trim())));
+        allFiles.push(
+          ...(await this.listFolderTree(accessToken, rootFolderId.trim(), scanId, signal)),
+        );
       } else {
         let pageToken: string | undefined;
         do {
-          const page = await this.driveService.listAccountFiles(accessToken, pageToken);
+          signal.throwIfAborted();
+          const page = await this.driveService.listAccountFiles(accessToken, pageToken, signal);
           allFiles.push(...page.files);
           pageToken = page.nextPageToken;
+          await this.scanLifecycle.heartbeat(scanId);
         } while (pageToken);
       }
     } catch (err: unknown) {
+      if (signal.aborted) throw err;
       const isAuthErr =
         err instanceof Error &&
         (err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED' ||
@@ -406,7 +439,9 @@ export class LibraryScanService {
       (f) => VIDEO_MIME_TYPES.includes(f.mimeType) || this.isVideoExtension(f.name),
     );
     const audioFiles = allFiles.filter(
-      (file) => file.mimeType.startsWith('audio/') || isAudioFilename(file.name),
+      (file) =>
+        !isPlaylistFilename(file.name, file.mimeType) &&
+        (file.mimeType.startsWith('audio/') || isAudioFilename(file.name)),
     );
     const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
 
@@ -424,6 +459,8 @@ export class LibraryScanService {
     // 3. Process Videos across account
     for (const video of videos) {
       try {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId);
         const driveFile = await this.upsertDriveFile(
           libraryId,
           googleConnectionId,
@@ -683,6 +720,8 @@ export class LibraryScanService {
 
     for (const audio of audioFiles) {
       try {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId);
         const driveFile = await this.upsertDriveFile(
           libraryId,
           googleConnectionId,
@@ -696,7 +735,7 @@ export class LibraryScanService {
           name: audio.name,
           size: BigInt(audio.size),
           readRange: (start, end) =>
-            this.driveService.getMediaRangeBuffer(accessToken, audio.id, start, end),
+            this.driveService.getMediaRangeBuffer(accessToken, audio.id, start, end, signal),
         });
         await this.prisma.driveFile.update({
           where: { id: driveFile.record.id },
@@ -738,7 +777,11 @@ export class LibraryScanService {
             await this.musicLibraryService.lyrics.syncTrackLyrics({
               trackId: track.id,
               sourceName: matchingLyrics.name,
-              content: await this.driveService.getFileTextContent(accessToken, matchingLyrics.id),
+              content: await this.driveService.getFileTextContent(
+                accessToken,
+                matchingLyrics.id,
+                signal,
+              ),
             });
           } else {
             await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
@@ -785,11 +828,13 @@ export class LibraryScanService {
 
     await runWithConcurrency(pendingProbes, MEDIA_PROBE_CONCURRENCY, async (probe) => {
       try {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId);
         const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
           name: probe.name,
           size: BigInt(probe.size),
           readRange: (start, end) =>
-            this.driveService.getMediaRangeBuffer(accessToken, probe.fileId, start, end),
+            this.driveService.getMediaRangeBuffer(accessToken, probe.fileId, start, end, signal),
         });
         await this.prisma.driveFile.update({
           where: { id: probe.driveFileId },
@@ -810,6 +855,7 @@ export class LibraryScanService {
           .catch(() => {});
       }
     });
+    signal.throwIfAborted();
 
     return { added, updated, errors };
   }
@@ -817,19 +863,27 @@ export class LibraryScanService {
   private async listFolderTree(
     accessToken: string,
     rootFolderId: string,
+    scanId: string,
+    signal: AbortSignal,
   ): Promise<DriveFileMetadata[]> {
     const files: DriveFileMetadata[] = [];
     const pendingFolderIds = [rootFolderId];
     const visitedFolderIds = new Set<string>();
 
     while (pendingFolderIds.length > 0) {
+      signal.throwIfAborted();
       const folderId = pendingFolderIds.shift()!;
       if (visitedFolderIds.has(folderId)) continue;
       visitedFolderIds.add(folderId);
 
       let pageToken: string | undefined;
       do {
-        const page = await this.driveService.listFolderContents(accessToken, folderId, pageToken);
+        const page = await this.driveService.listFolderContents(
+          accessToken,
+          folderId,
+          pageToken,
+          signal,
+        );
 
         for (const file of page.files) {
           if (file.mimeType === 'application/vnd.google-apps.folder') {
@@ -839,6 +893,7 @@ export class LibraryScanService {
           }
         }
         pageToken = page.nextPageToken;
+        await this.scanLifecycle.heartbeat(scanId);
       } while (pageToken);
     }
 

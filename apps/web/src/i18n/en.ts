@@ -836,6 +836,8 @@ export const en: Translations = {
       running: 'Scanning',
       completed: 'Ready',
       failed: 'Failed',
+      interrupted: 'Stopped / server restarted',
+      watchdogInterrupted: 'Stopped / scan became unresponsive',
       added: (count: number) => `${count} added`,
       updated: (count: number) => `${count} updated`,
       deleted: (count: number) => `${count} removed`,

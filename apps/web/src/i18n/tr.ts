@@ -837,6 +837,8 @@ export const tr = {
       running: 'Taranıyor',
       completed: 'Hazır',
       failed: 'Hatalı',
+      interrupted: 'Durduruldu / sunucu yeniden başlatıldı',
+      watchdogInterrupted: 'Durduruldu / tarama yanıt vermedi',
       added: (count: number) => `${count} eklendi`,
       updated: (count: number) => `${count} güncellendi`,
       deleted: (count: number) => `${count} kaldırıldı`,

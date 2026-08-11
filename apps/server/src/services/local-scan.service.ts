@@ -6,6 +6,7 @@ import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
+import type { ScanLifecycleService } from './scan-lifecycle.service.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
@@ -13,7 +14,10 @@ export class LocalScanService {
   private musicLibraryService: MusicLibraryService;
   private readonly activeScans = new Set<string>();
 
-  constructor(private prisma: PrismaClient) {
+  constructor(
+    private prisma: PrismaClient,
+    private scanLifecycle: ScanLifecycleService,
+  ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
   }
 
@@ -46,14 +50,19 @@ export class LocalScanService {
         libraryId,
         status: 'running',
         startedAt: new Date(),
+        heartbeatAt: new Date(),
       },
     });
+    const signal = this.scanLifecycle.register(scan.id, libraryId, [], () => {
+      this.activeScans.delete(libraryId);
+    });
 
-    void this.executeLocalScan(libraryId, library.userId, library.localFolderPath, scan.id)
+    void this.executeLocalScan(libraryId, library.userId, library.localFolderPath, scan.id, signal)
       .catch(() => {
         // Failures are already recorded on the scan row for the UI to read.
       })
       .finally(() => {
+        this.scanLifecycle.finish(scan.id);
         this.activeScans.delete(libraryId);
       });
 
@@ -69,6 +78,7 @@ export class LocalScanService {
     userId: string,
     localFolderPath: string,
     scanId: string,
+    signal: AbortSignal,
   ): Promise<{ success: boolean; filesScanned: number }> {
     const library = { localFolderPath };
     const scan = { id: scanId };
@@ -79,7 +89,8 @@ export class LocalScanService {
     let updatedCount = 0;
 
     try {
-      const allFiles = await this.readdirRecursive(library.localFolderPath);
+      await this.scanLifecycle.heartbeat(scanId, true);
+      const allFiles = await this.readdirRecursive(library.localFolderPath, scanId, signal);
 
       const videoExtensions = [
         '.mp4',
@@ -107,6 +118,8 @@ export class LocalScanService {
       // Process each video file
       for (const file of videoFiles) {
         try {
+          signal.throwIfAborted();
+          await this.scanLifecycle.heartbeat(scanId);
           filesScannedCount++;
           const stat = await fs.stat(file.fullPath);
           const mimeType = this.getMimeType(file.name);
@@ -357,6 +370,8 @@ export class LocalScanService {
 
       for (const file of audioFiles) {
         try {
+          signal.throwIfAborted();
+          await this.scanLifecycle.heartbeat(scanId);
           filesScannedCount++;
           const stat = await fs.stat(file.fullPath);
           const existing = await this.prisma.driveFile.findUnique({
@@ -466,6 +481,8 @@ export class LocalScanService {
       // Process local subtitle files - each gets its own DriveFile entry
       for (const subFile of subtitleFiles) {
         try {
+          signal.throwIfAborted();
+          await this.scanLifecycle.heartbeat(scanId);
           const matchingVideo = videoFiles.find(
             (v) =>
               path.parse(v.name).name.toLowerCase() === path.parse(subFile.name).name.toLowerCase(),
@@ -510,8 +527,9 @@ export class LocalScanService {
 
       // Mark scan completed
       const errorCount = await this.prisma.libraryScanError.count({ where: { scanId: scan.id } });
-      await this.prisma.libraryScan.update({
-        where: { id: scan.id },
+      signal.throwIfAborted();
+      await this.prisma.libraryScan.updateMany({
+        where: { id: scan.id, status: 'running' },
         data: {
           status: 'completed',
           addedCount,
@@ -519,6 +537,8 @@ export class LocalScanService {
           errorCount,
           durationMs: Date.now() - startedAt,
           completedAt: new Date(),
+          heartbeatAt: new Date(),
+          interruptionReason: null,
         },
       });
 
@@ -529,23 +549,22 @@ export class LocalScanService {
 
       return { success: true, filesScanned: filesScannedCount };
     } catch (err: unknown) {
+      if (signal.aborted) return { success: false, filesScanned: filesScannedCount };
       const errorMessage =
         err instanceof Error ? err.message : 'Yerel kütüphane taranırken hata oluştu.';
 
-      await this.prisma.libraryScan.update({
-        where: { id: scan.id },
+      await this.prisma.libraryScan.updateMany({
+        where: { id: scan.id, status: 'running' },
         data: {
           status: 'failed',
           durationMs: Date.now() - startedAt,
           errorCount: { increment: 1 },
           completedAt: new Date(),
-          errors: {
-            create: {
-              errorMessage,
-            },
-          },
+          heartbeatAt: new Date(),
+          interruptionReason: null,
         },
       });
+      await this.prisma.libraryScanError.create({ data: { scanId: scan.id, errorMessage } });
 
       throw err;
     }
@@ -568,10 +587,16 @@ export class LocalScanService {
     return 'tr'; // Default to Turkish
   }
 
-  private async readdirRecursive(dir: string): Promise<Array<{ name: string; fullPath: string }>> {
+  private async readdirRecursive(
+    dir: string,
+    scanId: string,
+    signal: AbortSignal,
+  ): Promise<Array<{ name: string; fullPath: string }>> {
     const results: Array<{ name: string; fullPath: string }> = [];
 
     try {
+      signal.throwIfAborted();
+      await this.scanLifecycle.heartbeat(scanId);
       const entries = await fs.readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
@@ -584,7 +609,7 @@ export class LocalScanService {
             entry.name !== 'node_modules' &&
             entry.name !== '__pycache__'
           ) {
-            const subDirFiles = await this.readdirRecursive(fullPath);
+            const subDirFiles = await this.readdirRecursive(fullPath, scanId, signal);
             results.push(...subDirFiles);
           }
         } else if (entry.isFile()) {
@@ -593,7 +618,8 @@ export class LocalScanService {
           }
         }
       }
-    } catch {
+    } catch (error) {
+      if (signal.aborted) throw error;
       // Ignore unreadable subdirectories
     }
 
