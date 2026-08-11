@@ -347,6 +347,166 @@ describe('Library API Integration Tests', () => {
     await app.prisma.mediaItem.deleteMany({ where: { id: keeper.mediaItem.id } });
   });
 
+  it('removes a local library and its indexed records without touching the folder', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const suffix = Date.now();
+    const library = await app.prisma.library.create({
+      data: {
+        userId: owner.id,
+        name: `Removable Local ${suffix}`,
+        storageType: 'local',
+        localFolderPath: `/tmp/cinedrive-local-${suffix}`,
+      },
+    });
+    const file = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        storageType: 'local',
+        localFilePath: `/tmp/cinedrive-local-${suffix}/movie.mp4`,
+        name: 'Local Movie.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    const media = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: library.id,
+        type: 'movie',
+        title: 'Local Movie',
+        normalizedTitle: 'local movie',
+      },
+    });
+    await app.prisma.movie.create({ data: { mediaItemId: media.id, driveFileId: file.id } });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/libraries/${library.id}`,
+      cookies: {
+        session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).removed).toEqual({ library: 1, media: 1, files: 1 });
+    expect(await app.prisma.library.findUnique({ where: { id: library.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: file.id } })).toBeNull();
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: media.id } })).toBeNull();
+  });
+
+  it('clears indexed data from every owned library while preserving sources', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const suffix = Date.now();
+    const connection = await app.prisma.googleConnection.create({
+      data: {
+        userId: owner.id,
+        googleAccountId: `clear-all-${suffix}`,
+        email: `clear-all-${suffix}@cinedrive.test`,
+        encryptedRefreshToken: 'not-used-by-this-test',
+        scopes: 'drive.readonly',
+      },
+    });
+    const driveLibrary = await app.prisma.library.create({
+      data: {
+        userId: owner.id,
+        name: `Clear All Drive ${suffix}`,
+        storageType: 'gdrive',
+        googleConnectionId: connection.id,
+        lastScannedAt: new Date(),
+      },
+    });
+    const localLibrary = await app.prisma.library.create({
+      data: {
+        userId: owner.id,
+        name: `Clear All Local ${suffix}`,
+        storageType: 'local',
+        localFolderPath: `/tmp/cinedrive-clear-all-${suffix}`,
+        lastScannedAt: new Date(),
+      },
+    });
+    const source = await app.prisma.driveScanSource.create({
+      data: {
+        libraryId: driveLibrary.id,
+        googleConnectionId: connection.id,
+        rootFolderId: `clear-all-folder-${suffix}`,
+      },
+    });
+    const driveFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: driveLibrary.id,
+        googleConnectionId: connection.id,
+        driveScanSourceId: source.id,
+        googleDriveFileId: `clear-all-drive-file-${suffix}`,
+        name: 'Drive Movie.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    const localFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: localLibrary.id,
+        storageType: 'local',
+        localFilePath: `/tmp/cinedrive-clear-all-${suffix}/movie.mp4`,
+        name: 'Local Movie.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    await app.prisma.mediaItem.createMany({
+      data: [
+        {
+          libraryId: driveLibrary.id,
+          type: 'movie',
+          title: 'Drive Clear All Movie',
+          normalizedTitle: 'drive clear all movie',
+        },
+        {
+          libraryId: localLibrary.id,
+          type: 'movie',
+          title: 'Local Clear All Movie',
+          normalizedTitle: 'local clear all movie',
+        },
+      ],
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/settings/database/clear',
+      cookies: {
+        session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).removed).toEqual({ media: 2, files: 2 });
+    expect(await app.prisma.library.findUnique({ where: { id: driveLibrary.id } })).not.toBeNull();
+    expect(await app.prisma.library.findUnique({ where: { id: localLibrary.id } })).not.toBeNull();
+    expect(await app.prisma.driveScanSource.findUnique({ where: { id: source.id } })).not.toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: driveFile.id } })).toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: localFile.id } })).toBeNull();
+    expect(
+      await app.prisma.mediaItem.count({
+        where: { libraryId: { in: [driveLibrary.id, localLibrary.id] } },
+      }),
+    ).toBe(0);
+    expect(
+      await app.prisma.library.count({
+        where: { id: { in: [driveLibrary.id, localLibrary.id] }, lastScannedAt: null },
+      }),
+    ).toBe(2);
+
+    await app.prisma.library.deleteMany({
+      where: { id: { in: [driveLibrary.id, localLibrary.id] } },
+    });
+    await app.prisma.googleConnection.delete({ where: { id: connection.id } });
+  });
+
   it('lists Drive folders and removes only content indexed from the disconnected source', async () => {
     const owner = await app.authService.ensureAdminUserExists();
     const connection = await app.prisma.googleConnection.create({

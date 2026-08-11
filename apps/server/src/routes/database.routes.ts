@@ -126,4 +126,54 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
   });
+
+  // DELETE /api/settings/database/clear: Remove every indexed record owned by
+  // the caller while preserving accounts, source definitions and real files.
+  fastify.delete('/clear', async (request, reply) => {
+    const userId = request.user!.id;
+    const libraries = await fastify.prisma.library.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    const libraryIds = libraries.map((library) => library.id);
+
+    if (libraryIds.some((libraryId) => fastify.libraryScanService.isScanning(libraryId))) {
+      return reply.status(409).send({
+        error: {
+          code: 'SCAN_ALREADY_IN_PROGRESS',
+          message: 'Tarama sürerken veritabanı temizlenemez.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const removed = await fastify.prisma.$transaction(async (tx) => {
+      const media = await tx.mediaItem.count({ where: { libraryId: { in: libraryIds } } });
+      const files = await tx.driveFile.count({ where: { libraryId: { in: libraryIds } } });
+
+      await tx.libraryScan.deleteMany({ where: { libraryId: { in: libraryIds } } });
+      await tx.mediaItem.deleteMany({ where: { libraryId: { in: libraryIds } } });
+      await tx.driveFile.deleteMany({ where: { libraryId: { in: libraryIds } } });
+      await tx.musicAlbum.deleteMany({ where: { userId, tracks: { none: {} } } });
+      await tx.musicArtist.deleteMany({
+        where: {
+          userId,
+          trackCredits: { none: {} },
+          albumTracks: { none: {} },
+          albums: { none: {} },
+        },
+      });
+      await tx.musicArtwork.deleteMany({
+        where: { userId, albums: { none: {} }, tracks: { none: {} } },
+      });
+      await tx.library.updateMany({
+        where: { id: { in: libraryIds } },
+        data: { lastScannedAt: null },
+      });
+
+      return { media, files };
+    });
+
+    return reply.send({ removed });
+  });
 };

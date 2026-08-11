@@ -233,13 +233,75 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       await fastify.prisma.musicAlbum.deleteMany({ where: { userId: request.user!.id, tracks: { none: {} } } });
-      await fastify.prisma.musicArtist.deleteMany({ where: { userId: request.user!.id, trackCredits: { none: {} }, albums: { none: {} } } });
+      await fastify.prisma.musicArtist.deleteMany({
+        where: {
+          userId: request.user!.id,
+          trackCredits: { none: {} },
+          albumTracks: { none: {} },
+          albums: { none: {} },
+        },
+      });
       await fastify.prisma.musicArtwork.deleteMany({
         where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
       });
       return reply.send({ removed: { media: movieIds.length, files: removed } });
     },
   );
+
+  // Removing a local library also removes its indexed CineDrive records. The
+  // folder and files on disk are never modified.
+  fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
+    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    if (!library) {
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+    if (library.storageType !== 'local') {
+      return reply.status(400).send({
+        error: {
+          code: 'LIBRARY_DELETE_NOT_ALLOWED',
+          message: 'Bu işlem yalnızca yerel kütüphaneler için kullanılabilir.',
+          requestId: request.id,
+        },
+      });
+    }
+    if (fastify.libraryScanService.isScanning(library.id)) {
+      return reply.status(409).send({
+        error: {
+          code: 'SCAN_ALREADY_IN_PROGRESS',
+          message: 'Tarama sürerken yerel kütüphane kaldırılamaz.',
+          requestId: request.id,
+        },
+      });
+    }
+
+    const [media, files] = await Promise.all([
+      fastify.prisma.mediaItem.count({ where: { libraryId: library.id } }),
+      fastify.prisma.driveFile.count({ where: { libraryId: library.id } }),
+    ]);
+    await fastify.prisma.library.delete({ where: { id: library.id } });
+    await fastify.prisma.musicAlbum.deleteMany({
+      where: { userId: request.user!.id, tracks: { none: {} } },
+    });
+    await fastify.prisma.musicArtist.deleteMany({
+      where: {
+        userId: request.user!.id,
+        trackCredits: { none: {} },
+        albumTracks: { none: {} },
+        albums: { none: {} },
+      },
+    });
+    await fastify.prisma.musicArtwork.deleteMany({
+      where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+    });
+
+    return reply.send({ removed: { library: 1, media, files } });
+  });
 
   // POST /api/libraries/:id/scan: Trigger library scan
   fastify.post<{ Params: { id: string } }>('/:id/scan', async (request, reply) => {
@@ -426,6 +488,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       where: {
         userId: request.user!.id,
         trackCredits: { none: {} },
+        albumTracks: { none: {} },
         albums: { none: {} },
       },
     });

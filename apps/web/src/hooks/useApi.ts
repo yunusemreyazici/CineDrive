@@ -158,6 +158,23 @@ export function useCreateLibraryMutation() {
   });
 }
 
+export function useDeleteLibraryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (libraryId: string) => {
+      const res = await apiClient.delete<{
+        removed: { library: number; media: number; files: number };
+      }>(`/libraries/${libraryId}`);
+      return res.data.removed;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['database-stats'] });
+    },
+  });
+}
+
 export function useDriveScanSourcesQuery(libraryId?: string) {
   return useQuery({
     queryKey: ['driveScanSources', libraryId],
@@ -308,15 +325,14 @@ export function useDatabaseCleanupMutation() {
   });
 }
 
-export function useClearLibraryMutation() {
+export function useClearDatabaseMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (libraryId: string) => {
+    mutationFn: async () => {
       try {
         const res = await apiClient.delete<{
-          message: string;
           removed: { media: number; files: number };
-        }>(`/libraries/${libraryId}/clear`);
+        }>('/settings/database/clear');
         return res.data;
       } catch (err) {
         throw parseApiError(err);

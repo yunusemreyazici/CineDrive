@@ -886,6 +886,13 @@ export const tr = {
       missingName: 'Lütfen kütüphane adı giriniz.',
       missingPath: 'Lütfen yerel klasör yolu giriniz.',
       createFailed: 'Kütüphane oluşturulurken hata oluştu.',
+      remove: 'Kaldır',
+      removeTitle: 'Yerel kütüphaneyi kaldır',
+      removeConfirm: 'Kütüphaneyi Kaldır',
+      removeBody: (path: string) =>
+        `${path} kütüphanesi ve taranmış içerikleri CineDrive’dan kaldırılacak. Diskteki klasör ve dosyalar silinmeyecek.`,
+      removed: (count: number) => `Yerel kütüphane ve ${count} dosya kaydı kaldırıldı.`,
+      removeFailed: 'Yerel kütüphane kaldırılamadı.',
     },
 
     openSubtitles: {
@@ -929,23 +936,23 @@ export const tr = {
       cleanupDone: (media: number, scans: number) =>
         `${media} medya kaydı ve ${scans} askıda tarama temizlendi.`,
       cleanupFailed: 'Artık kayıtlar temizlenemedi.',
-      libraryClearTitle: 'Kütüphane Verisini Temizle',
+      libraryClearTitle: 'Tüm Veritabanı Verisini Temizle',
       libraryClearDescription:
-        'Seçilen kütüphanenin taranmış tüm kayıtlarını siler. Diğer kütüphaneler ve Google Drive dosyalarınız etkilenmez.',
+        'Bütün kütüphanelerin taranmış içeriklerini temizler. Bağlantılar, kaynak tanımları ve fiziksel dosyalar korunur.',
       librarySelect: 'Temizlenecek kütüphane',
       clearTitle: 'Kütüphane Veritabanını Temizle',
       clearedCount: (media: number, files: number) =>
         `${media} medya kaydı ve ${files} dosya kaydı silindi.`,
       clearDescription:
         'Taranan tüm film, dizi, bölüm, altyazı ve izleme geçmişi verilerini CineDrive veritabanından siler. Google Drive hesaplarınızdaki orijinal dosyalarınıza dokunulmaz.',
-      clearAction: 'Veritabanını Temizle',
-      confirmTitle: 'Veritabanı Sıfırlama',
+      clearAction: 'Tüm Veritabanını Temizle',
+      confirmTitle: 'Tüm Veritabanı Verisini Temizle',
       confirmSubtitle: 'Bu işlem geri alınamaz!',
       confirmBody:
-        'CineDrive kütüphanesine ait tüm taranmış medya kayıtları, bölümler, altyazılar ve izleme geçmişi veritabanından silinecektir. Google Drive dosyalarınız silinmez. Devam etmek istiyor musunuz?',
+        'Bütün kütüphanelerdeki taranmış film, dizi, bölüm, müzik, altyazı ve izleme kayıtları CineDrive’dan silinecektir. Google Drive ve yerel diskteki dosyalar ile kaynak bağlantıları korunacaktır. Devam etmek istiyor musunuz?',
       clearing: 'Temizleniyor...',
       confirmAction: 'Evet, Tümünü Temizle',
-      cleared: 'Kütüphane veritabanı temizlendi.',
+      cleared: 'Tüm kütüphane veritabanı temizlendi.',
       clearFailed: 'Veritabanı temizlenemedi.',
     },
 

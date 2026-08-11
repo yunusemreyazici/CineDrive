@@ -884,6 +884,13 @@ export const en: Translations = {
       missingName: 'Enter a library name.',
       missingPath: 'Enter a local folder path.',
       createFailed: 'An error occurred while creating the library.',
+      remove: 'Remove',
+      removeTitle: 'Remove local library',
+      removeConfirm: 'Remove library',
+      removeBody: (path: string) =>
+        `${path} and its indexed content will be removed from CineDrive. The folder and files on disk will not be deleted.`,
+      removed: (count: number) => `Removed the local library and ${count} file records.`,
+      removeFailed: 'The local library could not be removed.',
     },
 
     openSubtitles: {
@@ -927,23 +934,23 @@ export const en: Translations = {
       cleanupDone: (media: number, scans: number) =>
         `Removed ${media} media records and ${scans} stalled scans.`,
       cleanupFailed: 'The leftover records could not be cleaned up.',
-      libraryClearTitle: 'Clear library data',
+      libraryClearTitle: 'Clear all database data',
       libraryClearDescription:
-        'Deletes every scanned record for the selected library. Other libraries and your Google Drive files are unaffected.',
+        'Clears indexed content from every library. Connections, source definitions and physical files are preserved.',
       librarySelect: 'Library to clear',
       clearTitle: 'Clear the library database',
       clearedCount: (media: number, files: number) =>
         `Deleted ${media} media records and ${files} file records.`,
       clearDescription:
         'Deletes every scanned movie, series, episode, subtitle and watch history record from the CineDrive database. The original files in your Google Drive accounts are untouched.',
-      clearAction: 'Clear database',
-      confirmTitle: 'Reset the database',
+      clearAction: 'Clear the entire database',
+      confirmTitle: 'Clear all database data',
       confirmSubtitle: 'This cannot be undone.',
       confirmBody:
-        'Every scanned media record, episode, subtitle and watch history entry in the CineDrive library will be deleted. Your Google Drive files are not deleted. Do you want to continue?',
+        'Every indexed movie, series, episode, music track, subtitle and watch entry in all libraries will be removed from CineDrive. Google Drive and local files, connections and source definitions will be preserved. Do you want to continue?',
       clearing: 'Clearing…',
       confirmAction: 'Yes, clear everything',
-      cleared: 'The library database was cleared.',
+      cleared: 'The entire library database was cleared.',
       clearFailed: 'The database could not be cleared.',
     },
 

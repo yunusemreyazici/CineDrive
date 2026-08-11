@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Database, Trash2, AlertTriangle, Eraser } from 'lucide-react';
 import {
-  useLibrariesQuery,
-  useClearLibraryMutation,
+  useClearDatabaseMutation,
   useDatabaseStatsQuery,
   useDatabaseCleanupMutation,
 } from '../../../hooks/useApi';
@@ -11,10 +10,8 @@ import { Modal } from '../../../components/common/Modal';
 import {
   SettingsButton,
   SettingsCard,
-  SettingsField,
   SettingsMetric,
   SettingsRow,
-  SETTINGS_INPUT_CLASSES,
 } from '../SettingsCard';
 import { t } from '../../../i18n';
 
@@ -100,20 +97,12 @@ export const DatabaseStatsSection: React.FC = () => {
 };
 
 export const DatabaseSection: React.FC = () => {
-  const { data: libraries } = useLibrariesQuery();
-  const clearLibrary = useClearLibraryMutation();
+  const clearDatabase = useClearDatabaseMutation();
   const [showConfirm, setShowConfirm] = useState(false);
-  const [selectedLibraryId, setSelectedLibraryId] = useState('');
-
-  // The action used to always target `libraries[0]` while its copy said "the
-  // library database", so which data it removed was never stated.
-  const targetLibrary =
-    libraries?.find((library) => library.id === selectedLibraryId) || libraries?.[0];
 
   const handleClear = async () => {
-    if (!targetLibrary) return;
     try {
-      const result = await clearLibrary.mutateAsync(targetLibrary.id);
+      const result = await clearDatabase.mutateAsync();
       setShowConfirm(false);
       toast.success(
         `${t.settings.database.cleared} ${t.settings.database.clearedCount(
@@ -135,28 +124,12 @@ export const DatabaseSection: React.FC = () => {
         description={t.settings.database.libraryClearDescription}
         icon={Database}
       >
-        <div className="space-y-4">
-          <SettingsField id="database-library" label={t.settings.database.librarySelect}>
-            <select
-              id="database-library"
-              value={targetLibrary?.id || ''}
-              onChange={(event) => setSelectedLibraryId(event.target.value)}
-              className={SETTINGS_INPUT_CLASSES}
-            >
-              {(libraries || []).map((library) => (
-                <option key={library.id} value={library.id}>
-                  {library.name}
-                </option>
-              ))}
-            </select>
-          </SettingsField>
-
+        <div>
           <SettingsButton
             variant="danger"
             icon={Trash2}
             onClick={() => setShowConfirm(true)}
-            disabled={!targetLibrary}
-            isLoading={clearLibrary.isPending}
+            isLoading={clearDatabase.isPending}
           >
             {t.settings.database.clearAction}
           </SettingsButton>
@@ -168,7 +141,7 @@ export const DatabaseSection: React.FC = () => {
         onClose={() => setShowConfirm(false)}
         size="sm"
         title={t.settings.database.confirmTitle}
-        description={targetLibrary?.name}
+        description={t.settings.database.confirmSubtitle}
         icon={
           <div className="rounded-2xl bg-rose-500/20 p-3 text-rose-400">
             <AlertTriangle className="h-6 w-6" />
@@ -183,7 +156,7 @@ export const DatabaseSection: React.FC = () => {
               variant="danger"
               icon={Trash2}
               onClick={handleClear}
-              isLoading={clearLibrary.isPending}
+              isLoading={clearDatabase.isPending}
               loadingLabel={t.settings.database.clearing}
             >
               {t.settings.database.confirmAction}
