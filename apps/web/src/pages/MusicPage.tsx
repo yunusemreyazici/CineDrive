@@ -29,9 +29,9 @@ import {
 import { t } from '../i18n';
 
 const Section: React.FC<
-  React.PropsWithChildren<{ title: string; eyebrow?: string; href?: string }>
-> = ({ title, eyebrow, href, children }) => (
-  <section className="space-y-4">
+  React.PropsWithChildren<{ title: string; eyebrow?: string; href?: string; id?: string }>
+> = ({ title, eyebrow, href, id, children }) => (
+  <section id={id} className="scroll-mt-24 space-y-4">
     <div className="flex items-end justify-between gap-4">
       <div>
         {eyebrow && (
@@ -200,7 +200,7 @@ export const MusicPage: React.FC = () => {
       </header>
 
       {!!discovery?.mixes.length && (
-        <Section title={t.music.smartMixes} eyebrow={t.music.madeForYou}>
+        <Section id="music-mixes" title={t.music.smartMixes} eyebrow={t.music.madeForYou}>
           <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3 xl:grid-cols-4">
             {discovery.mixes.slice(0, 4).map((item) => (
               <MusicMixCard

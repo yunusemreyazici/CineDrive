@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { Navbar } from '../components/layout/Navbar';
 import { Sidebar } from '../components/layout/Sidebar';
@@ -7,6 +7,7 @@ import { useUiStore } from '../stores/useUiStore';
 import { t } from '../i18n';
 import { MusicPlayerProvider } from '../features/music/MusicPlayerProvider';
 import { MusicPlayerBar } from '../features/music/MusicPlayerBar';
+import { MusicSidebar } from '../components/music/MusicSidebar';
 
 // Routes are code-split, so keep the shell mounted and swap only the content
 // area while the next page chunk downloads.
@@ -19,12 +20,21 @@ const PageFallback: React.FC = () => (
 
 export const AppLayout: React.FC = () => {
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
+  const location = useLocation();
+  const isMusicRoute = location.pathname === '/music' || location.pathname.startsWith('/music/');
+  const appSidebarOffset = sidebarCollapsed ? 72 : 220;
+  const playerOffset = appSidebarOffset + (isMusicRoute ? 272 : 0);
 
   return (
     <MusicPlayerProvider>
       <div
         className="min-h-screen bg-[#070809] font-sans text-zinc-100 selection:bg-brand-500 selection:text-white"
-        style={{ '--music-sidebar-offset': sidebarCollapsed ? '72px' : '220px' } as React.CSSProperties}
+        style={
+          {
+            '--app-sidebar-offset': `${appSidebarOffset}px`,
+            '--music-sidebar-offset': `${playerOffset}px`,
+          } as React.CSSProperties
+        }
       >
         <Sidebar />
         <div
@@ -32,12 +42,21 @@ export const AppLayout: React.FC = () => {
             sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[220px]'
           }`}
         >
-          <Navbar />
-          <main className="mx-auto w-full max-w-[1600px] px-4 py-4 pb-28 md:px-6 md:py-5 md:pb-28">
-            <Suspense fallback={<PageFallback />}>
-              <Outlet />
-            </Suspense>
-          </main>
+          {isMusicRoute && <MusicSidebar />}
+          <div
+            className={
+              isMusicRoute
+                ? 'min-w-0 transition-[margin] duration-300 lg:ml-[272px]'
+                : 'min-w-0'
+            }
+          >
+            <Navbar />
+            <main className="mx-auto w-full max-w-[1600px] px-4 py-4 pb-28 md:px-6 md:py-5 md:pb-28">
+              <Suspense fallback={<PageFallback />}>
+                <Outlet />
+              </Suspense>
+            </main>
+          </div>
         </div>
         <MusicPlayerBar />
       </div>
