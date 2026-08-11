@@ -5,7 +5,6 @@ import {
   Database,
   FolderTree,
   HardDrive,
-  Lock,
   Palette,
   User,
 } from 'lucide-react';
@@ -22,7 +21,6 @@ import { t } from '../../i18n';
  */
 export type SettingsPane =
   | 'profile'
-  | 'security'
   | 'appearance'
   | 'libraries'
   | 'openSubtitles'
@@ -46,10 +44,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'account',
     label: t.settings.groups.account,
-    panes: [
-      { id: 'profile', label: t.settings.search.profile.label, icon: User },
-      { id: 'security', label: t.settings.search.security.label, icon: Lock },
-    ],
+    panes: [{ id: 'profile', label: t.settings.search.profile.label, icon: User }],
   },
   {
     id: 'interface',
@@ -88,6 +83,7 @@ export const isSettingsPane = (value: string | null): value is SettingsPane =>
  */
 const LEGACY_TABS: Record<string, SettingsPane> = {
   general: 'profile',
+  security: 'profile',
   google: 'libraries',
   scan: 'libraries',
   localLibrary: 'libraries',
@@ -114,7 +110,7 @@ export interface SettingsSearchItem {
 
 export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.profile, pane: 'profile' },
-  { ...t.settings.search.security, pane: 'security' },
+  { ...t.settings.search.security, pane: 'profile' },
   { ...t.settings.search.appearance, pane: 'appearance' },
   { ...t.settings.search.language, pane: 'appearance' },
   { ...t.settings.search.librarySources, pane: 'libraries' },

@@ -990,7 +990,7 @@ export const en: Translations = {
     },
 
     search: {
-      profile: { label: 'Profile', description: 'Name and email' },
+      profile: { label: 'Profile & security', description: 'Profile details and account password' },
       security: { label: 'Security & password', description: 'Change your account password' },
       appearance: {
         label: 'Appearance, language & about',

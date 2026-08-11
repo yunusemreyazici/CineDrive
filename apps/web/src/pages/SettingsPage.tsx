@@ -1,8 +1,7 @@
 import React, { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, Search, ChevronRight } from 'lucide-react';
-import { ProfileSection } from './settings/sections/ProfileSection';
-import { SecuritySection } from './settings/sections/SecuritySection';
+import { AccountSection } from './settings/sections/AccountSection';
 import { InterfaceSection } from './settings/sections/InterfaceSection';
 import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
 import { OpenSubtitlesSection } from './settings/sections/OpenSubtitlesSection';
@@ -36,8 +35,7 @@ const SettingsToolFallback: React.FC = () => (
 
 /** The maintenance tools are heavy pages; only the visible one is mounted. */
 const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
-  profile: <ProfileSection />,
-  security: <SecuritySection />,
+  profile: <AccountSection />,
   appearance: <InterfaceSection />,
   libraries: <LibrarySourcesSection />,
   openSubtitles: <OpenSubtitlesSection />,

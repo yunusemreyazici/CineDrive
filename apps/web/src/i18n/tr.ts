@@ -992,7 +992,7 @@ export const tr = {
     },
 
     search: {
-      profile: { label: 'Profil Bilgileri', description: 'Ad ve e-posta' },
+      profile: { label: 'Profil ve Güvenlik', description: 'Profil bilgileri ve hesap şifresi' },
       security: { label: 'Güvenlik ve Şifre', description: 'Hesap şifresini değiştirin' },
       appearance: {
         label: 'Görünüm, Dil ve Hakkında',
