@@ -79,6 +79,23 @@ export const replayGainLinear = (track: MusicTrackDto | null, enabled: boolean) 
   return Math.min(2, Math.max(0.25, gain));
 };
 
+export const requiresMusicTranscode = (track?: MusicTrackDto | null) => {
+  if (!track) return false;
+  const fileExtension = track.source?.fileName.split('.').pop()?.toLowerCase() || '';
+  const value = [
+    track.audio?.codec,
+    track.audio?.container,
+    track.source?.mimeType,
+    fileExtension,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return ['ogg', 'vorbis', 'opus', 'wma', 'wmav', 'asf'].some((marker) =>
+    value.includes(marker),
+  );
+};
+
 export const parseStoredAudioSettings = (raw: string | null): MusicAudioSettings => {
   if (!raw) return DEFAULT_MUSIC_AUDIO_SETTINGS;
   try {

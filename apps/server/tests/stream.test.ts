@@ -431,5 +431,7 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toBe('fake-video-stream-chunk-data');
+    expect(abortSignalReceived).toBeDefined();
+    expect(abortSignalReceived?.aborted).toBe(false);
   });
 });

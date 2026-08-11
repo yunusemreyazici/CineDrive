@@ -146,9 +146,9 @@ export class TranscodeService {
       '-fflags',
       '+genpts',
       '-probesize',
-      '65536',
+      options.audioOnly ? '1048576' : '65536',
       '-analyzeduration',
-      '0',
+      options.audioOnly ? '1000000' : '0',
     ];
 
     const command = ffmpeg(input)

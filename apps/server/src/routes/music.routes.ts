@@ -26,7 +26,12 @@ import {
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
-import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
+import {
+  formatMusicTrack,
+  musicTrackInclude,
+  parseGenres,
+  resolveMusicContentType,
+} from '../utils/music-format.js';
 import { driveSourceInput } from './media/shared.js';
 import { MusicLyricsService, alignPlainLyrics, parseLrc } from '../services/music-lyrics.service.js';
 import { MusicBrainzService } from '../services/musicbrainz.service.js';
@@ -1869,7 +1874,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         localResolution.kind === 'range' ? localResolution.end : Math.max(0, stat.size - 1);
       reply
         .status(localResolution.kind === 'range' ? 206 : 200)
-        .header('Content-Type', file.mimeType || 'application/octet-stream')
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
         .header('Accept-Ranges', 'bytes')
         .header('Content-Length', Math.max(0, end - start + 1));
       if (localResolution.kind === 'range')
@@ -1893,7 +1898,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     }
     if (head) {
       reply
-        .header('Content-Type', file.mimeType || 'application/octet-stream')
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
         .header('Accept-Ranges', 'bytes');
       if (size !== null) reply.header('Content-Length', size);
       return reply.send();
@@ -1908,7 +1913,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     for (const [key, value] of Object.entries(upstream.headers)) reply.header(key, value);
     reply
       .header('Content-Disposition', downloadDisposition(downloadName))
-      .header('Content-Type', upstream.headers['content-type'] || file.mimeType || 'application/octet-stream')
+      .header(
+        'Content-Type',
+        resolveMusicContentType(file.name, file.mimeType, upstream.headers['content-type']),
+      )
       .header('Accept-Ranges', 'bytes')
       .status(upstream.status);
     return reply.send(upstream.stream);
@@ -1972,6 +1980,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       if (head)
         return reply
           .header('Content-Type', 'audio/mp4')
+          .header('Accept-Ranges', 'none')
           .header('Cache-Control', 'no-store')
           .send();
       const source =
@@ -1987,7 +1996,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           startSeconds,
           inputOptions: source.inputOptions,
         });
-        reply.header('Content-Type', 'audio/mp4').header('Cache-Control', 'no-store');
+        reply
+          .header('Content-Type', 'audio/mp4')
+          .header('Accept-Ranges', 'none')
+          .header('Cache-Control', 'no-store');
         // IncomingMessage `close` may fire after the GET request itself has
         // been consumed while the response is still streaming. Killing FFmpeg
         // there truncated the fragmented MP4 before AVPlayer could decode it.
@@ -2028,7 +2040,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         localResolution.kind === 'range' ? localResolution.end : Math.max(0, stat.size - 1);
       reply
         .status(localResolution.kind === 'range' ? 206 : 200)
-        .header('Content-Type', file.mimeType || 'audio/mpeg')
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
         .header('Accept-Ranges', 'bytes')
         .header('Content-Length', Math.max(0, end - start + 1));
       if (localResolution.kind === 'range')
@@ -2051,7 +2063,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     }
     if (head)
       return reply
-        .header('Content-Type', file.mimeType || 'audio/mpeg')
+        .header('Content-Type', resolveMusicContentType(file.name, file.mimeType))
         .header('Accept-Ranges', 'bytes')
         .send();
     const upstreamRange =
@@ -2063,7 +2075,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     );
     for (const [key, value] of Object.entries(upstream.headers)) reply.header(key, value);
     reply
-      .header('Content-Type', upstream.headers['content-type'] || file.mimeType || 'audio/mpeg')
+      .header(
+        'Content-Type',
+        resolveMusicContentType(file.name, file.mimeType, upstream.headers['content-type']),
+      )
       .header('Accept-Ranges', 'bytes')
       .status(upstream.status);
     return reply.send(upstream.stream);

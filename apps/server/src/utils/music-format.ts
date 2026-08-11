@@ -1,4 +1,29 @@
 import type { Prisma } from '@prisma/client';
+import path from 'node:path';
+
+const MUSIC_CONTENT_TYPES: Record<string, string> = {
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.wma': 'audio/x-ms-wma',
+};
+
+export const resolveMusicContentType = (
+  fileName: string,
+  ...reportedTypes: Array<string | null | undefined>
+) => {
+  const extensionType = MUSIC_CONTENT_TYPES[path.extname(fileName).toLowerCase()];
+  if (extensionType) return extensionType;
+  const reported = reportedTypes.find((value) => {
+    const normalized = value?.split(';', 1)[0]?.trim().toLowerCase();
+    return normalized?.startsWith('audio/') && normalized !== 'audio/octet-stream';
+  });
+  return reported || 'application/octet-stream';
+};
 
 export const musicTrackInclude = (userId: string) =>
   ({

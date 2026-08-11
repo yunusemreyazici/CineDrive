@@ -34,11 +34,20 @@ export const internalRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const abortController = new AbortController();
-      const onClientClose = () => {
+      const onClientAbort = () => abortController.abort();
+      const onResponseClose = () => {
         if (!reply.raw.writableEnded) abortController.abort();
       };
-      request.raw.on('close', onClientClose);
-      const cleanupListeners = () => request.raw.removeListener('close', onClientClose);
+      // IncomingMessage `close` also fires after a normal GET request body has
+      // been consumed. Treating it as a disconnect aborted the Drive fetch
+      // before FFmpeg received the first audio byte. `aborted` is the actual
+      // premature-request signal; response `close` covers a vanished player.
+      request.raw.once('aborted', onClientAbort);
+      reply.raw.once('close', onResponseClose);
+      const cleanupListeners = () => {
+        request.raw.removeListener('aborted', onClientAbort);
+        reply.raw.removeListener('close', onResponseClose);
+      };
       reply.raw.on('finish', cleanupListeners);
       reply.raw.on('error', cleanupListeners);
 

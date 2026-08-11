@@ -6,6 +6,7 @@ import {
   formatAudioQuality,
   parseStoredAudioSettings,
   replayGainLinear,
+  requiresMusicTranscode,
 } from './musicAudio';
 
 const track = (audio: MusicTrackDto['audio']): MusicTrackDto => ({
@@ -46,6 +47,23 @@ describe('premium music audio helpers', () => {
     });
     expect(replayGainLinear(replayGainTrack, true)).toBeCloseTo(1.25, 5);
     expect(replayGainLinear(replayGainTrack, false)).toBe(1);
+  });
+
+  it('selects compatibility transcoding from codec, container, mime type, or extension', () => {
+    expect(requiresMusicTranscode(track({ codec: 'opus' }))).toBe(true);
+    expect(requiresMusicTranscode(track({ container: 'ogg' }))).toBe(true);
+    expect(
+      requiresMusicTranscode({
+        ...track({ codec: null }),
+        source: {
+          fileName: 'legacy.wma',
+          mimeType: 'application/octet-stream',
+          storageType: 'google_drive',
+          library: { id: 'library', name: 'Music', storageType: 'google_drive' },
+        },
+      }),
+    ).toBe(true);
+    expect(requiresMusicTranscode(track({ codec: 'mp3', container: 'mp3' }))).toBe(false);
   });
 
   it('sanitizes persisted crossfade and equalizer settings', () => {

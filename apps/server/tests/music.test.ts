@@ -14,6 +14,7 @@ import {
   isPlaylistFilename,
 } from '../src/services/music-metadata.service';
 import { alignPlainLyrics, parseLrc } from '../src/services/music-lyrics.service';
+import { resolveMusicContentType } from '../src/utils/music-format';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -116,6 +117,8 @@ describe('Music library', () => {
     expect(isPlaylistFilename('playlist.m3u8', 'audio/mpegurl')).toBe(true);
     expect(isPlaylistFilename('playlist.pls')).toBe(true);
     expect(isPlaylistFilename('track.mp3', 'audio/mpeg')).toBe(false);
+    expect(resolveMusicContentType('track.flac', 'application/octet-stream')).toBe('audio/flac');
+    expect(resolveMusicContentType('track.aac', 'audio/mp4')).toBe('audio/aac');
   });
 
   it('returns technical quality and ReplayGain metadata for music tracks', async () => {
@@ -198,6 +201,7 @@ describe('Music library', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('audio/mp4');
+    expect(response.headers['accept-ranges']).toBe('none');
     expect(response.body).toBe('aac');
     expect(transcode).toHaveBeenCalledWith(
       fixturePath,
@@ -793,6 +797,23 @@ describe('Music library', () => {
     expect(stream.rawPayload).toHaveLength(10);
   });
 
+  it('normalizes generic stored MIME types before direct music streaming', async () => {
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: trackId } },
+      data: { mimeType: 'application/octet-stream' },
+    });
+    const stream = await app.inject({
+      method: 'GET',
+      url: `/api/music/tracks/${trackId}/stream`,
+      headers: { range: 'bytes=0-19' },
+      cookies: { session_id: cookie },
+    });
+
+    expect(stream.statusCode).toBe(206);
+    expect(stream.headers['content-type']).toContain('audio/mpeg');
+    expect(stream.rawPayload).toHaveLength(20);
+  });
+
   it('serves an iOS-compatible audio transcode until the response closes', async () => {
     const kill = vi.fn();
     const transcode = vi
@@ -807,6 +828,7 @@ describe('Music library', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('audio/mp4');
+    expect(response.headers['accept-ranges']).toBe('none');
     expect(response.headers['content-range']).toBeUndefined();
     expect(response.body).toBe('fragmented-aac');
     expect(transcode).toHaveBeenCalledWith(

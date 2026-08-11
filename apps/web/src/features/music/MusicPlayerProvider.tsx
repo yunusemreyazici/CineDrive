@@ -16,6 +16,7 @@ import {
   EQ_PRESETS,
   parseStoredAudioSettings,
   replayGainLinear,
+  requiresMusicTranscode,
   type EqPreset,
   type MusicAudioSettings,
 } from './musicAudio';
@@ -222,11 +223,13 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         if (!active) return;
         revisionRef.current = state.revision;
         setQueue(state.queue);
-        setCurrentQueueItemId(
+        const restoredQueueItemId =
           state.currentQueueItemId ||
             state.queue.find((item) => item.trackId === state.currentTrackId)?.id ||
-            null,
-        );
+            null;
+        setCurrentQueueItemId(restoredQueueItemId);
+        const restoredTrack = state.queue.find((item) => item.id === restoredQueueItemId)?.track;
+        setTranscode(requiresMusicTranscode(restoredTrack));
         restoredPositionRef.current = state.positionSeconds;
         setPosition(state.positionSeconds);
         setShuffleEnabled(state.shuffleEnabled);
@@ -364,9 +367,12 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     const startPlayback = () => {
       if (!transcode && start > 0 && start < audio.duration) audio.currentTime = start;
       if (pendingPlayRef.current) {
-        pendingPlayRef.current = false;
         ensureAudioGraph();
-        void audio.play().catch(() => setIsPlaying(false));
+        void audio.play().catch((error: unknown) => {
+          console.error('[MusicPlayer] Playback start failed', error);
+          if (transcode) pendingPlayRef.current = false;
+          setIsPlaying(false);
+        });
       }
     };
     if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startPlayback();
@@ -388,6 +394,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     if (!currentEntry || transitioning || repeatMode === 'one') return;
     const nextEntry = getNextEntry(currentEntry.id);
     if (!nextEntry) return;
+    // A transcoded source starts an FFmpeg process immediately. Do not consume
+    // capacity for speculative gapless preloading; start it only when selected.
+    if (requiresMusicTranscode(nextEntry.track)) return;
     const inactiveSlot = activeSlotRef.current === 0 ? 1 : 0;
     const inactiveAudio = audioRefs.current[inactiveSlot];
     if (!inactiveAudio) return;
@@ -458,7 +467,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setPosition(0);
       setDuration(entry.track.duration || 0);
       restoredPositionRef.current = 0;
-      setTranscode(false);
+      setTranscode(requiresMusicTranscode(entry.track));
       setTranscodeStart(0);
       pendingPlayRef.current = autoPlay;
       historyRecordedRef.current.delete(entry.id);
@@ -554,9 +563,16 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     const audio = audioRefs.current[activeSlotRef.current];
     if (!audio) return;
     ensureAudioGraph();
-    if (audio.paused) void audio.play().catch(() => setIsPlaying(false));
+    if (audio.paused) {
+      pendingPlayRef.current = true;
+      void audio.play().catch((error: unknown) => {
+        console.error('[MusicPlayer] Playback resume failed', error);
+        if (transcode) pendingPlayRef.current = false;
+        setIsPlaying(false);
+      });
+    }
     else audio.pause();
-  }, [ensureAudioGraph]);
+  }, [ensureAudioGraph, transcode]);
 
   const seek = useCallback(
     (seconds: number) => {
@@ -758,7 +774,10 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       }}
       preload="auto"
       onPlay={() => {
-        if (slot === activeSlotRef.current) setIsPlaying(true);
+        if (slot === activeSlotRef.current) {
+          pendingPlayRef.current = false;
+          setIsPlaying(true);
+        }
       }}
       onPause={() => {
         if (slot === activeSlotRef.current && !transitioning) {
@@ -782,10 +801,13 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         if (slot !== activeSlotRef.current) return;
         if (currentTrack && !transcode) {
           restoredPositionRef.current = 0;
-          pendingPlayRef.current = isPlaying;
+          pendingPlayRef.current = pendingPlayRef.current || isPlaying;
           setTranscodeStart(position);
           setTranscode(true);
-        } else setIsPlaying(false);
+        } else {
+          pendingPlayRef.current = false;
+          setIsPlaying(false);
+        }
       }}
       className="hidden"
     />
