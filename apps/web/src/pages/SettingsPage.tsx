@@ -17,11 +17,8 @@ import {
 const MediaManagerPage = React.lazy(() =>
   import('./MediaManagerPage').then((module) => ({ default: module.MediaManagerPage })),
 );
-const InsightsPage = React.lazy(() =>
-  import('./InsightsPage').then((module) => ({ default: module.InsightsPage })),
-);
-const MediaHealthPage = React.lazy(() =>
-  import('./MediaHealthPage').then((module) => ({ default: module.MediaHealthPage })),
+const StorageHealthPage = React.lazy(() =>
+  import('./StorageHealthPage').then((module) => ({ default: module.StorageHealthPage })),
 );
 
 const MAX_SEARCH_RESULTS = 6;
@@ -40,8 +37,7 @@ const PANE_CONTENT: Record<SettingsPane, React.ReactNode> = {
   libraries: <LibrarySourcesSection />,
   openSubtitles: <OpenSubtitlesSection />,
   manage: <MediaManagerPage />,
-  storage: <InsightsPage />,
-  health: <MediaHealthPage />,
+  storage: <StorageHealthPage />,
 };
 
 export const SettingsPage: React.FC = () => {

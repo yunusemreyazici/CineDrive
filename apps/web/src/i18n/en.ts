@@ -985,7 +985,10 @@ export const en: Translations = {
     tabs: {
       general: { label: 'General', description: 'Account, connections and preferences' },
       manage: { label: 'Data management', description: 'Edit and clean up your content' },
-      storage: { label: 'Storage analysis', description: 'See space usage and duplicates' },
+      storage: {
+        label: 'Storage & health',
+        description: 'Track the database, space usage and media health',
+      },
       health: { label: 'Media health', description: 'Track playback and analysis status' },
     },
 
@@ -1009,7 +1012,10 @@ export const en: Translations = {
       database: { label: 'Database', description: 'Clear library data' },
       about: { label: 'About', description: 'CineDrive version information' },
       manage: { label: 'Data management', description: 'Bulk content operations' },
-      storage: { label: 'Storage analysis', description: 'Space and duplicate files' },
+      storage: {
+        label: 'Storage & health',
+        description: 'Database, space usage and media health',
+      },
       health: { label: 'Media health', description: 'Playback compatibility and HLS jobs' },
     },
   },

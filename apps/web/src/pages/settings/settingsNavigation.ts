@@ -1,6 +1,5 @@
 import type React from 'react';
 import {
-  Activity,
   Captions,
   Database,
   FolderTree,
@@ -25,8 +24,7 @@ export type SettingsPane =
   | 'libraries'
   | 'openSubtitles'
   | 'manage'
-  | 'storage'
-  | 'health';
+  | 'storage';
 
 export interface SettingsPaneDefinition {
   id: SettingsPane;
@@ -65,7 +63,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     panes: [
       { id: 'manage', label: t.settings.search.manage.label, icon: Database },
       { id: 'storage', label: t.settings.search.storage.label, icon: HardDrive },
-      { id: 'health', label: t.settings.search.health.label, icon: Activity },
     ],
   },
 ];
@@ -93,7 +90,7 @@ const LEGACY_TABS: Record<string, SettingsPane> = {
   database: 'manage',
   manage: 'manage',
   storage: 'storage',
-  health: 'health',
+  health: 'storage',
 };
 
 export const resolvePane = (value: string | null): SettingsPane => {
@@ -117,6 +114,6 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { ...t.settings.search.openSubtitles, pane: 'openSubtitles' },
   { ...t.settings.search.manage, pane: 'manage' },
   { ...t.settings.search.storage, pane: 'storage' },
-  { ...t.settings.search.health, pane: 'health' },
+  { ...t.settings.search.health, pane: 'storage' },
   { ...t.settings.search.about, pane: 'appearance' },
 ];

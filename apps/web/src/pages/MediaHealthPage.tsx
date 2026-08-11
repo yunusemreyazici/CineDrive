@@ -107,7 +107,7 @@ export const MediaHealthPage: React.FC = () => {
   const { hls, transcode, playerTelemetry } = data.runtime;
 
   return (
-    <div>
+    <>
       <SettingsCard
         id="health-summary"
         title={t.mediaHealth.analysisSummary}
@@ -409,6 +409,6 @@ export const MediaHealthPage: React.FC = () => {
           </ul>
         </SettingsCard>
       ) : null}
-    </div>
+    </>
   );
 };

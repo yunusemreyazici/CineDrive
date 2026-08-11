@@ -125,7 +125,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/favorites" element={<FavoritesPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/insights" element={<Navigate to="/settings?tab=storage" replace />} />
-          <Route path="/media-health" element={<Navigate to="/settings?tab=health" replace />} />
+          <Route path="/media-health" element={<Navigate to="/settings?tab=storage" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

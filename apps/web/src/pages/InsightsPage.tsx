@@ -79,7 +79,7 @@ export const InsightsPage: React.FC = () => {
   ];
 
   return (
-    <div>
+    <>
       <SettingsCard
         id="insights-summary"
         title={t.insights.summary}
@@ -193,6 +193,6 @@ export const InsightsPage: React.FC = () => {
           ))}
         </ul>
       </SettingsCard>
-    </div>
+    </>
   );
 };

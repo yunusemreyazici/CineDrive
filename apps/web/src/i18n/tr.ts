@@ -987,7 +987,10 @@ export const tr = {
     tabs: {
       general: { label: 'Genel', description: 'Hesap, bağlantılar ve tercihler' },
       manage: { label: 'Veri Yönetimi', description: 'İçerikleri düzenleyin ve temizleyin' },
-      storage: { label: 'Depolama Analizi', description: 'Alan kullanımını ve tekrarları görün' },
+      storage: {
+        label: 'Depolama ve Sağlık',
+        description: 'Veritabanı, alan kullanımı ve medya sağlığını izleyin',
+      },
       health: { label: 'Medya Sağlığı', description: 'Oynatma ve analiz durumunu izleyin' },
     },
 
@@ -1011,7 +1014,10 @@ export const tr = {
       database: { label: 'Veritabanı', description: 'Kütüphane verilerini temizleyin' },
       about: { label: 'Hakkında', description: 'CineDrive sürüm bilgisi' },
       manage: { label: 'Veri Yönetimi', description: 'Toplu içerik işlemleri' },
-      storage: { label: 'Depolama Analizi', description: 'Alan ve mükerrer dosyalar' },
+      storage: {
+        label: 'Depolama ve Sağlık',
+        description: 'Veritabanı, alan kullanımı ve medya sağlığı',
+      },
       health: { label: 'Medya Sağlığı', description: 'Oynatma uyumluluğu ve HLS işleri' },
     },
   },

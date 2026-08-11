@@ -24,7 +24,7 @@ import {
 import { t } from '../i18n';
 import type { MediaItemType } from '../types/media';
 import { LibraryVisibilitySection } from './settings/sections/AppearanceSection';
-import { DatabaseSection, DatabaseStatsSection } from './settings/sections/DatabaseSection';
+import { DatabaseSection } from './settings/sections/DatabaseSection';
 
 type TypeFilter = 'all' | 'movie' | 'series';
 
@@ -117,7 +117,6 @@ export const MediaManagerPage: React.FC = () => {
   return (
     <div className="pb-8">
       <LibraryVisibilitySection />
-      <DatabaseStatsSection />
 
       <SettingsCard
         id="settings-manage"
