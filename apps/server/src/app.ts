@@ -31,6 +31,11 @@ const PLAYBACK_PATH_PATTERN =
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
 
+export const rateLimitBucket = (url: string): 'playback' | 'api' =>
+  PLAYBACK_PATH_PATTERN.test(url.split('?')[0] || '') ? 'playback' : 'api';
+
+export const rateLimitKey = (ip: string, url: string): string => `${ip}:${rateLimitBucket(url)}`;
+
 export const buildApp = async (): Promise<FastifyInstance> => {
   const app = Fastify({
     exposeHeadRoutes: false,
@@ -73,9 +78,10 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   await app.register(rateLimit, {
     max: (request) =>
-      PLAYBACK_PATH_PATTERN.test(request.url.split('?')[0] || '')
+      rateLimitBucket(request.url) === 'playback'
         ? PLAYBACK_RATE_LIMIT_MAX
         : API_RATE_LIMIT_MAX,
+    keyGenerator: (request) => rateLimitKey(request.ip, request.url),
     timeWindow: '1 minute',
   });
 

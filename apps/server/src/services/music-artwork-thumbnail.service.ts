@@ -3,10 +3,18 @@ import ffmpegPath from 'ffmpeg-static';
 
 const MAX_CACHE_ENTRIES = 256;
 const THUMBNAIL_EDGE = 256;
+const MAX_CONCURRENT_RENDERS = 2;
 
 export class MusicArtworkThumbnailService {
   private readonly cache = new Map<string, Buffer>();
   private readonly inFlight = new Map<string, Promise<Buffer | null>>();
+  private activeRenders = 0;
+  private readonly renderWaiters: Array<() => void> = [];
+
+  public constructor(
+    private readonly maxConcurrentRenders = MAX_CONCURRENT_RENDERS,
+    private readonly renderer?: (source: Buffer) => Promise<Buffer | null>,
+  ) {}
 
   public async thumbnail(id: string, source: Buffer): Promise<Buffer | null> {
     const cached = this.cache.get(id);
@@ -18,7 +26,7 @@ export class MusicArtworkThumbnailService {
     const existing = this.inFlight.get(id);
     if (existing) return existing;
 
-    const pending = this.render(source)
+    const pending = this.withRenderSlot(() => this.renderer?.(source) ?? this.render(source))
       .then((result) => {
         if (!result) return null;
         this.cache.set(id, result);
@@ -54,5 +62,32 @@ export class MusicArtworkThumbnailService {
       child.once('close', (code: number | null) => resolve(code === 0 ? Buffer.concat(chunks) : null));
       child.stdin?.end(source);
     });
+  }
+
+  private async withRenderSlot<T>(operation: () => Promise<T>): Promise<T> {
+    await this.acquireRenderSlot();
+    try {
+      return await operation();
+    } finally {
+      this.releaseRenderSlot();
+    }
+  }
+
+  private acquireRenderSlot(): Promise<void> {
+    if (this.activeRenders < this.maxConcurrentRenders) {
+      this.activeRenders += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.renderWaiters.push(() => {
+        this.activeRenders += 1;
+        resolve();
+      });
+    });
+  }
+
+  private releaseRenderSlot(): void {
+    this.activeRenders = Math.max(0, this.activeRenders - 1);
+    this.renderWaiters.shift()?.();
   }
 }
