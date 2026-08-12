@@ -44,11 +44,13 @@ import { MusicReplayGainService } from '../services/music-replaygain.service.js'
 import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicMaintenanceService, audioQuality } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
+import { MusicArtworkThumbnailService } from '../services/music-artwork-thumbnail.service.js';
 
 // A native media player can probe many queued assets at once. Keep one client
 // from turning those probes into hundreds of simultaneous Google Drive streams
 // that exhaust the server's sockets and collapse unrelated network traffic.
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 4;
+const artworkThumbnails = new MusicArtworkThumbnailService();
 
 const normalizeMusicName = (value: string) =>
   value
@@ -1704,7 +1706,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get<{ Params: { id: string } }>('/artwork/:id', async (request, reply) => {
+  fastify.get<{ Params: { id: string }; Querystring: { thumbnail?: string } }>('/artwork/:id', async (request, reply) => {
     const artwork = await fastify.prisma.musicArtwork.findFirst({
       where: { id: request.params.id, userId: request.user!.id },
     });
@@ -1716,10 +1718,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
+    const source = Buffer.from(artwork.data);
+    const thumbnail = request.query.thumbnail === '1'
+      ? await artworkThumbnails.thumbnail(artwork.id, source)
+      : null;
     reply
-      .header('Content-Type', artwork.mimeType)
+      .header('Content-Type', thumbnail ? 'image/jpeg' : artwork.mimeType)
       .header('Cache-Control', 'private, max-age=86400');
-    return reply.send(Buffer.from(artwork.data));
+    return reply.send(thumbnail ?? source);
   });
 
   fastify.get<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {

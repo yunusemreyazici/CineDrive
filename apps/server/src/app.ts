@@ -27,7 +27,7 @@ import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
 // minute on top of playlist polls and scrub previews, so the general API budget
 // throttles normal playback. Media transport gets its own, much larger budget.
 const PLAYBACK_PATH_PATTERN =
-  /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|music\/tracks\/[^/]+\/stream|internal\/drive-source\/)/;
+  /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|music\/(?:tracks\/[^/]+\/(?:stream|download)|artwork\/[^/]+)|internal\/drive-source\/)/;
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
 
