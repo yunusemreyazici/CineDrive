@@ -173,6 +173,7 @@ export const tr = {
     tracks: 'Parçalar',
     albums: 'Albümler',
     album: 'Albüm',
+    openAlbum: (name: string) => `${name} albümünü aç`,
     albumView: 'Albüm görünümü',
     albumWall: 'Kapak duvarı',
     albumShelf: 'Raf görünümü',

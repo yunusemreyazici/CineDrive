@@ -129,7 +129,13 @@ export const MusicTrackList: React.FC<Props> = ({
                 )}
               </button>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-zinc-100">{track.title}</p>
+                <button
+                  type="button"
+                  onClick={() => player.playTracks(tracks, index)}
+                  className="block max-w-full truncate text-left text-sm font-medium text-zinc-100 transition hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                >
+                  {track.title}
+                </button>
                 {!homeLayout &&
                   (showPlayCount ? (
                     <p className="truncate text-xs text-zinc-500 md:hidden">

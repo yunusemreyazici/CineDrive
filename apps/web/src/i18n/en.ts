@@ -175,6 +175,7 @@ export const en: Translations = {
     tracks: 'Tracks',
     albums: 'Albums',
     album: 'Album',
+    openAlbum: (name: string) => `Open ${name} album`,
     albumView: 'Album view',
     albumWall: 'Cover wall',
     albumShelf: 'Shelf view',

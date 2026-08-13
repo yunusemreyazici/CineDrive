@@ -1,7 +1,7 @@
 import React from 'react';
-import type { MusicTrackDto } from '@cinedrive/shared';
 import {
   ArrowRight,
+  ArrowUpRight,
   Disc3,
   LibraryBig,
   ListEnd,
@@ -46,66 +46,46 @@ const SectionHeading: React.FC<{
   </div>
 );
 
-interface ArrivalItem {
+interface ArrivalAlbumItem {
   id: string;
   title: string;
   subtitle?: string | null;
   artworkUrl?: string | null;
-  href?: string;
-  track?: MusicTrackDto;
+  href: string;
 }
 
 const ArrivalTile: React.FC<{
-  item: ArrivalItem;
-  onPlay: (track: MusicTrackDto) => void;
-}> = ({ item, onPlay }) => {
-  const content = (
-    <>
-      <span className="relative block aspect-square overflow-hidden rounded-[10px] border border-white/[0.08] bg-[#121417] shadow-[0_12px_28px_rgba(0,0,0,.2)]">
-        {item.artworkUrl ? (
-          <img
-            src={item.artworkUrl}
-            alt=""
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]"
-          />
-        ) : (
-          <span className="flex h-full items-center justify-center text-zinc-700">
-            <Disc3 className="h-10 w-10" />
-          </span>
-        )}
-        {item.track && (
-          <span className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/60 via-transparent to-transparent p-3 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-xl">
-              <Play className="ml-0.5 h-4 w-4 fill-current" />
-            </span>
-          </span>
-        )}
-      </span>
-      <span className="mt-2.5 block truncate text-sm font-semibold text-white">{item.title}</span>
-      {item.subtitle && (
-        <span className="mt-1 block truncate text-[11px] text-zinc-500">{item.subtitle}</span>
+  item: ArrivalAlbumItem;
+}> = ({ item }) => (
+  <Link
+    to={item.href}
+    aria-label={t.music.openAlbum(item.title)}
+    className="group block min-w-0 flex-[1_0_112px] rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
+  >
+    <span className="relative block aspect-square overflow-hidden rounded-[10px] border border-white/[0.08] bg-[#121417] shadow-[0_12px_28px_rgba(0,0,0,.2)]">
+      {item.artworkUrl ? (
+        <img
+          src={item.artworkUrl}
+          alt=""
+          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]"
+        />
+      ) : (
+        <span className="flex h-full items-center justify-center text-zinc-700">
+          <Disc3 className="h-10 w-10" />
+        </span>
       )}
-    </>
-  );
-
-  return item.href ? (
-    <Link
-      to={item.href}
-      className="group block min-w-0 flex-[1_0_112px] rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
-    >
-      {content}
-    </Link>
-  ) : (
-    <button
-      type="button"
-      onClick={() => item.track && onPlay(item.track)}
-      aria-label={item.track ? t.music.playTrack(item.title) : item.title}
-      className="group block min-w-0 flex-[1_0_112px] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
-    >
-      {content}
-    </button>
-  );
-};
+      <span className="absolute inset-0 flex items-end justify-end bg-gradient-to-t from-black/60 via-transparent to-transparent p-3 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-xl">
+          <ArrowUpRight className="h-4 w-4" />
+        </span>
+      </span>
+    </span>
+    <span className="mt-2.5 block truncate text-sm font-semibold text-white">{item.title}</span>
+    {item.subtitle && (
+      <span className="mt-1 block truncate text-[11px] text-zinc-500">{item.subtitle}</span>
+    )}
+  </Link>
+);
 
 export const MusicPage: React.FC = () => {
   const query = useMusicOverviewQuery();
@@ -166,22 +146,13 @@ export const MusicPage: React.FC = () => {
   const listeningTracks = recentlyPlayedTracks.length
     ? recentlyPlayedTracks.slice(0, 6)
     : data.recentTracks.slice(0, 6);
-  const arrivals: ArrivalItem[] = [
-    ...data.recentAlbums.slice(0, 4).map((album) => ({
-      id: `album-${album.id}`,
-      title: album.title,
-      subtitle: album.artist?.name || t.music.album,
-      artworkUrl: album.artworkUrl,
-      href: `/music/albums/${album.id}`,
-    })),
-    ...data.recentTracks.slice(0, 4).map((track) => ({
-      id: `track-${track.id}`,
-      title: track.title,
-      subtitle: track.primaryArtist?.name || t.music.artist,
-      artworkUrl: track.artworkUrl,
-      track,
-    })),
-  ];
+  const arrivals: ArrivalAlbumItem[] = data.recentAlbums.slice(0, 8).map((album) => ({
+    id: `album-${album.id}`,
+    title: album.title,
+    subtitle: album.artist?.name || t.music.album,
+    artworkUrl: album.artworkUrl,
+    href: `/music/albums/${album.id}`,
+  }));
 
   const playSpotlight = () => {
     player.playTracks(spotlightQueue);
@@ -211,28 +182,73 @@ export const MusicPage: React.FC = () => {
           />
         )}
         <div className="relative grid items-center gap-6 md:grid-cols-[250px_minmax(0,1fr)] md:gap-8">
-          <div className="aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] md:h-[218px] md:aspect-auto">
-            {spotlightTrack?.artworkUrl ? (
-              <img src={spotlightTrack.artworkUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-zinc-700">
-                <Disc3 className="h-20 w-20" />
-              </div>
-            )}
-          </div>
+          {spotlightTrack?.album ? (
+            <Link
+              to={`/music/albums/${spotlightTrack.album.id}`}
+              aria-label={t.music.openAlbum(spotlightTrack.album.title)}
+              className="group aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 md:h-[218px] md:aspect-auto"
+            >
+              {spotlightTrack.artworkUrl ? (
+                <img
+                  src={spotlightTrack.artworkUrl}
+                  alt=""
+                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
+                />
+              ) : (
+                <span className="flex h-full items-center justify-center text-zinc-700">
+                  <Disc3 className="h-20 w-20" />
+                </span>
+              )}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={playSpotlight}
+              aria-label={spotlightTrack ? t.music.playTrack(spotlightTrack.title) : t.music.play}
+              className="group aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 md:h-[218px] md:aspect-auto"
+            >
+              {spotlightTrack?.artworkUrl ? (
+                <img
+                  src={spotlightTrack.artworkUrl}
+                  alt=""
+                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.025]"
+                />
+              ) : (
+                <span className="flex h-full items-center justify-center text-zinc-700">
+                  <Disc3 className="h-20 w-20" />
+                </span>
+              )}
+            </button>
+          )}
 
           <div className="min-w-0 py-1 md:translate-y-[15px] md:pr-4 lg:pr-8">
-            <h2
+            <button
+              type="button"
+              onClick={playSpotlight}
               id="music-spotlight-title"
-              className="font-display text-3xl font-extrabold leading-[1.02] tracking-[-0.035em] text-white lg:text-[32px]"
+              className="block max-w-full text-left font-display text-3xl font-extrabold leading-[1.02] tracking-[-0.035em] text-white transition hover:text-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 lg:text-[32px]"
             >
               {spotlightTrack?.title || t.music.title}
-            </h2>
-            <p className="mt-3 text-base font-medium text-zinc-300">
-              {spotlightTrack?.primaryArtist?.name || t.music.subtitle}
-            </p>
+            </button>
+            {spotlightTrack?.primaryArtist ? (
+              <Link
+                to={`/music/artists/${spotlightTrack.primaryArtist.id}`}
+                className="mt-3 inline-block text-base font-medium text-zinc-300 transition hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+              >
+                {spotlightTrack.primaryArtist.name}
+              </Link>
+            ) : (
+              <p className="mt-3 text-base font-medium text-zinc-300">{t.music.subtitle}</p>
+            )}
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
-              {spotlightTrack?.album?.title && <span>{spotlightTrack.album.title}</span>}
+              {spotlightTrack?.album?.title && (
+                <Link
+                  to={`/music/albums/${spotlightTrack.album.id}`}
+                  className="transition hover:text-brand-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                >
+                  {spotlightTrack.album.title}
+                </Link>
+              )}
               {spotlightTrack?.year && <span>· {spotlightTrack.year}</span>}
               <span>· {t.music.trackCount(spotlightQueue.length)}</span>
             </p>
@@ -296,12 +312,8 @@ export const MusicPage: React.FC = () => {
               ref={arrivalsRailRef}
               className="flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              {arrivals.slice(0, 8).map((item) => (
-                <ArrivalTile
-                  key={item.id}
-                  item={item}
-                  onPlay={(track) => player.playTracks([track])}
-                />
+              {arrivals.map((item) => (
+                <ArrivalTile key={item.id} item={item} />
               ))}
             </div>
             {arrivals.length > 6 && (
