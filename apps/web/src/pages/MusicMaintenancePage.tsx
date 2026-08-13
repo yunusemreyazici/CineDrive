@@ -5,6 +5,7 @@ import {
   AudioWaveform,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Gauge,
   History,
@@ -30,7 +31,6 @@ import { MusicTrackList } from '../components/music/MusicTrackList';
 import {
   useArchiveDuplicateMutation,
   useBulkMusicMetadataMutation,
-  useEditMusicAlbumMaintenanceMutation,
   useEditMusicArtistMaintenanceMutation,
   useFingerprintScanMutation,
   useGenerateMusicMaintenanceMutation,
@@ -46,10 +46,11 @@ import { toast } from '../stores/useToastStore';
 type MaintenanceTab = 'overview' | 'artwork' | 'metadata' | 'audio' | 'activity';
 type Artist = MusicMaintenanceDto['artists'][number];
 
-const Panel: React.FC<
-  React.PropsWithChildren<{ className?: string; accent?: 'cyan' | 'violet' | 'amber' }>
-> = ({ children, className = '' }) => (
-  <section className={`rounded-xl border border-zinc-800/70 bg-zinc-950/45 ${className}`}>
+const Panel: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
+  children,
+  className = '',
+}) => (
+  <section className={`min-w-0 rounded-xl border border-zinc-800/70 bg-zinc-950/45 ${className}`}>
     {children}
   </section>
 );
@@ -65,7 +66,7 @@ const MaintenanceSummary: React.FC<{
     </span>
     <div className="min-w-0">
       <p className="truncate text-lg font-semibold leading-none text-zinc-100">{value}</p>
-      <p className="mt-1 truncate text-xs text-zinc-500">{label}</p>
+      <p className="mt-1 text-xs leading-4 text-zinc-500">{label}</p>
     </div>
   </div>
 );
@@ -222,9 +223,7 @@ const SuggestionCard: React.FC<{
             <div className="flex min-w-0 items-start gap-2 text-xs leading-relaxed">
               <span className="min-w-0 break-words text-zinc-600">{change.before}</span>
               <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-700" />
-              <span className="min-w-0 break-words font-medium text-zinc-200">
-                {change.after}
-              </span>
+              <span className="min-w-0 break-words font-medium text-zinc-200">{change.after}</span>
             </div>
           </div>
         ))}
@@ -272,7 +271,6 @@ export const MusicMaintenancePage: React.FC = () => {
   const bulk = useBulkMusicMetadataMutation();
   const replayGain = useReplayGainScanMutation();
   const fingerprints = useFingerprintScanMutation();
-  const editAlbum = useEditMusicAlbumMaintenanceMutation();
   const editArtist = useEditMusicArtistMaintenanceMutation();
   const archiveDuplicate = useArchiveDuplicateMutation();
   const undo = useUndoMusicMaintenanceMutation();
@@ -285,6 +283,7 @@ export const MusicMaintenancePage: React.FC = () => {
   const [artistName, setArtistName] = useState('');
   const [albumName, setAlbumName] = useState('');
   const [albumArtistName, setAlbumArtistName] = useState('');
+  const [metadataPage, setMetadataPage] = useState(0);
   const data = query.data;
 
   const entityTracks = useMemo(() => data?.missingMetadata || [], [data?.missingMetadata]);
@@ -313,17 +312,17 @@ export const MusicMaintenancePage: React.FC = () => {
     () => suggestions.filter((suggestion) => suggestion.kind !== 'artwork'),
     [suggestions],
   );
-  const albums = useMemo(
-    () =>
-      [
-        ...new Map(
-          entityTracks
-            .filter((track) => track.album)
-            .map((track) => [track.album!.id, track.album!]),
-        ).values(),
-      ].slice(0, 20),
-    [entityTracks],
-  );
+  const duplicateGroups = useMemo(() => {
+    const unique = new Map<string, MusicMaintenanceDto['duplicates'][number]>();
+    for (const group of [...(data?.acousticDuplicates || []), ...(data?.duplicates || [])]) {
+      const signature = group.tracks
+        .map((track) => track.id)
+        .sort()
+        .join(':');
+      if (!unique.has(signature)) unique.set(signature, group);
+    }
+    return [...unique.values()];
+  }, [data?.acousticDuplicates, data?.duplicates]);
   const filteredArtists = useMemo(() => {
     const normalizedQuery = artistQuery.trim().toLocaleLowerCase('tr-TR');
     return artists.filter(
@@ -345,13 +344,16 @@ export const MusicMaintenancePage: React.FC = () => {
     );
   if (!data) return null;
 
-  const totalIssues =
-    data.totals.missingArtistArtwork +
-    data.totals.missingArtwork +
-    data.totals.missingMetadata +
-    data.totals.duplicates +
-    data.totals.replayGainMissing;
   const artworkCount = artists.filter((artist) => !!artist.artworkUrl).length;
+  const hasBulkChanges = Boolean(
+    artistName.trim() || albumName.trim() || albumArtistName.trim() || genres.trim() || year,
+  );
+  const metadataPageSize = 50;
+  const metadataPageCount = Math.max(1, Math.ceil(entityTracks.length / metadataPageSize));
+  const visibleMetadataTracks = entityTracks.slice(
+    metadataPage * metadataPageSize,
+    (metadataPage + 1) * metadataPageSize,
+  );
   const tabs: Array<{
     id: MaintenanceTab;
     label: string;
@@ -414,6 +416,46 @@ export const MusicMaintenancePage: React.FC = () => {
       },
     );
 
+  const nextStep = suggestions.length
+    ? {
+        title: t.music.reviewPendingChanges,
+        detail: t.music.reviewPendingChangesHint(suggestions.length),
+        label: t.music.openReviewQueue,
+        icon: History,
+        action: () => setActiveTab('activity' as const),
+        pending: false,
+      }
+    : data.totals.missingArtistArtwork
+      ? {
+          title: t.music.completeArtistArtwork,
+          detail: t.music.completeArtistArtworkHint,
+          label: t.music.scanNextArtists,
+          icon: RefreshCw,
+          action: () => scanArtwork(),
+          pending: artworkScan.isPending,
+        }
+      : data.totals.missingMetadata
+        ? {
+            title: t.music.reviewMetadataIssues,
+            detail: t.music.reviewMetadataIssuesHint(data.totals.missingMetadata),
+            label: t.music.openMetadataWorkspace,
+            icon: ListMusic,
+            action: () => setActiveTab('metadata' as const),
+            pending: false,
+          }
+        : data.totals.duplicates + data.totals.replayGainMissing
+          ? {
+              title: t.music.reviewAudioIssues,
+              detail: t.music.reviewAudioIssuesHint(
+                data.totals.duplicates + data.totals.replayGainMissing,
+              ),
+              label: t.music.openAudioWorkspace,
+              icon: AudioWaveform,
+              action: () => setActiveTab('audio' as const),
+              pending: false,
+            }
+          : null;
+
   const toggleTrack = (id: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -471,12 +513,7 @@ export const MusicMaintenancePage: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-5">
-            <MaintenanceSummary
-              icon={Activity}
-              label={t.music.maintenanceControlCenter}
-              value={totalIssues}
-            />
+          <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
             <MaintenanceSummary
               icon={UserRound}
               label={t.music.missingArtistArtwork}
@@ -500,13 +537,17 @@ export const MusicMaintenancePage: React.FC = () => {
           </div>
         </header>
 
-        <nav className="scrollbar-none flex gap-1 overflow-x-auto border-y border-zinc-800/70 bg-zinc-950/60 p-2">
+        <nav
+          aria-label={t.music.maintenanceSections}
+          className="scrollbar-none flex gap-1 overflow-x-auto border-y border-zinc-800/70 bg-zinc-950/60 p-2"
+        >
           {tabs.map(({ id, label, icon: Icon, count }) => (
             <button
               type="button"
               key={id}
+              aria-pressed={activeTab === id}
               onClick={() => setActiveTab(id)}
-              className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
+              className={`flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors ${
                 activeTab === id
                   ? 'bg-brand-500/10 text-brand-300'
                   : 'text-zinc-500 hover:bg-white/[.04] hover:text-zinc-200'
@@ -528,57 +569,39 @@ export const MusicMaintenancePage: React.FC = () => {
         <div className="min-w-0 p-4 md:px-7 md:py-6">
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              <div className="grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
-                <Panel className="p-5" accent="cyan">
+              <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)]">
+                <Panel className="p-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-400">
                         {t.music.recommendedNextStep}
                       </p>
                       <h2 className="mt-2 font-display text-[15px] font-semibold text-white">
-                        {t.music.completeArtistArtwork}
+                        {nextStep?.title || t.music.libraryHealthy}
                       </h2>
                       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-zinc-500">
-                        {t.music.completeArtistArtworkHint}
+                        {nextStep?.detail || t.music.libraryHealthyHint}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => scanArtwork()}
-                      disabled={artworkScan.isPending || !data.totals.missingArtistArtwork}
-                      className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-500 disabled:opacity-40"
-                    >
-                      {artworkScan.isPending ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      {artworkScan.isPending ? t.music.scanning : t.music.scanNextArtists}
-                    </button>
-                  </div>
-                  <div className="mt-5 grid grid-cols-3 divide-x divide-zinc-800/70 border-t border-zinc-800/70 pt-4">
-                    <div className="px-3 first:pl-0">
-                      <p className="text-xl font-semibold text-zinc-100">{artworkCount}</p>
-                      <p className="mt-1 text-xs text-zinc-500">{t.music.artworkReady}</p>
-                    </div>
-                    <div className="px-3">
-                      <p className="text-xl font-semibold text-zinc-100">
-                        {
-                          artists.filter((artist) => artist.artworkLookupStatus === 'not-found')
-                            .length
-                        }
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-500">{t.music.sourceUnavailable}</p>
-                    </div>
-                    <div className="px-3">
-                      <p className="text-xl font-semibold text-zinc-100">
-                        {
-                          artists.filter((artist) => !artist.artworkLookupAt && !artist.artworkUrl)
-                            .length
-                        }
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-500">{t.music.waitingForScan}</p>
-                    </div>
+                    {nextStep ? (
+                      <button
+                        type="button"
+                        onClick={nextStep.action}
+                        disabled={nextStep.pending}
+                        className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-500 disabled:opacity-40"
+                      >
+                        {nextStep.pending ? (
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <nextStep.icon className="h-4 w-4" />
+                        )}
+                        {nextStep.pending ? t.music.scanning : nextStep.label}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-200">
+                        <CheckCircle2 className="h-4 w-4" /> {t.music.upToDate}
+                      </span>
+                    )}
                   </div>
                 </Panel>
 
@@ -639,7 +662,7 @@ export const MusicMaintenancePage: React.FC = () => {
 
           {activeTab === 'artwork' && (
             <div className="space-y-6">
-              <Panel className="p-5" accent="cyan">
+              <Panel className="p-5">
                 <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
                   <div>
                     <div className="flex items-center gap-3">
@@ -664,19 +687,25 @@ export const MusicMaintenancePage: React.FC = () => {
                       </p>
                       <p className="text-xs text-zinc-500">{t.music.artworkCoverage}</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => scanArtwork()}
-                      disabled={artworkScan.isPending || !data.totals.missingArtistArtwork}
-                      className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-500 disabled:opacity-40"
-                    >
-                      {artworkScan.isPending ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      {artworkScan.isPending ? t.music.scanning : t.music.scanNextArtists}
-                    </button>
+                    {data.totals.missingArtistArtwork ? (
+                      <button
+                        type="button"
+                        onClick={() => scanArtwork()}
+                        disabled={artworkScan.isPending}
+                        className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-500 disabled:opacity-40"
+                      >
+                        {artworkScan.isPending ? (
+                          <LoaderCircle className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                        {artworkScan.isPending ? t.music.scanning : t.music.scanNextArtists}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-200">
+                        <CheckCircle2 className="h-4 w-4" /> {t.music.allArtistArtworkReady}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {artworkScan.data && (
@@ -739,6 +768,7 @@ export const MusicMaintenancePage: React.FC = () => {
                     <label className="flex min-w-52 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-zinc-500 focus-within:border-brand-500">
                       <Search className="h-4 w-4" />
                       <input
+                        aria-label={t.music.searchArtists}
                         value={artistQuery}
                         onChange={(event) => setArtistQuery(event.target.value)}
                         placeholder={t.music.searchArtists}
@@ -804,6 +834,7 @@ export const MusicMaintenancePage: React.FC = () => {
                               }}
                             >
                               <input
+                                aria-label={t.music.editArtistName(artist.name)}
                                 name="name"
                                 defaultValue={artist.name}
                                 className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none focus:text-cyan-200"
@@ -888,8 +919,8 @@ export const MusicMaintenancePage: React.FC = () => {
 
           {activeTab === 'metadata' && (
             <div className="space-y-6">
-              <div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]">
-                <Panel className="p-5" accent="amber">
+              <div className="space-y-6">
+                <Panel className="p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="font-display text-[15px] font-semibold">
@@ -897,45 +928,89 @@ export const MusicMaintenancePage: React.FC = () => {
                       </h2>
                       <p className="mt-1 text-[13px] text-zinc-500">{t.music.bulkMetadataHint}</p>
                     </div>
-                    <span className="text-xs font-medium text-zinc-500">
-                      {t.music.selectedCount(selected.size)}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span aria-live="polite" className="text-xs font-medium text-zinc-500">
+                        {t.music.selectedCount(selected.size)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelected((current) => {
+                            const next = new Set(current);
+                            for (const track of visibleMetadataTracks) next.add(track.id);
+                            return next;
+                          })
+                        }
+                        disabled={
+                          !visibleMetadataTracks.length ||
+                          visibleMetadataTracks.every((track) => selected.has(track.id))
+                        }
+                        className="rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[11px] font-medium text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        {t.music.selectListedTracks}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(new Set())}
+                        disabled={!selected.size}
+                        className="rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[11px] font-medium text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        {t.music.clearTrackSelection}
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    <input
-                      value={artistName}
-                      onChange={(event) => setArtistName(event.target.value)}
-                      placeholder={t.music.artistNamePlaceholder}
-                      className="music-field"
-                    />
-                    <input
-                      value={albumName}
-                      onChange={(event) => setAlbumName(event.target.value)}
-                      placeholder={t.music.albumNamePlaceholder}
-                      className="music-field"
-                    />
-                    <input
-                      value={albumArtistName}
-                      onChange={(event) => setAlbumArtistName(event.target.value)}
-                      placeholder={t.music.albumArtistPlaceholder}
-                      className="music-field"
-                    />
-                    <input
-                      value={genres}
-                      onChange={(event) => setGenres(event.target.value)}
-                      placeholder={t.music.genresPlaceholder}
-                      className="music-field"
-                    />
-                    <input
-                      value={year}
-                      onChange={(event) => setYear(event.target.value)}
-                      type="number"
-                      placeholder={t.music.year}
-                      className="music-field"
-                    />
+                  <div className="mt-5 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <label className="min-w-0">
+                      <span className="music-field-label">{t.music.artist}</span>
+                      <input
+                        value={artistName}
+                        onChange={(event) => setArtistName(event.target.value)}
+                        placeholder={t.music.leaveUnchanged}
+                        className="music-field"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="music-field-label">{t.music.album}</span>
+                      <input
+                        value={albumName}
+                        onChange={(event) => setAlbumName(event.target.value)}
+                        placeholder={t.music.leaveUnchanged}
+                        className="music-field"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="music-field-label">{t.music.albumArtistField}</span>
+                      <input
+                        value={albumArtistName}
+                        onChange={(event) => setAlbumArtistName(event.target.value)}
+                        placeholder={t.music.leaveUnchanged}
+                        className="music-field"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="music-field-label">{t.music.genres}</span>
+                      <input
+                        value={genres}
+                        onChange={(event) => setGenres(event.target.value)}
+                        placeholder={t.music.genresPlaceholder}
+                        className="music-field"
+                      />
+                    </label>
+                    <label className="min-w-0">
+                      <span className="music-field-label">{t.music.year}</span>
+                      <input
+                        value={year}
+                        onChange={(event) => setYear(event.target.value)}
+                        type="number"
+                        min={1800}
+                        max={new Date().getFullYear() + 1}
+                        placeholder={t.music.leaveUnchanged}
+                        className="music-field"
+                      />
+                    </label>
                     <button
                       type="button"
-                      disabled={!selected.size || bulk.isPending}
+                      disabled={!selected.size || !hasBulkChanges || bulk.isPending}
                       onClick={() =>
                         bulk.mutate(
                           {
@@ -956,6 +1031,12 @@ export const MusicMaintenancePage: React.FC = () => {
                             onSuccess: (result) => {
                               toast.success(t.music.bulkMetadataUpdated(result.updated));
                               setSelected(new Set());
+                              setMetadataPage(0);
+                              setArtistName('');
+                              setAlbumName('');
+                              setAlbumArtistName('');
+                              setGenres('');
+                              setYear('');
                             },
                             onError: (error) => toast.fromError(error),
                           },
@@ -966,8 +1047,12 @@ export const MusicMaintenancePage: React.FC = () => {
                       <Save className="h-4 w-4" /> {t.common.save}
                     </button>
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs leading-relaxed text-zinc-600">
+                    <p>{t.music.bulkSaveHint}</p>
+                    <span>{t.music.metadataPage(metadataPage + 1, metadataPageCount)}</span>
+                  </div>
                   <div className="mt-5 max-h-[520px] divide-y divide-zinc-800/60 overflow-y-auto rounded-lg border border-zinc-800/70 bg-zinc-950/40">
-                    {entityTracks.map((track) => (
+                    {visibleMetadataTracks.map((track) => (
                       <label
                         key={track.id}
                         className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-zinc-900/50"
@@ -999,79 +1084,67 @@ export const MusicMaintenancePage: React.FC = () => {
                       </label>
                     ))}
                   </div>
+                  {metadataPageCount > 1 && (
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        aria-label={t.music.previousMetadataPage}
+                        onClick={() => setMetadataPage((page) => Math.max(0, page - 1))}
+                        disabled={metadataPage === 0}
+                        className="rounded-lg border border-zinc-700 p-2 text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t.music.nextMetadataPage}
+                        onClick={() =>
+                          setMetadataPage((page) => Math.min(metadataPageCount - 1, page + 1))
+                        }
+                        disabled={metadataPage >= metadataPageCount - 1}
+                        className="rounded-lg border border-zinc-700 p-2 text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </Panel>
 
-                <div className="space-y-6">
-                  <Panel className="p-5">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-display text-[15px] font-semibold">
-                        {t.music.pendingReview}
-                      </h2>
-                      <span className="text-xs font-medium text-zinc-500">
-                        {metadataSuggestions.length}
-                      </span>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {metadataSuggestions.slice(0, 8).map((suggestion) => (
-                        <SuggestionCard
-                          key={suggestion.id}
-                          suggestion={suggestion}
-                          busy={resolveSuggestion.isPending}
-                          onResolve={(accept) => resolve(suggestion, accept)}
-                        />
-                      ))}
-                      {!metadataSuggestions.length && (
-                        <EmptyState
-                          icon={CheckCircle2}
-                          title={t.music.noSuggestions}
-                          detail={t.music.noSuggestionsHint}
-                        />
-                      )}
-                    </div>
-                  </Panel>
-
-                  <Panel className="p-5">
+                <Panel className="p-5">
+                  <div className="flex items-center justify-between">
                     <h2 className="font-display text-[15px] font-semibold">
-                      {t.music.albumBatchEditor}
+                      {t.music.pendingReview}
                     </h2>
-                    <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
-                      {albums.map((album) => (
-                        <form
-                          key={album.id}
-                          className="flex gap-2"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            const form = new FormData(event.currentTarget);
-                            editAlbum.mutate(
-                              { id: album.id, title: String(form.get('title') || album.title) },
-                              {
-                                onSuccess: () => toast.success(t.music.albumUpdated),
-                                onError: (error) => toast.fromError(error),
-                              },
-                            );
-                          }}
-                        >
-                          <input name="title" defaultValue={album.title} className="music-field" />
-                          <button
-                            type="submit"
-                            aria-label={t.common.save}
-                            className="rounded-lg border border-zinc-700 px-3 text-zinc-400 hover:bg-zinc-800/60"
-                          >
-                            <Check className="h-4 w-4" />
-                          </button>
-                        </form>
-                      ))}
-                    </div>
-                  </Panel>
-                </div>
+                    <span className="text-xs font-medium text-zinc-500">
+                      {metadataSuggestions.length}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid min-w-0 gap-3 2xl:grid-cols-2">
+                    {metadataSuggestions.slice(0, 8).map((suggestion) => (
+                      <SuggestionCard
+                        key={suggestion.id}
+                        suggestion={suggestion}
+                        busy={resolveSuggestion.isPending}
+                        onResolve={(accept) => resolve(suggestion, accept)}
+                      />
+                    ))}
+                    {!metadataSuggestions.length && (
+                      <EmptyState
+                        icon={CheckCircle2}
+                        title={t.music.noSuggestions}
+                        detail={t.music.noSuggestionsHint}
+                      />
+                    )}
+                  </div>
+                </Panel>
               </div>
             </div>
           )}
 
           {activeTab === 'audio' && (
             <div className="space-y-6">
-              <div className="grid gap-6 xl:grid-cols-2">
-                <Panel className="p-5" accent="cyan">
+              <div className="grid min-w-0 gap-6 2xl:grid-cols-2">
+                <Panel className="p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <span className="inline-flex rounded-lg bg-zinc-900 p-2 text-zinc-500">
@@ -1116,7 +1189,7 @@ export const MusicMaintenancePage: React.FC = () => {
                   </div>
                 </Panel>
 
-                <Panel className="p-5" accent="violet">
+                <Panel className="p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <span className="inline-flex rounded-lg bg-zinc-900 p-2 text-zinc-500">
@@ -1189,11 +1262,11 @@ export const MusicMaintenancePage: React.FC = () => {
                     <p className="mt-1 text-[13px] text-zinc-500">{t.music.duplicateHint}</p>
                   </div>
                   <span className="text-xs font-medium text-zinc-500">
-                    {data.duplicates.length + data.acousticDuplicates.length}
+                    {duplicateGroups.length}
                   </span>
                 </div>
                 <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                  {[...data.acousticDuplicates, ...data.duplicates].map((group) => (
+                  {duplicateGroups.map((group) => (
                     <details
                       key={group.key}
                       className="rounded-lg border border-zinc-800/70 bg-zinc-950/40 p-4"
@@ -1217,8 +1290,17 @@ export const MusicMaintenancePage: React.FC = () => {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  group.recommendedTrackId &&
+                                disabled={archiveDuplicate.isPending}
+                                onClick={() => {
+                                  if (
+                                    !group.recommendedTrackId ||
+                                    !window.confirm(
+                                      t.music.archiveDuplicateConfirm(
+                                        track.source?.fileName || track.title,
+                                      ),
+                                    )
+                                  )
+                                    return;
                                   archiveDuplicate.mutate(
                                     {
                                       keepTrackId: group.recommendedTrackId,
@@ -1229,9 +1311,9 @@ export const MusicMaintenancePage: React.FC = () => {
                                       onSuccess: () => toast.success(t.music.duplicateArchived),
                                       onError: (error) => toast.fromError(error),
                                     },
-                                  )
-                                }
-                                className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] font-medium text-zinc-400 hover:bg-zinc-800/60"
+                                  );
+                                }}
+                                className="rounded-md border border-zinc-700 px-2 py-1 text-[10px] font-medium text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
                               >
                                 {t.music.archiveLowerQuality}
                               </button>
@@ -1242,7 +1324,7 @@ export const MusicMaintenancePage: React.FC = () => {
                     </details>
                   ))}
                 </div>
-                {!data.duplicates.length && !data.acousticDuplicates.length && (
+                {!duplicateGroups.length && (
                   <div className="mt-5">
                     <EmptyState
                       icon={CheckCircle2}
@@ -1256,7 +1338,7 @@ export const MusicMaintenancePage: React.FC = () => {
           )}
 
           {activeTab === 'activity' && (
-            <div className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
+            <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
               <Panel className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1314,21 +1396,36 @@ export const MusicMaintenancePage: React.FC = () => {
                           {new Date(action.createdAt).toLocaleString()}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        disabled={!!action.revertedAt || undo.isPending}
-                        onClick={() =>
-                          undo.mutate(action.id, {
-                            onSuccess: () => toast.success(t.music.actionUndone),
-                            onError: (error) => toast.fromError(error),
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-[11px] font-medium text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-25"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" /> {t.music.undoAction}
-                      </button>
+                      {action.revertedAt ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-[11px] font-medium text-zinc-500">
+                          <Check className="h-3.5 w-3.5" /> {t.music.actionReverted}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={undo.isPending}
+                          onClick={() =>
+                            undo.mutate(action.id, {
+                              onSuccess: () => toast.success(t.music.actionUndone),
+                              onError: (error) => toast.fromError(error),
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-[11px] font-medium text-zinc-400 hover:bg-zinc-800/60 disabled:opacity-40"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" /> {t.music.undoAction}
+                        </button>
+                      )}
                     </div>
                   ))}
+                  {!data.actions?.length && (
+                    <div className="py-4">
+                      <EmptyState
+                        icon={History}
+                        title={t.music.noMaintenanceActions}
+                        detail={t.music.noMaintenanceActionsHint}
+                      />
+                    </div>
+                  )}
                 </div>
               </Panel>
             </div>

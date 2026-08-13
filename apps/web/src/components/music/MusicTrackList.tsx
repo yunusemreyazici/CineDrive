@@ -111,7 +111,9 @@ export const MusicTrackList: React.FC<Props> = ({
                   </button>
                 ))}
               <button
+                type="button"
                 onClick={() => player.playTracks(tracks, index)}
+                aria-label={t.music.playTrack(track.title)}
                 className="h-11 w-11 overflow-hidden rounded-lg bg-zinc-800"
               >
                 {track.artworkUrl ? (

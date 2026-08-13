@@ -159,7 +159,7 @@
   }
 
   .music-field {
-    @apply min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.055] px-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-300/45 focus:ring-2 focus:ring-cyan-300/10;
+    @apply min-h-11 min-w-0 w-full rounded-xl border border-white/10 bg-white/[0.055] px-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-cyan-300/45 focus:ring-2 focus:ring-cyan-300/10;
   }
 }
 
