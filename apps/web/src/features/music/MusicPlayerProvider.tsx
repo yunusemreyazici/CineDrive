@@ -29,6 +29,7 @@ import {
   appendUniqueMusicQueueEntries,
   appendMusicQueueEntry,
   insertNextMusicQueueEntry,
+  remainingMusicQueueEntries,
   removeMusicQueueEntry,
   shuffleMusicQueueEntries,
   type MusicQueueEntry,
@@ -94,6 +95,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const revisionRef = useRef(0);
   const syncInFlightRef = useRef(false);
   const syncQueuedRef = useRef(false);
+  const queueGenerationRef = useRef(0);
+  const radioExtensionInFlightRef = useRef<Promise<MusicQueueEntry | null> | null>(null);
   const historyRecordedRef = useRef(new Set<string>());
   const historyPendingRef = useRef(new Set<string>());
   const pendingPlayRef = useRef(false);
@@ -506,19 +509,30 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     }
   }, [getNextEntry, selectEntry, switchToPrepared]);
 
-  const extendQueueWithRadio = useCallback(async () => {
-    const seed = queueRef.current.find((item) => item.id === currentQueueItemIdRef.current)?.track;
-    if (!seed) return null;
-    try {
-      const radio = await fetchTrackRadio(seed.id);
-      const result = appendUniqueMusicQueueEntries(queueRef.current, radio.tracks, makeId);
-      if (!result.added.length) return null;
-      queueRef.current = result.queue;
-      setQueue(result.queue);
-      return result.added[0] || null;
-    } catch {
-      return null;
-    }
+  const extendQueueWithRadio = useCallback((seedEntryId?: string | null) => {
+    if (radioExtensionInFlightRef.current) return radioExtensionInFlightRef.current;
+    const queueGeneration = queueGenerationRef.current;
+    const request = (async () => {
+      const seedId = seedEntryId || currentQueueItemIdRef.current;
+      const seed = queueRef.current.find((item) => item.id === seedId)?.track;
+      if (!seed) return null;
+      try {
+        const radio = await fetchTrackRadio(seed.id);
+        if (queueGenerationRef.current !== queueGeneration) return null;
+        const result = appendUniqueMusicQueueEntries(queueRef.current, radio.tracks, makeId);
+        if (!result.added.length) return null;
+        queueRef.current = result.queue;
+        setQueue(result.queue);
+        return result.added[0] || null;
+      } catch {
+        return null;
+      }
+    })();
+    radioExtensionInFlightRef.current = request;
+    void request.finally(() => {
+      if (radioExtensionInFlightRef.current === request) radioExtensionInFlightRef.current = null;
+    });
+    return request;
   }, []);
 
   const toggleContinuousPlay = useCallback(() => {
@@ -532,6 +546,13 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       return nextValue;
     });
   }, []);
+
+  useEffect(() => {
+    if (!continuousPlayEnabled || repeatMode !== 'off') return;
+    if (remainingMusicQueueEntries(queue, currentQueueItemId) > 2) return;
+    const terminalEntry = [...queue].sort((left, right) => right.playOrder - left.playOrder)[0];
+    if (terminalEntry) void extendQueueWithRadio(terminalEntry.id);
+  }, [continuousPlayEnabled, currentQueueItemId, extendQueueWithRadio, queue, repeatMode]);
 
   const previous = useCallback(() => {
     const audio = audioRefs.current[activeSlotRef.current];
@@ -554,6 +575,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
 
   const playTracks = useCallback(
     (tracks: MusicTrackDto[], startIndex = 0) => {
+      queueGenerationRef.current += 1;
+      radioExtensionInFlightRef.current = null;
       const entries = tracks.map((track, index) => ({
         id: makeId(),
         trackId: track.id,
@@ -572,6 +595,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
 
   const playShuffledTracks = useCallback(
     (tracks: MusicTrackDto[]) => {
+      queueGenerationRef.current += 1;
+      radioExtensionInFlightRef.current = null;
       const entries = tracks.map((track, index) => ({
         id: makeId(),
         trackId: track.id,

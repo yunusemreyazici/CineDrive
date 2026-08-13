@@ -4,6 +4,7 @@ import {
   appendMusicQueueEntry,
   appendUniqueMusicQueueEntries,
   insertNextMusicQueueEntry,
+  remainingMusicQueueEntries,
   removeMusicQueueEntry,
   shuffleMusicQueueEntries,
   shuffleMusicTracks,
@@ -52,6 +53,27 @@ describe('music queue helpers', () => {
 
     expect(result.queue.map((item) => item.trackId)).toEqual(['current', 'radio-one', 'radio-two']);
     expect(result.added.map((item) => item.playOrder)).toEqual([1, 2]);
+  });
+
+  it('extends autoplay without reusing sparse queue orders', () => {
+    let id = 0;
+    const result = appendUniqueMusicQueueEntries(
+      [entry('current', 0, 0), entry('later', 3, 2)],
+      [track('radio-one'), track('radio-two')],
+      () => `generated-${id++}`,
+    );
+
+    expect(result.added.map((item) => item.sourceOrder)).toEqual([4, 5]);
+    expect(result.added.map((item) => item.playOrder)).toEqual([3, 4]);
+  });
+
+  it('reports how close playback is to the end of the ordered queue', () => {
+    const items = [entry('source-first', 0, 2), entry('current', 1, 0), entry('next', 2, 1)];
+
+    expect(remainingMusicQueueEntries(items, 'current')).toBe(2);
+    expect(remainingMusicQueueEntries(items, 'next')).toBe(1);
+    expect(remainingMusicQueueEntries(items, 'source-first')).toBe(0);
+    expect(remainingMusicQueueEntries(items, null)).toBe(Number.POSITIVE_INFINITY);
   });
 
   it('compacts play order according to the visible queue order', () => {

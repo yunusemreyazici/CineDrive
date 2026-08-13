@@ -11,6 +11,16 @@ export interface MusicQueueEntry {
 const nextSourceOrder = (items: MusicQueueEntry[]) =>
   items.reduce((highest, item) => Math.max(highest, item.sourceOrder), -1) + 1;
 
+const nextPlayOrder = (items: MusicQueueEntry[]) =>
+  items.reduce((highest, item) => Math.max(highest, item.playOrder), -1) + 1;
+
+export const remainingMusicQueueEntries = (items: MusicQueueEntry[], currentId: string | null) => {
+  if (!currentId) return Number.POSITIVE_INFINITY;
+  const ordered = [...items].sort((left, right) => left.playOrder - right.playOrder);
+  const currentIndex = ordered.findIndex((item) => item.id === currentId);
+  return currentIndex < 0 ? Number.POSITIVE_INFINITY : ordered.length - currentIndex - 1;
+};
+
 export const appendMusicQueueEntry = (
   items: MusicQueueEntry[],
   track: MusicTrackDto,
@@ -34,12 +44,13 @@ export const appendUniqueMusicQueueEntries = (
 ) => {
   const existingIds = new Set(items.map((item) => item.trackId));
   const additions = tracks.filter((track) => !existingIds.has(track.id)).slice(0, limit);
-  const startOrder = items.length;
+  const sourceOrder = nextSourceOrder(items);
+  const playOrder = nextPlayOrder(items);
   const added = additions.map((track, index) => ({
     id: makeId(),
     trackId: track.id,
-    sourceOrder: startOrder + index,
-    playOrder: startOrder + index,
+    sourceOrder: sourceOrder + index,
+    playOrder: playOrder + index,
     track,
   }));
   return { queue: [...items, ...added], added };
