@@ -12,6 +12,66 @@ const normalizedName = (value: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+const normalizedGenres = (value: unknown) => {
+  if (Array.isArray(value)) return value.map(String).sort();
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String).sort() : [];
+  } catch {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .sort();
+  }
+};
+
+const normalizedCredits = (value: unknown) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => {
+      const credit = item as Record<string, unknown>;
+      return {
+        name: String(credit.name || ''),
+        role: String(credit.role || ''),
+        instrument: String(credit.instrument || ''),
+        musicbrainzId: String(credit.musicbrainzId || ''),
+      };
+    })
+    .sort((a, b) => `${a.name}:${a.role}`.localeCompare(`${b.name}:${b.role}`));
+
+export const hasMeaningfulSuggestionChange = (
+  kind: string,
+  current: Record<string, unknown>,
+  proposed: Record<string, unknown>,
+) => {
+  if (kind === 'artwork') return true;
+  const keys =
+    kind === 'acoustic-metadata'
+      ? ['title', 'artist', 'musicbrainzRecordingId']
+      : [
+          'musicbrainzRecordingId',
+          'year',
+          'genres',
+          'musicbrainzReleaseId',
+          'musicbrainzReleaseGroupId',
+          'credits',
+        ];
+  return keys.some((key) => {
+    if (key === 'genres')
+      return (
+        JSON.stringify(normalizedGenres(current[key])) !==
+        JSON.stringify(normalizedGenres(proposed[key]))
+      );
+    if (key === 'credits')
+      return (
+        JSON.stringify(normalizedCredits(current[key])) !==
+        JSON.stringify(normalizedCredits(proposed[key]))
+      );
+    return String(current[key] ?? '').trim() !== String(proposed[key] ?? '').trim();
+  });
+};
+
 export const audioQuality = (track: {
   id: string;
   audio?: {
@@ -285,6 +345,7 @@ export class MusicMaintenanceService {
         musicbrainzReleaseId: track.album?.musicbrainzReleaseId || album?.releaseId,
         musicbrainzReleaseGroupId: track.album?.musicbrainzReleaseGroupId || album?.releaseGroupId,
       };
+      if (!hasMeaningfulSuggestionChange('metadata', currentData, proposedData)) continue;
       const exists = await this.prisma.musicMaintenanceSuggestion.findFirst({
         where: {
           userId,

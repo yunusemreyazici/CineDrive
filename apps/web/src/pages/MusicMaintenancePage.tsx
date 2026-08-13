@@ -1,6 +1,7 @@
 import type { MusicMaintenanceDto, MusicMaintenanceSuggestionDto } from '@cinedrive/shared';
 import {
   Activity,
+  ArrowRight,
   AudioWaveform,
   Check,
   CheckCircle2,
@@ -81,38 +82,157 @@ const EmptyState: React.FC<{
   </div>
 );
 
+const asRecord = (value: unknown) =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const formatGenres = (value: unknown) => {
+  if (Array.isArray(value)) return value.map(String).join(', ');
+  if (typeof value !== 'string') return t.music.suggestionEmpty;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) && parsed.length
+      ? parsed.map(String).join(', ')
+      : t.music.suggestionEmpty;
+  } catch {
+    return value || t.music.suggestionEmpty;
+  }
+};
+
+const formatCredits = (value: unknown) => {
+  if (!Array.isArray(value) || !value.length) return t.music.suggestionEmpty;
+  const names = value.map((item) => String(asRecord(item).name || '')).filter(Boolean);
+  if (names.length <= 3) return names.join(', ');
+  return `${names.slice(0, 3).join(', ')} ${t.music.suggestionMore(names.length - 3)}`;
+};
+
+const providerLabel = (provider: string) =>
+  ({
+    musicbrainz: 'MusicBrainz',
+    acoustid: 'AcoustID',
+    'cover-art-archive': 'Cover Art Archive',
+    'wikimedia-commons': 'Wikimedia Commons',
+    deezer: 'Deezer',
+  })[provider] || provider;
+
+type VisibleChange = { label: string; before: string; after: string };
+
+const suggestionChanges = (suggestion: MusicMaintenanceSuggestionDto): VisibleChange[] => {
+  const current = asRecord(suggestion.currentData);
+  const proposed = asRecord(suggestion.proposedData);
+  if (suggestion.kind === 'artwork')
+    return [
+      {
+        label: t.music.suggestionFields.artwork,
+        before: t.music.suggestionArtworkMissing,
+        after: t.music.suggestionArtworkReady,
+      },
+    ];
+
+  const changes: VisibleChange[] = [];
+  const add = (
+    label: string,
+    key: string,
+    formatter: (value: unknown) => string = (value) =>
+      String(value ?? '') || t.music.suggestionEmpty,
+  ) => {
+    const before = formatter(current[key]);
+    const after = formatter(proposed[key]);
+    if (before !== after) changes.push({ label, before, after });
+  };
+
+  if (suggestion.kind === 'acoustic-metadata') {
+    add(t.music.suggestionFields.title, 'title');
+    add(t.music.suggestionFields.artist, 'artist');
+  }
+  add(t.music.suggestionFields.year, 'year');
+  add(t.music.suggestionFields.genres, 'genres', formatGenres);
+  add(t.music.suggestionFields.credits, 'credits', formatCredits);
+
+  const currentRecording = Boolean(current.musicbrainzRecordingId);
+  const proposedRecording = Boolean(proposed.musicbrainzRecordingId);
+  if (currentRecording !== proposedRecording)
+    changes.push({
+      label: t.music.suggestionFields.recordingMatch,
+      before: currentRecording ? t.music.suggestionMatchFound : t.music.suggestionMatchMissing,
+      after: proposedRecording ? t.music.suggestionMatchFound : t.music.suggestionMatchMissing,
+    });
+
+  const currentRelease = Boolean(current.musicbrainzReleaseId || current.musicbrainzReleaseGroupId);
+  const proposedRelease = Boolean(
+    proposed.musicbrainzReleaseId || proposed.musicbrainzReleaseGroupId,
+  );
+  if (currentRelease !== proposedRelease)
+    changes.push({
+      label: t.music.suggestionFields.albumMatch,
+      before: currentRelease ? t.music.suggestionMatchFound : t.music.suggestionMatchMissing,
+      after: proposedRelease ? t.music.suggestionMatchFound : t.music.suggestionMatchMissing,
+    });
+
+  return changes;
+};
+
 const SuggestionCard: React.FC<{
   suggestion: MusicMaintenanceSuggestionDto;
-  title: string;
   busy: boolean;
   onResolve: (accept: boolean) => void;
-}> = ({ suggestion, title, busy, onResolve }) => {
-  const proposed = suggestion.proposedData as Record<string, unknown>;
+}> = ({ suggestion, busy, onResolve }) => {
+  const proposed = asRecord(suggestion.proposedData);
   const preview = typeof proposed.previewUrl === 'string' ? proposed.previewUrl : undefined;
+  const artwork = preview || suggestion.target?.artworkUrl || undefined;
+  const changes = suggestionChanges(suggestion);
+  const kindLabel =
+    t.music.suggestionKinds[suggestion.kind as keyof typeof t.music.suggestionKinds] ||
+    t.music.suggestionKinds.metadata;
   return (
-    <article className="overflow-hidden rounded-lg border border-zinc-800/70 bg-zinc-950/50 p-4">
+    <article className="overflow-hidden rounded-xl border border-zinc-800/70 bg-zinc-950/50 p-4 sm:p-5">
       <div className="flex items-start gap-4">
-        {preview ? (
-          <img src={preview} alt="" className="h-20 w-20 shrink-0 rounded-2xl object-cover" />
+        {artwork ? (
+          <img src={artwork} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
         ) : (
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-white/5">
-            <WandSparkles className="h-6 w-6 text-cyan-300" />
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-white/5">
+            <WandSparkles className="h-5 w-5 text-zinc-500" />
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-cyan-300">
-            <span>{suggestion.provider}</span>
-            <span className="h-1 w-1 rounded-full bg-white/20" />
-            <span>{suggestion.confidence}%</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-semibold">
+            <span className="uppercase tracking-[.14em] text-brand-300">{kindLabel}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">{providerLabel(suggestion.provider)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">
+              {t.music.suggestionConfidence(suggestion.confidence)}
+            </span>
           </div>
-          <h3 className="mt-2 truncate font-bold">{title}</h3>
-          <p className="mt-2 line-clamp-2 break-all text-[11px] leading-5 text-white/35">
-            {Object.entries(proposed)
-              .filter(([key]) => !['previewUrl', 'credits', 'sourceUrl'].includes(key))
-              .map(([key, value]) => `${key}: ${String(value ?? '—')}`)
-              .join(' · ')}
-          </p>
+          <h3 className="mt-2 truncate text-sm font-semibold text-zinc-100">
+            {suggestion.target?.title || t.music.suggestionUnknownTarget}
+          </h3>
+          {suggestion.target?.subtitle && (
+            <p className="mt-0.5 truncate text-xs text-zinc-500">{suggestion.target.subtitle}</p>
+          )}
         </div>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-lg border border-zinc-800/70">
+        {changes.map((change) => (
+          <div
+            key={`${change.label}-${change.after}`}
+            className="grid gap-1 border-t border-zinc-800/60 px-3 py-2.5 first:border-t-0 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center sm:gap-3"
+          >
+            <span className="text-[11px] font-medium text-zinc-500">{change.label}</span>
+            <div className="flex min-w-0 items-start gap-2 text-xs leading-relaxed">
+              <span className="min-w-0 break-words text-zinc-600">{change.before}</span>
+              <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-700" />
+              <span className="min-w-0 break-words font-medium text-zinc-200">
+                {change.after}
+              </span>
+            </div>
+          </div>
+        ))}
+        {!changes.length && (
+          <p className="px-3 py-3 text-xs leading-relaxed text-zinc-500">
+            {t.music.suggestionNoVisibleChanges}
+          </p>
+        )}
       </div>
       <div className="mt-4 flex gap-2">
         <button
@@ -491,12 +611,14 @@ export const MusicMaintenancePage: React.FC = () => {
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-bold">
-                            {artistById.get(suggestion.targetId)?.name ||
+                            {suggestion.target?.title ||
+                              artistById.get(suggestion.targetId)?.name ||
                               trackById.get(suggestion.targetId)?.title ||
-                              suggestion.provider}
+                              t.music.suggestionUnknownTarget}
                           </span>
                           <span className="mt-0.5 block text-[10px] text-zinc-600">
-                            {suggestion.provider} · {suggestion.confidence}%
+                            {providerLabel(suggestion.provider)} ·{' '}
+                            {t.music.suggestionConfidence(suggestion.confidence)}
                           </span>
                         </span>
                         <ChevronRight className="h-4 w-4 text-zinc-700" />
@@ -597,7 +719,6 @@ export const MusicMaintenancePage: React.FC = () => {
                       <SuggestionCard
                         key={suggestion.id}
                         suggestion={suggestion}
-                        title={artistById.get(suggestion.targetId)?.name || t.music.artist}
                         busy={resolveSuggestion.isPending}
                         onResolve={(accept) => resolve(suggestion, accept)}
                       />
@@ -895,9 +1016,6 @@ export const MusicMaintenancePage: React.FC = () => {
                         <SuggestionCard
                           key={suggestion.id}
                           suggestion={suggestion}
-                          title={
-                            trackById.get(suggestion.targetId)?.title || t.music.missingMetadata
-                          }
                           busy={resolveSuggestion.isPending}
                           onResolve={(accept) => resolve(suggestion, accept)}
                         />
@@ -1154,11 +1272,6 @@ export const MusicMaintenancePage: React.FC = () => {
                     <SuggestionCard
                       key={suggestion.id}
                       suggestion={suggestion}
-                      title={
-                        artistById.get(suggestion.targetId)?.name ||
-                        trackById.get(suggestion.targetId)?.title ||
-                        suggestion.provider
-                      }
                       busy={resolveSuggestion.isPending}
                       onResolve={(accept) => resolve(suggestion, accept)}
                     />

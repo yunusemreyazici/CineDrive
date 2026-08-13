@@ -44,7 +44,11 @@ import { MusicBrainzService } from '../services/musicbrainz.service.js';
 import { MusicDiscoveryService } from '../services/music-discovery.service.js';
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
-import { MusicMaintenanceService, audioQuality } from '../services/music-maintenance.service.js';
+import {
+  MusicMaintenanceService,
+  audioQuality,
+  hasMeaningfulSuggestionChange,
+} from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
 import { MusicArtworkThumbnailService } from '../services/music-artwork-thumbnail.service.js';
 
@@ -378,7 +382,11 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       const key = `${suggestion.targetType}:${suggestion.targetId}:${suggestion.kind}`;
       if (seenSuggestions.has(key)) return false;
       seenSuggestions.add(key);
-      return true;
+      return hasMeaningfulSuggestionChange(
+        suggestion.kind,
+        JSON.parse(suggestion.currentData) as Record<string, unknown>,
+        JSON.parse(suggestion.proposedData) as Record<string, unknown>,
+      );
     });
     const trackById = new Map(tracks.map((track) => [track.id, track]));
     const acousticMap = new Map<string, typeof tracks>();
@@ -401,15 +409,48 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       storedFingerprints.filter((item) => item.status === 'analyzed').map((item) => item.trackId),
     );
     const fingerprintCandidates = tracks.filter((track) => !fingerprintedIds.has(track.id));
+    const formattedArtists = maintenanceArtists.map((artist) => ({
+      ...formatMusicArtist(artist),
+      artworkSource: artist.artworkSource,
+      artworkAttribution: artist.artworkAttribution,
+      artworkLicense: artist.artworkLicense,
+      artworkLookupStatus: artist.artworkLookupStatus,
+      artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
+    }));
+    const artistById = new Map(formattedArtists.map((artist) => [artist.id, artist]));
+    const albumById = new Map(
+      tracks
+        .filter((track) => track.album)
+        .map((track) => [track.album!.id, track.album!] as const),
+    );
+    const suggestionTarget = (targetType: string, targetId: string) => {
+      if (targetType === 'track') {
+        const track = trackById.get(targetId);
+        if (!track) return undefined;
+        return {
+          title: track.title,
+          subtitle: [track.primaryArtist?.name, track.album?.title].filter(Boolean).join(' · '),
+          artworkUrl: track.artworkUrl || null,
+        };
+      }
+      if (targetType === 'album') {
+        const album = albumById.get(targetId);
+        if (!album) return undefined;
+        return {
+          title: album.title,
+          subtitle: album.artist?.name || null,
+          artworkUrl: album.artworkUrl || null,
+        };
+      }
+      if (targetType === 'artist') {
+        const artist = artistById.get(targetId);
+        if (!artist) return undefined;
+        return { title: artist.name, subtitle: null, artworkUrl: artist.artworkUrl || null };
+      }
+      return undefined;
+    };
     return {
-      artists: maintenanceArtists.map((artist) => ({
-        ...formatMusicArtist(artist),
-        artworkSource: artist.artworkSource,
-        artworkAttribution: artist.artworkAttribution,
-        artworkLicense: artist.artworkLicense,
-        artworkLookupStatus: artist.artworkLookupStatus,
-        artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
-      })),
+      artists: formattedArtists,
       missingArtwork: missingArtwork.slice(0, 100),
       missingMetadata: missingMetadata.slice(0, 100),
       duplicates: duplicates.slice(0, 100),
@@ -427,6 +468,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         ...item,
         currentData: JSON.parse(item.currentData),
         proposedData: JSON.parse(item.proposedData),
+        target: suggestionTarget(item.targetType, item.targetId),
         createdAt: item.createdAt.toISOString(),
         resolvedAt: item.resolvedAt?.toISOString() || null,
       })),

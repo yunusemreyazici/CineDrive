@@ -376,6 +376,11 @@ export interface MusicMaintenanceSuggestionDto {
   confidence: number;
   currentData: unknown;
   proposedData: unknown;
+  target?: {
+    title: string;
+    subtitle?: string | null;
+    artworkUrl?: string | null;
+  };
   status: string;
   createdAt: string;
 }
