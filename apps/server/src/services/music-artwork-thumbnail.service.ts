@@ -16,20 +16,30 @@ export class MusicArtworkThumbnailService {
     private readonly renderer?: (source: Buffer) => Promise<Buffer | null>,
   ) {}
 
-  public async thumbnail(id: string, source: Buffer): Promise<Buffer | null> {
-    const cached = this.cache.get(id);
+  public async thumbnail(
+    id: string,
+    source: Buffer,
+    options: { width?: number; height?: number; quality?: number } = {},
+  ): Promise<Buffer | null> {
+    const width = Math.max(32, Math.min(2048, Math.round(options.width || THUMBNAIL_EDGE)));
+    const height = Math.max(32, Math.min(2048, Math.round(options.height || width)));
+    const quality = Math.max(20, Math.min(100, Math.round(options.quality || 82)));
+    const cacheKey = `${id}:${width}x${height}:q${quality}`;
+    const cached = this.cache.get(cacheKey);
     if (cached) {
-      this.cache.delete(id);
-      this.cache.set(id, cached);
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, cached);
       return cached;
     }
-    const existing = this.inFlight.get(id);
+    const existing = this.inFlight.get(cacheKey);
     if (existing) return existing;
 
-    const pending = this.withRenderSlot(() => this.renderer?.(source) ?? this.render(source))
+    const pending = this.withRenderSlot(
+      () => this.renderer?.(source) ?? this.render(source, width, height, quality),
+    )
       .then((result) => {
         if (!result) return null;
-        this.cache.set(id, result);
+        this.cache.set(cacheKey, result);
         while (this.cache.size > MAX_CACHE_ENTRIES) {
           const oldest = this.cache.keys().next().value as string | undefined;
           if (!oldest) break;
@@ -37,29 +47,46 @@ export class MusicArtworkThumbnailService {
         }
         return result;
       })
-      .finally(() => this.inFlight.delete(id));
-    this.inFlight.set(id, pending);
+      .finally(() => this.inFlight.delete(cacheKey));
+    this.inFlight.set(cacheKey, pending);
     return pending;
   }
 
-  private render(source: Buffer): Promise<Buffer | null> {
+  private render(
+    source: Buffer,
+    width: number,
+    height: number,
+    quality: number,
+  ): Promise<Buffer | null> {
     if (!ffmpegPath) return Promise.resolve(null);
     const binary = ffmpegPath as string;
     return new Promise((resolve) => {
-      const child = spawn(
-        binary,
-        [
-          '-hide_banner', '-loglevel', 'error', '-i', 'pipe:0',
-          '-vf', `scale=${THUMBNAIL_EDGE}:${THUMBNAIL_EDGE}:force_original_aspect_ratio=decrease`,
-          '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '4', 'pipe:1',
-        ],
-      );
+      const child = spawn(binary, [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        'pipe:0',
+        '-vf',
+        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+        '-frames:v',
+        '1',
+        '-f',
+        'image2pipe',
+        '-vcodec',
+        'mjpeg',
+        '-q:v',
+        String(Math.max(2, Math.round(31 - (quality / 100) * 29))),
+        'pipe:1',
+      ]);
       const chunks: Buffer[] = [];
       child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
       child.stderr?.resume();
       child.stdin?.on('error', () => undefined);
       child.once('error', () => resolve(null));
-      child.once('close', (code: number | null) => resolve(code === 0 ? Buffer.concat(chunks) : null));
+      child.once('close', (code: number | null) =>
+        resolve(code === 0 ? Buffer.concat(chunks) : null),
+      );
       child.stdin?.end(source);
     });
   }

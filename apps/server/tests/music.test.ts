@@ -149,6 +149,48 @@ describe('Music library', () => {
     });
   });
 
+  it('returns conditional metadata responses and incremental mobile sync changes', async () => {
+    const initial = await app.inject({
+      method: 'GET',
+      url: '/api/music/sync',
+      cookies: { session_id: cookie },
+    });
+    expect(initial.statusCode).toBe(200);
+    const initialBody = JSON.parse(initial.body);
+    expect(initialBody).toMatchObject({ full: true, trackIds: [trackId] });
+    expect(initialBody.tracks).toEqual([expect.objectContaining({ id: trackId })]);
+
+    await app.prisma.musicTrack.update({
+      where: { id: trackId },
+      data: { title: 'Updated Test Song' },
+    });
+    const incremental = await app.inject({
+      method: 'GET',
+      url: `/api/music/sync?cursor=${encodeURIComponent(initialBody.cursor)}`,
+      cookies: { session_id: cookie },
+    });
+    expect(incremental.statusCode).toBe(200);
+    expect(JSON.parse(incremental.body)).toMatchObject({
+      full: false,
+      trackIds: [trackId],
+      tracks: [expect.objectContaining({ id: trackId, title: 'Updated Test Song' })],
+    });
+
+    const tracks = await app.inject({
+      method: 'GET',
+      url: '/api/music/tracks',
+      cookies: { session_id: cookie },
+    });
+    expect(tracks.headers.etag).toBeTruthy();
+    const unchanged = await app.inject({
+      method: 'GET',
+      url: '/api/music/tracks',
+      headers: { 'if-none-match': tracks.headers.etag! },
+      cookies: { session_id: cookie },
+    });
+    expect(unchanged.statusCode).toBe(304);
+  });
+
   it('downloads original tracks with HEAD and Range semantics', async () => {
     const head = await app.inject({
       method: 'HEAD',
@@ -171,6 +213,31 @@ describe('Music library', () => {
     expect(range.rawPayload).toEqual(
       Buffer.from(Array.from({ length: 10 }, (_, index) => index + 10)),
     );
+  });
+
+  it('builds a batch download manifest with size, checksum, and resume metadata', async () => {
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { is: { id: trackId } } },
+      data: { md5Checksum: 'fixture-checksum' },
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/music/download-manifest',
+      cookies: { session_id: cookie },
+      payload: { trackIds: [trackId], format: 'original' },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      format: 'original',
+      items: [
+        {
+          trackId,
+          sizeBytes: '256',
+          checksum: 'fixture-checksum',
+          resumable: true,
+        },
+      ],
+    });
   });
 
   it('validates download format and ownership', async () => {
@@ -551,6 +618,29 @@ describe('Music library', () => {
       payload: { trackId, listenedSeconds: 3.7 },
     });
     expect(accepted.statusCode).toBe(201);
+  });
+
+  it('accepts offline listening history batches idempotently', async () => {
+    const eventId = randomUUID();
+    const payload = {
+      events: [{ eventId, trackId, listenedSeconds: 45, playedAt: new Date().toISOString() }],
+    };
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/music/history/batch',
+      cookies: { session_id: cookie },
+      payload,
+    });
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/api/music/history/batch',
+      cookies: { session_id: cookie },
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+    expect(duplicate.statusCode).toBe(201);
+    expect(JSON.parse(duplicate.body).acceptedEventIds).toEqual([eventId]);
+    expect(await app.prisma.musicHistory.count({ where: { eventId } })).toBe(1);
   });
 
   it('archives a lower-quality duplicate, replaces playlist items, and undoes the action', async () => {
@@ -1142,6 +1232,15 @@ describe('Music library', () => {
     });
     expect(saved.statusCode).toBe(200);
     expect(JSON.parse(saved.body).revision).toBe(1);
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: '/api/music/playback-state',
+      cookies: { session_id: cookie },
+      payload: { ...state, revision: 1, positionSeconds: 24, queue: undefined },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(JSON.parse(patched.body).revision).toBe(2);
+    expect(await app.prisma.musicQueueItem.count()).toBe(1);
     const stale = await app.inject({
       method: 'PUT',
       url: '/api/music/playback-state',

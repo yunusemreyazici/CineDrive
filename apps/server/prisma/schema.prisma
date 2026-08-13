@@ -603,6 +603,7 @@ model MusicFavorite {
 
 model MusicHistory {
   id              String     @id @default(uuid())
+  eventId         String?
   userId          String
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   trackId         String
@@ -610,6 +611,7 @@ model MusicHistory {
   listenedSeconds Float
   playedAt        DateTime   @default(now())
 
+  @@unique([userId, eventId])
   @@index([userId, playedAt])
 }
 

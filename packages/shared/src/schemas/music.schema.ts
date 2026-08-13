@@ -54,9 +54,32 @@ export const updateMusicPlaybackStateSchema = z.object({
     .max(1000),
 });
 
+export const patchMusicPlaybackStateSchema = updateMusicPlaybackStateSchema.omit({ queue: true });
+
 export const createMusicHistorySchema = z.object({
   trackId: z.string().uuid(),
   listenedSeconds: z.number().finite().nonnegative(),
+});
+
+export const createMusicHistoryBatchSchema = z.object({
+  events: z
+    .array(
+      createMusicHistorySchema.extend({
+        eventId: z.string().uuid(),
+        playedAt: z.string().datetime().optional(),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+
+export const musicSyncQuerySchema = z.object({
+  cursor: z.string().datetime().optional(),
+});
+
+export const musicDownloadManifestSchema = z.object({
+  trackIds: z.array(z.string().uuid()).min(1).max(500),
+  format: z.enum(['original', 'aac']).default('original'),
 });
 
 export const updateMusicLyricsSchema = z.object({
