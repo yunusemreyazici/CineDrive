@@ -358,25 +358,27 @@ model MusicArtwork {
 }
 
 model MusicArtist {
-  id                 String             @id @default(uuid())
-  userId             String
-  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name               String
-  normalizedName     String
-  sortName           String?
-  musicbrainzId      String?
-  artworkId          String?
-  artwork            MusicArtwork?      @relation(fields: [artworkId], references: [id], onDelete: SetNull)
-  artworkSource      String?
-  artworkSourceUrl   String?
-  artworkAttribution String?
-  artworkLicense     String?
-  artworkLocked      Boolean            @default(false)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  albums             MusicAlbum[]
-  albumTracks        MusicTrack[]       @relation("PrimaryTrackArtist")
-  trackCredits       MusicTrackArtist[]
+  id                  String             @id @default(uuid())
+  userId              String
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                String
+  normalizedName      String
+  sortName            String?
+  musicbrainzId       String?
+  artworkId           String?
+  artwork             MusicArtwork?      @relation(fields: [artworkId], references: [id], onDelete: SetNull)
+  artworkSource       String?
+  artworkSourceUrl    String?
+  artworkAttribution  String?
+  artworkLicense      String?
+  artworkLocked       Boolean            @default(false)
+  artworkLookupStatus String             @default("pending")
+  artworkLookupAt     DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  albums              MusicAlbum[]
+  albumTracks         MusicTrack[]       @relation("PrimaryTrackArtist")
+  trackCredits        MusicTrackArtist[]
 
   @@unique([userId, normalizedName])
   @@index([userId, name])

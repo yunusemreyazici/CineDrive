@@ -1,6 +1,7 @@
 import React from 'react';
-import { ExternalLink, Play, Radio, Shuffle, UserRound } from 'lucide-react';
+import { ExternalLink, Play, Radio, Shuffle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
+import { ArtistArtworkFallback } from '../components/music/ArtistArtworkFallback';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
@@ -61,7 +62,7 @@ export const MusicArtistPage: React.FC = () => {
             {artist.artworkUrl ? (
               <img src={artist.artworkUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <UserRound className="h-24 w-24 text-white/15" />
+              <ArtistArtworkFallback name={artist.name} />
             )}
           </div>
           <div className="min-w-0 flex-1 text-center sm:pb-2 sm:text-left">

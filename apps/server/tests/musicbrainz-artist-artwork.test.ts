@@ -125,4 +125,192 @@ describe('MusicBrainz artist artwork', () => {
 
     await expect(new MusicBrainzService().matchArtistIdentity('The Band')).resolves.toBeNull();
   });
+
+  it('finds Wikidata by the exact MusicBrainz ID when the relation is missing', async () => {
+    const image = Buffer.from('reverse-linked-image');
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ relations: [] }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ query: { search: [{ title: 'Q456' }] } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            entities: {
+              Q456: {
+                claims: {
+                  P18: [{ mainsnak: { datavalue: { value: 'Reverse portrait.jpg' } } }],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                1: {
+                  imageinfo: [
+                    {
+                      thumburl: 'https://upload.wikimedia.org/reverse.jpg',
+                      descriptionurl:
+                        'https://commons.wikimedia.org/wiki/File:Reverse_portrait.jpg',
+                      mime: 'image/jpeg',
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(image, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+      );
+
+    await expect(
+      new MusicBrainzService().enrichArtistArtwork('artist-mbid'),
+    ).resolves.toMatchObject({
+      wikidataId: 'Q456',
+      previewUrl: 'https://upload.wikimedia.org/reverse.jpg',
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('haswbstatement%3AP434%3Dartist-mbid');
+  });
+
+  it('uses a free Wikipedia page image when Wikidata has no portrait', async () => {
+    const image = Buffer.from('wikipedia-page-image');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            relations: [
+              { type: 'wikidata', url: { resource: 'https://www.wikidata.org/wiki/Q789' } },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            entities: {
+              Q789: {
+                claims: {},
+                sitelinks: {
+                  trwiki: {
+                    site: 'trwiki',
+                    title: 'Örnek sanatçı',
+                    url: 'https://tr.wikipedia.org/wiki/%C3%96rnek_sanat%C3%A7%C4%B1',
+                  },
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ query: { pages: { 1: { pageimage: 'Concert photo.jpg' } } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                2: {
+                  imageinfo: [
+                    {
+                      thumburl: 'https://upload.wikimedia.org/concert.jpg',
+                      descriptionurl: 'https://tr.wikipedia.org/wiki/Dosya:Concert_photo.jpg',
+                      mime: 'image/jpeg',
+                      extmetadata: { LicenseShortName: { value: 'CC BY 4.0' } },
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(image, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+      );
+
+    await expect(
+      new MusicBrainzService().enrichArtistArtwork('artist-mbid'),
+    ).resolves.toMatchObject({
+      wikidataId: 'Q789',
+      previewUrl: 'https://upload.wikimedia.org/concert.jpg',
+      license: 'CC BY 4.0',
+    });
+  });
+
+  it('falls back to a Wikidata logo when no portrait or page image exists', async () => {
+    const image = Buffer.from('artist-logo');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            relations: [
+              { type: 'wikidata', url: { resource: 'https://www.wikidata.org/wiki/Q999' } },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            entities: {
+              Q999: {
+                claims: {
+                  P154: [{ mainsnak: { datavalue: { value: 'Artist logo.svg' } } }],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                1: {
+                  imageinfo: [
+                    {
+                      thumburl: 'https://upload.wikimedia.org/logo.png',
+                      descriptionurl: 'https://commons.wikimedia.org/wiki/File:Artist_logo.svg',
+                      mime: 'image/svg+xml',
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(image, { status: 200, headers: { 'content-type': 'image/png' } }),
+      );
+
+    await expect(
+      new MusicBrainzService().enrichArtistArtwork('artist-mbid'),
+    ).resolves.toMatchObject({
+      wikidataId: 'Q999',
+      previewUrl: 'https://upload.wikimedia.org/logo.png',
+      artwork: { mimeType: 'image/png' },
+    });
+  });
 });

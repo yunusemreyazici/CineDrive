@@ -390,7 +390,15 @@ export interface MusicMaintenanceActionDto {
 }
 
 export interface MusicMaintenanceDto {
-  artists: MusicArtistDto[];
+  artists: Array<
+    MusicArtistDto & {
+      artworkSource?: string | null;
+      artworkAttribution?: string | null;
+      artworkLicense?: string | null;
+      artworkLookupStatus?: 'pending' | 'found' | 'not-found' | 'failed' | 'manual-skip';
+      artworkLookupAt?: string | null;
+    }
+  >;
   missingArtwork: MusicTrackDto[];
   missingMetadata: Array<MusicTrackDto & { confidence: number; issues: string[] }>;
   duplicates: MusicDuplicateGroupDto[];

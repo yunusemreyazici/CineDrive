@@ -49,6 +49,154 @@ export class MusicMaintenanceService {
     this.library = new MusicLibraryService(prisma);
   }
 
+  public async scanArtistArtwork(userId: string, input: { artistIds?: string[]; limit: number }) {
+    const artists = await this.prisma.musicArtist.findMany({
+      where: {
+        userId,
+        artworkId: null,
+        artworkLocked: false,
+        ...(input.artistIds?.length
+          ? { id: { in: input.artistIds } }
+          : {
+              OR: [
+                {
+                  trackCredits: {
+                    some: { track: { library: { userId }, driveFile: { status: 'active' } } },
+                  },
+                },
+                {
+                  albums: {
+                    some: {
+                      tracks: {
+                        some: { library: { userId }, driveFile: { status: 'active' } },
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+      },
+      orderBy: [{ artworkLookupAt: 'asc' }, { name: 'asc' }],
+      take: input.artistIds?.length ? Math.min(input.artistIds.length, 50) : input.limit,
+    });
+    const results: Array<{
+      id: string;
+      name: string;
+      status: 'found' | 'not-found' | 'failed';
+      artworkUrl?: string;
+    }> = [];
+
+    for (const artist of artists) {
+      const attemptedAt = new Date();
+      try {
+        let musicbrainzId = artist.musicbrainzId || undefined;
+        if (!musicbrainzId) {
+          const identity = await this.musicbrainz.matchArtistIdentity(artist.name);
+          musicbrainzId = identity?.musicbrainzId;
+          if (identity) {
+            await this.prisma.musicArtist.update({
+              where: { id: artist.id },
+              data: {
+                musicbrainzId: identity.musicbrainzId,
+                sortName: artist.sortName || identity.sortName,
+              },
+            });
+          }
+        }
+
+        const metadata = musicbrainzId
+          ? await this.musicbrainz.enrichArtistArtwork(musicbrainzId)
+          : null;
+        if (!metadata) {
+          await this.prisma.musicArtist.update({
+            where: { id: artist.id },
+            data: { artworkLookupStatus: 'not-found', artworkLookupAt: attemptedAt },
+          });
+          results.push({ id: artist.id, name: artist.name, status: 'not-found' });
+          continue;
+        }
+
+        const artworkId = await this.library.saveArtwork(userId, metadata.artwork);
+        if (!artworkId) throw new Error('ARTIST_ARTWORK_UNAVAILABLE');
+        const beforeData = json({
+          artworkId: artist.artworkId,
+          artworkSource: artist.artworkSource,
+          artworkSourceUrl: artist.artworkSourceUrl,
+          artworkAttribution: artist.artworkAttribution,
+          artworkLicense: artist.artworkLicense,
+          artworkLocked: artist.artworkLocked,
+          artworkLookupStatus: artist.artworkLookupStatus,
+          artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
+        });
+        const afterData = json({
+          artworkId,
+          artworkSource: 'wikimedia-commons',
+          artworkSourceUrl: metadata.sourceUrl,
+          artworkAttribution: metadata.attribution,
+          artworkLicense: metadata.license,
+          artworkLocked: false,
+          artworkLookupStatus: 'found',
+          artworkLookupAt: attemptedAt.toISOString(),
+        });
+        await this.prisma.$transaction([
+          this.prisma.musicArtist.update({
+            where: { id: artist.id },
+            data: {
+              artworkId,
+              artworkSource: 'wikimedia-commons',
+              artworkSourceUrl: metadata.sourceUrl,
+              artworkAttribution: metadata.attribution,
+              artworkLicense: metadata.license,
+              artworkLocked: false,
+              artworkLookupStatus: 'found',
+              artworkLookupAt: attemptedAt,
+            },
+          }),
+          this.prisma.musicMaintenanceAction.create({
+            data: {
+              userId,
+              actionType: 'auto-artist-artwork',
+              targetType: 'artist',
+              targetId: artist.id,
+              beforeData,
+              afterData,
+            },
+          }),
+          this.prisma.musicMaintenanceSuggestion.updateMany({
+            where: {
+              userId,
+              targetType: 'artist',
+              targetId: artist.id,
+              kind: 'artwork',
+              status: 'pending',
+            },
+            data: { status: 'rejected', resolvedAt: attemptedAt },
+          }),
+        ]);
+        results.push({
+          id: artist.id,
+          name: artist.name,
+          status: 'found',
+          artworkUrl: `/api/music/artwork/${artworkId}`,
+        });
+      } catch {
+        await this.prisma.musicArtist.update({
+          where: { id: artist.id },
+          data: { artworkLookupStatus: 'failed', artworkLookupAt: attemptedAt },
+        });
+        results.push({ id: artist.id, name: artist.name, status: 'failed' });
+      }
+    }
+
+    return {
+      scanned: results.length,
+      found: results.filter((result) => result.status === 'found').length,
+      notFound: results.filter((result) => result.status === 'not-found').length,
+      failed: results.filter((result) => result.status === 'failed').length,
+      results,
+    };
+  }
+
   public async generate(
     userId: string,
     input: { trackIds?: string[]; albumIds?: string[]; artistIds?: string[] },
@@ -220,59 +368,11 @@ export class MusicMaintenanceService {
       matchedArtists += updated.count;
     }
 
-    const artists = await this.prisma.musicArtist.findMany({
-      where: {
-        userId,
-        musicbrainzId: { not: null },
-        ...(input.artistIds?.length
-          ? { id: { in: input.artistIds } }
-          : { artworkId: null, artworkLocked: false }),
-      },
-      take: input.artistIds?.length ? 20 : 8,
+    const artistArtwork = await this.scanArtistArtwork(userId, {
+      artistIds: input.artistIds,
+      limit: 8,
     });
-    for (const artist of artists) {
-      if (!artist.musicbrainzId) continue;
-      const exists = await this.prisma.musicMaintenanceSuggestion.findFirst({
-        where: {
-          userId,
-          targetType: 'artist',
-          targetId: artist.id,
-          kind: 'artwork',
-          status: 'pending',
-        },
-      });
-      if (exists) continue;
-      const metadata = await this.musicbrainz.enrichArtistArtwork(artist.musicbrainzId);
-      if (!metadata) continue;
-      await this.prisma.musicMaintenanceSuggestion.create({
-        data: {
-          userId,
-          targetType: 'artist',
-          targetId: artist.id,
-          kind: 'artwork',
-          provider: 'wikimedia-commons',
-          confidence: 95,
-          currentData: json({
-            artworkId: artist.artworkId,
-            artworkSource: artist.artworkSource,
-            artworkSourceUrl: artist.artworkSourceUrl,
-            artworkAttribution: artist.artworkAttribution,
-            artworkLicense: artist.artworkLicense,
-            artworkLocked: artist.artworkLocked,
-          }),
-          proposedData: json({
-            musicbrainzId: artist.musicbrainzId,
-            wikidataId: metadata.wikidataId,
-            previewUrl: metadata.previewUrl,
-            sourceUrl: metadata.sourceUrl,
-            attribution: metadata.attribution,
-            license: metadata.license,
-          }),
-        },
-      });
-      generated += 1;
-    }
-    return { generated, matchedArtists };
+    return { generated, matchedArtists, artistArtwork };
   }
 
   public async resolve(userId: string, suggestionId: string, accept: boolean) {
@@ -281,8 +381,14 @@ export class MusicMaintenanceService {
     });
     if (!suggestion) return null;
     if (!accept) {
-      await this.prisma.musicMaintenanceSuggestion.update({
-        where: { id: suggestion.id },
+      await this.prisma.musicMaintenanceSuggestion.updateMany({
+        where: {
+          userId,
+          targetType: suggestion.targetType,
+          targetId: suggestion.targetId,
+          kind: suggestion.kind,
+          status: 'pending',
+        },
         data: { status: 'rejected', resolvedAt: new Date() },
       });
       return { status: 'rejected' };
@@ -445,6 +551,8 @@ export class MusicMaintenanceService {
         artworkAttribution: artist.artworkAttribution,
         artworkLicense: artist.artworkLicense,
         artworkLocked: artist.artworkLocked,
+        artworkLookupStatus: artist.artworkLookupStatus,
+        artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
       });
       const afterData = json({
         artworkId,
@@ -453,6 +561,8 @@ export class MusicMaintenanceService {
         artworkAttribution: metadata.attribution,
         artworkLicense: metadata.license,
         artworkLocked: false,
+        artworkLookupStatus: 'found',
+        artworkLookupAt: new Date().toISOString(),
       });
       await this.prisma.$transaction([
         this.prisma.musicArtist.update({
@@ -464,6 +574,8 @@ export class MusicMaintenanceService {
             artworkAttribution: metadata.attribution,
             artworkLicense: metadata.license,
             artworkLocked: false,
+            artworkLookupStatus: 'found',
+            artworkLookupAt: new Date(),
           },
         }),
         this.prisma.musicMaintenanceAction.create({
@@ -482,6 +594,16 @@ export class MusicMaintenanceService {
         }),
       ]);
     }
+    await this.prisma.musicMaintenanceSuggestion.updateMany({
+      where: {
+        userId,
+        targetType: suggestion.targetType,
+        targetId: suggestion.targetId,
+        kind: suggestion.kind,
+        status: 'pending',
+      },
+      data: { status: 'rejected', resolvedAt: new Date() },
+    });
     return { status: 'accepted' };
   }
 
@@ -520,6 +642,8 @@ export class MusicMaintenanceService {
       artworkAttribution: artist.artworkAttribution,
       artworkLicense: artist.artworkLicense,
       artworkLocked: artist.artworkLocked,
+      artworkLookupStatus: artist.artworkLookupStatus,
+      artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
     });
     const updated = await this.prisma.musicArtist.update({
       where: { id: artist.id },
@@ -535,6 +659,8 @@ export class MusicMaintenanceService {
               artworkAttribution: null,
               artworkLicense: null,
               artworkLocked: true,
+              artworkLookupStatus: artworkId ? 'found' : 'manual-skip',
+              artworkLookupAt: new Date(),
             }
           : {}),
       },
@@ -555,6 +681,8 @@ export class MusicMaintenanceService {
           artworkAttribution: updated.artworkAttribution,
           artworkLicense: updated.artworkLicense,
           artworkLocked: updated.artworkLocked,
+          artworkLookupStatus: updated.artworkLookupStatus,
+          artworkLookupAt: updated.artworkLookupAt?.toISOString() || null,
         }),
       },
     });
@@ -630,7 +758,12 @@ export class MusicMaintenanceService {
           data: { artworkId: (before.artworkId as string | null) || null },
         });
       } else if (
-        ['accept-artist-artwork', 'set-artist-artwork', 'edit-artist'].includes(action.actionType)
+        [
+          'accept-artist-artwork',
+          'auto-artist-artwork',
+          'set-artist-artwork',
+          'edit-artist',
+        ].includes(action.actionType)
       ) {
         await tx.musicArtist.update({
           where: { id: action.targetId },
@@ -644,6 +777,13 @@ export class MusicMaintenanceService {
             artworkAttribution: (before.artworkAttribution as string | null | undefined) ?? null,
             artworkLicense: (before.artworkLicense as string | null | undefined) ?? null,
             artworkLocked: (before.artworkLocked as boolean | undefined) || false,
+            artworkLookupStatus: (before.artworkLookupStatus as string | undefined) || 'pending',
+            artworkLookupAt:
+              typeof before.artworkLookupAt === 'string'
+                ? new Date(before.artworkLookupAt)
+                : before.artworkLookupAt === null
+                  ? null
+                  : undefined,
           },
         });
       } else if (action.actionType === 'accept-metadata') {

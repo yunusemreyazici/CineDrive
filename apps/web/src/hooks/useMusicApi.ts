@@ -325,6 +325,33 @@ export const useGenerateMusicMaintenanceMutation = () => {
   });
 };
 
+export interface ArtistArtworkScanResult {
+  scanned: number;
+  found: number;
+  notFound: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    name: string;
+    status: 'found' | 'not-found' | 'failed';
+    artworkUrl?: string;
+  }>;
+}
+
+export const useScanArtistArtworkMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { artistIds?: string[]; limit?: number } = {}) =>
+      (
+        await apiClient.post<ArtistArtworkScanResult>('/music/maintenance/artists/artwork/scan', {
+          limit: 12,
+          ...input,
+        })
+      ).data,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
+  });
+};
+
 export const useResolveMusicSuggestionMutation = () => {
   const client = useQueryClient();
   return useMutation({

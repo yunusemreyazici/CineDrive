@@ -104,6 +104,11 @@ export const musicMaintenanceGenerateSchema = z.object({
   artistIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
+export const musicArtistArtworkScanSchema = z.object({
+  artistIds: z.array(z.string().uuid()).max(50).optional(),
+  limit: z.coerce.number().int().min(1).max(24).default(12),
+});
+
 export const musicDuplicateArchiveSchema = z.object({
   keepTrackId: z.string().uuid(),
   archiveTrackId: z.string().uuid(),

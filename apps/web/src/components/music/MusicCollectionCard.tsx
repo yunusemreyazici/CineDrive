@@ -1,6 +1,7 @@
 import React from 'react';
-import { Disc3, Play, UserRound } from 'lucide-react';
+import { Disc3, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { ArtistArtworkFallback } from './ArtistArtworkFallback';
 
 interface Props {
   href: string;
@@ -36,7 +37,7 @@ export const MusicCollectionCard: React.FC<Props> = ({
         />
       ) : (
         <span className="flex h-full items-center justify-center text-zinc-700">
-          {round ? <UserRound className="h-1/3 w-1/3" /> : <Disc3 className="h-1/3 w-1/3" />}
+          {round ? <ArtistArtworkFallback name={title} /> : <Disc3 className="h-1/3 w-1/3" />}
         </span>
       )}
       <span

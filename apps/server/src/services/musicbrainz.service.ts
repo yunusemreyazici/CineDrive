@@ -1,6 +1,7 @@
 const MUSICBRAINZ_BASE = 'https://musicbrainz.org/ws/2';
 const COVER_ART_BASE = 'https://coverartarchive.org';
 const WIKIDATA_ENTITY_BASE = 'https://www.wikidata.org/wiki/Special:EntityData';
+const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const MIN_REQUEST_INTERVAL_MS = 1000;
 const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
@@ -60,7 +61,7 @@ export interface MusicBrainzRecordingMetadata {
 
 export interface MusicBrainzArtistArtwork {
   musicbrainzId: string;
-  wikidataId: string;
+  wikidataId?: string;
   sourceUrl: string;
   previewUrl: string;
   attribution?: string;
@@ -80,6 +81,27 @@ export interface MusicBrainzArtistIdentity {
 interface UrlRelation {
   type?: string;
   url?: { resource?: string };
+}
+
+interface WikidataImageClaim {
+  mainsnak?: { datavalue?: { value?: unknown } };
+  rank?: string;
+}
+
+interface WikidataEntity {
+  claims?: {
+    P18?: WikidataImageClaim[];
+    P154?: WikidataImageClaim[];
+  };
+  sitelinks?: Record<string, { site?: string; title?: string; url?: string }>;
+}
+
+interface WikimediaImageInfo {
+  url?: string;
+  thumburl?: string;
+  descriptionurl?: string;
+  mime?: string;
+  extmetadata?: Record<string, { value?: string }>;
 }
 
 interface ArtistRelation {
@@ -153,7 +175,7 @@ export class MusicBrainzService {
     const task = this.chain.then(() => this.fetchArtistArtwork(musicbrainzId)).catch(() => null);
     this.chain = task.then(() => undefined);
     return task.then((result) => {
-      this.artistArtworkCache.set(musicbrainzId, result);
+      if (result) this.artistArtworkCache.set(musicbrainzId, result);
       return result;
     });
   }
@@ -364,40 +386,176 @@ export class MusicBrainzService {
     const wikidataUrl = artist.relations?.find(
       (relation) => relation.type === 'wikidata' && relation.url?.resource,
     )?.url?.resource;
-    const wikidataId = wikidataUrl?.match(/\/(?:wiki|entity)\/(Q\d+)(?:$|[?#/])/)?.[1];
-    if (!wikidataId) return null;
+    const linkedWikidataId = wikidataUrl?.match(/\/(?:wiki|entity)\/(Q\d+)(?:$|[?#/])/)?.[1];
 
     const headers = {
       'User-Agent': 'CineDrive/1.0.0 (https://github.com/yunusemreyazici/CineDrive)',
       Accept: 'application/json',
     };
-    const entityResponse = await fetch(
-      `${WIKIDATA_ENTITY_BASE}/${encodeURIComponent(wikidataId)}.json`,
-      { headers },
-    );
-    if (!entityResponse.ok) return null;
-    const entityPayload = (await entityResponse.json()) as {
-      entities?: Record<
-        string,
-        {
-          claims?: {
-            P18?: Array<{
-              mainsnak?: { datavalue?: { value?: unknown } };
-              rank?: string;
-            }>;
-          };
-        }
-      >;
-    };
-    const imageClaim = entityPayload.entities?.[wikidataId]?.claims?.P18?.filter(
-      (claim) => claim.rank !== 'deprecated',
-    )
-      .sort((left, right) => Number(right.rank === 'preferred') - Number(left.rank === 'preferred'))
-      .find((claim) => typeof claim.mainsnak?.datavalue?.value === 'string');
-    const fileName = imageClaim?.mainsnak?.datavalue?.value;
-    if (typeof fileName !== 'string') return null;
+    const wikidataId = linkedWikidataId || (await this.findWikidataId(musicbrainzId, headers));
+    if (wikidataId) {
+      const entityResponse = await fetch(
+        `${WIKIDATA_ENTITY_BASE}/${encodeURIComponent(wikidataId)}.json`,
+        { headers },
+      );
+      if (entityResponse.ok) {
+        const entityPayload = (await entityResponse.json()) as {
+          entities?: Record<string, WikidataEntity>;
+        };
+        const entity = entityPayload.entities?.[wikidataId];
+        if (entity) {
+          const portrait = this.preferredImageName(entity.claims?.P18);
+          if (portrait) {
+            const result = await this.fetchWikimediaFile({
+              apiUrl: COMMONS_API,
+              fileName: portrait,
+              musicbrainzId,
+              wikidataId,
+              headers,
+            });
+            if (result) return result;
+          }
 
-    const commonsUrl = new URL(COMMONS_API);
+          const pageImage = await this.fetchWikipediaPageImage({
+            entity,
+            musicbrainzId,
+            wikidataId,
+            headers,
+          });
+          if (pageImage) return pageImage;
+
+          const logo = this.preferredImageName(entity.claims?.P154);
+          if (logo) {
+            const result = await this.fetchWikimediaFile({
+              apiUrl: COMMONS_API,
+              fileName: logo,
+              musicbrainzId,
+              wikidataId,
+              headers,
+            });
+            if (result) return result;
+          }
+        }
+      }
+    }
+
+    const directCommonsFile = artist.relations
+      ?.filter((relation) => relation.type === 'image' && relation.url?.resource)
+      .map((relation) => this.commonsFileName(relation.url?.resource || ''))
+      .find((fileName): fileName is string => !!fileName);
+    if (!directCommonsFile) return null;
+    return this.fetchWikimediaFile({
+      apiUrl: COMMONS_API,
+      fileName: directCommonsFile,
+      musicbrainzId,
+      wikidataId,
+      headers,
+    });
+  }
+
+  private async findWikidataId(musicbrainzId: string, headers: Record<string, string>) {
+    const url = new URL(WIKIDATA_API);
+    url.search = new URLSearchParams({
+      action: 'query',
+      format: 'json',
+      list: 'search',
+      srnamespace: '0',
+      srlimit: '2',
+      srsearch: `haswbstatement:P434=${musicbrainzId}`,
+    }).toString();
+    const response = await fetch(url, { headers });
+    if (!response.ok) return undefined;
+    const payload = (await response.json()) as {
+      query?: { search?: Array<{ title?: string }> };
+    };
+    const ids = [
+      ...new Set(
+        (payload.query?.search || [])
+          .map((result) => result.title)
+          .filter((title): title is string => !!title && /^Q\d+$/.test(title)),
+      ),
+    ];
+    return ids.length === 1 ? ids[0] : undefined;
+  }
+
+  private preferredImageName(claims?: WikidataImageClaim[]) {
+    const claim = claims
+      ?.filter((candidate) => candidate.rank !== 'deprecated')
+      .sort((left, right) => Number(right.rank === 'preferred') - Number(left.rank === 'preferred'))
+      .find((candidate) => typeof candidate.mainsnak?.datavalue?.value === 'string');
+    const value = claim?.mainsnak?.datavalue?.value;
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private async fetchWikipediaPageImage(input: {
+    entity: WikidataEntity;
+    musicbrainzId: string;
+    wikidataId: string;
+    headers: Record<string, string>;
+  }) {
+    const sitelinks = Object.entries(input.entity.sitelinks || {})
+      .filter(([site, link]) => site.endsWith('wiki') && !!link.title && !!link.url)
+      .sort(([left], [right]) => {
+        const priority = (site: string) => (site === 'trwiki' ? 0 : site === 'enwiki' ? 1 : 2);
+        return priority(left) - priority(right);
+      })
+      .slice(0, 3);
+    for (const [, sitelink] of sitelinks) {
+      let pageUrl: URL;
+      try {
+        pageUrl = new URL(sitelink.url || '');
+      } catch {
+        continue;
+      }
+      if (pageUrl.protocol !== 'https:' || !pageUrl.hostname.endsWith('.wikipedia.org')) continue;
+      const apiUrl = `${pageUrl.origin}/w/api.php`;
+      const queryUrl = new URL(apiUrl);
+      queryUrl.search = new URLSearchParams({
+        action: 'query',
+        format: 'json',
+        prop: 'pageimages',
+        piprop: 'name',
+        pilicense: 'free',
+        titles: sitelink.title || '',
+      }).toString();
+      const response = await fetch(queryUrl, { headers: input.headers });
+      if (!response.ok) continue;
+      const payload = (await response.json()) as {
+        query?: { pages?: Record<string, { pageimage?: string }> };
+      };
+      const fileName = Object.values(payload.query?.pages || {})[0]?.pageimage;
+      if (!fileName) continue;
+      const result = await this.fetchWikimediaFile({
+        apiUrl,
+        fileName,
+        musicbrainzId: input.musicbrainzId,
+        wikidataId: input.wikidataId,
+        headers: input.headers,
+      });
+      if (result) return result;
+    }
+    return null;
+  }
+
+  private commonsFileName(resource: string) {
+    try {
+      const url = new URL(resource);
+      if (url.protocol !== 'https:' || url.hostname !== 'commons.wikimedia.org') return undefined;
+      const match = decodeURIComponent(url.pathname).match(/\/wiki\/File:(.+)$/i);
+      return match?.[1]?.replace(/_/g, ' ');
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async fetchWikimediaFile(input: {
+    apiUrl: string;
+    fileName: string;
+    musicbrainzId: string;
+    wikidataId?: string;
+    headers: Record<string, string>;
+  }): Promise<MusicBrainzArtistArtwork | null> {
+    const commonsUrl = new URL(input.apiUrl);
     commonsUrl.search = new URLSearchParams({
       action: 'query',
       format: 'json',
@@ -405,31 +563,20 @@ export class MusicBrainzService {
       prop: 'imageinfo',
       iiprop: 'url|mime|extmetadata',
       iiurlwidth: '1200',
-      titles: `File:${fileName}`,
+      titles: `File:${input.fileName}`,
     }).toString();
-    const commonsResponse = await fetch(commonsUrl, { headers });
+    const commonsResponse = await fetch(commonsUrl, { headers: input.headers });
     if (!commonsResponse.ok) return null;
     const commonsPayload = (await commonsResponse.json()) as {
       query?: {
-        pages?: Record<
-          string,
-          {
-            imageinfo?: Array<{
-              url?: string;
-              thumburl?: string;
-              descriptionurl?: string;
-              mime?: string;
-              extmetadata?: Record<string, { value?: string }>;
-            }>;
-          }
-        >;
+        pages?: Record<string, { imageinfo?: WikimediaImageInfo[] }>;
       };
     };
     const imageInfo = Object.values(commonsPayload.query?.pages || {})[0]?.imageinfo?.[0];
     const imageUrl = imageInfo?.thumburl || imageInfo?.url;
     if (!imageUrl) return null;
     const imageResponse = await fetch(imageUrl, {
-      headers: { ...headers, Accept: 'image/*' },
+      headers: { ...input.headers, Accept: 'image/*' },
     });
     if (!imageResponse.ok) return null;
     const contentLength = Number(imageResponse.headers.get('content-length') || 0);
@@ -448,11 +595,11 @@ export class MusicBrainzService {
         .trim();
     const metadata = imageInfo.extmetadata || {};
     return {
-      musicbrainzId,
-      wikidataId,
+      musicbrainzId: input.musicbrainzId,
+      wikidataId: input.wikidataId,
       sourceUrl:
         imageInfo.descriptionurl ||
-        `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`,
+        `${new URL(input.apiUrl).origin}/wiki/File:${encodeURIComponent(input.fileName)}`,
       previewUrl: imageUrl,
       attribution: cleanMetadata(metadata.Artist?.value || metadata.Credit?.value),
       license: cleanMetadata(metadata.LicenseShortName?.value),

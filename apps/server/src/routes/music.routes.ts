@@ -10,6 +10,7 @@ import {
   musicListQuerySchema,
   musicAlbumMaintenanceSchema,
   musicArtistMaintenanceSchema,
+  musicArtistArtworkScanSchema,
   musicBulkMetadataSchema,
   musicReplayGainScanSchema,
   musicFingerprintScanSchema,
@@ -358,7 +359,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const replayGainMissing = tracks.filter(
       (track) => track.audio?.replayGainTrackDb == null && track.audio?.replayGainAlbumDb == null,
     );
-    const [suggestions, actions, storedFingerprints, fingerprintCapability] = await Promise.all([
+    const [rawSuggestions, actions, storedFingerprints, fingerprintCapability] = await Promise.all([
       fastify.prisma.musicMaintenanceSuggestion.findMany({
         where: { userId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
@@ -372,6 +373,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.prisma.musicFingerprint.findMany({ where: { track: ownedTrackWhere(userId) } }),
       fingerprintService.capability(),
     ]);
+    const seenSuggestions = new Set<string>();
+    const suggestions = rawSuggestions.filter((suggestion) => {
+      const key = `${suggestion.targetType}:${suggestion.targetId}:${suggestion.kind}`;
+      if (seenSuggestions.has(key)) return false;
+      seenSuggestions.add(key);
+      return true;
+    });
     const trackById = new Map(tracks.map((track) => [track.id, track]));
     const acousticMap = new Map<string, typeof tracks>();
     storedFingerprints.forEach((fingerprint) => {
@@ -399,6 +407,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         artworkSource: artist.artworkSource,
         artworkAttribution: artist.artworkAttribution,
         artworkLicense: artist.artworkLicense,
+        artworkLookupStatus: artist.artworkLookupStatus,
+        artworkLookupAt: artist.artworkLookupAt?.toISOString() || null,
       })),
       missingArtwork: missingArtwork.slice(0, 100),
       missingMetadata: missingMetadata.slice(0, 100),
@@ -450,6 +460,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     return maintenanceService.generate(request.user!.id, parsed.data);
+  });
+
+  fastify.post('/maintenance/artists/artwork/scan', async (request, reply) => {
+    const parsed = musicArtistArtworkScanSchema.safeParse(request.body || {});
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz sanatçı görseli tarama isteği.',
+          requestId: request.id,
+        },
+      });
+    return maintenanceService.scanArtistArtwork(request.user!.id, parsed.data);
   });
 
   fastify.post<{ Params: { id: string } }>(
