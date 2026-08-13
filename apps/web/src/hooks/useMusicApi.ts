@@ -72,6 +72,9 @@ export const useArtistRadioMutation = () =>
       (await apiClient.get<{ mix: MusicMixDto }>(`/music/radio/${artistId}`)).data.mix,
   });
 
+export const fetchTrackRadio = async (trackId: string) =>
+  (await apiClient.get<{ mix: MusicMixDto }>(`/music/radio/track/${trackId}`)).data.mix;
+
 export const useMusicTracksQuery = (params?: QueryParams) =>
   useQuery({
     queryKey: ['music', 'tracks', params],
@@ -499,6 +502,19 @@ export const useCreateMusicPlaylistMutation = () => {
         .playlist,
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['music'] });
+    },
+  });
+};
+
+export const useSaveMusicMixMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { name: string; description?: string; trackIds: string[] }) =>
+      (await apiClient.post<{ playlist: MusicPlaylistDto }>('/music/playlists/from-mix', input))
+        .data.playlist,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+      void client.invalidateQueries({ queryKey: ['music', 'overview'] });
     },
   });
 };

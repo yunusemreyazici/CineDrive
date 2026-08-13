@@ -9,7 +9,11 @@ import React, {
 } from 'react';
 import type { MusicTrackDto } from '@cinedrive/shared';
 import { ApiRequestError, apiClient } from '../../api/client';
-import { fetchMusicPlaybackState, saveMusicPlaybackState } from '../../hooks/useMusicApi';
+import {
+  fetchMusicPlaybackState,
+  fetchTrackRadio,
+  saveMusicPlaybackState,
+} from '../../hooks/useMusicApi';
 import {
   DEFAULT_MUSIC_AUDIO_SETTINGS,
   EQ_FREQUENCIES,
@@ -22,6 +26,7 @@ import {
   type MusicAudioSettings,
 } from './musicAudio';
 import {
+  appendUniqueMusicQueueEntries,
   appendMusicQueueEntry,
   insertNextMusicQueueEntry,
   removeMusicQueueEntry,
@@ -39,6 +44,7 @@ interface MusicPlayerContextValue {
   volume: number;
   shuffleEnabled: boolean;
   repeatMode: 'off' | 'all' | 'one';
+  continuousPlayEnabled: boolean;
   audioSettings: MusicAudioSettings;
   playTracks: (tracks: MusicTrackDto[], startIndex?: number) => void;
   playShuffledTracks: (tracks: MusicTrackDto[]) => void;
@@ -53,6 +59,7 @@ interface MusicPlayerContextValue {
   setVolume: (volume: number) => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
+  toggleContinuousPlay: () => void;
   updateAudioSettings: (settings: Partial<MusicAudioSettings>) => void;
   setEqPreset: (preset: Exclude<EqPreset, 'custom'>) => void;
   setEqBand: (index: number, gain: number) => void;
@@ -68,6 +75,7 @@ interface AudioGraph {
 
 const MusicPlayerContext = createContext<MusicPlayerContextValue | null>(null);
 const AUDIO_SETTINGS_KEY = 'cinedrive_music_audio_settings';
+const CONTINUOUS_PLAY_KEY = 'cinedrive_music_continuous_play';
 const makeId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -98,6 +106,13 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const [duration, setDuration] = useState(0);
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
+  const [continuousPlayEnabled, setContinuousPlayEnabled] = useState(() => {
+    try {
+      return globalThis.localStorage?.getItem(CONTINUOUS_PLAY_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
   const [transcode, setTranscode] = useState(false);
   const [transcodeStart, setTranscodeStart] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
@@ -491,6 +506,33 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     }
   }, [getNextEntry, selectEntry, switchToPrepared]);
 
+  const extendQueueWithRadio = useCallback(async () => {
+    const seed = queueRef.current.find((item) => item.id === currentQueueItemIdRef.current)?.track;
+    if (!seed) return null;
+    try {
+      const radio = await fetchTrackRadio(seed.id);
+      const result = appendUniqueMusicQueueEntries(queueRef.current, radio.tracks, makeId);
+      if (!result.added.length) return null;
+      queueRef.current = result.queue;
+      setQueue(result.queue);
+      return result.added[0] || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const toggleContinuousPlay = useCallback(() => {
+    setContinuousPlayEnabled((current) => {
+      const nextValue = !current;
+      try {
+        globalThis.localStorage?.setItem(CONTINUOUS_PLAY_KEY, String(nextValue));
+      } catch {
+        // Keep the in-memory preference.
+      }
+      return nextValue;
+    });
+  }, []);
+
   const previous = useCallback(() => {
     const audio = audioRefs.current[activeSlotRef.current];
     const logicalPosition = audio
@@ -706,7 +748,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   );
 
   const handleEnded = useCallback(
-    (slot: 0 | 1) => {
+    async (slot: 0 | 1) => {
       if (slot !== activeSlotRef.current) return;
       const audio = audioRefs.current[slot];
       const entry = entryForSlot(slot);
@@ -727,15 +769,29 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       }
       const candidate = getNextEntry();
       if (candidate && audioSettings.gaplessEnabled && switchToPrepared(candidate)) return;
+      if (candidate) {
+        next();
+        return;
+      }
+      if (continuousPlayEnabled) {
+        const generated = await extendQueueWithRadio();
+        if (generated) {
+          selectEntry(generated);
+          return;
+        }
+      }
       next();
     },
     [
       audioSettings.gaplessEnabled,
+      continuousPlayEnabled,
       entryForSlot,
+      extendQueueWithRadio,
       getNextEntry,
       next,
       recordMusicHistory,
       repeatMode,
+      selectEntry,
       switchToPrepared,
       transcode,
       transcodeStart,
@@ -753,6 +809,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       volume,
       shuffleEnabled,
       repeatMode,
+      continuousPlayEnabled,
       audioSettings,
       playTracks,
       playShuffledTracks,
@@ -770,6 +827,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setVolume,
       toggleShuffle,
       cycleRepeat,
+      toggleContinuousPlay,
       updateAudioSettings,
       setEqPreset,
       setEqBand,
@@ -779,6 +837,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       audioSettings,
       currentQueueItemId,
       currentTrack,
+      continuousPlayEnabled,
       cycleRepeat,
       duration,
       isPlaying,
@@ -799,6 +858,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setVolume,
       shuffleEnabled,
       togglePlay,
+      toggleContinuousPlay,
       toggleShuffle,
       updateAudioSettings,
       volume,

@@ -334,7 +334,16 @@ export interface MusicPlaybackStateDto {
 
 export interface MusicMixDto {
   id: string;
-  type: 'daily' | 'recent' | 'artist-radio' | 'mood';
+  type:
+    | 'daily'
+    | 'recent'
+    | 'artist-radio'
+    | 'mood'
+    | 'genre'
+    | 'decade'
+    | 'rediscovery'
+    | 'favorites'
+    | 'collection';
   title: string;
   subtitle: string;
   description?: string;
@@ -346,6 +355,8 @@ export interface MusicMixDto {
 export interface MusicDiscoveryDto {
   mixes: MusicMixDto[];
   moodCollections: MusicMixDto[];
+  genreCollections: MusicMixDto[];
+  decadeCollections: MusicMixDto[];
   continueListening?: { track: MusicTrackDto; positionSeconds: number } | null;
   unfinishedAlbums: Array<MusicAlbumDto & { progress: number; tracks: MusicTrackDto[] }>;
   radioArtists: MusicArtistDto[];

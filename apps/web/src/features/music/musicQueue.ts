@@ -26,6 +26,25 @@ export const appendMusicQueueEntry = (
   },
 ];
 
+export const appendUniqueMusicQueueEntries = (
+  items: MusicQueueEntry[],
+  tracks: MusicTrackDto[],
+  makeId: () => string,
+  limit = 40,
+) => {
+  const existingIds = new Set(items.map((item) => item.trackId));
+  const additions = tracks.filter((track) => !existingIds.has(track.id)).slice(0, limit);
+  const startOrder = items.length;
+  const added = additions.map((track, index) => ({
+    id: makeId(),
+    trackId: track.id,
+    sourceOrder: startOrder + index,
+    playOrder: startOrder + index,
+    track,
+  }));
+  return { queue: [...items, ...added], added };
+};
+
 export const insertNextMusicQueueEntry = (
   items: MusicQueueEntry[],
   currentId: string | null,

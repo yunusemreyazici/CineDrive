@@ -23,6 +23,9 @@ const SeriesPage = React.lazy(() =>
 const MusicPage = React.lazy(() =>
   import('../pages/MusicPage').then((module) => ({ default: module.MusicPage })),
 );
+const MusicMixesPage = React.lazy(() =>
+  import('../pages/MusicMixesPage').then((module) => ({ default: module.MusicMixesPage })),
+);
 const MusicTracksPage = React.lazy(() =>
   import('../pages/MusicTracksPage').then((module) => ({ default: module.MusicTracksPage })),
 );
@@ -109,6 +112,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/movies" element={<MoviesPage />} />
           <Route path="/series" element={<SeriesPage />} />
           <Route path="/music" element={<MusicPage />} />
+          <Route path="/music/mixes" element={<MusicMixesPage />} />
           <Route path="/music/tracks" element={<MusicTracksPage />} />
           <Route path="/music/albums" element={<MusicAlbumsPage />} />
           <Route path="/music/albums/:albumId" element={<MusicAlbumPage />} />

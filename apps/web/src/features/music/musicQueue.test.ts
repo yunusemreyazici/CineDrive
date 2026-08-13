@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MusicTrackDto } from '@cinedrive/shared';
 import {
   appendMusicQueueEntry,
+  appendUniqueMusicQueueEntries,
   insertNextMusicQueueEntry,
   removeMusicQueueEntry,
   shuffleMusicQueueEntries,
@@ -39,6 +40,18 @@ describe('music queue helpers', () => {
 
     expect(result.map((item) => item.sourceOrder)).toEqual([0, 2, 3]);
     expect(new Set(result.map((item) => item.sourceOrder)).size).toBe(result.length);
+  });
+
+  it('extends autoplay without duplicating tracks already in the queue', () => {
+    let id = 0;
+    const result = appendUniqueMusicQueueEntries(
+      [entry('current', 0)],
+      [track('current'), track('radio-one'), track('radio-two')],
+      () => `generated-${id++}`,
+    );
+
+    expect(result.queue.map((item) => item.trackId)).toEqual(['current', 'radio-one', 'radio-two']);
+    expect(result.added.map((item) => item.playOrder)).toEqual([1, 2]);
   });
 
   it('compacts play order according to the visible queue order', () => {

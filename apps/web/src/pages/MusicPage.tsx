@@ -10,10 +10,9 @@ import {
   Shuffle,
   StepForward,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
-import { MusicMixCard } from '../components/music/MusicMixCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { useMusicDiscoveryQuery, useMusicOverviewQuery } from '../hooks/useMusicApi';
@@ -112,7 +111,10 @@ export const MusicPage: React.FC = () => {
   const query = useMusicOverviewQuery();
   const discoveryQuery = useMusicDiscoveryQuery();
   const player = useMusicPlayer();
+  const location = useLocation();
   const arrivalsRailRef = React.useRef<HTMLDivElement>(null);
+
+  if (location.hash === '#music-mixes') return <Navigate to="/music/mixes" replace />;
 
   if (query.isLoading) {
     return (
@@ -312,39 +314,6 @@ export const MusicPage: React.FC = () => {
                 <ArrowRight className="h-4 w-4" />
               </button>
             )}
-          </div>
-        </section>
-      )}
-
-      {!!discovery?.mixes.length && (
-        <section id="music-mixes" className="mt-6 scroll-mt-24 space-y-3">
-          <SectionHeading title={t.music.smartMixes} eyebrow={t.music.madeForYou} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {discovery.mixes.slice(0, 4).map((item) => (
-              <MusicMixCard
-                key={item.id}
-                mix={item}
-                onPlay={() => player.playTracks(item.tracks)}
-                landscape
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {!!discovery?.moodCollections.length && (
-        <section className="mt-5 space-y-3">
-          <SectionHeading title={t.music.moodsAndGenres} eyebrow={t.music.chooseYourMood} />
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-            {discovery.moodCollections.map((item) => (
-              <MusicMixCard
-                key={item.id}
-                mix={item}
-                compact
-                landscape
-                onPlay={() => player.playTracks(item.tracks)}
-              />
-            ))}
           </div>
         </section>
       )}

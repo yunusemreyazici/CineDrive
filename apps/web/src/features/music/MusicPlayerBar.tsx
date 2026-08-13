@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ChevronUp,
   FileText,
+  Infinity as InfinityIcon,
   ListMusic,
   Pause,
   Play,
@@ -225,6 +226,16 @@ export const MusicPlayerBar: React.FC = () => {
                   ) : (
                     <Repeat className="h-4 w-4" />
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={player.toggleContinuousPlay}
+                  aria-label={t.music.continuousPlay}
+                  aria-pressed={player.continuousPlayEnabled}
+                  title={t.music.continuousPlay}
+                  className={`p-1.5 ${player.continuousPlayEnabled ? 'text-emerald-300' : 'text-zinc-500'}`}
+                >
+                  <InfinityIcon className="h-4 w-4" />
                 </button>
               </div>
               <div className="flex w-full items-center gap-2 text-[10px] text-zinc-500">

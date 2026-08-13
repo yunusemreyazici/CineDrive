@@ -661,6 +661,29 @@ describe('Music library', () => {
     });
   });
 
+  it('saves a generated mix as an owned playlist in one operation', async () => {
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/music/playlists/from-mix',
+      cookies: { session_id: cookie },
+      payload: {
+        name: 'Günlük Keşif',
+        description: 'CineDrive Mix',
+        trackIds: [trackId, trackId],
+      },
+    });
+    expect(saved.statusCode).toBe(201);
+    expect(JSON.parse(saved.body).playlist).toMatchObject({
+      name: 'Günlük Keşif',
+      itemCount: 1,
+    });
+    const playlist = await app.prisma.musicPlaylist.findFirstOrThrow({
+      where: { name: 'Günlük Keşif' },
+      include: { items: true },
+    });
+    expect(playlist.items).toEqual([expect.objectContaining({ trackId, position: 0 })]);
+  });
+
   it('reports maintenance issues and applies owned bulk metadata updates', async () => {
     const report = await app.inject({
       method: 'GET',

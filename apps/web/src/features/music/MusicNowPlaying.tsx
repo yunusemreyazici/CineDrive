@@ -3,6 +3,7 @@ import {
   ChevronDown,
   FileText,
   Heart,
+  Infinity as InfinityIcon,
   ListMusic,
   Pause,
   Play,
@@ -223,6 +224,20 @@ export const MusicNowPlaying: React.FC<Props> = ({
             </div>
 
             <div className="mt-9 flex items-center gap-3 border-t border-white/10 pt-5">
+              <button
+                type="button"
+                onClick={player.toggleContinuousPlay}
+                aria-label={t.music.continuousPlay}
+                aria-pressed={player.continuousPlayEnabled}
+                title={t.music.continuousPlayHint}
+                className={`rounded-2xl border p-3 backdrop-blur transition ${
+                  player.continuousPlayEnabled
+                    ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-200'
+                    : 'border-white/10 bg-white/[0.05] text-white/45 hover:bg-white/10'
+                }`}
+              >
+                <InfinityIcon className="h-4 w-4" />
+              </button>
               <button
                 onClick={onOpenLyrics}
                 className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-semibold backdrop-blur transition hover:bg-white/10"

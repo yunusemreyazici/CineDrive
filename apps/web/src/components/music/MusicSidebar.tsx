@@ -37,7 +37,7 @@ const DESKTOP_QUERY = '(min-width: 1024px)';
 
 const discoveryItems: MusicNavItem[] = [
   { to: '/music', label: t.music.musicHome, icon: Home, end: true },
-  { to: '/music#music-mixes', label: t.music.mixesRadio, icon: Radio, hash: '#music-mixes' },
+  { to: '/music/mixes', label: t.music.mixesRadio, icon: Radio },
 ];
 
 const personalItems: MusicNavItem[] = [

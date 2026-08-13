@@ -21,6 +21,7 @@ import {
   musicLyricsAlignSchema,
   musicLyricsRevisionSchema,
   reorderMusicPlaylistSchema,
+  saveMusicMixSchema,
   updateMusicLyricsSchema,
   updateMusicTrackMetadataSchema,
   updateMusicPlaybackStateSchema,
@@ -281,6 +282,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get('/discovery', async (request) => discoveryService.getDiscovery(request.user!.id));
+
+  fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
+    const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);
+    if (!mix)
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
+    return { mix };
+  });
 
   fastify.get('/replay', async (request, reply) => {
     const parsed = musicReplayQuerySchema.safeParse(request.query);
@@ -1436,6 +1446,52 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       playlist: await fastify.prisma.musicPlaylist.create({
         data: { userId: request.user!.id, ...parsed.data },
       }),
+    });
+  });
+  fastify.post('/playlists/from-mix', async (request, reply) => {
+    const parsed = saveMusicMixSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz mix bilgileri.',
+          requestId: request.id,
+        },
+      });
+    const userId = request.user!.id;
+    const trackIds = [...new Set(parsed.data.trackIds)];
+    const ownedTracks = await fastify.prisma.musicTrack.findMany({
+      where: { id: { in: trackIds }, ...ownedTrackWhere(userId) },
+      select: { id: true, duration: true },
+    });
+    if (ownedTracks.length !== trackIds.length)
+      return reply.status(404).send({
+        error: {
+          code: 'MIX_TRACK_NOT_FOUND',
+          message: 'Mix içindeki bazı parçalar kütüphanede bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    const playlist = await fastify.prisma.musicPlaylist.create({
+      data: {
+        userId,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        items: {
+          create: trackIds.map((trackId, position) => ({ trackId, position })),
+        },
+      },
+      include: { items: { include: { track: { select: { duration: true } } } } },
+    });
+    return reply.status(201).send({
+      playlist: {
+        id: playlist.id,
+        name: playlist.name,
+        description: playlist.description,
+        itemCount: playlist.items.length,
+        duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
+        updatedAt: playlist.updatedAt.toISOString(),
+      },
     });
   });
   fastify.get<{ Params: { id: string } }>('/playlists/:id', async (request, reply) => {
