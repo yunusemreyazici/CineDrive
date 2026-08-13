@@ -219,7 +219,10 @@ export class MusicLibraryService {
     });
     for (const artist of artistCandidates) {
       if (!artist.musicbrainzId) continue;
-      const artistArtwork = await this.musicbrainz.enrichArtistArtwork(artist.musicbrainzId);
+      const artistArtwork = await this.musicbrainz.findArtistArtwork({
+        musicbrainzId: artist.musicbrainzId,
+        artistName: artist.name,
+      });
       if (!artistArtwork) continue;
       const artistArtworkId = await this.storeArtwork(options.userId, artistArtwork.artwork);
       if (!artistArtworkId) continue;
@@ -227,7 +230,7 @@ export class MusicLibraryService {
         where: { id: artist.id, userId: options.userId, artworkId: null, artworkLocked: false },
         data: {
           artworkId: artistArtworkId,
-          artworkSource: 'wikimedia-commons',
+          artworkSource: artistArtwork.source || 'wikimedia-commons',
           artworkSourceUrl: artistArtwork.sourceUrl,
           artworkAttribution: artistArtwork.attribution,
           artworkLicense: artistArtwork.license,

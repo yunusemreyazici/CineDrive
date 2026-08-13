@@ -333,7 +333,7 @@ export const en: Translations = {
     recommendedNextStep: 'Recommended next step',
     completeArtistArtwork: 'Complete artist artwork',
     completeArtistArtworkHint:
-      'Each scan advances to the next artists and directly applies safe Wikimedia matches.',
+      'Each scan advances to the next artists and applies MusicBrainz, Wikimedia, and Deezer matches, or an existing album cover when needed.',
     artworkReady: 'Artwork ready',
     sourceUnavailable: 'No source found',
     waitingForScan: 'Waiting for scan',
@@ -438,7 +438,8 @@ export const en: Translations = {
       `${updated} tracks updated, ${skipped} skipped.`,
     albumBatchEditor: 'Album Editing',
     artistBatchEditor: 'Artist Editing',
-    artistArtworkHint: 'Upload an artist image or find one through MusicBrainz and Wikimedia.',
+    artistArtworkHint:
+      'Upload an artist image or find one through MusicBrainz, Wikimedia, Deezer, or an existing album cover.',
     uploadArtistArtwork: 'Upload artist artwork',
     findArtistArtwork: 'Find artist artwork online',
     removeArtistArtwork: 'Remove artist artwork',

@@ -329,7 +329,7 @@ export const tr = {
     recommendedNextStep: 'Önerilen sonraki adım',
     completeArtistArtwork: 'Sanatçı görsellerini tamamla',
     completeArtistArtworkHint:
-      'Tarama her çalıştırmada sıradaki sanatçılara ilerler; güvenli Wikimedia eşleşmelerini doğrudan uygular.',
+      'Tarama her çalıştırmada sıradaki sanatçılara ilerler; MusicBrainz, Wikimedia ve Deezer eşleşmelerini, gerekirse mevcut albüm kapağını uygular.',
     artworkReady: 'Görsel hazır',
     sourceUnavailable: 'Kaynak bulunamadı',
     waitingForScan: 'Taranmayı bekliyor',
@@ -436,7 +436,8 @@ export const tr = {
       `${updated} parça güncellendi, ${skipped} parça atlandı.`,
     albumBatchEditor: 'Albüm Düzenleme',
     artistBatchEditor: 'Sanatçı Düzenleme',
-    artistArtworkHint: 'Sanatçı görselini yükleyin veya MusicBrainz ve Wikimedia üzerinden bulun.',
+    artistArtworkHint:
+      'Sanatçı görselini yükleyin; MusicBrainz, Wikimedia, Deezer veya mevcut albüm kapağından bulun.',
     uploadArtistArtwork: 'Sanatçı görseli yükle',
     findArtistArtwork: 'Çevrimiçi sanatçı görseli bul',
     removeArtistArtwork: 'Sanatçı görselini kaldır',

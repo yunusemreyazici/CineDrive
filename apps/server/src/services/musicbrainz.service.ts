@@ -3,6 +3,7 @@ const COVER_ART_BASE = 'https://coverartarchive.org';
 const WIKIDATA_ENTITY_BASE = 'https://www.wikidata.org/wiki/Special:EntityData';
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+const DEEZER_API = 'https://api.deezer.com';
 const MIN_REQUEST_INTERVAL_MS = 1000;
 const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
 const MAX_ARTIST_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -62,6 +63,7 @@ export interface MusicBrainzRecordingMetadata {
 export interface MusicBrainzArtistArtwork {
   musicbrainzId: string;
   wikidataId?: string;
+  source?: 'wikimedia-commons' | 'deezer';
   sourceUrl: string;
   previewUrl: string;
   attribution?: string;
@@ -130,6 +132,8 @@ export class MusicBrainzService {
   private cache = new Map<string, MusicBrainzAlbumMetadata | null>();
   private recordingCache = new Map<string, MusicBrainzRecordingMetadata | null>();
   private artistArtworkCache = new Map<string, MusicBrainzArtistArtwork | null>();
+  private artistDeezerIdCache = new Map<string, string>();
+  private artistDiscoveryArtworkCache = new Map<string, MusicBrainzArtistArtwork | null>();
   private artistIdentityCache = new Map<string, MusicBrainzArtistIdentity | null>();
 
   public enrichAlbum(artist: string, album: string) {
@@ -176,6 +180,28 @@ export class MusicBrainzService {
     this.chain = task.then(() => undefined);
     return task.then((result) => {
       if (result) this.artistArtworkCache.set(musicbrainzId, result);
+      return result;
+    });
+  }
+
+  public findArtistArtwork(input: { musicbrainzId?: string; artistName: string }) {
+    if (process.env.MUSIC_METADATA_ONLINE === 'false') return Promise.resolve(null);
+    const key = input.musicbrainzId || normalize(input.artistName);
+    if (!key) return Promise.resolve(null);
+    const cached = this.artistDiscoveryArtworkCache.get(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const task = this.chain
+      .then(async () => {
+        if (input.musicbrainzId) {
+          const wikimedia = await this.fetchArtistArtwork(input.musicbrainzId);
+          if (wikimedia) return wikimedia;
+        }
+        return this.fetchDeezerArtistArtwork(input.artistName, input.musicbrainzId);
+      })
+      .catch(() => null);
+    this.chain = task.then(() => undefined);
+    return task.then((result) => {
+      if (result) this.artistDiscoveryArtworkCache.set(key, result);
       return result;
     });
   }
@@ -382,7 +408,12 @@ export class MusicBrainzService {
       `${MUSICBRAINZ_BASE}/artist/${encodeURIComponent(musicbrainzId)}?inc=url-rels&fmt=json`,
     );
     if (!artistResponse.ok) return null;
-    const artist = (await artistResponse.json()) as { relations?: UrlRelation[] };
+    const artist = (await artistResponse.json()) as { name?: string; relations?: UrlRelation[] };
+    const deezerId = artist.relations
+      ?.map((relation) => relation.url?.resource || '')
+      .map((resource) => resource.match(/^https:\/\/(?:www\.)?deezer\.com\/artist\/(\d+)/)?.[1])
+      .find((id): id is string => !!id);
+    if (deezerId) this.artistDeezerIdCache.set(musicbrainzId, deezerId);
     const wikidataUrl = artist.relations?.find(
       (relation) => relation.type === 'wikidata' && relation.url?.resource,
     )?.url?.resource;
@@ -451,6 +482,94 @@ export class MusicBrainzService {
       wikidataId,
       headers,
     });
+  }
+
+  private async fetchDeezerArtistArtwork(
+    artistName: string,
+    musicbrainzId?: string,
+  ): Promise<MusicBrainzArtistArtwork | null> {
+    const deezerId = musicbrainzId ? this.artistDeezerIdCache.get(musicbrainzId) : undefined;
+    const apiUrl = deezerId
+      ? `${DEEZER_API}/artist/${encodeURIComponent(deezerId)}`
+      : `${DEEZER_API}/search/artist?q=${encodeURIComponent(artistName)}&limit=10`;
+    const response = await this.fetchWithRetry(apiUrl, {
+      headers: {
+        'User-Agent': 'CineDrive/1.0.0 (https://github.com/yunusemreyazici/CineDrive)',
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as {
+      id?: number;
+      name?: string;
+      link?: string;
+      picture_medium?: string;
+      picture_big?: string;
+      picture_xl?: string;
+      data?: Array<{
+        id?: number;
+        name?: string;
+        link?: string;
+        picture_medium?: string;
+        picture_big?: string;
+        picture_xl?: string;
+      }>;
+    };
+    const candidate = deezerId
+      ? payload
+      : payload.data?.find((item) => normalize(item.name || '') === normalize(artistName));
+    if (!candidate?.id || !candidate.name) return null;
+    const imageUrl = candidate.picture_xl || candidate.picture_big || candidate.picture_medium;
+    if (!imageUrl) return null;
+    let parsedImageUrl: URL;
+    try {
+      parsedImageUrl = new URL(imageUrl);
+    } catch {
+      return null;
+    }
+    if (
+      parsedImageUrl.protocol !== 'https:' ||
+      parsedImageUrl.hostname !== 'cdn-images.dzcdn.net' ||
+      parsedImageUrl.pathname.includes('/artist//')
+    )
+      return null;
+    const imageResponse = await this.fetchWithRetry(parsedImageUrl, {
+      headers: {
+        'User-Agent': 'CineDrive/1.0.0 (https://github.com/yunusemreyazici/CineDrive)',
+        Accept: 'image/*',
+      },
+    });
+    if (!imageResponse.ok) return null;
+    const contentLength = Number(imageResponse.headers.get('content-length') || 0);
+    if (contentLength > MAX_ARTIST_IMAGE_BYTES) return null;
+    const data = Buffer.from(await imageResponse.arrayBuffer());
+    if (!data.length || data.length > MAX_ARTIST_IMAGE_BYTES) return null;
+    const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+    if (!mimeType.startsWith('image/')) return null;
+    return {
+      musicbrainzId: musicbrainzId || '',
+      source: 'deezer',
+      sourceUrl: `https://www.deezer.com/artist/${candidate.id}`,
+      previewUrl: imageUrl,
+      attribution: `Deezer · ${candidate.name}`,
+      artwork: { mimeType, data },
+    };
+  }
+
+  private async fetchWithRetry(input: string | URL, init?: RequestInit) {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(input, init);
+        if (response.status !== 429 && response.status < 500) return response;
+        lastError = new Error(`REMOTE_RESPONSE_${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 2)
+        await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 350 : 900));
+    }
+    throw lastError instanceof Error ? lastError : new Error('REMOTE_REQUEST_FAILED');
   }
 
   private async findWikidataId(musicbrainzId: string, headers: Record<string, string>) {

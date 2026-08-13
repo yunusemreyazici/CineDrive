@@ -78,6 +78,14 @@ export class MusicMaintenanceService {
       },
       orderBy: [{ artworkLookupAt: 'asc' }, { name: 'asc' }],
       take: input.artistIds?.length ? Math.min(input.artistIds.length, 50) : input.limit,
+      include: {
+        albums: {
+          where: { artworkId: { not: null } },
+          orderBy: [{ year: 'desc' }, { updatedAt: 'desc' }],
+          take: 1,
+          select: { artworkId: true, title: true },
+        },
+      },
     });
     const results: Array<{
       id: string;
@@ -104,10 +112,12 @@ export class MusicMaintenanceService {
           }
         }
 
-        const metadata = musicbrainzId
-          ? await this.musicbrainz.enrichArtistArtwork(musicbrainzId)
-          : null;
-        if (!metadata) {
+        const metadata = await this.musicbrainz.findArtistArtwork({
+          musicbrainzId,
+          artistName: artist.name,
+        });
+        const albumFallback = artist.albums[0];
+        if (!metadata && !albumFallback?.artworkId) {
           await this.prisma.musicArtist.update({
             where: { id: artist.id },
             data: { artworkLookupStatus: 'not-found', artworkLookupAt: attemptedAt },
@@ -116,8 +126,17 @@ export class MusicMaintenanceService {
           continue;
         }
 
-        const artworkId = await this.library.saveArtwork(userId, metadata.artwork);
+        const artworkId = metadata
+          ? await this.library.saveArtwork(userId, metadata.artwork)
+          : albumFallback?.artworkId;
         if (!artworkId) throw new Error('ARTIST_ARTWORK_UNAVAILABLE');
+        const artworkSource =
+          metadata?.source || (albumFallback ? 'album-artwork-fallback' : 'wikimedia-commons');
+        const artworkSourceUrl = metadata?.sourceUrl || null;
+        const artworkAttribution =
+          metadata?.attribution ||
+          (albumFallback ? `Albüm kapağı · ${albumFallback.title}` : undefined);
+        const artworkLicense = metadata?.license || null;
         const beforeData = json({
           artworkId: artist.artworkId,
           artworkSource: artist.artworkSource,
@@ -130,10 +149,10 @@ export class MusicMaintenanceService {
         });
         const afterData = json({
           artworkId,
-          artworkSource: 'wikimedia-commons',
-          artworkSourceUrl: metadata.sourceUrl,
-          artworkAttribution: metadata.attribution,
-          artworkLicense: metadata.license,
+          artworkSource,
+          artworkSourceUrl,
+          artworkAttribution,
+          artworkLicense,
           artworkLocked: false,
           artworkLookupStatus: 'found',
           artworkLookupAt: attemptedAt.toISOString(),
@@ -143,10 +162,10 @@ export class MusicMaintenanceService {
             where: { id: artist.id },
             data: {
               artworkId,
-              artworkSource: 'wikimedia-commons',
-              artworkSourceUrl: metadata.sourceUrl,
-              artworkAttribution: metadata.attribution,
-              artworkLicense: metadata.license,
+              artworkSource,
+              artworkSourceUrl,
+              artworkAttribution,
+              artworkLicense,
               artworkLocked: false,
               artworkLookupStatus: 'found',
               artworkLookupAt: attemptedAt,
@@ -540,7 +559,10 @@ export class MusicMaintenanceService {
       });
       const musicbrainzId = proposed.musicbrainzId as string | undefined;
       if (!artist || !musicbrainzId) return null;
-      const metadata = await this.musicbrainz.enrichArtistArtwork(musicbrainzId);
+      const metadata = await this.musicbrainz.findArtistArtwork({
+        musicbrainzId,
+        artistName: artist.name,
+      });
       if (!metadata) throw new Error('ARTIST_ARTWORK_UNAVAILABLE');
       const artworkId = await this.library.saveArtwork(userId, metadata.artwork);
       if (!artworkId) throw new Error('ARTIST_ARTWORK_UNAVAILABLE');
@@ -556,7 +578,7 @@ export class MusicMaintenanceService {
       });
       const afterData = json({
         artworkId,
-        artworkSource: 'wikimedia-commons',
+        artworkSource: metadata.source || 'wikimedia-commons',
         artworkSourceUrl: metadata.sourceUrl,
         artworkAttribution: metadata.attribution,
         artworkLicense: metadata.license,
@@ -569,7 +591,7 @@ export class MusicMaintenanceService {
           where: { id: artist.id },
           data: {
             artworkId,
-            artworkSource: 'wikimedia-commons',
+            artworkSource: metadata.source || 'wikimedia-commons',
             artworkSourceUrl: metadata.sourceUrl,
             artworkAttribution: metadata.attribution,
             artworkLicense: metadata.license,

@@ -19,6 +19,7 @@ const artist = {
   artworkLookupAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+  albums: [],
 };
 
 describe('MusicMaintenanceService artist artwork scan', () => {
@@ -29,7 +30,7 @@ describe('MusicMaintenanceService artist artwork scan', () => {
       musicArtist: { findMany, update },
     } as never);
     const internals = service as unknown as { musicbrainz: MusicBrainzService };
-    vi.spyOn(internals.musicbrainz, 'enrichArtistArtwork').mockResolvedValue(null);
+    vi.spyOn(internals.musicbrainz, 'findArtistArtwork').mockResolvedValue(null);
 
     const result = await service.scanArtistArtwork('user-1', { limit: 12 });
 
@@ -47,5 +48,42 @@ describe('MusicMaintenanceService artist artwork scan', () => {
       },
     });
     expect(result).toMatchObject({ scanned: 1, found: 0, notFound: 1, failed: 0 });
+  });
+
+  it('uses an existing album cover when online artist sources return no image', async () => {
+    const artistWithAlbum = {
+      ...artist,
+      name: 'Özdal Orhon',
+      albums: [{ artworkId: 'album-artwork-1', title: 'Özdal Orhon (1941 - 1986)' }],
+    };
+    const update = vi.fn().mockResolvedValue(artistWithAlbum);
+    const create = vi.fn().mockResolvedValue({ id: 'action-1' });
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const transaction = vi
+      .fn()
+      .mockImplementation((operations: Array<Promise<unknown>>) => Promise.all(operations));
+    const service = new MusicMaintenanceService({
+      musicArtist: { findMany: vi.fn().mockResolvedValue([artistWithAlbum]), update },
+      musicMaintenanceAction: { create },
+      musicMaintenanceSuggestion: { updateMany },
+      $transaction: transaction,
+    } as never);
+    const internals = service as unknown as { musicbrainz: MusicBrainzService };
+    vi.spyOn(internals.musicbrainz, 'findArtistArtwork').mockResolvedValue(null);
+
+    const result = await service.scanArtistArtwork('user-1', { limit: 12 });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: artist.id },
+        data: expect.objectContaining({
+          artworkId: 'album-artwork-1',
+          artworkSource: 'album-artwork-fallback',
+          artworkAttribution: 'Albüm kapağı · Özdal Orhon (1941 - 1986)',
+          artworkLookupStatus: 'found',
+        }),
+      }),
+    );
+    expect(result).toMatchObject({ scanned: 1, found: 1, notFound: 0, failed: 0 });
   });
 });

@@ -82,6 +82,46 @@ describe('MusicBrainz artist artwork', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it('falls back to an exact Deezer artist match when Wikimedia has no image', async () => {
+    const image = Buffer.from('deezer-artist-image');
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ name: 'BLOK3', relations: [] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ query: { search: [] } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 117259882,
+                name: 'BLOK3',
+                picture_xl: 'https://cdn-images.dzcdn.net/images/artist/example/1000x1000.jpg',
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(image, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+      );
+
+    await expect(
+      new MusicBrainzService().findArtistArtwork({
+        musicbrainzId: 'blok3-mbid',
+        artistName: 'BLOK3',
+      }),
+    ).resolves.toMatchObject({
+      source: 'deezer',
+      sourceUrl: 'https://www.deezer.com/artist/117259882',
+      attribution: 'Deezer · BLOK3',
+      artwork: { mimeType: 'image/jpeg', data: image },
+    });
+  });
+
   it('matches a unique artist only when MusicBrainz returns an exact score-100 name', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
