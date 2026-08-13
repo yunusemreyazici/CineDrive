@@ -1,11 +1,12 @@
 import React from 'react';
-import { ExternalLink, Play, Radio, Shuffle } from 'lucide-react';
+import { ChevronDown, ExternalLink, ListMusic, Play, Radio, Shuffle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { ArtistArtworkFallback } from '../components/music/ArtistArtworkFallback';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
+import { rankArtistTracks } from '../features/music/artistPopularity';
 import { useArtistRadioMutation, useMusicArtistQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
@@ -33,6 +34,13 @@ export const MusicArtistPage: React.FC = () => {
       left.trackNumber - right.trackNumber ||
       left.title.localeCompare(right.title),
   );
+  const popularTracks = rankArtistTracks(artist.tracks);
+  const totalPlays = artist.tracks.reduce((total, track) => total + (track.playCount || 0), 0);
+  const playlistArtworks = [
+    ...new Set(
+      artist.tracks.map((track) => track.artworkUrl).filter((url): url is string => !!url),
+    ),
+  ].slice(0, 4);
   const discography = artist.albums.reduce<Record<string, typeof artist.albums>>(
     (groups, album) => {
       const section = albumSection(album);
@@ -42,7 +50,7 @@ export const MusicArtistPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-10 pb-32">
+    <div className="space-y-10 overflow-x-clip pb-32">
       <header
         className="relative isolate -mx-4 -mt-4 flex min-h-[430px] items-end overflow-hidden px-5 pb-12 pt-20 sm:-mx-6 sm:px-8 lg:-mx-8 lg:px-12"
         style={{
@@ -76,7 +84,7 @@ export const MusicArtistPage: React.FC = () => {
               {t.music.trackCount(artist.tracks.length)} · {artist.albums.length}{' '}
               {t.music.albums.toLocaleLowerCase()}
             </p>
-            <div className="mt-7 flex items-center justify-center gap-3 sm:justify-start">
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
               <button
                 onClick={() => player.playTracks(artist.tracks)}
                 className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-bold text-black shadow-xl transition hover:scale-[1.03]"
@@ -120,10 +128,99 @@ export const MusicArtistPage: React.FC = () => {
         </div>
       </header>
 
+      {popularTracks.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-display text-3xl font-black">{t.music.popularTracks}</h2>
+              <p className="mt-1.5 text-xs text-zinc-500">{t.music.localPopularTracksHint}</p>
+            </div>
+            <p className="text-xs tabular-nums text-zinc-600">
+              {t.music.artistListeningTotal(totalPlays)}
+            </p>
+          </div>
+          <MusicTrackList tracks={popularTracks} ranked showPlayCount />
+        </section>
+      )}
+
       {allTracks.length > 0 && (
         <section className="space-y-4">
-          <h2 className="font-display text-3xl font-black">{t.music.allTracks}</h2>
-          <MusicTrackList tracks={allTracks} />
+          <h2 className="font-display text-3xl font-black">{t.music.artistCollection}</h2>
+          <article className="group overflow-hidden rounded-[22px] border border-white/[0.09] bg-[#0d0f12] shadow-[0_22px_60px_rgba(0,0,0,.22)]">
+            <div className="relative isolate flex flex-col gap-5 overflow-hidden p-5 sm:flex-row sm:items-center sm:p-6">
+              <div
+                className="pointer-events-none absolute inset-0 -z-10 opacity-45"
+                style={{
+                  backgroundImage: `linear-gradient(110deg, rgb(${palette.primary} / .32), transparent 52%, rgb(${palette.secondary} / .18))`,
+                }}
+              />
+              <div className="grid h-28 w-28 shrink-0 grid-cols-2 grid-rows-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-xl sm:h-36 sm:w-36">
+                {playlistArtworks.length ? (
+                  Array.from({ length: 4 }, (_, index) => (
+                    <img
+                      key={`${playlistArtworks[index % playlistArtworks.length]}-${index}`}
+                      src={playlistArtworks[index % playlistArtworks.length]}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ))
+                ) : artist.artworkUrl ? (
+                  <img
+                    src={artist.artworkUrl}
+                    alt=""
+                    className="col-span-2 row-span-2 h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="col-span-2 row-span-2 flex items-center justify-center">
+                    <ListMusic className="h-12 w-12 text-zinc-700" />
+                  </span>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/40">
+                  {t.music.artistEssentials}
+                </p>
+                <h3 className="mt-2 truncate font-display text-3xl font-black tracking-tight text-white sm:text-4xl">
+                  {t.music.thisIsArtist(artist.name)}
+                </h3>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/45">
+                  {t.music.artistEssentialsDescription(artist.name, allTracks.length)}
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => player.playTracks(allTracks)}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black transition hover:scale-[1.02]"
+                  >
+                    <Play className="h-4 w-4 fill-current" /> {t.music.playAll}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => player.playShuffledTracks(allTracks)}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                  >
+                    <Shuffle className="h-4 w-4" /> {t.music.shufflePlay}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <details className="group border-t border-white/[0.07]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-bold text-zinc-300 transition hover:bg-white/[0.035] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400 sm:px-6 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2.5">
+                  <ListMusic className="h-4 w-4 text-brand-300" />
+                  {t.music.openArtistTrackList}
+                </span>
+                <span className="flex items-center gap-3 text-xs font-medium text-zinc-600">
+                  {t.music.trackCount(allTracks.length)}
+                  <ChevronDown className="h-4 w-4 transition group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="border-t border-white/[0.06] p-2 sm:p-4">
+                <MusicTrackList tracks={allTracks} />
+              </div>
+            </details>
+          </article>
         </section>
       )}
 

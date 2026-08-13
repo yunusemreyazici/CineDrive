@@ -34,6 +34,8 @@ interface Props {
   draggable?: boolean;
   onMoveItem?: (sourceId: string, targetId: string) => void;
   homeLayout?: boolean;
+  ranked?: boolean;
+  showPlayCount?: boolean;
 }
 
 export const MusicTrackList: React.FC<Props> = ({
@@ -43,6 +45,8 @@ export const MusicTrackList: React.FC<Props> = ({
   draggable,
   onMoveItem,
   homeLayout,
+  ranked,
+  showPlayCount,
 }) => {
   const player = useMusicPlayer();
   const favorite = useToggleMusicFavoriteMutation();
@@ -106,7 +110,9 @@ export const MusicTrackList: React.FC<Props> = ({
                     aria-label={t.music.playTrack(track.title)}
                     className="w-5 text-xs text-zinc-600 group-hover:text-brand-400"
                   >
-                    <span className="group-hover:hidden">{track.trackNumber || index + 1}</span>
+                    <span className="group-hover:hidden">
+                      {ranked ? index + 1 : track.trackNumber || index + 1}
+                    </span>
                     <Play className="hidden h-4 w-4 fill-current group-hover:block" />
                   </button>
                 ))}
@@ -124,14 +130,21 @@ export const MusicTrackList: React.FC<Props> = ({
               </button>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-zinc-100">{track.title}</p>
-                {!homeLayout && track.primaryArtist && (
-                  <Link
-                    to={`/music/artists/${track.primaryArtist.id}`}
-                    className="truncate text-xs text-zinc-500 hover:text-brand-400"
-                  >
-                    {track.primaryArtist.name}
-                  </Link>
-                )}
+                {!homeLayout &&
+                  (showPlayCount ? (
+                    <p className="truncate text-xs text-zinc-500 md:hidden">
+                      {t.music.playCount(track.playCount || 0)}
+                    </p>
+                  ) : (
+                    track.primaryArtist && (
+                      <Link
+                        to={`/music/artists/${track.primaryArtist.id}`}
+                        className="truncate text-xs text-zinc-500 hover:text-brand-400"
+                      >
+                        {track.primaryArtist.name}
+                      </Link>
+                    )
+                  ))}
               </div>
               {homeLayout && (
                 <div className="hidden min-w-0 md:block">
@@ -146,13 +159,19 @@ export const MusicTrackList: React.FC<Props> = ({
                 </div>
               )}
               <div className="hidden min-w-0 md:block">
-                {track.album && (
-                  <Link
-                    to={`/music/albums/${track.album.id}`}
-                    className="block truncate text-xs text-zinc-500 hover:text-brand-400"
-                  >
-                    {track.album.title}
-                  </Link>
+                {showPlayCount ? (
+                  <span className="text-xs tabular-nums text-zinc-500">
+                    {t.music.playCount(track.playCount || 0)}
+                  </span>
+                ) : (
+                  track.album && (
+                    <Link
+                      to={`/music/albums/${track.album.id}`}
+                      className="block truncate text-xs text-zinc-500 hover:text-brand-400"
+                    >
+                      {track.album.title}
+                    </Link>
+                  )
                 )}
               </div>
               <span className="hidden text-xs tabular-nums text-zinc-600 md:block">
