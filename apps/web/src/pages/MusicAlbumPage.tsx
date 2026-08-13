@@ -1,8 +1,9 @@
-import React from 'react';
-import { Disc3, ExternalLink, Play, Radio, Shuffle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Disc3, ExternalLink, ListPlus, Play, Radio, Shuffle } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
+import { PlaylistDestinationModal } from '../components/music/PlaylistDestinationModal';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { useMusicAlbumQuery } from '../hooks/useMusicApi';
@@ -18,6 +19,7 @@ export const MusicAlbumPage: React.FC = () => {
   const { albumId } = useParams();
   const query = useMusicAlbumQuery(albumId);
   const player = useMusicPlayer();
+  const [playlistOpen, setPlaylistOpen] = useState(false);
   const album = query.data;
   const palette = useArtworkPalette(album?.artworkUrl);
   if (!album) return <div className="h-64 animate-pulse rounded-3xl bg-zinc-900" />;
@@ -35,6 +37,11 @@ export const MusicAlbumPage: React.FC = () => {
 
   return (
     <div className="space-y-10 pb-32">
+      <PlaylistDestinationModal
+        tracks={album.tracks}
+        isOpen={playlistOpen}
+        onClose={() => setPlaylistOpen(false)}
+      />
       <header
         className="relative isolate -mx-4 -mt-4 overflow-hidden px-5 pb-10 pt-16 sm:-mx-6 sm:px-8 lg:-mx-8 lg:px-12"
         style={{
@@ -131,6 +138,15 @@ export const MusicAlbumPage: React.FC = () => {
               >
                 <Shuffle className="h-5 w-5" />
                 {t.music.shufflePlay}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaylistOpen(true)}
+                aria-label={t.music.addToPlaylist}
+                title={t.music.addToPlaylist}
+                className="rounded-full border border-white/15 bg-black/20 p-3 text-white/65 backdrop-blur transition hover:bg-white/10 hover:text-white"
+              >
+                <ListPlus className="h-5 w-5" />
               </button>
               {album.musicbrainzReleaseGroupId && (
                 <a

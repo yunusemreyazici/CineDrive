@@ -19,6 +19,14 @@ export const updateMusicPlaylistSchema = createMusicPlaylistSchema.partial();
 
 export const addMusicPlaylistItemSchema = z.object({ trackId: z.string().uuid() });
 
+export const addMusicPlaylistItemsSchema = z.object({
+  trackIds: z.array(z.string().uuid()).min(1).max(500),
+});
+
+export const createMusicPlaylistFromTracksSchema = createMusicPlaylistSchema.extend({
+  trackIds: z.array(z.string().uuid()).min(1).max(500),
+});
+
 export const saveMusicMixSchema = createMusicPlaylistSchema.extend({
   trackIds: z.array(z.string().uuid()).min(1).max(100),
 });
@@ -182,6 +190,9 @@ export const updateMusicTrackMetadataSchema = z.object({
 
 export type MusicListQueryInput = z.infer<typeof musicListQuerySchema>;
 export type CreateMusicPlaylistInput = z.infer<typeof createMusicPlaylistSchema>;
+export type CreateMusicPlaylistFromTracksInput = z.infer<
+  typeof createMusicPlaylistFromTracksSchema
+>;
 export type SaveMusicMixInput = z.infer<typeof saveMusicMixSchema>;
 export type UpdateMusicPlaylistInput = z.infer<typeof updateMusicPlaylistSchema>;
 export type UpdateMusicPlaybackStateInput = z.infer<typeof updateMusicPlaybackStateSchema>;

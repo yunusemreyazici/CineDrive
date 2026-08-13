@@ -1,9 +1,10 @@
-import React from 'react';
-import { ChevronDown, ExternalLink, ListMusic, Play, Radio, Shuffle } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronDown, ExternalLink, ListMusic, ListPlus, Play, Radio, Shuffle } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { ArtistArtworkFallback } from '../components/music/ArtistArtworkFallback';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { MusicTrackList } from '../components/music/MusicTrackList';
+import { PlaylistDestinationModal } from '../components/music/PlaylistDestinationModal';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { rankArtistTracks } from '../features/music/artistPopularity';
@@ -22,6 +23,7 @@ export const MusicArtistPage: React.FC = () => {
   const query = useMusicArtistQuery(artistId);
   const player = useMusicPlayer();
   const radio = useArtistRadioMutation();
+  const [playlistOpen, setPlaylistOpen] = useState(false);
   const artist = query.data;
   const palette = useArtworkPalette(artist?.artworkUrl);
   if (!artist) return <div className="h-64 animate-pulse rounded-3xl bg-zinc-900" />;
@@ -51,6 +53,11 @@ export const MusicArtistPage: React.FC = () => {
 
   return (
     <div className="space-y-10 overflow-x-clip pb-32">
+      <PlaylistDestinationModal
+        tracks={artist.tracks}
+        isOpen={playlistOpen}
+        onClose={() => setPlaylistOpen(false)}
+      />
       <header
         className="relative isolate -mx-4 -mt-4 flex min-h-[430px] items-end overflow-hidden px-5 pb-12 pt-20 sm:-mx-6 sm:px-8 lg:-mx-8 lg:px-12"
         style={{
@@ -111,6 +118,15 @@ export const MusicArtistPage: React.FC = () => {
               >
                 <Radio className="h-5 w-5" />
                 {t.music.artistRadio}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaylistOpen(true)}
+                aria-label={t.music.addToPlaylist}
+                title={t.music.addToPlaylist}
+                className="rounded-full border border-white/15 bg-black/20 p-3 text-white/65 backdrop-blur transition hover:bg-white/10 hover:text-white"
+              >
+                <ListPlus className="h-5 w-5" />
               </button>
               {artist.musicbrainzId && (
                 <a

@@ -684,6 +684,38 @@ describe('Music library', () => {
     expect(playlist.items).toEqual([expect.objectContaining({ trackId, position: 0 })]);
   });
 
+  it('creates and batch-updates playlists while preserving track order and duplicates', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/music/playlists/from-tracks',
+      cookies: { session_id: cookie },
+      payload: { name: 'Kuyruk', trackIds: [trackId, trackId] },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(JSON.parse(created.body).playlist).toMatchObject({ name: 'Kuyruk', itemCount: 2 });
+    const playlistId = JSON.parse(created.body).playlist.id;
+
+    const added = await app.inject({
+      method: 'POST',
+      url: `/api/music/playlists/${playlistId}/items/batch`,
+      cookies: { session_id: cookie },
+      payload: { trackIds: [trackId, trackId] },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(JSON.parse(added.body)).toEqual({ added: 2 });
+
+    const playlist = await app.prisma.musicPlaylist.findUniqueOrThrow({
+      where: { id: playlistId },
+      include: { items: { orderBy: { position: 'asc' } } },
+    });
+    expect(playlist.items.map((item) => [item.trackId, item.position])).toEqual([
+      [trackId, 0],
+      [trackId, 1],
+      [trackId, 2],
+      [trackId, 3],
+    ]);
+  });
+
   it('reports maintenance issues and applies owned bulk metadata updates', async () => {
     const report = await app.inject({
       method: 'GET',

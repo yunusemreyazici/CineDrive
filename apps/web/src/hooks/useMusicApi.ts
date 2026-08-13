@@ -506,6 +506,19 @@ export const useCreateMusicPlaylistMutation = () => {
   });
 };
 
+export const useCreateMusicPlaylistFromTracksMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { name: string; description?: string; trackIds: string[] }) =>
+      (await apiClient.post<{ playlist: MusicPlaylistDto }>('/music/playlists/from-tracks', input))
+        .data.playlist,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+      void client.invalidateQueries({ queryKey: ['music', 'overview'] });
+    },
+  });
+};
+
 export const useSaveMusicMixMutation = () => {
   const client = useQueryClient();
   return useMutation({
@@ -556,6 +569,19 @@ export const useAddPlaylistTrackMutation = () => {
     onSuccess: (_data, variables) => {
       void client.invalidateQueries({ queryKey: ['music', 'playlist', variables.playlistId] });
       void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+    },
+  });
+};
+
+export const useAddPlaylistTracksMutation = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }) =>
+      apiClient.post(`/music/playlists/${playlistId}/items/batch`, { trackIds }),
+    onSuccess: (_data, variables) => {
+      void client.invalidateQueries({ queryKey: ['music', 'playlist', variables.playlistId] });
+      void client.invalidateQueries({ queryKey: ['music', 'playlists'] });
+      void client.invalidateQueries({ queryKey: ['music', 'overview'] });
     },
   });
 };

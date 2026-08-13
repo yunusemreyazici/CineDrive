@@ -3,8 +3,10 @@ import type { MusicPlaylistDto } from '@cinedrive/shared';
 import {
   AlertTriangle,
   Clock3,
+  Copy,
   GripVertical,
   ListMusic,
+  ListPlus,
   Pencil,
   Play,
   Shuffle,
@@ -13,9 +15,13 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from '../components/common/Modal';
 import { MusicTrackList } from '../components/music/MusicTrackList';
+import { PlaylistDestinationModal } from '../components/music/PlaylistDestinationModal';
+import { PlaylistTrackPickerModal } from '../components/music/PlaylistTrackPickerModal';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import {
   useDeleteMusicPlaylistMutation,
+  useCreateMusicPlaylistFromTracksMutation,
+  useCreateMusicPlaylistMutation,
   useMusicPlaylistQuery,
   useRemovePlaylistTrackMutation,
   useReorderPlaylistMutation,
@@ -40,10 +46,14 @@ export const MusicPlaylistPage: React.FC = () => {
   const reorder = useReorderPlaylistMutation();
   const update = useUpdateMusicPlaylistMutation();
   const deletePlaylist = useDeleteMusicPlaylistMutation();
+  const createFromTracks = useCreateMusicPlaylistFromTracksMutation();
+  const createPlaylist = useCreateMusicPlaylistMutation();
   const player = useMusicPlayer();
   const [itemOrder, setItemOrder] = useState<string[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [addTracksOpen, setAddTracksOpen] = useState(false);
+  const [addToAnotherOpen, setAddToAnotherOpen] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
 
@@ -125,8 +135,39 @@ export const MusicPlaylistPage: React.FC = () => {
     }
   };
 
+  const duplicatePlaylist = async () => {
+    try {
+      const input = {
+        name: t.music.playlistCopyName(query.data.name),
+        description: query.data.description || undefined,
+      };
+      const duplicate = tracks.length
+        ? await createFromTracks.mutateAsync({
+            ...input,
+            trackIds: tracks.map((track) => track.id),
+          })
+        : await createPlaylist.mutateAsync(input);
+      toast.success(t.music.playlistDuplicated);
+      navigate(`/music/playlists/${duplicate.id}`);
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
+
   return (
     <div className="space-y-7 pb-28">
+      <PlaylistTrackPickerModal
+        playlistId={query.data.id}
+        playlistName={query.data.name}
+        existingTrackIds={tracks.map((track) => track.id)}
+        isOpen={addTracksOpen}
+        onClose={() => setAddTracksOpen(false)}
+      />
+      <PlaylistDestinationModal
+        tracks={tracks}
+        isOpen={addToAnotherOpen}
+        onClose={() => setAddToAnotherOpen(false)}
+      />
       <header className="relative isolate overflow-hidden rounded-[30px] border border-white/[.07] bg-gradient-to-br from-violet-950/80 via-zinc-950 to-cyan-950/45 p-6 sm:p-8">
         {artworkUrls[0] && (
           <img
@@ -202,6 +243,35 @@ export const MusicPlaylistPage: React.FC = () => {
               )}
               <button
                 type="button"
+                onClick={() => setAddTracksOpen(true)}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-4 py-3 text-sm font-bold backdrop-blur transition hover:bg-white/10"
+              >
+                <ListPlus className="h-5 w-5" />
+                {t.music.addTracks}
+              </button>
+              {tracks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAddToAnotherOpen(true)}
+                  className="rounded-full border border-white/10 bg-white/[.05] p-3 text-white/65 transition hover:bg-white/10 hover:text-white"
+                  aria-label={t.music.addToAnotherPlaylist}
+                  title={t.music.addToAnotherPlaylist}
+                >
+                  <ListPlus className="h-5 w-5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void duplicatePlaylist()}
+                disabled={createFromTracks.isPending || createPlaylist.isPending}
+                className="rounded-full border border-white/10 bg-white/[.05] p-3 text-white/65 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                aria-label={t.music.duplicatePlaylist}
+                title={t.music.duplicatePlaylist}
+              >
+                <Copy className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
                 onClick={openEdit}
                 className="rounded-full border border-white/10 bg-white/[.05] p-3 text-white/65 transition hover:bg-white/10 hover:text-white"
                 aria-label={t.music.editPlaylist}
@@ -243,6 +313,14 @@ export const MusicPlaylistPage: React.FC = () => {
           <ListMusic className="h-11 w-11 text-white/15" />
           <h2 className="mt-4 font-display text-xl font-bold">{t.music.noTracks}</h2>
           <p className="mt-2 max-w-md text-sm text-white/40">{t.music.playlistEmptyHint}</p>
+          <button
+            type="button"
+            onClick={() => setAddTracksOpen(true)}
+            className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black"
+          >
+            <ListPlus className="h-4 w-4" />
+            {t.music.addTracks}
+          </button>
         </section>
       )}
 

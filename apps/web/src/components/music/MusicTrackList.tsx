@@ -5,6 +5,7 @@ import {
   Heart,
   Info,
   ListEnd,
+  ListPlus,
   MoreHorizontal,
   Play,
   StepForward,
@@ -12,13 +13,10 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useMusicPlayer } from '../../features/music/MusicPlayerProvider';
-import {
-  useAddPlaylistTrackMutation,
-  useMusicPlaylistsQuery,
-  useToggleMusicFavoriteMutation,
-} from '../../hooks/useMusicApi';
+import { useToggleMusicFavoriteMutation } from '../../hooks/useMusicApi';
 import { t } from '../../i18n';
 import { MusicTrackInfoPanel } from '../../features/music/MusicTrackInfoPanel';
+import { PlaylistDestinationModal } from './PlaylistDestinationModal';
 
 const formatDuration = (seconds?: number | null) => {
   if (!seconds) return '—';
@@ -50,11 +48,15 @@ export const MusicTrackList: React.FC<Props> = ({
 }) => {
   const player = useMusicPlayer();
   const favorite = useToggleMusicFavoriteMutation();
-  const playlists = useMusicPlaylistsQuery();
-  const addToPlaylist = useAddPlaylistTrackMutation();
   const [infoTrackId, setInfoTrackId] = useState<string | null>(null);
+  const [playlistTrack, setPlaylistTrack] = useState<MusicTrackDto | null>(null);
   return (
     <>
+      <PlaylistDestinationModal
+        tracks={playlistTrack ? [playlistTrack] : []}
+        isOpen={playlistTrack !== null}
+        onClose={() => setPlaylistTrack(null)}
+      />
       {infoTrackId && (
         <MusicTrackInfoPanel
           trackId={infoTrackId}
@@ -229,17 +231,13 @@ export const MusicTrackList: React.FC<Props> = ({
                       <ListEnd className="h-4 w-4" />
                       {t.music.addQueue}
                     </button>
-                    {playlists.data?.map((playlist) => (
-                      <button
-                        key={playlist.id}
-                        onClick={() =>
-                          addToPlaylist.mutate({ playlistId: playlist.id, trackId: track.id })
-                        }
-                        className="block w-full truncate rounded-lg px-3 py-2 text-left text-xs text-zinc-400 hover:bg-white/5 hover:text-white"
-                      >
-                        + {playlist.name}
-                      </button>
-                    ))}
+                    <button
+                      onClick={() => setPlaylistTrack(track)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-white/5"
+                    >
+                      <ListPlus className="h-4 w-4" />
+                      {t.music.addToPlaylist}
+                    </button>
                   </div>
                 </details>
               </div>

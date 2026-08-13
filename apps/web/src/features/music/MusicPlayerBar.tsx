@@ -4,6 +4,8 @@ import {
   FileText,
   Infinity as InfinityIcon,
   ListMusic,
+  ListPlus,
+  Loader2,
   Pause,
   Play,
   Repeat,
@@ -23,6 +25,9 @@ import { MusicNowPlaying } from './MusicNowPlaying';
 import { MusicAudioSettingsPanel } from './MusicAudioSettingsPanel';
 import { audioQualityTier, formatAudioQuality } from './musicAudio';
 import { useArtworkPalette } from './useArtworkPalette';
+import { Modal } from '../../components/common/Modal';
+import { useCreateMusicPlaylistFromTracksMutation } from '../../hooks/useMusicApi';
+import { toast } from '../../stores/useToastStore';
 
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -36,13 +41,72 @@ export const MusicPlayerBar: React.FC = () => {
   const player = useMusicPlayer();
   const [drawer, setDrawer] = useState<'queue' | 'lyrics' | 'nowPlaying' | 'audio' | null>(null);
   const [audioReturnDrawer, setAudioReturnDrawer] = useState<'nowPlaying' | null>(null);
+  const [saveQueueOpen, setSaveQueueOpen] = useState(false);
+  const [queuePlaylistName, setQueuePlaylistName] = useState(t.music.defaultQueuePlaylistName);
+  const createPlaylist = useCreateMusicPlaylistFromTracksMutation();
   const palette = useArtworkPalette(player.currentTrack?.artworkUrl);
   if (!player.currentTrack) return null;
   const track = player.currentTrack;
   const quality = formatAudioQuality(track);
   const qualityTier = audioQualityTier(track);
+  const saveQueue = async () => {
+    const name = queuePlaylistName.trim();
+    if (!name || !player.queue.length) return;
+    try {
+      await createPlaylist.mutateAsync({
+        name,
+        trackIds: player.queue.map((item) => item.trackId),
+      });
+      toast.success(t.music.queueSavedAsPlaylist);
+      setSaveQueueOpen(false);
+      setQueuePlaylistName(t.music.defaultQueuePlaylistName);
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
   return (
     <>
+      <Modal
+        isOpen={saveQueueOpen}
+        onClose={() => !createPlaylist.isPending && setSaveQueueOpen(false)}
+        title={t.music.saveQueueAsPlaylist}
+        description={t.music.saveQueueHint}
+        icon={<ListPlus className="h-5 w-5 text-brand-300" />}
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setSaveQueueOpen(false)}
+              disabled={createPlaylist.isPending}
+              className="rounded-xl px-4 py-2 text-sm font-medium text-white/55 hover:bg-white/5"
+            >
+              {t.common.cancel}
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveQueue()}
+              disabled={!queuePlaylistName.trim() || createPlaylist.isPending}
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2 text-sm font-bold text-black disabled:opacity-40"
+            >
+              {createPlaylist.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t.common.save}
+            </button>
+          </div>
+        }
+      >
+        <div className="p-6">
+          <label className="block text-sm font-medium text-white/65">
+            {t.music.playlistName}
+            <input
+              value={queuePlaylistName}
+              onChange={(event) => setQueuePlaylistName(event.target.value)}
+              maxLength={120}
+              className="mt-2 w-full rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-white outline-none focus:border-brand-300/50"
+            />
+          </label>
+        </div>
+      </Modal>
       {drawer === 'audio' && (
         <MusicAudioSettingsPanel
           onClose={() => {
@@ -72,15 +136,27 @@ export const MusicPlayerBar: React.FC = () => {
       )}
       {drawer === 'queue' && (
         <aside className="fixed bottom-24 right-3 z-[70] flex max-h-[65vh] w-[min(420px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/98 shadow-2xl backdrop-blur-xl">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
             <h2 className="font-display font-bold">{t.music.queue}</h2>
-            <button
-              onClick={() => setDrawer(null)}
-              aria-label={t.common.close}
-              className="rounded-lg p-2 hover:bg-white/10"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSaveQueueOpen(true)}
+                disabled={!player.queue.length}
+                aria-label={t.music.saveQueueAsPlaylist}
+                title={t.music.saveQueueAsPlaylist}
+                className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
+              >
+                <ListPlus className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setDrawer(null)}
+                aria-label={t.common.close}
+                className="rounded-lg p-2 hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div className="overflow-y-auto p-2">
             {player.queue.map((item) => (

@@ -5,8 +5,10 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@prisma/client';
 import {
   addMusicPlaylistItemSchema,
+  addMusicPlaylistItemsSchema,
   createMusicHistorySchema,
   createMusicPlaylistSchema,
+  createMusicPlaylistFromTracksSchema,
   musicListQuerySchema,
   musicAlbumMaintenanceSchema,
   musicArtistMaintenanceSchema,
@@ -1494,6 +1496,55 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
   });
+  fastify.post('/playlists/from-tracks', async (request, reply) => {
+    const parsed = createMusicPlaylistFromTracksSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz çalma listesi bilgileri.',
+          requestId: request.id,
+        },
+      });
+    const userId = request.user!.id;
+    const uniqueTrackIds = [...new Set(parsed.data.trackIds)];
+    const ownedTracks = await fastify.prisma.musicTrack.findMany({
+      where: { id: { in: uniqueTrackIds }, ...ownedTrackWhere(userId) },
+      select: { id: true, duration: true },
+    });
+    if (ownedTracks.length !== uniqueTrackIds.length)
+      return reply.status(404).send({
+        error: {
+          code: 'PLAYLIST_TRACK_NOT_FOUND',
+          message: 'Seçilen parçalardan bazıları kütüphanede bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    const durationByTrackId = new Map(ownedTracks.map((track) => [track.id, track.duration || 0]));
+    const playlist = await fastify.prisma.musicPlaylist.create({
+      data: {
+        userId,
+        name: parsed.data.name,
+        description: parsed.data.description,
+        items: {
+          create: parsed.data.trackIds.map((trackId, position) => ({ trackId, position })),
+        },
+      },
+    });
+    return reply.status(201).send({
+      playlist: {
+        id: playlist.id,
+        name: playlist.name,
+        description: playlist.description,
+        itemCount: parsed.data.trackIds.length,
+        duration: parsed.data.trackIds.reduce(
+          (sum, trackId) => sum + (durationByTrackId.get(trackId) || 0),
+          0,
+        ),
+        updatedAt: playlist.updatedAt.toISOString(),
+      },
+    });
+  });
   fastify.get<{ Params: { id: string } }>('/playlists/:id', async (request, reply) => {
     const userId = request.user!.id;
     const playlist = await fastify.prisma.musicPlaylist.findFirst({
@@ -1600,6 +1651,51 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
     return reply.status(201).send({ item });
+  });
+  fastify.post<{ Params: { id: string } }>('/playlists/:id/items/batch', async (request, reply) => {
+    const parsed = addMusicPlaylistItemsSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'Geçersiz parçalar.', requestId: request.id },
+      });
+    const userId = request.user!.id;
+    const uniqueTrackIds = [...new Set(parsed.data.trackIds)];
+    const [playlist, ownedTrackCount] = await Promise.all([
+      fastify.prisma.musicPlaylist.findFirst({
+        where: { id: request.params.id, userId },
+        select: { id: true },
+      }),
+      fastify.prisma.musicTrack.count({
+        where: { id: { in: uniqueTrackIds }, ...ownedTrackWhere(userId) },
+      }),
+    ]);
+    if (!playlist || ownedTrackCount !== uniqueTrackIds.length)
+      return reply.status(404).send({
+        error: {
+          code: 'MUSIC_RESOURCE_NOT_FOUND',
+          message: 'Çalma listesi veya seçilen parçalardan bazıları bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    const aggregate = await fastify.prisma.musicPlaylistItem.aggregate({
+      where: { playlistId: playlist.id },
+      _max: { position: true },
+    });
+    const firstPosition = (aggregate._max.position ?? -1) + 1;
+    await fastify.prisma.$transaction([
+      fastify.prisma.musicPlaylistItem.createMany({
+        data: parsed.data.trackIds.map((trackId, index) => ({
+          playlistId: playlist.id,
+          trackId,
+          position: firstPosition + index,
+        })),
+      }),
+      fastify.prisma.musicPlaylist.update({
+        where: { id: playlist.id },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
+    return reply.status(201).send({ added: parsed.data.trackIds.length });
   });
   fastify.delete<{ Params: { id: string; itemId: string } }>(
     '/playlists/:id/items/:itemId',
