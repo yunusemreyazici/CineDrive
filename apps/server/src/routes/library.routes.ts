@@ -635,7 +635,12 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
       await fastify.prisma.musicArtwork.deleteMany({
-        where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+        where: {
+          userId: request.user!.id,
+          albums: { none: {} },
+          artists: { none: {} },
+          tracks: { none: {} },
+        },
       });
       return reply.send({ removed: { media: movieIds.length, files: removed } });
     },
@@ -690,7 +695,12 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
     await fastify.prisma.musicArtwork.deleteMany({
-      where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+      where: {
+        userId: request.user!.id,
+        albums: { none: {} },
+        artists: { none: {} },
+        tracks: { none: {} },
+      },
     });
 
     return reply.send({ removed: { library: 1, media, files } });
@@ -939,7 +949,12 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
     await fastify.prisma.musicArtwork.deleteMany({
-      where: { userId: request.user!.id, albums: { none: {} }, tracks: { none: {} } },
+      where: {
+        userId: request.user!.id,
+        albums: { none: {} },
+        artists: { none: {} },
+        tracks: { none: {} },
+      },
     });
 
     await fastify.prisma.library.update({

@@ -234,6 +234,9 @@ export interface MusicArtistDto {
   albumCount?: number;
   trackCount?: number;
   artworkUrl?: string | null;
+  artworkSource?: string | null;
+  artworkAttribution?: string | null;
+  artworkLicense?: string | null;
 }
 
 export interface MusicAlbumDto {
@@ -387,6 +390,7 @@ export interface MusicMaintenanceActionDto {
 }
 
 export interface MusicMaintenanceDto {
+  artists: MusicArtistDto[];
   missingArtwork: MusicTrackDto[];
   missingMetadata: Array<MusicTrackDto & { confidence: number; issues: string[] }>;
   duplicates: MusicDuplicateGroupDto[];
@@ -397,6 +401,7 @@ export interface MusicMaintenanceDto {
   suggestions?: MusicMaintenanceSuggestionDto[];
   actions?: MusicMaintenanceActionDto[];
   totals: {
+    missingArtistArtwork: number;
     missingArtwork: number;
     missingMetadata: number;
     duplicates: number;

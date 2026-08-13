@@ -28,9 +28,12 @@ export const resolveMusicContentType = (
 export const musicTrackInclude = (userId: string) =>
   ({
     album: { include: { artist: true, artwork: { select: { id: true } } } },
-    primaryArtist: true,
+    primaryArtist: { include: { artwork: { select: { id: true } } } },
     artwork: { select: { id: true } },
-    artists: { orderBy: { position: 'asc' as const }, include: { artist: true } },
+    artists: {
+      orderBy: { position: 'asc' as const },
+      include: { artist: { include: { artwork: { select: { id: true } } } } },
+    },
     credits: { orderBy: { position: 'asc' as const } },
     favorites: { where: { userId }, select: { id: true } },
     _count: { select: { history: true } },
@@ -58,9 +61,9 @@ export const musicTrackInclude = (userId: string) =>
 export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
   include: {
     album: { include: { artist: true; artwork: { select: { id: true } } } };
-    primaryArtist: true;
+    primaryArtist: { include: { artwork: { select: { id: true } } } };
     artwork: { select: { id: true } };
-    artists: { include: { artist: true } };
+    artists: { include: { artist: { include: { artwork: { select: { id: true } } } } } };
     credits: true;
     favorites: { select: { id: true } };
     _count: { select: { history: true } };
@@ -98,6 +101,23 @@ export const parseGenres = (raw?: string | null): string[] => {
   }
 };
 
+export const formatMusicArtist = (artist: {
+  id: string;
+  name: string;
+  sortName: string | null;
+  musicbrainzId: string | null;
+  artwork?: { id: string } | null;
+  _count?: { albums: number; trackCredits: number };
+}) => ({
+  id: artist.id,
+  name: artist.name,
+  sortName: artist.sortName,
+  musicbrainzId: artist.musicbrainzId,
+  albumCount: artist._count?.albums,
+  trackCount: artist._count?.trackCredits,
+  artworkUrl: artist.artwork?.id ? `/api/music/artwork/${artist.artwork.id}` : null,
+});
+
 export const formatMusicTrack = (track: MusicTrackWithRelations) => {
   const artworkId = track.artwork?.id || track.album?.artwork?.id;
   return {
@@ -131,20 +151,8 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
             : null,
         }
       : null,
-    primaryArtist: track.primaryArtist
-      ? {
-          id: track.primaryArtist.id,
-          name: track.primaryArtist.name,
-          sortName: track.primaryArtist.sortName,
-          musicbrainzId: track.primaryArtist.musicbrainzId,
-        }
-      : null,
-    artists: track.artists.map(({ artist }) => ({
-      id: artist.id,
-      name: artist.name,
-      sortName: artist.sortName,
-      musicbrainzId: artist.musicbrainzId,
-    })),
+    primaryArtist: track.primaryArtist ? formatMusicArtist(track.primaryArtist) : null,
+    artists: track.artists.map(({ artist }) => formatMusicArtist(artist)),
     artworkUrl: artworkId ? `/api/music/artwork/${artworkId}` : null,
     isFavorite: track.favorites.length > 0,
     playCount: track._count.history,

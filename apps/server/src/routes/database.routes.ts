@@ -101,7 +101,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
     const { count: removedMusicArtwork } = await fastify.prisma.musicArtwork.deleteMany({
-      where: { userId, albums: { none: {} }, tracks: { none: {} } },
+      where: { userId, albums: { none: {} }, artists: { none: {} }, tracks: { none: {} } },
     });
 
     return reply.status(200).send({
@@ -152,7 +152,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
       await tx.musicArtwork.deleteMany({
-        where: { userId, albums: { none: {} }, tracks: { none: {} } },
+        where: { userId, albums: { none: {} }, artists: { none: {} }, tracks: { none: {} } },
       });
       await tx.library.updateMany({
         where: { id: { in: libraryIds } },

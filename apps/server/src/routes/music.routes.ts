@@ -27,6 +27,7 @@ import {
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
 import {
+  formatMusicArtist,
   formatMusicTrack,
   musicTrackInclude,
   parseGenres,
@@ -233,7 +234,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         where: { userId, trackCredits: { some: { track: trackWhere } } },
         include: {
           _count: { select: { albums: true, trackCredits: true } },
-          albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+          artwork: { select: { id: true } },
         },
         orderBy: { name: 'asc' },
         take: 12,
@@ -255,17 +256,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       recentTracks: tracks.map(formatMusicTrack),
       recentAlbums: albums.map(albumDto),
-      artists: artists.map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-        sortName: artist.sortName,
-        musicbrainzId: artist.musicbrainzId,
-        albumCount: artist._count.albums,
-        trackCount: artist._count.trackCredits,
-        artworkUrl: artist.albums[0]?.artworkId
-          ? `/api/music/artwork/${artist.albums[0].artworkId}`
-          : null,
-      })),
+      artists: artists.map(formatMusicArtist),
       playlists: playlists.map((playlist) => ({
         id: playlist.id,
         name: playlist.name,
@@ -289,15 +280,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/replay', async (request, reply) => {
     const parsed = musicReplayQuerySchema.safeParse(request.query);
     if (!parsed.success)
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Geçersiz Replay dönemi.',
-            requestId: request.id,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz Replay dönemi.',
+          requestId: request.id,
+        },
+      });
     return replayService.get(request.user!.id, parsed.data.period, parsed.data.year);
   });
 
@@ -322,6 +311,20 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       take: 2000,
     });
     const tracks = rawTracks.map(formatMusicTrack);
+    const maintenanceArtists = await fastify.prisma.musicArtist.findMany({
+      where: {
+        userId,
+        OR: [
+          { trackCredits: { some: { track: ownedTrackWhere(userId) } } },
+          { albums: { some: { tracks: { some: ownedTrackWhere(userId) } } } },
+        ],
+      },
+      include: {
+        artwork: { select: { id: true } },
+        _count: { select: { albums: true, trackCredits: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
     const missingArtwork = tracks.filter((track) => !track.artworkUrl);
     const missingMetadata = tracks
       .map((track) => {
@@ -391,6 +394,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     );
     const fingerprintCandidates = tracks.filter((track) => !fingerprintedIds.has(track.id));
     return {
+      artists: maintenanceArtists.map((artist) => ({
+        ...formatMusicArtist(artist),
+        artworkSource: artist.artworkSource,
+        artworkAttribution: artist.artworkAttribution,
+        artworkLicense: artist.artworkLicense,
+      })),
       missingArtwork: missingArtwork.slice(0, 100),
       missingMetadata: missingMetadata.slice(0, 100),
       duplicates: duplicates.slice(0, 100),
@@ -420,6 +429,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         revertedAt: item.revertedAt?.toISOString() || null,
       })),
       totals: {
+        missingArtistArtwork: maintenanceArtists.filter((artist) => !artist.artworkId).length,
         missingArtwork: missingArtwork.length,
         missingMetadata: missingMetadata.length,
         duplicates: duplicates.length,
@@ -432,15 +442,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/maintenance/suggestions/generate', async (request, reply) => {
     const parsed = musicMaintenanceGenerateSchema.safeParse(request.body || {});
     if (!parsed.success)
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Geçersiz bakım isteği.',
-            requestId: request.id,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz bakım isteği.',
+          requestId: request.id,
+        },
+      });
     return maintenanceService.generate(request.user!.id, parsed.data);
   });
 
@@ -449,15 +457,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const result = await maintenanceService.resolve(request.user!.id, request.params.id, true);
       if (!result)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'SUGGESTION_NOT_FOUND',
-              message: 'Öneri bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'SUGGESTION_NOT_FOUND',
+            message: 'Öneri bulunamadı.',
+            requestId: request.id,
+          },
+        });
       return result;
     },
   );
@@ -467,15 +473,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const result = await maintenanceService.resolve(request.user!.id, request.params.id, false);
       if (!result)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'SUGGESTION_NOT_FOUND',
-              message: 'Öneri bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'SUGGESTION_NOT_FOUND',
+            message: 'Öneri bulunamadı.',
+            requestId: request.id,
+          },
+        });
       return result;
     },
   );
@@ -483,22 +487,18 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/maintenance/duplicates/archive', async (request, reply) => {
     const parsed = musicDuplicateArchiveSchema.safeParse(request.body);
     if (!parsed.success)
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Geçersiz yinelenen parça işlemi.',
-            requestId: request.id,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz yinelenen parça işlemi.',
+          requestId: request.id,
+        },
+      });
     const result = await maintenanceService.archiveDuplicate(request.user!.id, parsed.data);
     if (!result)
-      return reply
-        .status(404)
-        .send({
-          error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
-        });
+      return reply.status(404).send({
+        error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+      });
     return result;
   });
 
@@ -507,15 +507,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const result = await maintenanceService.undo(request.user!.id, request.params.id);
       if (!result)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'ACTION_NOT_FOUND',
-              message: 'Geri alınabilir işlem bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'ACTION_NOT_FOUND',
+            message: 'Geri alınabilir işlem bulunamadı.',
+            requestId: request.id,
+          },
+        });
       return result;
     },
   );
@@ -655,34 +653,48 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { updated: true };
   });
 
-  fastify.patch<{ Params: { id: string } }>('/maintenance/artists/:id', async (request, reply) => {
-    const parsed = musicArtistMaintenanceSchema.safeParse(request.body);
-    if (!parsed.success)
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Geçersiz sanatçı bilgisi.',
-          requestId: request.id,
-        },
-      });
-    const artist = await fastify.prisma.musicArtist.findFirst({
-      where: { id: request.params.id, userId: request.user!.id },
-      select: { id: true },
-    });
-    if (!artist)
-      return reply.status(404).send({
-        error: { code: 'ARTIST_NOT_FOUND', message: 'Sanatçı bulunamadı.', requestId: request.id },
-      });
-    await fastify.prisma.musicArtist.update({
-      where: { id: artist.id },
-      data: {
-        name: parsed.data.name,
-        normalizedName: normalizeMusicName(parsed.data.name),
-        sortName: parsed.data.sortName,
-      },
-    });
-    return { updated: true };
-  });
+  fastify.patch<{ Params: { id: string } }>(
+    '/maintenance/artists/:id',
+    { bodyLimit: 9 * 1024 * 1024 },
+    async (request, reply) => {
+      const parsed = musicArtistMaintenanceSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz sanatçı bilgisi.',
+            requestId: request.id,
+          },
+        });
+      try {
+        const artist = await maintenanceService.updateArtist(
+          request.user!.id,
+          request.params.id,
+          parsed.data,
+        );
+        if (!artist)
+          return reply.status(404).send({
+            error: {
+              code: 'ARTIST_NOT_FOUND',
+              message: 'Sanatçı bulunamadı.',
+              requestId: request.id,
+            },
+          });
+        return { updated: true };
+      } catch (error) {
+        if (error instanceof Error && error.message === 'INVALID_ARTIST_ARTWORK') {
+          return reply.status(400).send({
+            error: {
+              code: 'INVALID_ARTIST_ARTWORK',
+              message: 'Sanatçı görseli JPEG, PNG veya WebP olmalı ve 6 MB sınırını aşmamalı.',
+              requestId: request.id,
+            },
+          });
+        }
+        throw error;
+      }
+    },
+  );
 
   fastify.post('/maintenance/replaygain', async (request, reply) => {
     const parsed = musicReplayGainScanSchema.safeParse(request.body);
@@ -1094,22 +1106,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       where: { userId, trackCredits: { some: { track: ownedTrackWhere(userId) } } },
       include: {
         _count: { select: { albums: true, trackCredits: true } },
-        albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+        artwork: { select: { id: true } },
       },
       orderBy: { name: 'asc' },
     });
     return {
-      artists: artists.map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-        sortName: artist.sortName,
-        musicbrainzId: artist.musicbrainzId,
-        albumCount: artist._count.albums,
-        trackCount: artist._count.trackCredits,
-        artworkUrl: artist.albums[0]?.artworkId
-          ? `/api/music/artwork/${artist.albums[0].artworkId}`
-          : null,
-      })),
+      artists: artists.map(formatMusicArtist),
     };
   });
 
@@ -1122,6 +1124,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         trackCredits: { some: { track: ownedTrackWhere(userId) } },
       },
       include: {
+        artwork: { select: { id: true } },
         albums: {
           where: { tracks: { some: ownedTrackWhere(userId) } },
           include: {
@@ -1160,7 +1163,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           },
           include: {
             _count: { select: { albums: true, trackCredits: true } },
-            albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+            artwork: { select: { id: true } },
             trackCredits: {
               where: { track: ownedTrackWhere(userId) },
               select: { track: { select: { genres: true } } },
@@ -1185,26 +1188,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((candidate) => candidate.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, 8)
-      .map(({ artist: candidate }) => ({
-        id: candidate.id,
-        name: candidate.name,
-        sortName: candidate.sortName,
-        musicbrainzId: candidate.musicbrainzId,
-        albumCount: candidate._count.albums,
-        trackCount: candidate._count.trackCredits,
-        artworkUrl: candidate.albums[0]?.artworkId
-          ? `/api/music/artwork/${candidate.albums[0].artworkId}`
-          : null,
-      }));
+      .map(({ artist: candidate }) => formatMusicArtist(candidate));
     return {
       artist: {
         id: artist.id,
         name: artist.name,
         sortName: artist.sortName,
         musicbrainzId: artist.musicbrainzId,
-        artworkUrl: artist.albums.find((album) => album.artworkId)?.artworkId
-          ? `/api/music/artwork/${artist.albums.find((album) => album.artworkId)!.artworkId}`
-          : null,
+        artworkUrl: artist.artwork?.id ? `/api/music/artwork/${artist.artwork.id}` : null,
         albums: artist.albums.map(albumDto),
         tracks: artist.trackCredits.map((credit) => formatMusicTrack(credit.track)),
         similarArtists,
@@ -1250,7 +1241,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
         include: {
           _count: { select: { albums: true, trackCredits: true } },
-          albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+          artwork: { select: { id: true } },
         },
         take: 6,
       }),
@@ -1258,15 +1249,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       tracks: tracks.map(formatMusicTrack),
       albums: albums.map(albumDto),
-      artists: artists.map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-        albumCount: artist._count.albums,
-        trackCount: artist._count.trackCredits,
-        artworkUrl: artist.albums[0]?.artworkId
-          ? `/api/music/artwork/${artist.albums[0].artworkId}`
-          : null,
-      })),
+      artists: artists.map(formatMusicArtist),
     };
   });
 
@@ -1706,27 +1689,31 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get<{ Params: { id: string }; Querystring: { thumbnail?: string } }>('/artwork/:id', async (request, reply) => {
-    const artwork = await fastify.prisma.musicArtwork.findFirst({
-      where: { id: request.params.id, userId: request.user!.id },
-    });
-    if (!artwork)
-      return reply.status(404).send({
-        error: {
-          code: 'ARTWORK_NOT_FOUND',
-          message: 'Kapak görseli bulunamadı.',
-          requestId: request.id,
-        },
+  fastify.get<{ Params: { id: string }; Querystring: { thumbnail?: string } }>(
+    '/artwork/:id',
+    async (request, reply) => {
+      const artwork = await fastify.prisma.musicArtwork.findFirst({
+        where: { id: request.params.id, userId: request.user!.id },
       });
-    const source = Buffer.from(artwork.data);
-    const thumbnail = request.query.thumbnail === '1'
-      ? await artworkThumbnails.thumbnail(artwork.id, source)
-      : null;
-    reply
-      .header('Content-Type', thumbnail ? 'image/jpeg' : artwork.mimeType)
-      .header('Cache-Control', 'private, max-age=86400');
-    return reply.send(thumbnail ?? source);
-  });
+      if (!artwork)
+        return reply.status(404).send({
+          error: {
+            code: 'ARTWORK_NOT_FOUND',
+            message: 'Kapak görseli bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      const source = Buffer.from(artwork.data);
+      const thumbnail =
+        request.query.thumbnail === '1'
+          ? await artworkThumbnails.thumbnail(artwork.id, source)
+          : null;
+      reply
+        .header('Content-Type', thumbnail ? 'image/jpeg' : artwork.mimeType)
+        .header('Cache-Control', 'private, max-age=86400');
+      return reply.send(thumbnail ?? source);
+    },
+  );
 
   fastify.get<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
@@ -1819,29 +1806,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const parsed = musicLyricsTranslationSchema.safeParse(request.body);
       if (!parsed.success)
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'Geçersiz çeviri dili.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz çeviri dili.',
+            requestId: request.id,
+          },
+        });
       const track = await fastify.prisma.musicTrack.findFirst({
         where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
         select: { id: true, lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'LYRICS_NOT_FOUND',
-              message: 'Şarkı sözü bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'LYRICS_NOT_FOUND',
+            message: 'Şarkı sözü bulunamadı.',
+            requestId: request.id,
+          },
+        });
       try {
         await lyricsService.translate(track.id, parsed.data.language);
         const lyrics = await fastify.prisma.musicLyrics.findUniqueOrThrow({
@@ -1851,15 +1834,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         return { lyrics: formatLyrics(lyrics) };
       } catch (error) {
         request.log.warn({ err: error }, 'Lyric translation failed');
-        return reply
-          .status(503)
-          .send({
-            error: {
-              code: 'TRANSLATION_UNAVAILABLE',
-              message: 'Çeviri sağlayıcısına ulaşılamadı. LibreTranslate ayarlarını kontrol edin.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(503).send({
+          error: {
+            code: 'TRANSLATION_UNAVAILABLE',
+            message: 'Çeviri sağlayıcısına ulaşılamadı. LibreTranslate ayarlarını kontrol edin.',
+            requestId: request.id,
+          },
+        });
       }
     },
   );
@@ -1872,25 +1853,21 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         language: request.params.language,
       });
       if (!parsed.success || parsed.data.content === undefined)
-        return reply
-          .status(400)
-          .send({
-            error: { code: 'VALIDATION_ERROR', message: 'Geçersiz çeviri.', requestId: request.id },
-          });
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'Geçersiz çeviri.', requestId: request.id },
+        });
       const track = await fastify.prisma.musicTrack.findFirst({
         where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
         select: { lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'LYRICS_NOT_FOUND',
-              message: 'Şarkı sözü bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'LYRICS_NOT_FOUND',
+            message: 'Şarkı sözü bulunamadı.',
+            requestId: request.id,
+          },
+        });
       await fastify.prisma.musicLyricsTranslation.upsert({
         where: { lyricsId_language: { lyricsId: track.lyrics.id, language: parsed.data.language } },
         create: {
@@ -1912,29 +1889,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/align', async (request, reply) => {
     const parsed = musicLyricsAlignSchema.safeParse(request.body);
     if (!parsed.success)
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Geçersiz hizalama isteği.',
-            requestId: request.id,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz hizalama isteği.',
+          requestId: request.id,
+        },
+      });
     const track = await fastify.prisma.musicTrack.findFirst({
       where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
       select: { duration: true },
     });
     if (!track?.duration)
-      return reply
-        .status(422)
-        .send({
-          error: {
-            code: 'DURATION_REQUIRED',
-            message: 'Hizalama için parça süresi gerekli.',
-            requestId: request.id,
-          },
-        });
+      return reply.status(422).send({
+        error: {
+          code: 'DURATION_REQUIRED',
+          message: 'Hizalama için parça süresi gerekli.',
+          requestId: request.id,
+        },
+      });
     return {
       content: alignPlainLyrics(
         parsed.data.content,
@@ -1950,29 +1923,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const parsed = musicLyricsRevisionSchema.safeParse(request.body);
       if (!parsed.success)
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: 'Geçersiz LRC düzeltmesi.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz LRC düzeltmesi.',
+            requestId: request.id,
+          },
+        });
       const track = await fastify.prisma.musicTrack.findFirst({
         where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
         select: { lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'LYRICS_NOT_FOUND',
-              message: 'Önce ana şarkı sözünü ekleyin.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'LYRICS_NOT_FOUND',
+            message: 'Önce ana şarkı sözünü ekleyin.',
+            requestId: request.id,
+          },
+        });
       const revision = await fastify.prisma.musicLyricsRevision.create({
         data: {
           lyricsId: track.lyrics.id,
@@ -1994,28 +1963,24 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         select: { lyrics: true },
       });
       if (!track?.lyrics)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'LYRICS_NOT_FOUND',
-              message: 'Şarkı sözü bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'LYRICS_NOT_FOUND',
+            message: 'Şarkı sözü bulunamadı.',
+            requestId: request.id,
+          },
+        });
       const revision = await fastify.prisma.musicLyricsRevision.findFirst({
         where: { id: request.params.revisionId, lyricsId: track.lyrics.id, status: 'pending' },
       });
       if (!revision)
-        return reply
-          .status(404)
-          .send({
-            error: {
-              code: 'REVISION_NOT_FOUND',
-              message: 'Düzeltme bulunamadı.',
-              requestId: request.id,
-            },
-          });
+        return reply.status(404).send({
+          error: {
+            code: 'REVISION_NOT_FOUND',
+            message: 'Düzeltme bulunamadı.',
+            requestId: request.id,
+          },
+        });
       await fastify.prisma.$transaction([
         fastify.prisma.musicLyricsRevision.create({
           data: {

@@ -118,7 +118,7 @@ export class GoogleConnectionCleanupService {
         },
       });
       await tx.musicArtwork.deleteMany({
-        where: { userId, albums: { none: {} }, tracks: { none: {} } },
+        where: { userId, albums: { none: {} }, artists: { none: {} }, tracks: { none: {} } },
       });
 
       return {

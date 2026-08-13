@@ -85,6 +85,8 @@ export const musicAlbumMaintenanceSchema = z.object({
 export const musicArtistMaintenanceSchema = z.object({
   name: z.string().trim().min(1).max(200),
   sortName: z.string().trim().max(200).nullable().optional(),
+  artworkData: z.string().max(8_500_000).optional(),
+  removeArtwork: z.boolean().optional(),
 });
 
 export const musicReplayGainScanSchema = z.object({
@@ -99,6 +101,7 @@ export const musicFingerprintScanSchema = z.object({
 export const musicMaintenanceGenerateSchema = z.object({
   trackIds: z.array(z.string().uuid()).max(20).optional(),
   albumIds: z.array(z.string().uuid()).max(20).optional(),
+  artistIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 export const musicDuplicateArchiveSchema = z.object({
@@ -114,7 +117,10 @@ export const musicReplayQuerySchema = z.object({
 
 export const musicLyricsTranslationSchema = z.object({
   language: z.string().trim().min(2).max(16),
-  content: z.string().max(1024 * 1024).optional(),
+  content: z
+    .string()
+    .max(1024 * 1024)
+    .optional(),
 });
 
 export const musicLyricsAlignSchema = z.object({
@@ -125,7 +131,10 @@ export const musicLyricsAlignSchema = z.object({
 
 export const musicLyricsRevisionSchema = z.object({
   sourceName: z.string().trim().min(1).max(255),
-  content: z.string().min(1).max(1024 * 1024),
+  content: z
+    .string()
+    .min(1)
+    .max(1024 * 1024),
 });
 
 export const musicTrackCreditInputSchema = z.object({

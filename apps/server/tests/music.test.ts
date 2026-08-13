@@ -268,6 +268,49 @@ describe('Music library', () => {
     });
   });
 
+  it('uses persisted artist artwork instead of borrowing an album cover', async () => {
+    const track = await app.prisma.musicTrack.findUniqueOrThrow({
+      where: { id: trackId },
+      select: { primaryArtistId: true, albumId: true, library: { select: { userId: true } } },
+    });
+    const artistArtwork = await app.prisma.musicArtwork.create({
+      data: {
+        userId: track.library.userId,
+        mimeType: 'image/jpeg',
+        data: Uint8Array.from([1, 2, 3]),
+        checksum: randomUUID(),
+      },
+    });
+    const albumArtwork = await app.prisma.musicArtwork.create({
+      data: {
+        userId: track.library.userId,
+        mimeType: 'image/jpeg',
+        data: Uint8Array.from([4, 5, 6]),
+        checksum: randomUUID(),
+      },
+    });
+    await app.prisma.musicArtist.update({
+      where: { id: track.primaryArtistId! },
+      data: { artworkId: artistArtwork.id, artworkSource: 'manual', artworkLocked: true },
+    });
+    await app.prisma.musicAlbum.update({
+      where: { id: track.albumId! },
+      data: { artworkId: albumArtwork.id },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/artists',
+      cookies: { session_id: cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const responseArtist = JSON.parse(response.body).artists.find(
+      (artist: { id: string }) => artist.id === track.primaryArtistId,
+    );
+    expect(responseArtist.artworkUrl).toBe(`/api/music/artwork/${artistArtwork.id}`);
+  });
+
   it('conservatively rematches MusicBrainz recording credits', async () => {
     const recordingId = randomUUID();
     const producerId = randomUUID();
@@ -856,8 +899,9 @@ describe('Music library', () => {
       accessToken: 'music-access-token',
       connectionId: 'music-connection',
     });
-    const mediaStream = vi.spyOn(app.driveService, 'createMediaStream').mockImplementation(
-      async (_token, _fileId, _range, _signal) => ({
+    const mediaStream = vi
+      .spyOn(app.driveService, 'createMediaStream')
+      .mockImplementation(async (_token, _fileId, _range, _signal) => ({
         stream: Readable.from(Buffer.from('remote-music')),
         status: 206,
         headers: {
@@ -866,8 +910,7 @@ describe('Music library', () => {
           'content-range': `bytes 0-11/256`,
           'accept-ranges': 'bytes',
         },
-      }),
-    );
+      }));
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await app.inject({

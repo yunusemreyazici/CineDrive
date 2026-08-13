@@ -1,5 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, AudioWaveform, Check, Gauge, ImageOff, Layers3, RotateCcw, Save, Sparkles, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  AudioWaveform,
+  Check,
+  Gauge,
+  ImageOff,
+  Layers3,
+  RotateCcw,
+  Save,
+  Sparkles,
+  Trash2,
+  Upload,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { ErrorState } from '../components/common/ErrorState';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import {
@@ -61,17 +75,7 @@ export const MusicMaintenancePage: React.FC = () => {
       ].slice(0, 12),
     [entityTracks],
   );
-  const artists = useMemo(
-    () =>
-      [
-        ...new Map(
-          entityTracks
-            .filter((track) => track.primaryArtist)
-            .map((track) => [track.primaryArtist!.id, track.primaryArtist!]),
-        ).values(),
-      ].slice(0, 12),
-    [entityTracks],
-  );
+  const artists = useMemo(() => (data?.artists || []).slice(0, 50), [data?.artists]);
 
   if (query.isLoading) return <div className="h-80 animate-pulse rounded-3xl bg-zinc-900" />;
   if (query.isError)
@@ -92,6 +96,16 @@ export const MusicMaintenancePage: React.FC = () => {
       return next;
     });
 
+  const uploadArtistArtwork = (artist: (typeof artists)[number], file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      if (typeof reader.result !== 'string') return;
+      editArtist.mutate({ id: artist.id, name: artist.name, artworkData: reader.result });
+    });
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="space-y-10 pb-32">
       <header className="relative overflow-hidden rounded-[32px] border border-white/[0.08] bg-gradient-to-br from-cyan-950/70 via-zinc-950 to-violet-950/60 p-7 md:p-10">
@@ -109,12 +123,18 @@ export const MusicMaintenancePage: React.FC = () => {
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           icon={ImageOff}
           label={t.music.missingArtwork}
           value={data.totals.missingArtwork}
           tone="bg-rose-500/15 text-rose-300"
+        />
+        <Stat
+          icon={UserRound}
+          label={t.music.missingArtistArtwork}
+          value={data.totals.missingArtistArtwork}
+          tone="bg-cyan-500/15 text-cyan-300"
         />
         <Stat
           icon={AlertTriangle}
@@ -138,20 +158,76 @@ export const MusicMaintenancePage: React.FC = () => {
 
       <section className="rounded-[28px] border border-cyan-400/15 bg-gradient-to-br from-cyan-950/25 to-violet-950/20 p-5 md:p-7">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div><h2 className="flex items-center gap-2 font-display text-2xl font-bold"><Sparkles className="h-5 w-5 text-cyan-300" /> {t.music.automaticCare}</h2><p className="mt-1 text-sm text-white/40">{t.music.automaticCareHint}</p></div>
-          <button onClick={() => generate.mutate()} disabled={generate.isPending} className="rounded-full bg-cyan-300 px-5 py-2.5 text-xs font-black text-black disabled:opacity-50">{generate.isPending ? t.music.scanning : t.music.findSuggestions}</button>
+          <div>
+            <h2 className="flex items-center gap-2 font-display text-2xl font-bold">
+              <Sparkles className="h-5 w-5 text-cyan-300" /> {t.music.automaticCare}
+            </h2>
+            <p className="mt-1 text-sm text-white/40">{t.music.automaticCareHint}</p>
+          </div>
+          <button
+            onClick={() => generate.mutate({})}
+            disabled={generate.isPending}
+            className="rounded-full bg-cyan-300 px-5 py-2.5 text-xs font-black text-black disabled:opacity-50"
+          >
+            {generate.isPending ? t.music.scanning : t.music.findSuggestions}
+          </button>
         </div>
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
-          {!data.suggestions?.length && <p className="text-sm text-white/35">{t.music.noSuggestions}</p>}
+          {!data.suggestions?.length && (
+            <p className="text-sm text-white/35">{t.music.noSuggestions}</p>
+          )}
           {data.suggestions?.map((suggestion) => {
             const proposed = suggestion.proposedData as Record<string, unknown>;
-            return <article key={suggestion.id} className="overflow-hidden rounded-2xl border border-white/[.08] bg-black/25 p-4">
-              <div className="flex items-start gap-4">
-                {suggestion.kind === 'artwork' && typeof proposed.previewUrl === 'string' ? <img src={proposed.previewUrl} alt="" className="h-20 w-20 rounded-xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/5"><Sparkles className="h-6 w-6 text-cyan-300" /></div>}
-                <div className="min-w-0 flex-1"><p className="text-xs font-black uppercase tracking-wider text-cyan-300">{suggestion.provider} · {suggestion.confidence}%</p><h3 className="mt-1 font-bold">{suggestion.kind === 'artwork' ? t.music.missingArtwork : t.music.missingMetadata}</h3><div className="mt-2 line-clamp-3 break-all text-[11px] leading-5 text-white/35">{Object.entries(proposed).filter(([key]) => key !== 'previewUrl' && key !== 'credits').map(([key, value]) => `${key}: ${String(value ?? '—')}`).join(' · ')}</div></div>
-              </div>
-              <div className="mt-4 flex gap-2"><button onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: true })} className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-black text-black"><Check className="h-3.5 w-3.5" /> {t.music.acceptSuggestion}</button><button onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: false })} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-2 text-xs font-bold text-white/55"><X className="h-3.5 w-3.5" /> {t.music.rejectSuggestion}</button></div>
-            </article>;
+            return (
+              <article
+                key={suggestion.id}
+                className="overflow-hidden rounded-2xl border border-white/[.08] bg-black/25 p-4"
+              >
+                <div className="flex items-start gap-4">
+                  {suggestion.kind === 'artwork' && typeof proposed.previewUrl === 'string' ? (
+                    <img
+                      src={proposed.previewUrl}
+                      alt=""
+                      className="h-20 w-20 rounded-xl object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/5">
+                      <Sparkles className="h-6 w-6 text-cyan-300" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                      {suggestion.provider} · {suggestion.confidence}%
+                    </p>
+                    <h3 className="mt-1 font-bold">
+                      {suggestion.kind === 'artwork'
+                        ? t.music.missingArtwork
+                        : t.music.missingMetadata}
+                    </h3>
+                    <div className="mt-2 line-clamp-3 break-all text-[11px] leading-5 text-white/35">
+                      {Object.entries(proposed)
+                        .filter(([key]) => key !== 'previewUrl' && key !== 'credits')
+                        .map(([key, value]) => `${key}: ${String(value ?? '—')}`)
+                        .join(' · ')}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: true })}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-black text-black"
+                  >
+                    <Check className="h-3.5 w-3.5" /> {t.music.acceptSuggestion}
+                  </button>
+                  <button
+                    onClick={() => resolveSuggestion.mutate({ id: suggestion.id, accept: false })}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-4 py-2 text-xs font-bold text-white/55"
+                  >
+                    <X className="h-3.5 w-3.5" /> {t.music.rejectSuggestion}
+                  </button>
+                </div>
+              </article>
+            );
           })}
         </div>
       </section>
@@ -294,9 +370,34 @@ export const MusicMaintenancePage: React.FC = () => {
                 </summary>
                 <div className="mt-3 space-y-2 text-xs text-white/45">
                   {group.tracks.map((track) => (
-                    <div key={track.id} className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2">
-                      <span className="min-w-0 flex-1 truncate">{track.source?.fileName} · {group.quality?.find((item) => item.trackId === track.id)?.label || track.source?.library.name}</span>
-                      {track.id === group.recommendedTrackId ? <span className="rounded-full bg-cyan-300/15 px-2 py-1 text-[9px] font-black text-cyan-200">{t.music.recommendedQuality}</span> : <button onClick={() => group.recommendedTrackId && archiveDuplicate.mutate({ keepTrackId: group.recommendedTrackId, archiveTrackId: track.id, replacePlaylistItems: true })} className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10">{t.music.archiveLowerQuality}</button>}
+                    <div
+                      key={track.id}
+                      className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {track.source?.fileName} ·{' '}
+                        {group.quality?.find((item) => item.trackId === track.id)?.label ||
+                          track.source?.library.name}
+                      </span>
+                      {track.id === group.recommendedTrackId ? (
+                        <span className="rounded-full bg-cyan-300/15 px-2 py-1 text-[9px] font-black text-cyan-200">
+                          {t.music.recommendedQuality}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            group.recommendedTrackId &&
+                            archiveDuplicate.mutate({
+                              keepTrackId: group.recommendedTrackId,
+                              archiveTrackId: track.id,
+                              replacePlaylistItems: true,
+                            })
+                          }
+                          className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10"
+                        >
+                          {t.music.archiveLowerQuality}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -309,33 +410,89 @@ export const MusicMaintenancePage: React.FC = () => {
       <section className="rounded-[28px] border border-violet-400/15 bg-gradient-to-br from-violet-950/30 via-black/20 to-cyan-950/20 p-5 md:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
-            <h2 className="flex items-center gap-2 font-display text-2xl font-bold"><AudioWaveform className="h-6 w-6 text-violet-300" /> {t.music.acousticFingerprint}</h2>
-            <p className="mt-2 text-sm leading-6 text-white/40">{t.music.acousticFingerprintHint}</p>
-            <p className="mt-2 text-xs font-semibold text-white/55">{t.music.fingerprintsAnalyzed(data.fingerprints.analyzed, data.fingerprints.identified)}</p>
-            {!data.fingerprints.available && <p className="mt-2 text-xs text-amber-300">{t.music.fpcalcUnavailable}</p>}
-            {data.fingerprints.available && !data.fingerprints.acoustidConfigured && <p className="mt-2 text-xs text-amber-200/70">{t.music.acoustidNotConfigured}</p>}
+            <h2 className="flex items-center gap-2 font-display text-2xl font-bold">
+              <AudioWaveform className="h-6 w-6 text-violet-300" /> {t.music.acousticFingerprint}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-white/40">
+              {t.music.acousticFingerprintHint}
+            </p>
+            <p className="mt-2 text-xs font-semibold text-white/55">
+              {t.music.fingerprintsAnalyzed(
+                data.fingerprints.analyzed,
+                data.fingerprints.identified,
+              )}
+            </p>
+            {!data.fingerprints.available && (
+              <p className="mt-2 text-xs text-amber-300">{t.music.fpcalcUnavailable}</p>
+            )}
+            {data.fingerprints.available && !data.fingerprints.acoustidConfigured && (
+              <p className="mt-2 text-xs text-amber-200/70">{t.music.acoustidNotConfigured}</p>
+            )}
           </div>
           <button
-            onClick={() => fingerprints.mutate({ trackIds: data.fingerprintCandidates.slice(0, 20).map((track) => track.id) })}
-            disabled={!data.fingerprints.available || !data.fingerprintCandidates.length || fingerprints.isPending}
+            onClick={() =>
+              fingerprints.mutate({
+                trackIds: data.fingerprintCandidates.slice(0, 20).map((track) => track.id),
+              })
+            }
+            disabled={
+              !data.fingerprints.available ||
+              !data.fingerprintCandidates.length ||
+              fingerprints.isPending
+            }
             className="rounded-full bg-violet-300 px-5 py-2.5 text-xs font-black text-black disabled:opacity-40"
           >
             {fingerprints.isPending ? t.music.scanning : t.music.scanFingerprints}
           </button>
         </div>
-        {fingerprints.data && <p className="mt-4 text-xs text-white/55">{t.music.fingerprintsAnalyzed(fingerprints.data.analyzed.length, fingerprints.data.identified.length)}</p>}
+        {fingerprints.data && (
+          <p className="mt-4 text-xs text-white/55">
+            {t.music.fingerprintsAnalyzed(
+              fingerprints.data.analyzed.length,
+              fingerprints.data.identified.length,
+            )}
+          </p>
+        )}
         <div className="mt-6">
           <h3 className="font-display text-lg font-bold">{t.music.acousticDuplicates}</h3>
           <p className="mt-1 text-xs text-white/35">{t.music.acousticDuplicateHint}</p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">
             {data.acousticDuplicates.map((group) => (
-              <div key={group.key} className="rounded-2xl border border-white/[0.07] bg-black/25 p-4">
-                <p className="truncate text-sm font-bold">{group.tracks[0]?.title} · {group.tracks.length}</p>
+              <div
+                key={group.key}
+                className="rounded-2xl border border-white/[0.07] bg-black/25 p-4"
+              >
+                <p className="truncate text-sm font-bold">
+                  {group.tracks[0]?.title} · {group.tracks.length}
+                </p>
                 <div className="mt-3 space-y-2">
                   {group.tracks.map((track) => (
-                    <div key={track.id} className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2 text-xs text-white/45">
-                      <span className="min-w-0 flex-1 truncate">{track.title} · {track.source?.fileName}</span>
-                      {track.id === group.recommendedTrackId ? <span className="rounded-full bg-violet-300/15 px-2 py-1 text-[9px] font-black text-violet-200">{t.music.recommendedQuality}</span> : <button onClick={() => group.recommendedTrackId && archiveDuplicate.mutate({ keepTrackId: group.recommendedTrackId, archiveTrackId: track.id, replacePlaylistItems: true })} className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10">{t.music.archiveLowerQuality}</button>}
+                    <div
+                      key={track.id}
+                      className="flex items-center gap-2 rounded-xl bg-white/[.035] p-2 text-xs text-white/45"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {track.title} · {track.source?.fileName}
+                      </span>
+                      {track.id === group.recommendedTrackId ? (
+                        <span className="rounded-full bg-violet-300/15 px-2 py-1 text-[9px] font-black text-violet-200">
+                          {t.music.recommendedQuality}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            group.recommendedTrackId &&
+                            archiveDuplicate.mutate({
+                              keepTrackId: group.recommendedTrackId,
+                              archiveTrackId: track.id,
+                              replacePlaylistItems: true,
+                            })
+                          }
+                          className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-bold hover:bg-white/10"
+                        >
+                          {t.music.archiveLowerQuality}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -347,7 +504,25 @@ export const MusicMaintenancePage: React.FC = () => {
 
       <section className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] p-5 md:p-7">
         <h2 className="font-display text-2xl font-bold">{t.music.actionHistory}</h2>
-        <div className="mt-4 divide-y divide-white/[.06]">{data.actions?.map((action) => <div key={action.id} className="flex items-center gap-3 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{action.actionType}</p><p className="text-xs text-white/35">{new Date(action.createdAt).toLocaleString()}</p></div><button disabled={!!action.revertedAt || undo.isPending} onClick={() => undo.mutate(action.id)} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-bold disabled:opacity-30"><RotateCcw className="h-3.5 w-3.5" /> {t.music.undoAction}</button></div>)}</div>
+        <div className="mt-4 divide-y divide-white/[.06]">
+          {data.actions?.map((action) => (
+            <div key={action.id} className="flex items-center gap-3 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold">{action.actionType}</p>
+                <p className="text-xs text-white/35">
+                  {new Date(action.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <button
+                disabled={!!action.revertedAt || undo.isPending}
+                onClick={() => undo.mutate(action.id)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-bold disabled:opacity-30"
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> {t.music.undoAction}
+              </button>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
@@ -380,28 +555,89 @@ export const MusicMaintenancePage: React.FC = () => {
         </div>
         <div className="rounded-[28px] border border-white/[0.07] bg-white/[0.025] p-5 md:p-7">
           <h2 className="font-display text-2xl font-bold">{t.music.artistBatchEditor}</h2>
+          <p className="mt-1 text-sm text-white/40">{t.music.artistArtworkHint}</p>
           <div className="mt-5 space-y-2">
             {artists.map((artist) => (
-              <form
+              <div
                 key={artist.id}
-                className="flex gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = new FormData(event.currentTarget);
-                  editArtist.mutate({
-                    id: artist.id,
-                    name: String(form.get('name') || artist.name),
-                  });
-                }}
+                className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-3"
               >
-                <input name="name" defaultValue={artist.name} className="music-field" />
-                <button
-                  aria-label={t.common.save}
-                  className="rounded-xl border border-white/10 px-3 hover:bg-white/10"
+                {artist.artworkUrl ? (
+                  <img
+                    src={artist.artworkUrl}
+                    alt=""
+                    className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/5">
+                    <UserRound className="h-6 w-6 text-white/25" />
+                  </div>
+                )}
+                <form
+                  className="min-w-0 flex-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = new FormData(event.currentTarget);
+                    editArtist.mutate({
+                      id: artist.id,
+                      name: String(form.get('name') || artist.name),
+                    });
+                  }}
                 >
-                  <Check className="h-4 w-4" />
-                </button>
-              </form>
+                  <div className="flex gap-2">
+                    <input name="name" defaultValue={artist.name} className="music-field min-w-0" />
+                    <button
+                      aria-label={t.common.save}
+                      className="rounded-xl border border-white/10 px-3 hover:bg-white/10"
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {(artist.artworkSource || artist.artworkLicense) && (
+                    <p className="mt-1 truncate text-[10px] text-white/30">
+                      {[artist.artworkSource, artist.artworkLicense, artist.artworkAttribution]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+                </form>
+                <label
+                  className="cursor-pointer rounded-xl border border-white/10 p-3 text-white/60 hover:bg-white/10"
+                  title={t.music.uploadArtistArtwork}
+                >
+                  <Upload className="h-4 w-4" />
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(event) =>
+                      uploadArtistArtwork(artist, event.currentTarget.files?.[0])
+                    }
+                  />
+                </label>
+                {!artist.artworkUrl && artist.musicbrainzId && (
+                  <button
+                    type="button"
+                    onClick={() => generate.mutate({ artistIds: [artist.id] })}
+                    className="rounded-xl border border-cyan-300/20 p-3 text-cyan-300 hover:bg-cyan-300/10"
+                    title={t.music.findArtistArtwork}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </button>
+                )}
+                {artist.artworkUrl && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      editArtist.mutate({ id: artist.id, name: artist.name, removeArtwork: true })
+                    }
+                    className="rounded-xl border border-white/10 p-3 text-white/40 hover:bg-rose-500/10 hover:text-rose-300"
+                    title={t.music.removeArtistArtwork}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>

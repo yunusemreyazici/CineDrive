@@ -1,6 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import type { MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
-import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
+import {
+  formatMusicArtist,
+  formatMusicTrack,
+  musicTrackInclude,
+  parseGenres,
+} from '../utils/music-format.js';
 
 const accents = ['violet', 'cyan', 'amber', 'rose', 'emerald', 'indigo'];
 
@@ -96,7 +101,7 @@ export class MusicDiscoveryService {
         where: { userId, trackCredits: { some: { track: owned } } },
         include: {
           _count: { select: { albums: true, trackCredits: true } },
-          albums: { where: { artworkId: { not: null } }, select: { artworkId: true }, take: 1 },
+          artwork: { select: { id: true } },
         },
         take: 100,
       }),
@@ -228,17 +233,7 @@ export class MusicDiscoveryService {
     const radioArtists = artists
       .sort((a, b) => (artistWeights.get(b.id) || 0) - (artistWeights.get(a.id) || 0))
       .slice(0, 8)
-      .map((artist) => ({
-        id: artist.id,
-        name: artist.name,
-        sortName: artist.sortName,
-        musicbrainzId: artist.musicbrainzId,
-        albumCount: artist._count.albums,
-        trackCount: artist._count.trackCredits,
-        artworkUrl: artist.albums[0]?.artworkId
-          ? `/api/music/artwork/${artist.albums[0].artworkId}`
-          : null,
-      }));
+      .map(formatMusicArtist);
 
     return {
       mixes: [

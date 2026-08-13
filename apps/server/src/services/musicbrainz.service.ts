@@ -1,7 +1,10 @@
 const MUSICBRAINZ_BASE = 'https://musicbrainz.org/ws/2';
 const COVER_ART_BASE = 'https://coverartarchive.org';
+const WIKIDATA_ENTITY_BASE = 'https://www.wikidata.org/wiki/Special:EntityData';
+const COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const MIN_REQUEST_INTERVAL_MS = 1000;
 const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
+const MAX_ARTIST_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const normalize = (value: string) =>
   value
@@ -21,6 +24,15 @@ interface ReleaseGroupResult {
   releases?: Array<{ id: string }>;
   'primary-type'?: string;
   'secondary-types'?: string[];
+}
+
+interface ArtistSearchResult {
+  id: string;
+  name: string;
+  score?: number;
+  'sort-name'?: string;
+  type?: string;
+  disambiguation?: string;
 }
 
 export interface MusicBrainzAlbumMetadata {
@@ -44,6 +56,30 @@ export interface MusicBrainzCredit {
 export interface MusicBrainzRecordingMetadata {
   recordingId: string;
   credits: MusicBrainzCredit[];
+}
+
+export interface MusicBrainzArtistArtwork {
+  musicbrainzId: string;
+  wikidataId: string;
+  sourceUrl: string;
+  previewUrl: string;
+  attribution?: string;
+  license?: string;
+  artwork: { mimeType: string; data: Buffer };
+}
+
+export interface MusicBrainzArtistIdentity {
+  musicbrainzId: string;
+  name: string;
+  sortName?: string;
+  type?: string;
+  disambiguation?: string;
+  confidence: number;
+}
+
+interface UrlRelation {
+  type?: string;
+  url?: { resource?: string };
 }
 
 interface ArtistRelation {
@@ -71,6 +107,8 @@ export class MusicBrainzService {
   private lastRequestAt = 0;
   private cache = new Map<string, MusicBrainzAlbumMetadata | null>();
   private recordingCache = new Map<string, MusicBrainzRecordingMetadata | null>();
+  private artistArtworkCache = new Map<string, MusicBrainzArtistArtwork | null>();
+  private artistIdentityCache = new Map<string, MusicBrainzArtistIdentity | null>();
 
   public enrichAlbum(artist: string, album: string) {
     if (process.env.MUSIC_METADATA_ONLINE === 'false') return Promise.resolve(null);
@@ -106,6 +144,32 @@ export class MusicBrainzService {
 
   public fetchCoverArtwork(releaseGroupId: string) {
     return this.fetchArtwork(releaseGroupId);
+  }
+
+  public enrichArtistArtwork(musicbrainzId: string) {
+    if (process.env.MUSIC_METADATA_ONLINE === 'false') return Promise.resolve(null);
+    const cached = this.artistArtworkCache.get(musicbrainzId);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const task = this.chain.then(() => this.fetchArtistArtwork(musicbrainzId)).catch(() => null);
+    this.chain = task.then(() => undefined);
+    return task.then((result) => {
+      this.artistArtworkCache.set(musicbrainzId, result);
+      return result;
+    });
+  }
+
+  public matchArtistIdentity(name: string) {
+    if (process.env.MUSIC_METADATA_ONLINE === 'false') return Promise.resolve(null);
+    const key = normalize(name);
+    if (!key) return Promise.resolve(null);
+    const cached = this.artistIdentityCache.get(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const task = this.chain.then(() => this.fetchArtistIdentity(name)).catch(() => null);
+    this.chain = task.then(() => undefined);
+    return task.then((result) => {
+      this.artistIdentityCache.set(key, result);
+      return result;
+    });
   }
 
   private async throttledFetch(url: string) {
@@ -157,6 +221,31 @@ export class MusicBrainzService {
       releaseType: match['primary-type']?.toLowerCase(),
       secondaryTypes: (match['secondary-types'] || []).map((type) => type.toLowerCase()),
       artwork: await this.fetchArtwork(match.id),
+    };
+  }
+
+  private async fetchArtistIdentity(name: string): Promise<MusicBrainzArtistIdentity | null> {
+    const query = encodeURIComponent(`artist:${JSON.stringify(name)}`);
+    const response = await this.throttledFetch(
+      `${MUSICBRAINZ_BASE}/artist/?query=${query}&fmt=json&limit=5`,
+    );
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { artists?: ArtistSearchResult[] };
+    const normalizedName = normalize(name);
+    const exactMatches = (payload.artists || []).filter(
+      (candidate) =>
+        candidate.score === 100 && normalize(candidate.name) === normalizedName && candidate.id,
+    );
+    const uniqueIds = new Set(exactMatches.map((candidate) => candidate.id));
+    if (exactMatches.length !== 1 || uniqueIds.size !== 1) return null;
+    const match = exactMatches[0]!;
+    return {
+      musicbrainzId: match.id,
+      name: match.name,
+      sortName: match['sort-name'],
+      type: match.type,
+      disambiguation: match.disambiguation,
+      confidence: match.score || 100,
     };
   }
 
@@ -262,5 +351,112 @@ export class MusicBrainzService {
     const data = Buffer.from(await imageResponse.arrayBuffer());
     if (data.length > MAX_ARTWORK_BYTES) return undefined;
     return { mimeType: imageResponse.headers.get('content-type') || 'image/jpeg', data };
+  }
+
+  private async fetchArtistArtwork(
+    musicbrainzId: string,
+  ): Promise<MusicBrainzArtistArtwork | null> {
+    const artistResponse = await this.throttledFetch(
+      `${MUSICBRAINZ_BASE}/artist/${encodeURIComponent(musicbrainzId)}?inc=url-rels&fmt=json`,
+    );
+    if (!artistResponse.ok) return null;
+    const artist = (await artistResponse.json()) as { relations?: UrlRelation[] };
+    const wikidataUrl = artist.relations?.find(
+      (relation) => relation.type === 'wikidata' && relation.url?.resource,
+    )?.url?.resource;
+    const wikidataId = wikidataUrl?.match(/\/(?:wiki|entity)\/(Q\d+)(?:$|[?#/])/)?.[1];
+    if (!wikidataId) return null;
+
+    const headers = {
+      'User-Agent': 'CineDrive/1.0.0 (https://github.com/yunusemreyazici/CineDrive)',
+      Accept: 'application/json',
+    };
+    const entityResponse = await fetch(
+      `${WIKIDATA_ENTITY_BASE}/${encodeURIComponent(wikidataId)}.json`,
+      { headers },
+    );
+    if (!entityResponse.ok) return null;
+    const entityPayload = (await entityResponse.json()) as {
+      entities?: Record<
+        string,
+        {
+          claims?: {
+            P18?: Array<{
+              mainsnak?: { datavalue?: { value?: unknown } };
+              rank?: string;
+            }>;
+          };
+        }
+      >;
+    };
+    const imageClaim = entityPayload.entities?.[wikidataId]?.claims?.P18?.filter(
+      (claim) => claim.rank !== 'deprecated',
+    )
+      .sort((left, right) => Number(right.rank === 'preferred') - Number(left.rank === 'preferred'))
+      .find((claim) => typeof claim.mainsnak?.datavalue?.value === 'string');
+    const fileName = imageClaim?.mainsnak?.datavalue?.value;
+    if (typeof fileName !== 'string') return null;
+
+    const commonsUrl = new URL(COMMONS_API);
+    commonsUrl.search = new URLSearchParams({
+      action: 'query',
+      format: 'json',
+      origin: '*',
+      prop: 'imageinfo',
+      iiprop: 'url|mime|extmetadata',
+      iiurlwidth: '1200',
+      titles: `File:${fileName}`,
+    }).toString();
+    const commonsResponse = await fetch(commonsUrl, { headers });
+    if (!commonsResponse.ok) return null;
+    const commonsPayload = (await commonsResponse.json()) as {
+      query?: {
+        pages?: Record<
+          string,
+          {
+            imageinfo?: Array<{
+              url?: string;
+              thumburl?: string;
+              descriptionurl?: string;
+              mime?: string;
+              extmetadata?: Record<string, { value?: string }>;
+            }>;
+          }
+        >;
+      };
+    };
+    const imageInfo = Object.values(commonsPayload.query?.pages || {})[0]?.imageinfo?.[0];
+    const imageUrl = imageInfo?.thumburl || imageInfo?.url;
+    if (!imageUrl) return null;
+    const imageResponse = await fetch(imageUrl, {
+      headers: { ...headers, Accept: 'image/*' },
+    });
+    if (!imageResponse.ok) return null;
+    const contentLength = Number(imageResponse.headers.get('content-length') || 0);
+    if (contentLength > MAX_ARTIST_IMAGE_BYTES) return null;
+    const data = Buffer.from(await imageResponse.arrayBuffer());
+    if (!data.length || data.length > MAX_ARTIST_IMAGE_BYTES) return null;
+    const mimeType = imageResponse.headers.get('content-type') || imageInfo.mime || 'image/jpeg';
+    if (!mimeType.startsWith('image/')) return null;
+    const cleanMetadata = (value?: string) =>
+      value
+        ?.replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;|&#160;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const metadata = imageInfo.extmetadata || {};
+    return {
+      musicbrainzId,
+      wikidataId,
+      sourceUrl:
+        imageInfo.descriptionurl ||
+        `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`,
+      previewUrl: imageUrl,
+      attribution: cleanMetadata(metadata.Artist?.value || metadata.Credit?.value),
+      license: cleanMetadata(metadata.LicenseShortName?.value),
+      artwork: { mimeType, data },
+    };
   }
 }

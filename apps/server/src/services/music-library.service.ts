@@ -208,14 +208,51 @@ export class MusicLibraryService {
       }
     }
 
+    const artistCandidates = await this.prisma.musicArtist.findMany({
+      where: {
+        id: { in: [...new Set([...artists.map((artist) => artist.id), albumArtist.id])] },
+        userId: options.userId,
+        musicbrainzId: { not: null },
+        artworkId: null,
+        artworkLocked: false,
+      },
+    });
+    for (const artist of artistCandidates) {
+      if (!artist.musicbrainzId) continue;
+      const artistArtwork = await this.musicbrainz.enrichArtistArtwork(artist.musicbrainzId);
+      if (!artistArtwork) continue;
+      const artistArtworkId = await this.storeArtwork(options.userId, artistArtwork.artwork);
+      if (!artistArtworkId) continue;
+      await this.prisma.musicArtist.updateMany({
+        where: { id: artist.id, userId: options.userId, artworkId: null, artworkLocked: false },
+        data: {
+          artworkId: artistArtworkId,
+          artworkSource: 'wikimedia-commons',
+          artworkSourceUrl: artistArtwork.sourceUrl,
+          artworkAttribution: artistArtwork.attribution,
+          artworkLicense: artistArtwork.license,
+        },
+      });
+    }
+
     return track;
   }
 
-  private upsertArtist(userId: string, name: string, musicbrainzId?: string) {
-    return this.prisma.musicArtist.upsert({
+  private async upsertArtist(userId: string, name: string, musicbrainzId?: string) {
+    const artist = await this.prisma.musicArtist.upsert({
       where: { userId_normalizedName: { userId, normalizedName: normalize(name) } },
       create: { userId, name, normalizedName: normalize(name), musicbrainzId },
       update: { name, musicbrainzId: musicbrainzId || undefined },
+    });
+    if (artist.musicbrainzId || musicbrainzId) return artist;
+    const identity = await this.musicbrainz.matchArtistIdentity(name);
+    if (!identity) return artist;
+    return this.prisma.musicArtist.update({
+      where: { id: artist.id },
+      data: {
+        musicbrainzId: identity.musicbrainzId,
+        sortName: artist.sortName || identity.sortName,
+      },
     });
   }
 
