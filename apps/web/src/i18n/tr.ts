@@ -1103,7 +1103,21 @@ export const tr = {
     apiManagement: {
       title: 'API Yönetimi',
       description:
-        'Harici metadata ve altyazı servislerinin API anahtarlarını kullanıcı hesabınız için yönetin.',
+        'Film, müzik, metadata ve altyazı servislerini kullanıcı hesabınız için yönetin.',
+      musicTitle: 'Müzik API’leri',
+      musicDescription:
+        'Sanatçı görselleri, albüm kapakları, metadata, şarkı sözleri ve akustik eşleştirme servisleri.',
+      acoustIdDescription:
+        'Ses parmak izini çevrimiçi kayıtlarla eşleştirerek yanlış veya eksik parça bilgilerini bulur.',
+      acoustIdApiKey: 'AcoustID istemci anahtarı',
+      musicServicesTitle: 'Kullanılan servisler',
+      musicBrainzDescription: 'Sanatçı, albüm ve parça kimliği ile albüm kapağı verileri.',
+      artistArtworkDescription: 'Sanatçı fotoğrafı için sıralı görsel kaynakları.',
+      lrclibDescription: 'Zamanlı ve düz şarkı sözleri; API anahtarı gerektirmez.',
+      libreTranslateDescription: 'Şarkı sözü çevirisi; sunucu ortamında yapılandırılır.',
+      ready: 'Hazır',
+      disabled: 'Devre dışı',
+      notConfigured: 'Yapılandırılmadı',
       openSubtitlesTitle: 'OpenSubtitles',
       openSubtitlesDescription: 'Çevrimiçi altyazı arama ve otomatik indirme servisi.',
       tmdbTitle: 'The Movie Database (TMDB)',
@@ -1118,6 +1132,7 @@ export const tr = {
       removeUserKey: 'Kullanıcı Anahtarını Kaldır',
       openSubtitlesSaved: 'OpenSubtitles API ayarları kaydedildi.',
       tmdbSaved: 'TMDB API anahtarı kaydedildi.',
+      acoustIdSaved: 'AcoustID istemci anahtarı kaydedildi.',
       keyRemoved: 'Kullanıcı API anahtarı kaldırıldı.',
       saveFailed: 'API ayarları kaydedilemedi.',
     },

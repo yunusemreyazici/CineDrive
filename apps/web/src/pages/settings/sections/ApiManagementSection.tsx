@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { AlertTriangle, Captions, Clapperboard, KeyRound, Trash2 } from 'lucide-react';
+import { AlertTriangle, Captions, Clapperboard, KeyRound, Music2, Trash2 } from 'lucide-react';
 import {
   type ApiKeySource,
   useApiSettingsQuery,
@@ -11,6 +11,7 @@ import {
   SettingsButton,
   SettingsCard,
   SettingsField,
+  SettingsRow,
   SettingsStatus,
   SETTINGS_INPUT_CLASSES,
 } from '../SettingsCard';
@@ -31,12 +32,24 @@ const ProviderStatus: React.FC<{ source?: ApiKeySource }> = ({ source }) =>
     </SettingsStatus>
   );
 
+const ServiceStatus: React.FC<{ ready: boolean; disabledLabel?: string }> = ({
+  ready,
+  disabledLabel,
+}) => (
+  <SettingsStatus tone={ready ? 'ok' : 'warning'} icon={ready ? undefined : AlertTriangle}>
+    {ready
+      ? t.settings.apiManagement.ready
+      : disabledLabel || t.settings.apiManagement.notConfigured}
+  </SettingsStatus>
+);
+
 export const ApiManagementSection: React.FC = () => {
   const fieldId = useId();
   const { data: settings, isLoading } = useApiSettingsQuery();
   const updateSettings = useUpdateApiSettingsMutation();
   const [openSubtitlesKey, setOpenSubtitlesKey] = useState('');
   const [tmdbKey, setTmdbKey] = useState('');
+  const [acoustIdKey, setAcoustIdKey] = useState('');
   const [username, setUsername] = useSyncedState(settings?.openSubtitles.username || '');
   const [preferredLanguages, setPreferredLanguages] = useSyncedState(
     settings?.openSubtitles.preferredLanguages || 'tr,en',
@@ -75,9 +88,28 @@ export const ApiManagementSection: React.FC = () => {
     );
   };
 
-  const clearKey = (provider: 'openSubtitles' | 'tmdb') => {
+  const saveAcoustId = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!acoustIdKey.trim()) return;
     updateSettings.mutate(
-      provider === 'openSubtitles' ? { clearOpenSubtitlesApiKey: true } : { clearTmdbApiKey: true },
+      { acoustidApiKey: acoustIdKey.trim() },
+      {
+        onSuccess: () => {
+          setAcoustIdKey('');
+          toast.success(t.settings.apiManagement.acoustIdSaved);
+        },
+        onError: (error) => toast.fromError(error, t.settings.apiManagement.saveFailed),
+      },
+    );
+  };
+
+  const clearKey = (provider: 'openSubtitles' | 'tmdb' | 'acoustId') => {
+    updateSettings.mutate(
+      provider === 'openSubtitles'
+        ? { clearOpenSubtitlesApiKey: true }
+        : provider === 'tmdb'
+          ? { clearTmdbApiKey: true }
+          : { clearAcoustidApiKey: true },
       {
         onSuccess: () => toast.success(t.settings.apiManagement.keyRemoved),
         onError: (error) => toast.fromError(error, t.settings.apiManagement.saveFailed),
@@ -104,6 +136,97 @@ export const ApiManagementSection: React.FC = () => {
           </p>
         </div>
       </section>
+
+      <SettingsCard
+        id="settings-api-music"
+        title={t.settings.apiManagement.musicTitle}
+        description={t.settings.apiManagement.musicDescription}
+        icon={Music2}
+        width="full"
+      >
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+          <form
+            onSubmit={saveAcoustId}
+            className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 p-4"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h4 className="text-[13px] font-semibold text-zinc-100">AcoustID</h4>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                  {t.settings.apiManagement.acoustIdDescription}
+                </p>
+              </div>
+              <ProviderStatus source={settings?.music.acoustId.source} />
+            </div>
+            <SettingsField
+              id={`${fieldId}-acoustid-key`}
+              label={t.settings.apiManagement.acoustIdApiKey}
+              hint={t.settings.apiManagement.writeOnlyHint}
+            >
+              <input
+                id={`${fieldId}-acoustid-key`}
+                type="password"
+                autoComplete="off"
+                value={acoustIdKey}
+                onChange={(event) => setAcoustIdKey(event.target.value)}
+                placeholder={t.settings.apiManagement.keepExistingPlaceholder}
+                className={`${SETTINGS_INPUT_CLASSES} font-mono`}
+              />
+            </SettingsField>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <SettingsButton
+                type="submit"
+                disabled={!acoustIdKey.trim()}
+                isLoading={updateSettings.isPending}
+              >
+                {t.settings.apiManagement.saveProvider}
+              </SettingsButton>
+              <SettingsButton
+                type="button"
+                variant="danger"
+                icon={Trash2}
+                disabled={settings?.music.acoustId.source !== 'user'}
+                onClick={() => clearKey('acoustId')}
+              >
+                {t.settings.apiManagement.removeUserKey}
+              </SettingsButton>
+            </div>
+          </form>
+
+          <div>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-600">
+              {t.settings.apiManagement.musicServicesTitle}
+            </p>
+            <SettingsRow
+              title="MusicBrainz + Cover Art Archive"
+              description={t.settings.apiManagement.musicBrainzDescription}
+            >
+              <ServiceStatus
+                ready={Boolean(settings?.music.onlineMetadataEnabled)}
+                disabledLabel={t.settings.apiManagement.disabled}
+              />
+            </SettingsRow>
+            <SettingsRow
+              title="Wikimedia Commons + Deezer"
+              description={t.settings.apiManagement.artistArtworkDescription}
+            >
+              <ServiceStatus
+                ready={Boolean(settings?.music.onlineMetadataEnabled)}
+                disabledLabel={t.settings.apiManagement.disabled}
+              />
+            </SettingsRow>
+            <SettingsRow title="LRCLIB" description={t.settings.apiManagement.lrclibDescription}>
+              <ServiceStatus ready />
+            </SettingsRow>
+            <SettingsRow
+              title="LibreTranslate"
+              description={t.settings.apiManagement.libreTranslateDescription}
+            >
+              <ServiceStatus ready={Boolean(settings?.music.libreTranslateConfigured)} />
+            </SettingsRow>
+          </div>
+        </div>
+      </SettingsCard>
 
       <SettingsCard
         id="settings-api-opensubtitles"

@@ -49,11 +49,26 @@ export class MusicFingerprintService {
 
   constructor(private readonly prisma: PrismaClient) {}
 
-  public async capability() {
-    const available = await new Promise<boolean>((resolve) => {
+  private binaryAvailable() {
+    return new Promise<boolean>((resolve) => {
       execFile(this.binary, ['-version'], { timeout: 5000 }, (error) => resolve(!error));
     });
-    return { available, acoustidConfigured: Boolean(env.ACOUSTID_API_KEY) };
+  }
+
+  private async resolveAcoustIdApiKey(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { acoustidApiKey: true },
+    });
+    return user?.acoustidApiKey || env.ACOUSTID_API_KEY;
+  }
+
+  public async capability(userId: string) {
+    const [available, apiKey] = await Promise.all([
+      this.binaryAvailable(),
+      this.resolveAcoustIdApiKey(userId),
+    ]);
+    return { available, acoustidConfigured: Boolean(apiKey) };
   }
 
   public async scan(
@@ -65,9 +80,18 @@ export class MusicFingerprintService {
       library: { googleConnectionId: string | null } | null;
     }) => string | null,
   ) {
-    const capability = await this.capability();
+    const [available, acoustIdApiKey] = await Promise.all([
+      this.binaryAvailable(),
+      this.resolveAcoustIdApiKey(userId),
+    ]);
+    const capability = { available, acoustidConfigured: Boolean(acoustIdApiKey) };
     if (!capability.available)
-      return { ...capability, analyzed: [], identified: [], skipped: input.trackIds.map((trackId) => ({ trackId, reason: 'FPCALC_UNAVAILABLE' })) };
+      return {
+        ...capability,
+        analyzed: [],
+        identified: [],
+        skipped: input.trackIds.map((trackId) => ({ trackId, reason: 'FPCALC_UNAVAILABLE' })),
+      };
 
     const tracks = await this.prisma.musicTrack.findMany({
       where: {
@@ -104,7 +128,7 @@ export class MusicFingerprintService {
         const result = await runFpcalc(this.binary, sourcePath);
         const hash = createHash('sha256').update(result.fingerprint).digest('hex');
         const match = capability.acoustidConfigured
-          ? await this.lookup(result.fingerprint, result.duration)
+          ? await this.lookup(result.fingerprint, result.duration, acoustIdApiKey)
           : null;
         await this.prisma.musicFingerprint.upsert({
           where: { trackId: track.id },
@@ -143,9 +167,10 @@ export class MusicFingerprintService {
           await this.createMetadataSuggestion(userId, track, match);
         }
       } catch (error) {
-        const errorCode = error instanceof Error && error.message === 'INVALID_FINGERPRINT_OUTPUT'
-          ? error.message
-          : 'FINGERPRINT_FAILED';
+        const errorCode =
+          error instanceof Error && error.message === 'INVALID_FINGERPRINT_OUTPUT'
+            ? error.message
+            : 'FINGERPRINT_FAILED';
         await this.prisma.musicFingerprint.upsert({
           where: { trackId: track.id },
           create: { trackId: track.id, status: 'failed', errorCode, analyzedAt: new Date() },
@@ -157,13 +182,17 @@ export class MusicFingerprintService {
     return { ...capability, analyzed, identified, skipped };
   }
 
-  private async lookup(fingerprint: string, duration: number): Promise<AcoustIdMatch | null> {
-    if (!env.ACOUSTID_API_KEY) return null;
+  private async lookup(
+    fingerprint: string,
+    duration: number,
+    apiKey?: string,
+  ): Promise<AcoustIdMatch | null> {
+    if (!apiKey) return null;
     const elapsed = Date.now() - this.lastLookupAt;
     if (elapsed < 350) await wait(350 - elapsed);
     this.lastLookupAt = Date.now();
     const body = new URLSearchParams({
-      client: env.ACOUSTID_API_KEY,
+      client: apiKey,
       duration: String(Math.round(duration)),
       fingerprint,
       meta: 'recordings+recordingids+compress',
@@ -171,7 +200,10 @@ export class MusicFingerprintService {
     });
     const response = await fetch('https://api.acoustid.org/v2/lookup', {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'CineDrive/1.0 (music fingerprint identification)' },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'user-agent': 'CineDrive/1.0 (music fingerprint identification)',
+      },
       body,
       signal: AbortSignal.timeout(15_000),
     });
@@ -191,22 +223,41 @@ export class MusicFingerprintService {
       id: result.id,
       score: result.score,
       title: recording?.title,
-      artist: recording?.artists?.map((artist) => artist.name).filter(Boolean).join(', '),
+      artist: recording?.artists
+        ?.map((artist) => artist.name)
+        .filter(Boolean)
+        .join(', '),
       musicbrainzRecordingId: recording?.id,
     };
   }
 
   private async createMetadataSuggestion(
     userId: string,
-    track: { id: string; title: string; musicbrainzRecordingId: string | null; primaryArtistId: string | null; primaryArtist: { name: string } | null },
+    track: {
+      id: string;
+      title: string;
+      musicbrainzRecordingId: string | null;
+      primaryArtistId: string | null;
+      primaryArtist: { name: string } | null;
+    },
     match: AcoustIdMatch,
   ) {
     const titleChanged = Boolean(match.title && normalize(match.title) !== normalize(track.title));
-    const artistChanged = Boolean(match.artist && normalize(match.artist) !== normalize(track.primaryArtist?.name || ''));
-    const recordingChanged = Boolean(match.musicbrainzRecordingId && match.musicbrainzRecordingId !== track.musicbrainzRecordingId);
+    const artistChanged = Boolean(
+      match.artist && normalize(match.artist) !== normalize(track.primaryArtist?.name || ''),
+    );
+    const recordingChanged = Boolean(
+      match.musicbrainzRecordingId && match.musicbrainzRecordingId !== track.musicbrainzRecordingId,
+    );
     if (!titleChanged && !artistChanged && !recordingChanged) return;
     const existing = await this.prisma.musicMaintenanceSuggestion.findFirst({
-      where: { userId, targetType: 'track', targetId: track.id, kind: 'acoustic-metadata', status: 'pending' },
+      where: {
+        userId,
+        targetType: 'track',
+        targetId: track.id,
+        kind: 'acoustic-metadata',
+        status: 'pending',
+      },
     });
     if (existing) return;
     await this.prisma.musicMaintenanceSuggestion.create({

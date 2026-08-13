@@ -24,7 +24,12 @@ describe('API settings', () => {
   afterAll(async () => {
     await app.prisma.user.update({
       where: { id: userId },
-      data: { opensubtitlesApiKey: null, opensubtitlesUsername: null, tmdbApiKey: null },
+      data: {
+        opensubtitlesApiKey: null,
+        opensubtitlesUsername: null,
+        tmdbApiKey: null,
+        acoustidApiKey: null,
+      },
     });
     await app.close();
   });
@@ -39,19 +44,23 @@ describe('API settings', () => {
         openSubtitlesUsername: 'subtitle-user',
         preferredLanguages: 'tr,en',
         tmdbApiKey: 'tmdb-secret-value',
+        acoustidApiKey: 'acoustid-secret-value',
       },
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.body).not.toContain('open-secret-value');
     expect(response.body).not.toContain('tmdb-secret-value');
+    expect(response.body).not.toContain('acoustid-secret-value');
     expect(JSON.parse(response.body)).toMatchObject({
       openSubtitles: { source: 'user', hasApiKey: true, username: 'subtitle-user' },
       tmdb: { source: 'user', hasApiKey: true },
+      music: { acoustId: { source: 'user', hasApiKey: true } },
     });
     expect(await app.prisma.user.findUnique({ where: { id: userId } })).toMatchObject({
       opensubtitlesApiKey: 'open-secret-value',
       tmdbApiKey: 'tmdb-secret-value',
+      acoustidApiKey: 'acoustid-secret-value',
     });
 
     const read = await app.inject({
@@ -61,6 +70,7 @@ describe('API settings', () => {
     });
     expect(read.body).not.toContain('open-secret-value');
     expect(read.body).not.toContain('tmdb-secret-value');
+    expect(read.body).not.toContain('acoustid-secret-value');
   });
 
   it('explicitly clears user keys while preserving environment fallback status', async () => {
@@ -68,7 +78,11 @@ describe('API settings', () => {
       method: 'PUT',
       url: '/api/settings/api-keys',
       cookies: { session_id: cookie },
-      payload: { clearOpenSubtitlesApiKey: true, clearTmdbApiKey: true },
+      payload: {
+        clearOpenSubtitlesApiKey: true,
+        clearTmdbApiKey: true,
+        clearAcoustidApiKey: true,
+      },
     });
 
     expect(response.statusCode).toBe(200);
@@ -76,6 +90,7 @@ describe('API settings', () => {
     expect(await app.prisma.user.findUnique({ where: { id: userId } })).toMatchObject({
       opensubtitlesApiKey: null,
       tmdbApiKey: null,
+      acoustidApiKey: null,
     });
   });
 });

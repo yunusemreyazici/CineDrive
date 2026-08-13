@@ -371,7 +371,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         take: 50,
       }),
       fastify.prisma.musicFingerprint.findMany({ where: { track: ownedTrackWhere(userId) } }),
-      fingerprintService.capability(),
+      fingerprintService.capability(userId),
     ]);
     const seenSuggestions = new Set<string>();
     const suggestions = rawSuggestions.filter((suggestion) => {

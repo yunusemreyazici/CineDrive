@@ -16,6 +16,7 @@ model User {
   opensubtitlesApiKey         String?
   opensubtitlesUsername       String?
   tmdbApiKey                  String?
+  acoustidApiKey              String?
   // opensubtitlesPassword was stored in plain text and never read: the
   // OpenSubtitles client authenticates with the API key alone. Removed rather
   // than encrypted — an unused credential is best not held at all.

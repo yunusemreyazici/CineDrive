@@ -749,6 +749,14 @@ export interface ApiSettingsDto {
     hasApiKey: boolean;
     source: ApiKeySource;
   };
+  music: {
+    acoustId: {
+      hasApiKey: boolean;
+      source: ApiKeySource;
+    };
+    onlineMetadataEnabled: boolean;
+    libreTranslateConfigured: boolean;
+  };
 }
 
 export interface UpdateApiSettingsInput {
@@ -756,8 +764,10 @@ export interface UpdateApiSettingsInput {
   openSubtitlesUsername?: string;
   preferredLanguages?: string;
   tmdbApiKey?: string;
+  acoustidApiKey?: string;
   clearOpenSubtitlesApiKey?: boolean;
   clearTmdbApiKey?: boolean;
+  clearAcoustidApiKey?: boolean;
 }
 
 export function useApiSettingsQuery() {

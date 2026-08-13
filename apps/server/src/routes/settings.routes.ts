@@ -6,8 +6,10 @@ const apiSettingsSchema = z.object({
   openSubtitlesUsername: z.string().trim().max(200).optional(),
   preferredLanguages: z.string().trim().max(100).optional(),
   tmdbApiKey: z.string().trim().max(500).optional(),
+  acoustidApiKey: z.string().trim().max(500).optional(),
   clearOpenSubtitlesApiKey: z.boolean().optional(),
   clearTmdbApiKey: z.boolean().optional(),
+  clearAcoustidApiKey: z.boolean().optional(),
 });
 
 const apiKeySource = (userValue?: string | null, environmentValue?: string) =>
@@ -21,6 +23,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     opensubtitlesUsername: string | null;
     preferredLanguages: string;
     tmdbApiKey: string | null;
+    acoustidApiKey: string | null;
   }) => ({
     openSubtitles: {
       username: user.opensubtitlesUsername || '',
@@ -31,6 +34,14 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     tmdb: {
       hasApiKey: !!(user.tmdbApiKey || process.env.TMDB_API_KEY),
       source: apiKeySource(user.tmdbApiKey, process.env.TMDB_API_KEY),
+    },
+    music: {
+      acoustId: {
+        hasApiKey: !!(user.acoustidApiKey || process.env.ACOUSTID_API_KEY),
+        source: apiKeySource(user.acoustidApiKey, process.env.ACOUSTID_API_KEY),
+      },
+      onlineMetadataEnabled: process.env.MUSIC_METADATA_ONLINE !== 'false',
+      libreTranslateConfigured: Boolean(process.env.LIBRETRANSLATE_URL),
     },
   });
 
@@ -44,6 +55,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         opensubtitlesUsername: true,
         preferredLanguages: true,
         tmdbApiKey: true,
+        acoustidApiKey: true,
       },
     });
     return reply.status(200).send(serializeApiSettings(user));
@@ -65,6 +77,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     const input = parsed.data;
     const openSubtitlesApiKey = input.openSubtitlesApiKey?.trim();
     const tmdbApiKey = input.tmdbApiKey?.trim();
+    const acoustidApiKey = input.acoustidApiKey?.trim();
     const updated = await fastify.prisma.user.update({
       where: { id: request.user!.id },
       data: {
@@ -74,6 +87,11 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
             ? { opensubtitlesApiKey: openSubtitlesApiKey }
             : {}),
         ...(input.clearTmdbApiKey ? { tmdbApiKey: null } : tmdbApiKey ? { tmdbApiKey } : {}),
+        ...(input.clearAcoustidApiKey
+          ? { acoustidApiKey: null }
+          : acoustidApiKey
+            ? { acoustidApiKey }
+            : {}),
         ...(input.openSubtitlesUsername !== undefined
           ? { opensubtitlesUsername: input.openSubtitlesUsername.trim() || null }
           : {}),
@@ -86,6 +104,7 @@ export const settingsRoutes: FastifyPluginAsync = async (fastify) => {
         opensubtitlesUsername: true,
         preferredLanguages: true,
         tmdbApiKey: true,
+        acoustidApiKey: true,
       },
     });
 

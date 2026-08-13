@@ -1099,7 +1099,21 @@ export const en: Translations = {
 
     apiManagement: {
       title: 'API management',
-      description: 'Manage external metadata and subtitle service API keys for your user account.',
+      description: 'Manage movie, music, metadata and subtitle services for your user account.',
+      musicTitle: 'Music APIs',
+      musicDescription:
+        'Artist artwork, album cover, metadata, lyrics and acoustic matching services.',
+      acoustIdDescription:
+        'Matches audio fingerprints with online recordings to find incorrect or missing track metadata.',
+      acoustIdApiKey: 'AcoustID client key',
+      musicServicesTitle: 'Services in use',
+      musicBrainzDescription: 'Artist, album and recording identities plus album cover data.',
+      artistArtworkDescription: 'Ordered image sources used for artist portraits.',
+      lrclibDescription: 'Synced and plain lyrics; no API key required.',
+      libreTranslateDescription: 'Lyrics translation; configured in the server environment.',
+      ready: 'Ready',
+      disabled: 'Disabled',
+      notConfigured: 'Not configured',
       openSubtitlesTitle: 'OpenSubtitles',
       openSubtitlesDescription: 'Online subtitle search and automatic download service.',
       tmdbTitle: 'The Movie Database (TMDB)',
@@ -1114,6 +1128,7 @@ export const en: Translations = {
       removeUserKey: 'Remove user key',
       openSubtitlesSaved: 'OpenSubtitles API settings saved.',
       tmdbSaved: 'TMDB API key saved.',
+      acoustIdSaved: 'AcoustID client key saved.',
       keyRemoved: 'The user API key was removed.',
       saveFailed: 'The API settings could not be saved.',
     },
