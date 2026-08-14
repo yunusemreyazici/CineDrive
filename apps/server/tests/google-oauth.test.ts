@@ -153,6 +153,62 @@ describe('GoogleOAuthService Unit Tests', () => {
     expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledTimes(1);
   });
 
+  it('should refresh and retry a Drive operation after an access token 401', async () => {
+    const userId = 'user-uuid-123';
+    const cryptoService = (
+      googleService as unknown as { cryptoService: { encrypt: (s: string) => string } }
+    ).cryptoService;
+    const tokenCache = (
+      googleService as unknown as {
+        tokenCache: Map<string, { accessToken: string; expiresAt: number }>;
+      }
+    ).tokenCache;
+    tokenCache.set('conn-1', {
+      accessToken: 'expired-during-scan',
+      expiresAt: Date.now() + 3600 * 1000,
+    });
+    tokenCache.set(userId, {
+      accessToken: 'expired-during-scan',
+      expiresAt: Date.now() + 3600 * 1000,
+    });
+    mockPrisma.googleConnection.findFirst.mockResolvedValue({
+      id: 'conn-1',
+      userId,
+      encryptedRefreshToken: cryptoService.encrypt('mock-refresh-token'),
+    });
+    const operation = vi
+      .fn<(token: string) => Promise<string>>()
+      .mockRejectedValueOnce(Object.assign(new Error('Invalid Credentials'), { code: 401 }))
+      .mockResolvedValueOnce('file-bytes');
+
+    await expect(googleService.withValidAccessToken(userId, 'conn-1', operation)).resolves.toBe(
+      'file-bytes',
+    );
+    expect(operation).toHaveBeenNthCalledWith(1, 'expired-during-scan');
+    expect(operation).toHaveBeenNthCalledWith(2, 'new-refreshed-access-token');
+    expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not refresh or retry a non-authentication Drive failure', async () => {
+    const tokenCache = (
+      googleService as unknown as {
+        tokenCache: Map<string, { accessToken: string; expiresAt: number }>;
+      }
+    ).tokenCache;
+    tokenCache.set('conn-1', {
+      accessToken: 'still-valid-token',
+      expiresAt: Date.now() + 3600 * 1000,
+    });
+    const operation = vi
+      .fn<(token: string) => Promise<string>>()
+      .mockRejectedValue(Object.assign(new Error('Not found'), { code: 404 }));
+
+    await expect(
+      googleService.withValidAccessToken('user-uuid-123', 'conn-1', operation),
+    ).rejects.toThrow('Not found');
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
   it('should unlink Google account and revoke token', async () => {
     const userId = 'user-uuid-123';
     const cryptoService = (

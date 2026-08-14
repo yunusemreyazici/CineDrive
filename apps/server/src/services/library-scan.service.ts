@@ -235,12 +235,8 @@ export class LibraryScanService {
         signal.throwIfAborted();
         await this.scanLifecycle.heartbeat(scanId);
         const targetStartedAt = Date.now();
-        let accessToken: string;
         try {
-          accessToken = await this.googleOAuthService.getValidAccessToken(
-            userId,
-            target.connection.id,
-          );
+          await this.googleOAuthService.getValidAccessToken(userId, target.connection.id);
         } catch (tokenError) {
           if (signal.aborted) throw tokenError;
           errorCount++;
@@ -270,7 +266,6 @@ export class LibraryScanService {
 
         const result = await this.scanAccountFiles(
           userId,
-          accessToken,
           target.connection.id,
           target.sourceId,
           libraryId,
@@ -372,7 +367,6 @@ export class LibraryScanService {
 
   private async scanAccountFiles(
     userId: string,
-    accessToken: string,
     googleConnectionId: string,
     driveScanSourceId: string | null,
     libraryId: string,
@@ -397,13 +391,23 @@ export class LibraryScanService {
     try {
       if (rootFolderId.trim()) {
         allFiles.push(
-          ...(await this.listFolderTree(accessToken, rootFolderId.trim(), scanId, signal)),
+          ...(await this.listFolderTree(
+            userId,
+            googleConnectionId,
+            rootFolderId.trim(),
+            scanId,
+            signal,
+          )),
         );
       } else {
         let pageToken: string | undefined;
         do {
           signal.throwIfAborted();
-          const page = await this.driveService.listAccountFiles(accessToken, pageToken, signal);
+          const page = await this.googleOAuthService.withValidAccessToken(
+            userId,
+            googleConnectionId,
+            (accessToken) => this.driveService.listAccountFiles(accessToken, pageToken, signal),
+          );
           allFiles.push(...page.files);
           pageToken = page.nextPageToken;
           await this.scanLifecycle.heartbeat(scanId);
@@ -736,7 +740,12 @@ export class LibraryScanService {
           name: audio.name,
           size: BigInt(audio.size),
           readRange: (start, end) =>
-            this.driveService.getMediaRangeBuffer(accessToken, audio.id, start, end, signal),
+            this.googleOAuthService.withValidAccessToken(
+              userId,
+              googleConnectionId,
+              (accessToken) =>
+                this.driveService.getMediaRangeBuffer(accessToken, audio.id, start, end, signal),
+            ),
         });
         await this.prisma.driveFile.update({
           where: { id: driveFile.record.id },
@@ -778,10 +787,11 @@ export class LibraryScanService {
             await this.musicLibraryService.lyrics.syncTrackLyrics({
               trackId: track.id,
               sourceName: matchingLyrics.name,
-              content: await this.driveService.getFileTextContent(
-                accessToken,
-                matchingLyrics.id,
-                signal,
+              content: await this.googleOAuthService.withValidAccessToken(
+                userId,
+                googleConnectionId,
+                (accessToken) =>
+                  this.driveService.getFileTextContent(accessToken, matchingLyrics.id, signal),
               ),
             });
           } else {
@@ -835,7 +845,18 @@ export class LibraryScanService {
           name: probe.name,
           size: BigInt(probe.size),
           readRange: (start, end) =>
-            this.driveService.getMediaRangeBuffer(accessToken, probe.fileId, start, end, signal),
+            this.googleOAuthService.withValidAccessToken(
+              userId,
+              googleConnectionId,
+              (accessToken) =>
+                this.driveService.getMediaRangeBuffer(
+                  accessToken,
+                  probe.fileId,
+                  start,
+                  end,
+                  signal,
+                ),
+            ),
         });
         await this.prisma.driveFile.update({
           where: { id: probe.driveFileId },
@@ -862,7 +883,8 @@ export class LibraryScanService {
   }
 
   private async listFolderTree(
-    accessToken: string,
+    userId: string,
+    googleConnectionId: string,
     rootFolderId: string,
     scanId: string,
     signal: AbortSignal,
@@ -879,11 +901,11 @@ export class LibraryScanService {
 
       let pageToken: string | undefined;
       do {
-        const page = await this.driveService.listFolderContents(
-          accessToken,
-          folderId,
-          pageToken,
-          signal,
+        const page = await this.googleOAuthService.withValidAccessToken(
+          userId,
+          googleConnectionId,
+          (accessToken) =>
+            this.driveService.listFolderContents(accessToken, folderId, pageToken, signal),
         );
 
         for (const file of page.files) {

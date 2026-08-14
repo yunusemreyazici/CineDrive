@@ -198,6 +198,70 @@ export class GoogleOAuthService {
     return refreshPromise;
   }
 
+  /**
+   * Runs a Drive operation with the current access token. A token can expire
+   * during long-running scans even though it was valid when the scan started,
+   * so retry one authentication failure after forcing a refresh.
+   */
+  public async withValidAccessToken<T>(
+    userId: string,
+    connectionId: string,
+    operation: (accessToken: string) => Promise<T>,
+  ): Promise<T> {
+    const accessToken = await this.getValidAccessToken(userId, connectionId);
+    try {
+      return await operation(accessToken);
+    } catch (error) {
+      if (!this.isAccessTokenAuthenticationError(error)) throw error;
+
+      this.invalidateCachedAccessToken(userId, connectionId, accessToken);
+      const refreshedAccessToken = await this.getValidAccessToken(userId, connectionId);
+      return operation(refreshedAccessToken);
+    }
+  }
+
+  private invalidateCachedAccessToken(
+    userId: string,
+    connectionId: string,
+    rejectedAccessToken: string,
+  ): void {
+    const connectionToken = this.tokenCache.get(connectionId);
+    if (connectionToken?.accessToken === rejectedAccessToken) {
+      this.tokenCache.delete(connectionId);
+    }
+
+    const userToken = this.tokenCache.get(userId);
+    if (userToken?.accessToken === rejectedAccessToken) {
+      this.tokenCache.delete(userId);
+    }
+  }
+
+  private isAccessTokenAuthenticationError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+
+    const candidate = error as {
+      code?: unknown;
+      status?: unknown;
+      message?: unknown;
+      response?: {
+        status?: unknown;
+        data?: { error?: { code?: unknown; status?: unknown } };
+      };
+    };
+    if (
+      candidate.code === 401 ||
+      candidate.status === 401 ||
+      candidate.response?.status === 401 ||
+      candidate.response?.data?.error?.code === 401 ||
+      candidate.response?.data?.error?.status === 'UNAUTHENTICATED'
+    ) {
+      return true;
+    }
+
+    const message = typeof candidate.message === 'string' ? candidate.message : '';
+    return /\b401\b|UNAUTHENTICATED|Invalid Credentials/i.test(message);
+  }
+
   private async performTokenRefresh(userId: string, connectionId?: string): Promise<string> {
     let connection = connectionId
       ? await this.prisma.googleConnection.findFirst({ where: { id: connectionId, userId } })
