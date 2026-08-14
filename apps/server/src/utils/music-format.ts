@@ -27,7 +27,13 @@ export const resolveMusicContentType = (
 
 export const musicTrackInclude = (userId: string) =>
   ({
-    album: { include: { artist: true, artwork: { select: { id: true } } } },
+    album: {
+      include: {
+        artist: true,
+        artwork: { select: { id: true } },
+        _count: { select: { tracks: true } },
+      },
+    },
     primaryArtist: { include: { artwork: { select: { id: true } } } },
     artwork: { select: { id: true } },
     artists: {
@@ -60,7 +66,13 @@ export const musicTrackInclude = (userId: string) =>
 
 export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
   include: {
-    album: { include: { artist: true; artwork: { select: { id: true } } } };
+    album: {
+      include: {
+        artist: true;
+        artwork: { select: { id: true } };
+        _count: { select: { tracks: true } };
+      };
+    };
     primaryArtist: { include: { artwork: { select: { id: true } } } };
     artwork: { select: { id: true } };
     artists: { include: { artist: { include: { artwork: { select: { id: true } } } } } };
@@ -149,6 +161,7 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
           artworkUrl: track.album.artwork?.id
             ? `/api/music/artwork/${track.album.artwork.id}`
             : null,
+          trackCount: track.album._count.tracks,
         }
       : null,
     primaryArtist: track.primaryArtist ? formatMusicArtist(track.primaryArtist) : null,

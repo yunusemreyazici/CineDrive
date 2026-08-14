@@ -2,135 +2,157 @@
 
 Türkçe · **[English](README.md)**
 
-Google Drive klasörlerinizde — ya da yerel diskinizde — duran film ve dizileri gezilebilir, izlenebilir bir kütüphaneye dönüştüren, kendi sunucunuzda çalışan bir medya sunucusu.
+CineDrive; Google Drive'da veya yerel klasörlerde bulunan film, dizi ve müzikler için kendi sunucunuzda çalışan bir medya sunucusudur. Dosyalarınızı tarar, zengin metadata içeren bir kütüphane oluşturur ve içerikleri duyarlı bir web arayüzü üzerinden yayınlar.
 
-CineDrive depolamanızı tarar, her dosyayı TMDB ile eşleştirip kapak görselini ve bilgilerini çeker, sonra tarayıcıya yayınlar. Tarayıcının doğrudan oynatamadığı dosyalar anlık olarak dönüştürülür; geri kalan her şey bayt aralığı istekleriyle olduğu gibi sunulur.
+Tarayıcının desteklediği videolar HTTP bayt aralığı istekleriyle değiştirilmeden sunulur. Kapsayıcı veya codec desteklenmiyorsa CineDrive, FFmpeg ile isteğe bağlı HLS akışı üretir. Müzikler gömülü etiketlerinden indekslenir; albüm, sanatçı, mix, çalma listesi, şarkı sözü, dinleme geçmişi ve eşzamanlanan kuyruk özellikleriyle sunulur.
 
-## Ekran Görüntüleri
+## Ekran görüntüleri
 
-| Ana Sayfa                                         | Medya Detayı                                           |
-| ------------------------------------------------- | ------------------------------------------------------ |
-| ![Ana Sayfa](docs/screenshots/home_dashboard.png) | ![Medya Detay](docs/screenshots/media_detail_page.png) |
+| Ana sayfa                                                     | Medya detayı                                                      |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- |
+| ![CineDrive ana sayfası](docs/screenshots/home_dashboard.png) | ![CineDrive medya detayı](docs/screenshots/media_detail_page.png) |
 
-> Ekran görüntüleri son arayüz çalışmalarından önceye ait, yenilenmeleri gerekiyor.
+> Bu görüntüler film ve dizi arayüzünü gösteriyor. Daha yeni müzik ve bakım ekranlarının görüntüleri henüz eklenmedi.
 
-## Özellikler
+## Öne çıkanlar
 
-### Kütüphane
+### Film ve diziler
 
-- **Google Drive** — klasörlerinize ve erişebildiğiniz Ortak Sürücülere salt okunur OAuth 2.0 erişimi. CineDrive Drive'a hiçbir zaman yazmaz.
-- **Yerel klasörler** — bir kütüphaneyi sunucudaki bir yola bağlayıp Drive'a hiç dokunmadan tarayın.
-- **Çoklu hesap** — birden fazla Google hesabı bağlayabilirsiniz. Her kütüphane bir kullanıcıya aittir; bir hesabın medyası, favorileri ve geçmişi diğerine görünmez.
-- **Metadata** — başlık, özet, tür, oyuncu kadrosu ve görseller TMDB'den; TMDB anahtarı yoksa TVMaze'e düşülür.
-- **Müzik kütüphanesi** — Drive ve yerel klasörlerdeki etiketli sesleri sanatçı, albüm ve parça olarak indeksler; beğeniler, geçmiş, çalma listeleri ve hesapta eşzamanlanan kuyruk sunar.
-- **Arama** — `⌘K` / `Ctrl+K` ile açılan, klavyeyle gezilebilen anlık arama.
-- **Filtreleme** — puana, döneme ve türe göre sıralama ve süzme; sonuçlar sunucu tarafında sayfalanır.
+- **Google Drive ve yerel klasörler** — normal klasörleri, Ortak Sürücüleri veya sunucudaki yerel yolları tarayın. Drive erişimi salt okunur OAuth kapsamını kullanır.
+- **Birden fazla Drive kaynağı** — birden fazla Google hesabı bağlayın; kaynak klasörlerini, tarama durumunu ve geçmişini ayrı ayrı yönetin.
+- **Otomatik metadata** — TMDB'den görseller, özet, tür, oyuncu kadrosu, puan, yaş sınırlaması ve fragman; TMDB ayarlı değilse TVMaze yedeği.
+- **Kütüphane gezintisi** — `⌘K` / `Ctrl+K` ile arama, sunucu tarafında sayfalama, tür/puan/yıl filtreleri ve rastgele içerik seçici.
+- **Kişisel durum** — favoriler, izleme geçmişi, kaldığın yerden devam, tamamlandı takibi ve sonraki bölüme otomatik geçiş.
+- **Altyazı** — OpenSubtitles üzerinden arama, `.srt` veya `.vtt` yükleme, zaman kaydırma ve oynatıcı içinde görünüm ayarları.
 
-### Oynatma
+### Müzik
 
-- **Doğrudan akış** — HTTP Range (206) yanıtlarıyla, dosyayı indirmeden ileri sarabilirsiniz.
-- **Uyumluluk dönüşümü** — tarayıcı kaynağı oynatamıyorsa FFmpeg anlık olarak HLS akışı üretir. Eşzamanlı kodlayıcı sayısı ve diskteki önbellek sınırlıdır.
-- **Tarayıcıya göre oynatma planı** — aynı dosya Chromium'da doğrudan oynarken Safari'de HLS gerektirebilir; karar, dosyadan okunan codec bilgisine göre tarayıcı başına verilir.
-- **Altyazı** — OpenSubtitles araması ve tek tıkla indirme, `.srt` / `.vtt` yükleme, zaman kaydırma ve stil ayarları.
-- **Kaldığın yerden devam** — oynatma konumu, izleme geçmişi ve bölüm sonunda otomatik geçiş.
+- **Etiket tabanlı kütüphane** — Drive veya yerel ses dosyalarından sanatçı, albüm, disk, parça, tür, yayın yılı, katkıda bulunanlar ve gömülü görselleri indeksler.
+- **Keşif** — günlük ve kütüphaneye özel mix'ler, sanatçı/parça radyosu, ruh hâli ve dönem koleksiyonları, kesintisiz oynatma ve kaydedilebilir çalma listeleri.
+- **Replay** — dönem ve yıla göre dinleme istatistikleri, en çok dinlenen sanatçı/albüm/parçalar ve geçmiş dinleme özetleri.
+- **Kişisel oynatma** — beğeniler, geçmiş, düzenlenebilir çalma listeleri, karıştırma/tekrarlama ve hesapta eşzamanlanan kuyruk ile oynatma konumu.
+- **Şarkı sözleri** — yan dosya `.lrc` içe aktarma, LRCLIB araması, senkronize veya düz sözler, zaman hizalama, revizyonlar, elle çeviri ve isteğe bağlı LibreTranslate entegrasyonu.
+- **Ses ayarları** — ReplayGain ses yüksekliği normalizasyonu, boşluksuz oynatma, crossfade ve hazır ayarlı beş bant ekolayzır.
+- **Kütüphane bakımı** — metadata önerileri, toplu düzenleme, mükerrerleri arşivleme, ReplayGain analizi, Chromaprint/AcoustID eşleştirmesi ve otomatik sanatçı görseli bulma.
+- **İstemci eşzamanlama API'si** — mobil/çevrimdışı istemciler için ETag destekli kütüphane eşzamanlama, toplu dinleme geçmişi, indirme manifesti ve kimlik doğrulamalı parça indirme.
 
-### Arayüz
+### Platform
 
-- **İki dil** — Türkçe ve İngilizce, Ayarlar → Dil bölümünden değiştirilir.
-- **Yedi renk teması** ve izleme sırasında arayüzü karartan sinema modu.
-- **Bakım ekranları** — toplu veri yönetimi, depolama analizi (boyut, çözünürlük dağılımı, mükerrer dosyalar), medya sağlığı (codec uyumluluğu, canlı FFmpeg işleri, oynatma telemetrisi) ve veritabanı yönetimi (kayıt sayıları, artık kayıt temizliği).
+- Türkçe ve İngilizce arayüz, yedi renk teması, sinema modu ve masaüstü/mobil uyumlu gezinti.
+- Kullanıcıya göre ayrılmış kütüphaneler, favoriler, geçmiş, çalma listeleri ve API anahtarları; şifrelenmiş Google yenileme belirteçleri.
+- Otomatik Google erişim belirteci yenileme ve geçici Drive hataları için sınırlı yeniden deneme.
+- Depolama, codec, FFmpeg işi, tarama ve veritabanı bakım ekranları.
+- İstek sınırlama, güvenli çerezler, CORS, Helmet başlıkları, yapılandırılmış log ve kontrollü kapanış.
+
+## Oynatma modları
+
+Her video tarama sırasında analiz edilir. CineDrive kapsayıcı, video codec'i, ses codec'i, boyut ve süreyi kaydeder; ardından tarayıcıya özel oynatma planı oluşturur.
+
+| Mod      | Davranış                                                                      |
+| -------- | ----------------------------------------------------------------------------- |
+| `direct` | Dosya HTTP Range desteğiyle olduğu gibi yayınlanır; yeniden kodlama yapılmaz. |
+| `audio`  | Video kopyalanır, yalnızca ses AAC'ye dönüştürülür.                           |
+| `hls`    | İstek üzerine HLS akışı üretilir; uyumlu izler kopyalanabilir.                |
+| `full`   | En yüksek uyumluluk için video ve ses H.264 + AAC'ye dönüştürülür.            |
+
+Safari ve Chromium aynı dosya için farklı planlar alabilir. HLS eşzamanlılık ve önbellek boyutu sınırlıdır; kota dolunca en uzun süredir kullanılmayan akışlar temizlenir.
 
 ## Mimari
 
-```
+| Katman | Teknoloji                                                            |
+| ------ | -------------------------------------------------------------------- |
+| Web    | React 19, Vite, React Router, TanStack Query, Zustand, Tailwind CSS  |
+| API    | Node.js, TypeScript, Fastify, Zod, Pino                              |
+| Veri   | Prisma ve sürümlenmiş migration'larla SQLite                         |
+| Medya  | Google Drive API, FFmpeg/HLS, `music-metadata`, Chromaprint/AcoustID |
+| Test   | Vitest, Testing Library, Playwright                                  |
+
+```text
 CineDrive/
 ├── apps/
-│   ├── server/          # Fastify REST API ve medya sunucusu
-│   │   ├── prisma/      # Şema, migration geçmişi, çalışma zamanı verisi
-│   │   ├── scripts/     # Tek seferlik bakım betikleri
+│   ├── server/
+│   │   ├── prisma/          # Şema ve migration geçmişi
+│   │   ├── scripts/         # Bakım araçları
 │   │   └── src/
-│   │       ├── routes/      # HTTP yüzeyi
-│   │       ├── services/    # Drive, tarama, metadata, HLS, altyazı
-│   │       ├── plugins/     # Prisma ve kimlik doğrulama
-│   │       └── utils/       # Ortak yardımcılar (sahiplik filtreleri, eşzamanlılık)
-│   └── web/             # React + Vite arayüzü
+│   │       ├── routes/      # Fastify HTTP API
+│   │       ├── services/    # Drive, tarama, metadata, oynatma, müzik, sözler
+│   │       ├── plugins/     # Kimlik doğrulama ve Prisma
+│   │       └── utils/
+│   └── web/
 │       └── src/
 │           ├── pages/       # Rota seviyesindeki ekranlar
-│           ├── features/    # Oynatıcı ve hook'ları
+│           ├── features/    # Video ve müzik oynatıcıları
 │           ├── components/  # Ortak arayüz bileşenleri
-│           └── i18n/        # tr / en sözlükleri
-├── packages/
-│   └── shared/          # Tipler, Zod şemaları, dosya adı ayrıştırıcıları
-├── e2e/                 # Playwright senaryoları ve izole ortam
-├── nginx/               # Reverse proxy yapılandırması
-├── .github/workflows/   # CI
-├── Dockerfile.server
-├── Dockerfile.web
+│           └── i18n/        # Türkçe ve İngilizce sözlükler
+├── packages/shared/         # Ortak tipler, Zod şemaları ve ayrıştırıcılar
+├── e2e/                     # İzole Playwright ortamı
+├── nginx/                   # Production reverse proxy
+├── scripts/install-vps.sh   # Etkileşimli Debian/Ubuntu kurucusu
 └── docker-compose.yml
 ```
 
-### Oynatma kararı nasıl veriliyor
+Temel sahiplik yolu:
 
-Her video dosyası tarama sırasında incelenir; kapsayıcısı, video ve ses codec'i kaydedilir. Bir istemci oynatmak istediğinde sunucu, tarayıcı başına dört moddan birini seçer:
-
-| Mod      | Ne oluyor                                                                 |
-| -------- | ------------------------------------------------------------------------- |
-| `direct` | Dosya olduğu gibi HTTP Range üzerinden akıtılır. Dönüşüm yok.             |
-| `audio`  | Video kopyalanır, yalnızca ses AAC'ye yeniden kodlanır.                   |
-| `hls`    | Anlık HLS akışı üretilir; video kopyalanabilir veya yeniden kodlanabilir. |
-| `full`   | Her iki iz de H.264 + AAC'ye yeniden kodlanır.                            |
-
-Safari ve Chromium için ayrı cevaplar verilir, çünkü codec desteğleri farklıdır — Ayarlar → Medya Sağlığı ekranı kütüphanenizdeki dağılımı gösterir.
-
-### Veri modeli
-
-On altı tablo; çekirdek zincir şu:
-
-```
-User ──< Library ──< DriveFile ──< Movie / Episode
-             └──< MediaItem ──< Season / SubtitleTrack / Favorite / …
+```text
+User ──< Library ──< DriveFile ──< Movie / Episode / MusicTrack
+  └──< GoogleConnection ──< DriveScanSource
+  └──< Favourites / History / Playlists / PlaybackState
 ```
 
-Her erişim kontrolü `Library.userId` ve `MediaItem.libraryId` üzerinden yapılır: bir istek yalnızca çağıranın kendi kütüphanelerinden ulaşılabilen satırları görür.
+Tüm medya sorguları ve aktarım uçları, istenen dosyanın oturum açan kullanıcının kütüphanelerinden erişilebilir olduğunu doğrular.
 
-## Başlangıç
+## Hızlı başlangıç
 
 ### Gereksinimler
 
-- Node.js 20 veya üzeri — Docker imajları `node:20-alpine` üzerine kuruluyor
-- pnpm (depo bir pnpm workspace'i; imajlar Corepack ile kuruyor)
-- FFmpeg — `ffmpeg-static` ile birlikte geliyor, sisteme ayrıca kurmak gerekmez
-- Drive kütüphaneleri için Drive API'si etkin bir Google Cloud projesi
-- İsteğe bağlı: zengin metadata için TMDB anahtarı, altyazı araması için OpenSubtitles anahtarı
+- Node.js 20 veya üzeri
+- pnpm 11 (depo bir pnpm workspace'idir)
+- Gizli anahtar üretmek için OpenSSL
+- Google Drive kullanacaksanız Drive API etkin bir Google Cloud OAuth istemcisi
+- Normal Node/Docker kullanımı için ayrıca FFmpeg kurulumu gerekmez; `ffmpeg-static` dahildir
+- Akustik parmak izi için isteğe bağlı `fpcalc`/Chromaprint
 
-### Geliştirme
+### Yerel geliştirme
 
-1. **Bağımlılıkları yükleyin**
+1. Bağımlılıkları kurun:
 
    ```bash
    pnpm install
    ```
 
-2. **Çevre değişkenlerini ayarlayın**
+2. Ortam dosyasını oluşturun:
 
    ```bash
    cp .env.example .env
+   openssl rand -hex 32  # SESSION_SECRET
+   openssl rand -hex 32  # TOKEN_ENCRYPTION_KEY
    ```
 
-   Google OAuth bilgilerinizi, en az 32 karakterlik bir `SESSION_SECRET`, 64 karakterlik onaltılık bir `TOKEN_ENCRYPTION_KEY` ve ilk açılışta oluşturulacak yönetici hesabını girin.
+   Kopyalanan production adreslerini yerel geliştirme için şöyle değiştirin:
 
-3. **Veritabanını hazırlayın**
+   ```dotenv
+   NODE_ENV=development
+   APP_URL=http://localhost:5173
+   API_URL=http://localhost:3000/api
+   PUBLIC_URL=http://localhost:5173
+   GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+   CORS_ORIGIN=http://localhost:5173
+   DATABASE_URL="file:./data/app.db"
+   TRUST_PROXY=false
+   ```
+
+   Üretilen değerleri `SESSION_SECRET` ve `TOKEN_ENCRYPTION_KEY` alanlarına yapıştırın; ardından `ADMIN_EMAIL`, `ADMIN_PASSWORD` ve Google OAuth bilgilerinizi ayarlayın. Aynı yerel callback adresini Google Cloud'a da kaydedin.
+
+3. Prisma Client'ı üretip migration'ları uygulayın:
 
    ```bash
-   pnpm --filter "@cinedrive/server" exec prisma migrate deploy
+   pnpm prisma:generate
+   pnpm --filter @cinedrive/server prisma:deploy
    ```
 
-   > Prisma göreli bir `file:` adresini **şema dizinine**
-   > (`apps/server/prisma/`) göre çözer, çalışma dizinine göre değil.
-   > Varsayılan `file:./data/app.db` bu yüzden
-   > `apps/server/prisma/data/app.db` anlamına gelir.
+   Göreli SQLite adresi `apps/server/prisma/` dizininden çözülür; yukarıdaki örnek `apps/server/prisma/data/app.db` dosyasını oluşturur.
 
-4. **Çalıştırın**
+4. API ve web uygulamasını başlatın:
 
    ```bash
    pnpm dev
@@ -138,50 +160,39 @@ Her erişim kontrolü `Library.userId` ve `MediaItem.libraryId` üzerinden yapı
 
    - Web: `http://localhost:5173`
    - API: `http://localhost:3000`
+   - Sağlık kontrolü: `http://localhost:3000/api/health`
 
-   `ADMIN_EMAIL` / `ADMIN_PASSWORD` ile tanımlanan yönetici hesabı ilk açılışta oluşturulur. Google Drive bağlantısı, giriş yaptıktan sonra Ayarlar sayfasından yapılır — OAuth akışı oturum açmış bir kullanıcı gerektirir.
-
-### Mevcut bir kurulumu güncelleme
-
-Kütüphaneler `Library.userId`, medya kayıtları `MediaItem.libraryId` taşır. İki sütun da migration geçmişinde yer alır, `migrate deploy` yeterlidir.
-
-Veritabanınız migration geçmişinden bile önceye aitse sahipliği önce doldurun. Betik varsayılan olarak kuru çalışır:
-
-```bash
-pnpm --filter "@cinedrive/server" exec tsx scripts/add-library-owner.ts --apply
-```
-
-## Test
-
-```bash
-pnpm typecheck     # Tüm paketlerde tsc
-pnpm lint          # ESLint (react-hooks / jsx-a11y / react-refresh dahil)
-pnpm test          # Vitest: shared + web + server
-pnpm test:e2e      # Playwright uçtan uca senaryolar
-```
-
-Sunucu testleri kendi tek kullanımlık SQLite veritabanını kurar ve koşu sonunda siler; geliştirme veritabanına hiç dokunmaz. Uçtan uca koşu kendi API ve web sunucularını ayrı portlarda başlatır, FFmpeg ile gerçek bir H.264 klip üretir ve giriş, gezinme, oynatma ile ayarları bu ortam üzerinde sürer.
-
-CI her push'ta typecheck, lint, birim testleri ve derlemeyi çalıştırır; uçtan uca takım bunların ardına bağlıdır.
+`ADMIN_EMAIL` ve `ADMIN_PASSWORD` ile tanımlanan yönetici ilk açılışta oluşturulur. Giriş yaptıktan sonra Ayarlar'dan Drive hesaplarını bağlayıp kütüphane oluşturabilirsiniz.
 
 ## Yapılandırma
 
-`.env.example` tüm değişkenleri açıklamasıyla listeler. Sık gerekenler:
+`.env.example` dağıtım odaklı varsayılanları içerir. En önemli ayarlar:
 
-| Değişken                        | Açıklama                                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                  | SQLite adresi. Göreli yol Prisma şema dizinine göre çözülür.                              |
-| `SESSION_SECRET`                | Oturum çerezi imzalama anahtarı, en az 32 karakter.                                       |
-| `TOKEN_ENCRYPTION_KEY`          | Saklanan Google yenileme belirteçlerini şifrelemek için 64 karakterlik onaltılık anahtar. |
-| `METADATA_LANGUAGE`             | TMDB başlık ve özetlerinin dili (varsayılan `tr-TR`).                                     |
-| `MUSIC_METADATA_ONLINE`         | Eksik müzik alanlarını tutucu MusicBrainz eşleşmeleriyle tamamlar (varsayılan `true`).    |
-| `HLS_MAX_ACTIVE_JOBS`           | Aynı anda çalışabilecek FFmpeg dönüşüm sayısı.                                            |
-| `HLS_CACHE_MAX_BYTES`           | HLS önbellek kotası; aşılınca en eski kullanılan akışlar tahliye edilir.                  |
-| `TRANSCODE_MAX_ACTIVE_SESSIONS` | Eşzamanlı canlı uyumluluk oturumu sayısı.                                                 |
+| Değişken                                       | Amaç                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                 | SQLite adresi. Konteyner ve production'da mutlak yol kullanın.                 |
+| `SESSION_SECRET`                               | Çerez imzalama anahtarı; en az 32 karakter.                                    |
+| `TOKEN_ENCRYPTION_KEY`                         | Google yenileme belirteçlerini şifreleyen tam 64 onaltılık karakter.           |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`     | Google OAuth istemci bilgileri.                                                |
+| `GOOGLE_REDIRECT_URI`                          | OAuth callback adresi; Google'da kayıtlı adresle birebir aynı olmalı.          |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`                | İlk açılışta oluşturulan yönetici.                                             |
+| `METADATA_LANGUAGE`                            | Gelecek taramalarda çekilecek metadata dili; varsayılan `tr-TR`.               |
+| `MUSIC_METADATA_ONLINE`                        | Eksik yerel etiketlerin tutucu MusicBrainz eşleşmeleriyle tamamlanmasını açar. |
+| `HLS_MAX_ACTIVE_JOBS`                          | Aynı anda çalışabilecek HLS kodlama işi sayısı.                                |
+| `HLS_CACHE_MAX_BYTES`                          | Diskteki HLS önbellek kotası.                                                  |
+| `TRANSCODE_MAX_ACTIVE_SESSIONS`                | Aynı anda çalışabilecek canlı uyumluluk oturumu sayısı.                        |
+| `LIBRETRANSLATE_URL`, `LIBRETRANSLATE_API_KEY` | İsteğe bağlı şarkı sözü çeviri sağlayıcısı.                                    |
+| `FPCALC_PATH`, `ACOUSTID_API_KEY`              | İsteğe bağlı akustik parmak izi ayarları.                                      |
 
-**`METADATA_LANGUAGE` arayüz dili değildir.** Arayüz dili her tarayıcının kendi seçimidir; TMDB metinleri ise tarama sırasında veritabanına yazılır ve kütüphaneyi okuyan herkesin gördüğü tek bir kopyadır. Bu değişkeni değiştirmek **yalnızca yeni taramaları** etkiler; mevcut kayıtlar siz yeniden tarayana kadar çekildikleri dilde kalır.
+TMDB, OpenSubtitles ve AcoustID anahtarları kullanıcı başına **Ayarlar → API yönetimi** bölümünden kaydedilebilir. Dağıtım genelindeki `TMDB_API_KEY`, `OPENSUBTITLES_API_KEY` ve `ACOUSTID_API_KEY` değerleri yedek olarak kullanılır.
+
+`METADATA_LANGUAGE`, arayüz dilinden ayrıdır. Metadata tarama sırasında veritabanına yazılır; değişkeni değiştirmek mevcut kayıtları değil, gelecek taramaları etkiler.
 
 ## Dağıtım
+
+### Docker Compose
+
+`.env` dosyasını production adresleri ve gizli anahtarlarla ayarlayıp çalıştırın:
 
 ```bash
 docker compose up -d --build
@@ -189,22 +200,50 @@ docker compose ps
 docker compose logs -f
 ```
 
-Sunucu konteyneri açılışta `prisma migrate deploy` çalıştırır; şema, şema dosyasından çıkarılmak yerine sürümlenmiş migration geçmişinden kurulur.
+Nginx web uygulamasını sunar ve `/api` isteklerini 80 numaralı porttan sunucuya aktarır. Sunucu konteyneri başlamadan önce sürümlenmiş Prisma migration'larını uygular. Uygulama verisi, altyazı önbelleği ve Nginx logları adlandırılmış volume'larda tutulur.
 
-Önde reverse proxy olarak Nginx durur; akış rotalarında tamponlama kapalıdır, böylece bayt aralığı ve HLS yanıtları üretildikleri anda istemciye ulaşır.
+### Debian/Ubuntu VPS
 
-## Sorun Giderme
+Yeni bir VPS için etkileşimli kurucu; özel sistem kullanıcısını, Node.js'i, pnpm'i, FFmpeg'i, systemd'yi, Nginx'i, veritabanını ve TLS'i ayarlar:
 
-**Tarama sonrası kütüphane boş.** Ayarlar → Medya Sağlığı ekranına bakın: incelenemeyen dosyalar hatalarıyla birlikte orada listelenir ve tek tek yeniden analiz edilebilir.
+```bash
+sudo bash scripts/install-vps.sh
+```
 
-**Bir içerik Chrome'da oynuyor, Safari'de oynamıyor.** HEVC ve bazı ses codec'leri için bu beklenen durum. Medya Sağlığı ekranı her tarayıcının hangi oynatma modunu aldığını gösterir; oynatıcıda elle açılabilen bir ses/Safari uyumluluk anahtarı da var.
+Kurucu Cloudflare Origin Certificate, Certbot/Let's Encrypt veya yalnızca HTTP modlarını destekler. Mevcut bir sunucuda çalıştırmadan önce betiği inceleyin; systemd ve Nginx yapılandırmasına yazar.
 
-**Oynatma takılıyor veya hiç başlamıyor.** Medya Sağlığı; aktif FFmpeg işlerini, bekleme kuyruğunu ve her akışın ne kadar önden tamponladığını gösterir. Kuyruk doluysa `HLS_MAX_ACTIVE_JOBS` değerini artırın — işlemci gücünüz elverdiği ölçüde.
+### Güncelleme
 
-**Metadata yanlış dilde geldi.** Yukarıdaki `METADATA_LANGUAGE` notuna bakın; yalnızca yeni taramalarda geçerlidir.
+Yeni sürümü çektikten sonra servisi yeniden başlatmadan önce kilitli bağımlılıkları kurun, Prisma Client'ı üretin, migration'ları uygulayın ve projeyi derleyin:
 
-**Kayıtlar artık var olmayan dosyaları gösteriyor.** Ayarlar → Veritabanı bölümünde, arkasında oynatılacak hiçbir şey kalmamış medya kayıtlarını ve yarıda kesilmiş taramaları temizleyen bir bakım işlemi var.
+```bash
+pnpm install --frozen-lockfile
+pnpm prisma:generate
+pnpm --filter @cinedrive/server prisma:deploy
+pnpm build
+```
 
-## Lisans
+Migration'lar sürümlüdür ve `prisma migrate deploy` ile uygulanır. Sunucu testleriyle uçtan uca ortam izole SQLite veritabanları kullanır; geliştirme veritabanına dokunmaz.
 
-MIT
+## Geliştirme komutları
+
+```bash
+pnpm typecheck      # Tüm workspace paketlerinde TypeScript kontrolü
+pnpm lint           # ESLint, React hooks, JSX erişilebilirlik, React Refresh
+pnpm test           # shared, web ve server Vitest takımları
+pnpm test:e2e       # Playwright smoke senaryoları
+pnpm build          # shared, server ve web production derlemeleri
+pnpm format         # TypeScript, JSON ve Markdown dosyalarını Prettier ile biçimlendirir
+```
+
+CI her pull request'te ve `main` dalına her push'ta typecheck, lint, birim testleri ve production derlemelerini çalıştırır; Playwright bunlar başarılı olduktan sonra koşar.
+
+## Sorun giderme
+
+- **Yerel giriş yönlendiriliyor veya çerez kaydedilmiyor:** `NODE_ENV=development`, yukarıdaki localhost adresleri ve `TRUST_PROXY=false` ayarlarını doğrulayın.
+- **Google OAuth callback'i reddediyor:** `GOOGLE_REDIRECT_URI`, `.env` ile Google Cloud OAuth istemcisinde birebir aynı olmalı.
+- **Tarama bazı dosyaları bulmadan tamamlanıyor:** Ayarlar'daki kütüphane kaynağı ve tarama geçmişini inceleyin. Başarısız öğelerin hataları saklanır ve yeniden analiz edilebilir.
+- **İçerik Chromium'da oynuyor ama Safari'de oynamıyor:** genellikle kapsayıcı veya ses codec'i farkıdır. Ayarlar → Depolama ve medya sağlığı, her tarayıcı için oynatma planını gösterir.
+- **Oynatma başlamadan bekliyor:** aktif FFmpeg işlerini ve kuyruğu inceleyin. `HLS_MAX_ACTIVE_JOBS` değerini yalnızca sunucuda yeterli CPU ve bellek varsa artırın.
+- **Müzik metadatası eksik:** önce gömülü etiketleri kontrol edin, ardından Müzik kütüphanesi bakımı önerilerini çalıştırın. MusicBrainz tamamlama, güvenilir yerel etiketlerin üzerine otomatik yazmaz.
+- **Şarkı sözü çevirisi kullanılamıyor:** `LIBRETRANSLATE_URL` ayarlayın; şarkı sözü aramasının kendisi LibreTranslate gerektirmez.

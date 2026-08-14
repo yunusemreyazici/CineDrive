@@ -358,6 +358,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.prisma.musicFavorite.findMany({
           where: { userId, track: trackWhere },
           select: { trackId: true },
+          orderBy: { createdAt: 'desc' },
         }),
         fastify.prisma.musicHistory.findMany({
           where: { userId, track: trackWhere },
