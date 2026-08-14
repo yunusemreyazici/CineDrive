@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title description">
+  <title id="title">CineDrive logo</title>
+  <desc id="description">A cyan film reel and play symbol above a streaming arc</desc>
+  <defs>
+    <linearGradient id="surface" x1="36" y1="24" x2="220" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172033" />
+      <stop offset="0.55" stop-color="#0B1220" />
+      <stop offset="1" stop-color="#05070C" />
+    </linearGradient>
+    <linearGradient id="brand" x1="62" y1="51" x2="196" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8F9" />
+      <stop offset="0.5" stop-color="#06B6D4" />
+      <stop offset="1" stop-color="#3B82F6" />
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(128 112) rotate(90) scale(104)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE" stop-opacity="0.2" />
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0" />
+    </radialGradient>
+    <filter id="glow" x="36" y="34" width="184" height="190" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="7" />
+    </filter>
+  </defs>
+
+  <rect x="10" y="10" width="236" height="236" rx="58" fill="url(#surface)" />
+  <rect x="10.75" y="10.75" width="234.5" height="234.5" rx="57.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1.5" />
+  <circle cx="128" cy="112" r="104" fill="url(#halo)" />
+
+  <g opacity="0.35" filter="url(#glow)">
+    <circle cx="128" cy="108" r="62" fill="none" stroke="#22D3EE" stroke-width="12" />
+    <path d="M66 190C92 173 164 173 190 190" fill="none" stroke="#22D3EE" stroke-width="10" stroke-linecap="round" />
+  </g>
+
+  <circle cx="128" cy="108" r="62" fill="#08111E" stroke="url(#brand)" stroke-width="12" />
+  <circle cx="103" cy="83" r="10" fill="url(#brand)" opacity="0.9" />
+  <circle cx="153" cy="83" r="10" fill="url(#brand)" opacity="0.9" />
+  <circle cx="103" cy="133" r="10" fill="url(#brand)" opacity="0.9" />
+  <circle cx="153" cy="133" r="10" fill="url(#brand)" opacity="0.9" />
+  <circle cx="128" cy="108" r="8" fill="#E6FAFF" />
+
+  <path d="M116 91.5C116 88.8 119 87.2 121.2 88.7L148 106.2C150 107.5 150 110.5 148 111.8L121.2 129.3C119 130.8 116 129.2 116 126.5V91.5Z" fill="#F8FAFC" />
+
+  <path d="M66 190C92 173 164 173 190 190" fill="none" stroke="url(#brand)" stroke-width="10" stroke-linecap="round" />
+  <circle cx="66" cy="190" r="6" fill="#67E8F9" />
+  <circle cx="190" cy="190" r="6" fill="#3B82F6" />
+  <path d="M103 204H153" stroke="#FFFFFF" stroke-opacity="0.2" stroke-width="4" stroke-linecap="round" />
+</svg>

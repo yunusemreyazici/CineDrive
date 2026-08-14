@@ -1,10 +1,29 @@
-# CineDrive
+<div align="center">
+  <img src="docs/assets/cinedrive-mark.svg" alt="CineDrive logosu" width="156" height="156" />
 
-Türkçe · **[English](README.md)**
+  <h1>CineDrive</h1>
 
-CineDrive; Google Drive'da veya yerel klasörlerde bulunan film, dizi ve müzikler için kendi sunucunuzda çalışan bir medya sunucusudur. Dosyalarınızı tarar, zengin metadata içeren bir kütüphane oluşturur ve içerikleri duyarlı bir web arayüzü üzerinden yayınlar.
+  <p><strong>Kendi depolamanızdan güç alan kişisel sinema ve müzik kütüphaneniz.</strong></p>
 
-Tarayıcının desteklediği videolar HTTP bayt aralığı istekleriyle değiştirilmeden sunulur. Kapsayıcı veya codec desteklenmiyorsa CineDrive, FFmpeg ile isteğe bağlı HLS akışı üretir. Müzikler gömülü etiketlerinden indekslenir; albüm, sanatçı, mix, çalma listesi, şarkı sözü, dinleme geçmişi ve eşzamanlanan kuyruk özellikleriyle sunulur.
+  <p>
+    Google Drive veya yerel klasörlerdeki film, dizi ve müzikler için kendi sunucunuzda yayın.<br />
+    Mümkün olduğunda doğrudan oynatma, gerektiğinde isteğe bağlı HLS dönüşümü.
+  </p>
+
+  <p><strong>Türkçe</strong> · <a href="README.md">English</a></p>
+
+  <p>
+    <img src="https://img.shields.io/badge/DURUM-AKTİF%20GELİŞTİRME-06B6D4?style=for-the-badge&labelColor=18181B" alt="Durum: aktif geliştirme" />
+    <img src="https://img.shields.io/badge/WEB-REACT%2019-06B6D4?style=for-the-badge&labelColor=18181B" alt="Web: React 19" />
+    <img src="https://img.shields.io/badge/API-FASTIFY%205-06B6D4?style=for-the-badge&labelColor=18181B" alt="API: Fastify 5" />
+    <img src="https://img.shields.io/badge/VERİ-PRISMA%20%2B%20SQLITE-06B6D4?style=for-the-badge&labelColor=18181B" alt="Veri: Prisma ve SQLite" />
+    <img src="https://img.shields.io/badge/MEDYA-FFMPEG%20%2B%20HLS-06B6D4?style=for-the-badge&labelColor=18181B" alt="Medya: FFmpeg ve HLS" />
+  </p>
+
+  <p>⭐ CineDrive işinize yarıyorsa projeye yıldız vermeyi düşünebilirsiniz.</p>
+</div>
+
+---
 
 ## Ekran görüntüleri
 
