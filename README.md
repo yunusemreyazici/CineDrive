@@ -131,6 +131,67 @@ All media queries and transport endpoints validate that the requested file is re
 - No separate FFmpeg installation for normal Node/Docker use; `ffmpeg-static` is included
 - Optional `fpcalc`/Chromaprint for acoustic fingerprinting
 
+### Google Drive API setup
+
+CineDrive uses a server-side OAuth 2.0 flow. It requests your Google account email and the read-only `drive.readonly` scope so it can discover and stream existing files; it never requests permission to modify Drive content.
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/), create or select a project, and make sure that project remains selected for the following steps.
+
+2. Enable the Google Drive API:
+
+   - Open **APIs & Services → Library**.
+   - Search for **Google Drive API**.
+   - Open it and select **Enable**.
+
+   Google also provides a direct [Drive API enablement page](https://console.cloud.google.com/apis/library/drive.googleapis.com).
+
+3. Configure the consent screen under **Google Auth Platform**:
+
+   - **Branding:** set the app name to `CineDrive`, choose a support email, and add a developer contact email.
+   - **Audience:** choose **External** for personal Google accounts. A project owned by a Google Workspace organization can use **Internal** when only organization members will connect.
+   - **Data Access:** add these exact scopes:
+
+     ```text
+     https://www.googleapis.com/auth/drive.readonly
+     https://www.googleapis.com/auth/userinfo.email
+     ```
+
+   `drive.readonly` is classified by Google as a restricted scope because it can read and download existing Drive files. CineDrive uses it read-only and encrypts the refresh token before storing it.
+
+4. While the app is in **Testing**, add every Google account that will connect to CineDrive under **Audience → Test users**.
+
+   > In Testing mode, Google expires the authorization — including an offline refresh token — after seven days. For a long-running personal installation, switch the publishing status to **In production** after testing. Google allows personal-use apps with fewer than 100 users to remain unverified, but users will see an “unverified app” warning during consent. Public or larger deployments using `drive.readonly` can require Google's restricted-scope verification and security review.
+
+5. Create the OAuth client under **Google Auth Platform → Clients**:
+
+   - Select **Create Client**.
+   - Choose **Web application** as the application type.
+   - Add the callback that matches your CineDrive installation under **Authorized redirect URIs**:
+
+     ```text
+     # Local development
+     http://localhost:3000/api/auth/google/callback
+
+     # Production
+     https://cinedrive.example.com/api/auth/google/callback
+     ```
+
+   Replace the production domain with your own. **Authorized JavaScript origins are not required** because the OAuth code exchange happens on the CineDrive server.
+
+6. Copy the generated values into `.env`:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-client-secret
+   GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+   ```
+
+   `GOOGLE_REDIRECT_URI` must exactly match one of the authorized redirect URIs, including the protocol, host, port, path, and whether a trailing slash is present. Use the HTTPS production callback on a deployed server.
+
+7. Restart CineDrive, sign in with the CineDrive administrator account, then open **Settings → Google Drive → Connect Google Drive**. Google connection credentials are managed from Settings; they are not the same as the CineDrive login account.
+
+Never commit `.env`, the OAuth client secret, or downloaded Google credential files. See Google's official guides for [enabling Workspace APIs](https://developers.google.com/workspace/guides/enable-apis), [web-server OAuth](https://developers.google.com/identity/protocols/oauth2/web-server), [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth), and [OAuth audience/publishing status](https://support.google.com/cloud/answer/15549945).
+
 ### Local development
 
 1. Install dependencies:

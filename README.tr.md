@@ -131,6 +131,67 @@ Tüm medya sorguları ve aktarım uçları, istenen dosyanın oturum açan kulla
 - Normal Node/Docker kullanımı için ayrıca FFmpeg kurulumu gerekmez; `ffmpeg-static` dahildir
 - Akustik parmak izi için isteğe bağlı `fpcalc`/Chromaprint
 
+### Google Drive API kurulumu
+
+CineDrive sunucu taraflı OAuth 2.0 akışı kullanır. Mevcut dosyaları bulup yayınlayabilmek için Google hesabınızın e-posta bilgisini ve salt okunur `drive.readonly` kapsamını ister; Drive içeriğini değiştirme izni istemez.
+
+1. [Google Cloud Console'u](https://console.cloud.google.com/) açın, bir proje oluşturun veya mevcut projeyi seçin. Sonraki adımlarda aynı projenin seçili kaldığından emin olun.
+
+2. Google Drive API'yi etkinleştirin:
+
+   - **APIs & Services → Library** bölümünü açın.
+   - **Google Drive API** araması yapın.
+   - API'yi açıp **Enable** seçeneğine basın.
+
+   Google'ın doğrudan [Drive API etkinleştirme sayfasını](https://console.cloud.google.com/apis/library/drive.googleapis.com) da kullanabilirsiniz.
+
+3. **Google Auth Platform** altında izin ekranını yapılandırın:
+
+   - **Branding:** uygulama adını `CineDrive` yapın; destek e-postası ve geliştirici iletişim e-postası ekleyin.
+   - **Audience:** kişisel Google hesapları için **External** seçin. Google Workspace kuruluşuna ait projelerde yalnızca kuruluş üyeleri bağlanacaksa **Internal** kullanılabilir.
+   - **Data Access:** aşağıdaki kapsamları birebir ekleyin:
+
+     ```text
+     https://www.googleapis.com/auth/drive.readonly
+     https://www.googleapis.com/auth/userinfo.email
+     ```
+
+   `drive.readonly`, mevcut Drive dosyalarını okuyup indirebildiği için Google tarafından kısıtlanmış kapsam olarak sınıflandırılır. CineDrive kapsamı salt okunur kullanır ve yenileme belirtecini saklamadan önce şifreler.
+
+4. Uygulama **Testing** durumundayken CineDrive'a bağlanacak bütün Google hesaplarını **Audience → Test users** bölümüne ekleyin.
+
+   > Testing modunda Google, çevrimdışı yenileme belirteci dahil yetkilendirmeyi yedi gün sonra sona erdirir. Uzun süre çalışacak kişisel kurulumda test bittikten sonra yayın durumunu **In production** yapın. Google, 100 kullanıcıdan az kişisel uygulamaların doğrulama olmadan kullanılmasına izin verir; ancak izin sırasında “unverified app” uyarısı gösterilir. `drive.readonly` kullanan herkese açık veya daha büyük dağıtımlar Google'ın kısıtlanmış kapsam doğrulaması ve güvenlik incelemesini gerektirebilir.
+
+5. **Google Auth Platform → Clients** altında OAuth istemcisini oluşturun:
+
+   - **Create Client** seçeneğine basın.
+   - Uygulama türü olarak **Web application** seçin.
+   - CineDrive kurulumunuzla eşleşen callback adresini **Authorized redirect URIs** alanına ekleyin:
+
+     ```text
+     # Yerel geliştirme
+     http://localhost:3000/api/auth/google/callback
+
+     # Production
+     https://cinedrive.example.com/api/auth/google/callback
+     ```
+
+   Production alan adını kendi adresinizle değiştirin. OAuth kod değişimi CineDrive sunucusunda yapıldığı için **Authorized JavaScript origins gerekli değildir**.
+
+6. Oluşturulan değerleri `.env` dosyasına kopyalayın:
+
+   ```dotenv
+   GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-client-secret
+   GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+   ```
+
+   `GOOGLE_REDIRECT_URI`; protokol, alan adı, port, yol ve sonda eğik çizgi bulunup bulunmaması dahil olmak üzere yetkili yönlendirme adreslerinden biriyle birebir eşleşmelidir. Sunucuya dağıtımda HTTPS production callback adresini kullanın.
+
+7. CineDrive'ı yeniden başlatın, CineDrive yönetici hesabıyla giriş yapın ve **Ayarlar → Google Drive → Google Drive’ı Bağla** bölümünü açın. Google bağlantı bilgileri Ayarlar'dan yönetilir; CineDrive giriş hesabıyla aynı şey değildir.
+
+`.env`, OAuth istemci sırrı veya Google'dan indirilen kimlik bilgisi dosyalarını hiçbir zaman commit etmeyin. Ayrıntılar için Google'ın resmi [Workspace API etkinleştirme](https://developers.google.com/workspace/guides/enable-apis), [web sunucusu OAuth](https://developers.google.com/identity/protocols/oauth2/web-server), [Drive kapsamları](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) ve [OAuth kitle/yayın durumu](https://support.google.com/cloud/answer/15549945) belgelerine bakın.
+
 ### Yerel geliştirme
 
 1. Bağımlılıkları kurun:
