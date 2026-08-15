@@ -3,6 +3,9 @@ import {
   loginSchema,
   updateProfileSchema,
   changePasswordSchema,
+  createUserSchema,
+  resetUserPasswordSchema,
+  updateUserSchema,
   type LoginInput,
   type UserDto,
 } from '@cinedrive/shared';
@@ -24,6 +27,19 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     files: total.files + removed.files,
     media: total.media + removed.media,
   });
+  const requireAdmin = async (request: Parameters<typeof fastify.authenticate>[0], reply: Parameters<typeof fastify.authenticate>[1]) => {
+    await fastify.authenticate(request, reply);
+    if (reply.sent) return;
+    if (request.user?.role !== 'admin') {
+      return reply.status(403).send({
+        error: {
+          code: 'ADMIN_REQUIRED',
+          message: 'Bu işlem için yönetici yetkisi gerekir.',
+          requestId: request.id,
+        },
+      });
+    }
+  };
 
   // POST /api/auth/login (Brute-force protection: max 5 requests per minute per IP)
   fastify.post<{ Body: LoginInput }>(
@@ -76,6 +92,20 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             error: {
               code: 'INVALID_CREDENTIALS',
               message: 'E-posta adresi veya şifre hatalı.',
+              requestId: request.id,
+            },
+          });
+        }
+        if (err instanceof Error && err.message === 'ACCOUNT_DISABLED') {
+          return reply.status(403).send({
+            error: { code: 'ACCOUNT_DISABLED', message: 'Bu hesap devre dışı.', requestId: request.id },
+          });
+        }
+        if (err instanceof Error && err.message === 'MULTI_USER_DISABLED') {
+          return reply.status(403).send({
+            error: {
+              code: 'MULTI_USER_DISABLED',
+              message: 'Sunucuda çoklu kullanıcı modu etkin değil.',
               requestId: request.id,
             },
           });
@@ -184,22 +214,74 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /api/auth/session
-  fastify.get<{ Reply: { authenticated: boolean; user: UserDto | null } }>(
+  fastify.get<{ Reply: { authenticated: boolean; user: UserDto | null; authMode: 'single-user' | 'multi-user' } }>(
     '/session',
     async (request, reply) => {
       if (!request.user) {
         return reply.status(200).send({
           authenticated: false,
           user: null,
+          authMode: env.APP_AUTH_MODE,
         });
       }
 
       return reply.status(200).send({
         authenticated: true,
         user: request.user,
+        authMode: env.APP_AUTH_MODE,
       });
     },
   );
+
+  fastify.get('/users', { preHandler: [requireAdmin] }, async () => ({
+    users: await fastify.authService.listUsers(),
+    authMode: env.APP_AUTH_MODE,
+  }));
+
+  fastify.post('/users', { preHandler: [requireAdmin] }, async (request, reply) => {
+    const parsed = createUserSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'Geçersiz kullanıcı bilgileri.', requestId: request.id, details: parsed.error.format() },
+      });
+    }
+    try {
+      const user = await fastify.authService.createUser(parsed.data);
+      return reply.status(201).send({ user });
+    } catch (error) {
+      if (error instanceof Error && /unique constraint/i.test(error.message)) {
+        return reply.status(409).send({ error: { code: 'EMAIL_IN_USE', message: 'Bu e-posta zaten kullanılıyor.', requestId: request.id } });
+      }
+      throw error;
+    }
+  });
+
+  fastify.patch<{ Params: { id: string } }>('/users/:id', { preHandler: [requireAdmin] }, async (request, reply) => {
+    const parsed = updateUserSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz kullanıcı güncellemesi.', requestId: request.id, details: parsed.error.format() } });
+    }
+    try {
+      return { user: await fastify.authService.updateUser(request.user!.id, request.params.id, parsed.data) };
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'USER_NOT_FOUND') return reply.status(404).send({ error: { code, message: 'Kullanıcı bulunamadı.', requestId: request.id } });
+      if (code === 'CANNOT_RESTRICT_SELF' || code === 'LAST_ADMIN_REQUIRED') return reply.status(409).send({ error: { code, message: code === 'CANNOT_RESTRICT_SELF' ? 'Kendi yönetici erişiminizi kaldıramazsınız.' : 'En az bir etkin yönetici kalmalıdır.', requestId: request.id } });
+      throw error;
+    }
+  });
+
+  fastify.post<{ Params: { id: string } }>('/users/:id/reset-password', { preHandler: [requireAdmin] }, async (request, reply) => {
+    const parsed = resetUserPasswordSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz şifre.', requestId: request.id, details: parsed.error.format() } });
+    try {
+      await fastify.authService.resetUserPassword(request.params.id, parsed.data.password);
+      return { success: true };
+    } catch (error) {
+      if (error instanceof Error && error.message === 'USER_NOT_FOUND') return reply.status(404).send({ error: { code: 'USER_NOT_FOUND', message: 'Kullanıcı bulunamadı.', requestId: request.id } });
+      throw error;
+    }
+  });
 
   // --- GOOGLE OAUTH 2.0 ROUTES ---
 

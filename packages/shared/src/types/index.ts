@@ -4,6 +4,16 @@ export interface UserDto {
   name: string;
   role: 'admin' | 'user';
   createdAt: string;
+  disabled: boolean;
+}
+
+export interface LibraryMemberDto {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: 'owner' | 'editor' | 'listener';
+  createdAt: string;
 }
 
 export interface GoogleConnectionDto {
@@ -180,6 +190,7 @@ export interface LibraryDto {
   lastScan?: SourceScanSummaryDto | null;
   createdAt: string;
   updatedAt: string;
+  accessRole?: 'owner' | 'editor' | 'listener';
 }
 
 export interface SourceScanSummaryDto {

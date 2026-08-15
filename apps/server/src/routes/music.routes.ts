@@ -25,6 +25,7 @@ import {
   musicLyricsTranslationSchema,
   musicLyricsAlignSchema,
   musicLyricsRevisionSchema,
+  musicPlaybackClientQuerySchema,
   reorderMusicPlaylistSchema,
   patchMusicPlaybackStateSchema,
   saveMusicMixSchema,
@@ -62,7 +63,9 @@ import { MusicArtworkThumbnailService } from '../services/music-artwork-thumbnai
 // A native media player can probe many queued assets at once. Keep one client
 // from turning those probes into hundreds of simultaneous Google Drive streams
 // that exhaust the server's sockets and collapse unrelated network traffic.
-const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 4;
+const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT = 2;
+const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 6;
+const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_GLOBAL = 24;
 const artworkThumbnails = new MusicArtworkThumbnailService();
 
 const normalizeMusicName = (value: string) =>
@@ -74,7 +77,22 @@ const normalizeMusicName = (value: string) =>
     .trim();
 
 const ownedTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
+  library: { OR: [{ userId }, { memberships: { some: { userId } } }] },
+  driveFile: { status: 'active' },
+});
+
+const ownerTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   library: { userId },
+  driveFile: { status: 'active' },
+});
+
+const manageableTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
+  library: {
+    OR: [
+      { userId },
+      { memberships: { some: { userId, role: { in: ['owner', 'editor'] } } } },
+    ],
+  },
   driveFile: { status: 'active' },
 });
 
@@ -161,16 +179,62 @@ const albumDto = (album: {
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const activeDirectTransfers = new Map<string, Set<AbortController>>();
+  const activeDirectTransfersByUser = new Map<string, Set<AbortController>>();
+  const allActiveDirectTransfers = new Set<AbortController>();
 
   fastify.addHook('onSend', async (request, reply, payload) => {
+    const contentType = String(reply.getHeader('content-type') || '');
+    const serializedPayload =
+      typeof payload === 'string'
+        ? payload
+        : Buffer.isBuffer(payload)
+          ? payload.toString('utf8')
+          : null;
+    if (
+      request.method === 'GET' &&
+      request.url.includes('/tracks/') &&
+      request.url.includes('/stream') &&
+      reply.statusCode >= 400
+    ) {
+      let code = `HTTP_${reply.statusCode}`;
+      if (serializedPayload && contentType.includes('application/json')) {
+        try {
+          const body: unknown = JSON.parse(serializedPayload);
+          if (
+            typeof body === 'object' &&
+            body !== null &&
+            'error' in body &&
+            typeof body.error === 'object' &&
+            body.error !== null &&
+            'code' in body.error &&
+            typeof body.error.code === 'string'
+          )
+            code = body.error.code;
+        } catch {
+          // The HTTP status remains a useful metric when an error body is not JSON.
+        }
+      }
+      const query = request.query as { clientId?: unknown };
+      request.log.warn(
+        {
+          event: 'music_stream_error',
+          side: 'server',
+          code,
+          statusCode: reply.statusCode,
+          userId: request.user?.id,
+          clientId: typeof query.clientId === 'string' ? query.clientId : 'legacy',
+        },
+        'Music stream request failed',
+      );
+    }
     if (
       request.method !== 'GET' ||
       reply.statusCode !== 200 ||
-      !String(reply.getHeader('content-type') || '').includes('application/json') ||
-      (typeof payload !== 'string' && !Buffer.isBuffer(payload))
+      !contentType.includes('application/json') ||
+      serializedPayload === null
     )
       return payload;
-    const etag = `"${createHash('sha256').update(payload).digest('base64url')}"`;
+    const etag = `"${createHash('sha256').update(serializedPayload).digest('base64url')}"`;
     reply.header('ETag', etag).header('Cache-Control', 'private, max-age=0, must-revalidate');
     if (request.headers['if-none-match'] === etag) {
       reply.status(304);
@@ -181,15 +245,27 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   const beginDirectTransfer = (
     userId: string,
+    clientId: string,
     request: FastifyRequest,
     reply: FastifyReply,
   ): { signal: AbortSignal; abort: () => void; release: () => void } | null => {
-    const active = activeDirectTransfers.get(userId) || new Set<AbortController>();
-    if (active.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER) return null;
+    const clientKey = `${userId}:${clientId}`;
+    const active = activeDirectTransfers.get(clientKey) || new Set<AbortController>();
+    const userActive = activeDirectTransfersByUser.get(userId) || new Set<AbortController>();
+    if (
+      active.size >=
+        (clientId === 'legacy' ? 4 : MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT) ||
+      userActive.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER ||
+      allActiveDirectTransfers.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_GLOBAL
+    )
+      return null;
 
     const controller = new AbortController();
     active.add(controller);
-    activeDirectTransfers.set(userId, active);
+    userActive.add(controller);
+    allActiveDirectTransfers.add(controller);
+    activeDirectTransfers.set(clientKey, active);
+    activeDirectTransfersByUser.set(userId, userActive);
     let released = false;
 
     const release = () => {
@@ -200,7 +276,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       reply.raw.removeListener('finish', release);
       reply.raw.removeListener('error', abort);
       active.delete(controller);
-      if (active.size === 0) activeDirectTransfers.delete(userId);
+      userActive.delete(controller);
+      allActiveDirectTransfers.delete(controller);
+      if (active.size === 0) activeDirectTransfers.delete(clientKey);
+      if (userActive.size === 0) activeDirectTransfersByUser.delete(userId);
     };
     const abort = () => {
       controller.abort();
@@ -250,7 +329,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         take: 12,
       }),
       fastify.prisma.musicAlbum.findMany({
-        where: { userId, tracks: { some: trackWhere } },
+        where: { tracks: { some: trackWhere } },
         include: {
           artwork: { select: { id: true } },
           artist: true,
@@ -260,7 +339,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         take: 12,
       }),
       fastify.prisma.musicArtist.findMany({
-        where: { userId, trackCredits: { some: { track: trackWhere } } },
+        where: { trackCredits: { some: { track: trackWhere } } },
         include: {
           _count: { select: { albums: true, trackCredits: true } },
           artwork: { select: { id: true } },
@@ -334,7 +413,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           select: { id: true },
         }),
         fastify.prisma.musicAlbum.findMany({
-          where: { userId, tracks: { some: trackWhere } },
+          where: { tracks: { some: trackWhere } },
           include: {
             artwork: { select: { id: true } },
             artist: true,
@@ -343,7 +422,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           orderBy: { title: 'asc' },
         }),
         fastify.prisma.musicArtist.findMany({
-          where: { userId, trackCredits: { some: { track: trackWhere } } },
+          where: { trackCredits: { some: { track: trackWhere } } },
           include: {
             _count: { select: { albums: true, trackCredits: true } },
             artwork: { select: { id: true } },
@@ -418,7 +497,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { artistId: string } }>('/radio/:artistId', async (request, reply) => {
     const artist = await fastify.prisma.musicArtist.findFirst({
-      where: { id: request.params.artistId, userId: request.user!.id },
+      where: {
+        id: request.params.artistId,
+        trackCredits: { some: { track: ownedTrackWhere(request.user!.id) } },
+      },
       select: { id: true },
     });
     if (!artist)
@@ -715,7 +797,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const ownedIds = await fastify.prisma.musicTrack.findMany({
-      where: { id: { in: parsed.data.trackIds }, ...ownedTrackWhere(request.user!.id) },
+      where: { id: { in: parsed.data.trackIds }, ...ownerTrackWhere(request.user!.id) },
       select: { id: true, primaryArtist: { select: { name: true } } },
     });
     const upsertArtist = (name: string) =>
@@ -983,35 +1065,40 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const userId = request.user!.id;
     const existing = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(userId) },
-      include: { album: true },
+      where: { id: request.params.id, ...manageableTrackWhere(userId) },
+      include: { album: true, library: { select: { userId: true } } },
     });
     if (!existing)
       return reply.status(404).send({
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     const input = parsed.data;
+    const catalogOwnerId = existing.library.userId;
     await fastify.prisma.$transaction(async (transaction) => {
       const primaryArtist = await transaction.musicArtist.upsert({
         where: {
           userId_normalizedName: {
-            userId,
+            userId: catalogOwnerId,
             normalizedName: normalizeMusicName(input.artist),
           },
         },
-        create: { userId, name: input.artist, normalizedName: normalizeMusicName(input.artist) },
+        create: {
+          userId: catalogOwnerId,
+          name: input.artist,
+          normalizedName: normalizeMusicName(input.artist),
+        },
         update: { name: input.artist },
       });
       const albumArtistName = input.albumArtist || input.artist;
       const albumArtist = await transaction.musicArtist.upsert({
         where: {
           userId_normalizedName: {
-            userId,
+            userId: catalogOwnerId,
             normalizedName: normalizeMusicName(albumArtistName),
           },
         },
         create: {
-          userId,
+          userId: catalogOwnerId,
           name: albumArtistName,
           normalizedName: normalizeMusicName(albumArtistName),
         },
@@ -1020,13 +1107,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       const album = await transaction.musicAlbum.upsert({
         where: {
           userId_artistId_normalizedTitle: {
-            userId,
+            userId: catalogOwnerId,
             artistId: albumArtist.id,
             normalizedTitle: normalizeMusicName(input.album),
           },
         },
         create: {
-          userId,
+          userId: catalogOwnerId,
           artistId: albumArtist.id,
           artworkId: existing.album?.artworkId,
           title: input.album,
@@ -1088,7 +1175,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/tracks/:id/rematch', async (request, reply) => {
     const userId = request.user!.id;
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(userId) },
+      where: { id: request.params.id, ...manageableTrackWhere(userId) },
       include: { primaryArtist: true, album: true },
     });
     if (!track)
@@ -1185,7 +1272,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const { search, artistId, page, limit, sortOrder } = parsed.data;
     const where: Prisma.MusicAlbumWhereInput = {
-      userId: request.user!.id,
       tracks: { some: ownedTrackWhere(request.user!.id) },
       ...(artistId ? { artistId } : {}),
       ...(search
@@ -1215,7 +1301,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/albums/:id', async (request, reply) => {
     const userId = request.user!.id;
     const album = await fastify.prisma.musicAlbum.findFirst({
-      where: { id: request.params.id, userId, tracks: { some: ownedTrackWhere(userId) } },
+      where: { id: request.params.id, tracks: { some: ownedTrackWhere(userId) } },
       include: {
         artwork: { select: { id: true } },
         artist: true,
@@ -1236,7 +1322,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       ? await fastify.prisma.musicAlbum.findMany({
           where: {
             id: { not: album.id },
-            userId,
             tracks: { some: ownedTrackWhere(userId) },
           },
           include: {
@@ -1289,7 +1374,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/artists', async (request) => {
     const userId = request.user!.id;
     const artists = await fastify.prisma.musicArtist.findMany({
-      where: { userId, trackCredits: { some: { track: ownedTrackWhere(userId) } } },
+      where: { trackCredits: { some: { track: ownedTrackWhere(userId) } } },
       include: {
         _count: { select: { albums: true, trackCredits: true } },
         artwork: { select: { id: true } },
@@ -1306,7 +1391,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const artist = await fastify.prisma.musicArtist.findFirst({
       where: {
         id: request.params.id,
-        userId,
         trackCredits: { some: { track: ownedTrackWhere(userId) } },
       },
       include: {
@@ -1344,7 +1428,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       ? await fastify.prisma.musicArtist.findMany({
           where: {
             id: { not: artist.id },
-            userId,
             trackCredits: { some: { track: ownedTrackWhere(userId) } },
           },
           include: {
@@ -1408,7 +1491,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicAlbum.findMany({
         where: {
-          userId,
           tracks: { some: ownedTrackWhere(userId) },
           OR: [{ title: { contains: q } }, { artist: { name: { contains: q } } }],
         },
@@ -1421,7 +1503,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicArtist.findMany({
         where: {
-          userId,
           name: { contains: q },
           trackCredits: { some: { track: ownedTrackWhere(userId) } },
         },
@@ -1934,12 +2015,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { reordered: true };
   });
 
-  fastify.get('/playback-state', async (request) => {
+  fastify.get<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
+    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
     const userId = request.user!.id;
     const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId },
-      create: { userId },
-      update: {},
+      where: { userId_clientId: { userId, clientId: client.data.clientId } },
+      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
+      update: { clientName: client.data.clientName, platform: client.data.platform },
       include: {
         queue: {
           include: { track: { include: musicTrackInclude(userId) } },
@@ -1950,6 +2033,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return {
       state: {
         revision: state.revision,
+        clientId: state.clientId,
         currentTrackId: state.currentTrackId,
         currentQueueItemId: state.currentQueueItemId,
         positionSeconds: state.positionSeconds,
@@ -1965,7 +2049,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       },
     };
   });
-  fastify.put('/playback-state', async (request, reply) => {
+  fastify.put<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
+    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
     const parsed = updateMusicPlaybackStateSchema.safeParse(request.body);
     if (!parsed.success)
       return reply.status(400).send({
@@ -1977,9 +2063,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const userId = request.user!.id;
     const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId },
-      create: { userId },
-      update: {},
+      where: { userId_clientId: { userId, clientId: client.data.clientId } },
+      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
+      update: { clientName: client.data.clientName, platform: client.data.platform },
     });
     if (state.revision !== parsed.data.revision)
       return reply.status(409).send({
@@ -2071,7 +2157,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.patch('/playback-state', async (request, reply) => {
+  fastify.patch<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
+    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
     const parsed = patchMusicPlaybackStateSchema.safeParse(request.body);
     if (!parsed.success)
       return reply.status(400).send({
@@ -2083,9 +2171,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const userId = request.user!.id;
     const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId },
-      create: { userId },
-      update: {},
+      where: { userId_clientId: { userId, clientId: client.data.clientId } },
+      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
+      update: { clientName: client.data.clientName, platform: client.data.platform },
       include: { queue: { select: { id: true } } },
     });
     if (state.revision !== parsed.data.revision)
@@ -2138,12 +2226,45 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { revision: state.revision + 1 };
   });
 
+  fastify.get('/playback-clients', async (request) => ({
+    clients: await fastify.prisma.musicPlaybackState.findMany({
+      where: { userId: request.user!.id },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        clientId: true,
+        clientName: true,
+        platform: true,
+        currentTrackId: true,
+        positionSeconds: true,
+        updatedAt: true,
+      },
+    }),
+  }));
+
+  fastify.delete<{ Params: { clientId: string } }>('/playback-clients/:clientId', async (request, reply) => {
+    await fastify.prisma.musicPlaybackState.deleteMany({
+      where: { userId: request.user!.id, clientId: request.params.clientId },
+    });
+    return reply.status(204).send();
+  });
+
   fastify.get<{
     Params: { id: string };
     Querystring: { thumbnail?: string; width?: string; height?: string; quality?: string };
   }>('/artwork/:id', async (request, reply) => {
     const artwork = await fastify.prisma.musicArtwork.findFirst({
-      where: { id: request.params.id, userId: request.user!.id },
+      where: {
+        id: request.params.id,
+        OR: [
+          { tracks: { some: ownedTrackWhere(request.user!.id) } },
+          { albums: { some: { tracks: { some: ownedTrackWhere(request.user!.id) } } } },
+          {
+            artists: {
+              some: { trackCredits: { some: { track: ownedTrackWhere(request.user!.id) } } },
+            },
+          },
+        ],
+      },
     });
     if (!artwork)
       return reply.status(404).send({
@@ -2206,7 +2327,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/lookup', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
       include: {
         lyrics: {
           include: { translations: true, revisions: { orderBy: { createdAt: 'desc' }, take: 20 } },
@@ -2249,7 +2370,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
       select: { id: true },
     });
     if (!track)
@@ -2286,7 +2407,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
       const track = await fastify.prisma.musicTrack.findFirst({
-        where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+        where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
         select: { id: true, lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
@@ -2329,7 +2450,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           error: { code: 'VALIDATION_ERROR', message: 'Geçersiz çeviri.', requestId: request.id },
         });
       const track = await fastify.prisma.musicTrack.findFirst({
-        where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+        where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
         select: { lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
@@ -2369,7 +2490,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
       select: { duration: true },
     });
     if (!track?.duration)
@@ -2403,7 +2524,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
       const track = await fastify.prisma.musicTrack.findFirst({
-        where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+        where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
         select: { lyrics: { select: { id: true } } },
       });
       if (!track?.lyrics)
@@ -2431,7 +2552,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     '/tracks/:id/lyrics/revisions/:revisionId/apply',
     async (request, reply) => {
       const track = await fastify.prisma.musicTrack.findFirst({
-        where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+        where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
         select: { lyrics: true },
       });
       if (!track?.lyrics)
@@ -2508,7 +2629,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/sidecar', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
       include: { lyrics: true, driveFile: { select: { localFilePath: true } } },
     });
     if (!track?.lyrics)
@@ -2535,7 +2656,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
+      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
       select: { id: true },
     });
     if (!track)
@@ -2741,7 +2862,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send();
     }
 
-    const transfer = beginDirectTransfer(userId, request, reply);
+    const transfer = beginDirectTransfer(userId, 'download', request, reply);
     if (!transfer) return transferCapacityError(request, reply);
 
     let token: string;
@@ -2803,12 +2924,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const handleTrackStream = async (
     request: FastifyRequest<{
       Params: { id: string };
-      Querystring: { transcode?: string; start?: string };
+      Querystring: { transcode?: string; start?: string; clientId?: string };
     }>,
     reply: FastifyReply,
     head = false,
   ) => {
     const userId = request.user!.id;
+    const client = musicPlaybackClientQuerySchema.shape.clientId.safeParse(request.query.clientId || 'legacy');
+    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
     const track = await fastify.prisma.musicTrack.findFirst({
       where: { id: request.params.id, ...ownedTrackWhere(userId) },
       include: { driveFile: { include: { library: true } } },
@@ -2864,6 +2987,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           audioOnly: true,
           startSeconds,
           inputOptions: source.inputOptions,
+          ownerSessionId: `music_${createHash('sha256').update(`${userId}:${client.data}`).digest('hex').slice(0, 32)}`,
         });
         reply
           .header('Content-Type', 'audio/mp4')
@@ -2929,8 +3053,11 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send();
     }
 
-    const transfer = beginDirectTransfer(userId, request, reply);
-    if (!transfer) return transferCapacityError(request, reply);
+    const transfer = beginDirectTransfer(userId, client.data, request, reply);
+    if (!transfer) {
+      fastify.log.warn({ userId, clientId: client.data, code: 'MUSIC_TRANSFER_CAPACITY_REACHED' }, 'Music transfer capacity reached');
+      return transferCapacityError(request, reply);
+    }
 
     let token: string;
     try {
@@ -2964,6 +3091,17 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
     upstream.stream.on('error', (streamError) => {
+      request.log.error(
+        {
+          event: 'music_stream_error',
+          side: 'server',
+          code: 'UPSTREAM_STREAM_ERROR',
+          userId,
+          clientId: client.data,
+          err: streamError,
+        },
+        'Music upstream stream failed',
+      );
       transfer.abort();
       if (!reply.raw.writableEnded) reply.raw.destroy(streamError);
     });
@@ -2977,11 +3115,11 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       .status(upstream.status);
     return reply.send(upstream.stream);
   };
-  fastify.get<{ Params: { id: string }; Querystring: { transcode?: string; start?: string } }>(
+  fastify.get<{ Params: { id: string }; Querystring: { transcode?: string; start?: string; clientId?: string } }>(
     '/tracks/:id/stream',
     (request, reply) => handleTrackStream(request, reply),
   );
-  fastify.head<{ Params: { id: string }; Querystring: { transcode?: string; start?: string } }>(
+  fastify.head<{ Params: { id: string }; Querystring: { transcode?: string; start?: string; clientId?: string } }>(
     '/tracks/:id/stream',
     (request, reply) => handleTrackStream(request, reply, true),
   );

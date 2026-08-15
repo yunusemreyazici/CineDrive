@@ -50,7 +50,10 @@ export class SubtitleService {
     if (
       !track ||
       track.driveFile.status !== 'active' ||
-      track.driveFile.library.userId !== userId
+      (track.driveFile.library.userId !== userId &&
+        !(await this.prisma.libraryMembership.count({
+          where: { libraryId: track.driveFile.library.id, userId },
+        })))
     ) {
       throw new Error('SUBTITLE_NOT_FOUND');
     }

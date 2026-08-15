@@ -969,4 +969,58 @@ describe('Library API Integration Tests', () => {
     await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
     await app.prisma.library.deleteMany({ where: { id: privateLibraryId } });
   });
+
+  it('shares a library with a listener without granting management access', async () => {
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const adminCookie = adminLogin.cookies.find((cookie) => cookie.name === 'session_id')!.value;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/libraries',
+      cookies: { session_id: adminCookie },
+      payload: { name: 'Shared Library', rootFolderId: 'shared_folder' },
+    });
+    const libraryId = JSON.parse(created.body).library.id;
+    const password = 'ListenerPassword123!';
+    const listener = await app.prisma.user.create({
+      data: {
+        email: `listener-${Date.now()}@cinedrive.test`,
+        name: 'Listener',
+        passwordHash: await app.authService.hashPassword(password),
+      },
+    });
+    const granted = await app.inject({
+      method: 'PUT',
+      url: `/api/libraries/${libraryId}/members`,
+      cookies: { session_id: adminCookie },
+      payload: { userId: listener.id, role: 'listener' },
+    });
+    expect(granted.statusCode).toBe(200);
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: listener.email, password },
+    });
+    const listenerCookie = login.cookies.find((cookie) => cookie.name === 'session_id')!.value;
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/libraries',
+      cookies: { session_id: listenerCookie },
+    });
+    expect(JSON.parse(listed.body).libraries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: libraryId, accessRole: 'listener' })]),
+    );
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/api/libraries/${libraryId}`,
+      cookies: { session_id: listenerCookie },
+      payload: { name: 'Not allowed' },
+    });
+    expect(patched.statusCode).toBe(404);
+    await app.prisma.user.delete({ where: { id: listener.id } });
+    await app.prisma.library.delete({ where: { id: libraryId } });
+  });
 });

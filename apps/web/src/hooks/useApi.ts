@@ -12,6 +12,9 @@ import type {
   DriveSourceValidationDto,
   UpdateProgressInput,
   UpdateMediaMetadataInput,
+  CreateUserInput,
+  UpdateUserInput,
+  LibraryMemberDto,
 } from '@cinedrive/shared';
 import type { MediaItemType, WatchHistoryType, LibraryScanType, EpisodeType } from '../types/media';
 import { useUiStore } from '../stores/useUiStore';
@@ -21,13 +24,90 @@ export function useSessionQuery() {
   return useQuery({
     queryKey: ['session'],
     queryFn: async () => {
-      const res = await apiClient.get<{ authenticated: boolean; user: UserDto | null }>(
-        '/auth/session',
-      );
+      const res = await apiClient.get<{
+        authenticated: boolean;
+        user: UserDto | null;
+        authMode: 'single-user' | 'multi-user';
+      }>('/auth/session');
       return res.data;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: false,
+  });
+}
+
+export function useUsersQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: async () =>
+      (
+        await apiClient.get<{
+          users: UserDto[];
+          authMode: 'single-user' | 'multi-user';
+        }>('/auth/users')
+      ).data,
+    enabled,
+  });
+}
+
+export function useCreateUserMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateUserInput) =>
+      (await apiClient.post<{ user: UserDto }>('/auth/users', input)).data.user,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+}
+
+export function useUpdateUserMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: UpdateUserInput }) =>
+      (await apiClient.patch<{ user: UserDto }>(`/auth/users/${id}`, input)).data.user,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['users'] });
+      void queryClient.invalidateQueries({ queryKey: ['library-members'] });
+    },
+  });
+}
+
+export function useResetUserPasswordMutation() {
+  return useMutation({
+    mutationFn: async ({ id, password }: { id: string; password: string }) =>
+      apiClient.post(`/auth/users/${id}/reset-password`, { password }),
+  });
+}
+
+export function useLibraryMembersQuery(libraryId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['library-members', libraryId],
+    queryFn: async () =>
+      (
+        await apiClient.get<{ members: LibraryMemberDto[] }>(`/libraries/${libraryId}/members`)
+      ).data.members,
+    enabled: enabled && Boolean(libraryId),
+  });
+}
+
+export function useUpsertLibraryMemberMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, userId, role }: { libraryId: string; userId: string; role: 'editor' | 'listener' }) =>
+      apiClient.put(`/libraries/${libraryId}/members`, { userId, role }),
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['library-members', variables.libraryId] });
+    },
+  });
+}
+
+export function useRemoveLibraryMemberMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ libraryId, userId }: { libraryId: string; userId: string }) =>
+      apiClient.delete(`/libraries/${libraryId}/members/${userId}`),
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['library-members', variables.libraryId] });
+    },
   });
 }
 

@@ -4,7 +4,7 @@ import {
   batchDeleteMediaSchema,
   type UpdateMediaMetadataInput,
 } from '@cinedrive/shared';
-import { ownedMediaFilter } from '../utils/library-access.js';
+import { manageableMediaFilter } from '../utils/library-access.js';
 
 export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -31,7 +31,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
      * from the title (`media_movie_inception`), so they are guessable.
      */
     const mediaItems = await fastify.prisma.mediaItem.findMany({
-      where: { id: { in: ids }, ...ownedMediaFilter(request.user!.id) },
+      where: { id: { in: ids }, ...manageableMediaFilter(request.user!.id) },
       include: {
         movie: true,
         series: {
@@ -86,7 +86,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Someone else's media answers exactly like media that does not exist.
       const mediaItem = await fastify.prisma.mediaItem.findFirst({
-        where: { id, ...ownedMediaFilter(request.user!.id) },
+        where: { id, ...manageableMediaFilter(request.user!.id) },
       });
 
       if (!mediaItem) {
@@ -142,7 +142,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params;
 
     const mediaItem = await fastify.prisma.mediaItem.findFirst({
-      where: { id, ...ownedMediaFilter(request.user!.id) },
+      where: { id, ...manageableMediaFilter(request.user!.id) },
       include: {
         movie: true,
         series: {

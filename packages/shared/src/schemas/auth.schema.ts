@@ -22,3 +22,24 @@ export const changePasswordSchema = z.object({
 });
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+export const createUserSchema = z.object({
+  email: z.string().trim().email('Geçerli bir e-posta adresi giriniz.'),
+  name: z.string().trim().min(2).max(120),
+  password: z.string().min(8, 'Şifre en az 8 karakter olmalıdır.'),
+  role: z.enum(['admin', 'user']).default('user'),
+});
+
+export const updateUserSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  role: z.enum(['admin', 'user']).optional(),
+  disabled: z.boolean().optional(),
+});
+
+export const resetUserPasswordSchema = z.object({
+  password: z.string().min(8, 'Şifre en az 8 karakter olmalıdır.'),
+});
+
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type ResetUserPasswordInput = z.infer<typeof resetUserPasswordSchema>;

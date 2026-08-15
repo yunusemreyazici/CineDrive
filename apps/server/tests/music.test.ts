@@ -314,6 +314,68 @@ describe('Music library', () => {
     });
   });
 
+  it('allows shared listeners to play music but reserves metadata edits for editors', async () => {
+    const password = 'SharedMusicPassword123!';
+    const sharedUser = await app.prisma.user.create({
+      data: {
+        email: `shared-music-${randomUUID()}@cinedrive.test`,
+        name: 'Shared music user',
+        passwordHash: await app.authService.hashPassword(password),
+      },
+    });
+    await app.prisma.libraryMembership.create({
+      data: { libraryId, userId: sharedUser.id, role: 'listener' },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: sharedUser.email, password },
+    });
+    const sharedCookie = login.cookies.find((entry) => entry.name === 'session_id')!.value;
+
+    const tracks = await app.inject({
+      method: 'GET',
+      url: '/api/music/tracks',
+      cookies: { session_id: sharedCookie },
+    });
+    expect(tracks.statusCode).toBe(200);
+    expect(JSON.parse(tracks.body).tracks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: trackId })]),
+    );
+
+    const payload = {
+      title: 'Shared edit',
+      artist: 'Shared artist',
+      album: 'Shared album',
+      genres: [],
+      discNumber: 1,
+      trackNumber: 1,
+      releaseType: 'album',
+      metadataLocked: true,
+    };
+    const denied = await app.inject({
+      method: 'PATCH',
+      url: `/api/music/tracks/${trackId}/metadata`,
+      cookies: { session_id: sharedCookie },
+      payload,
+    });
+    expect(denied.statusCode).toBe(404);
+
+    await app.prisma.libraryMembership.update({
+      where: { libraryId_userId: { libraryId, userId: sharedUser.id } },
+      data: { role: 'editor' },
+    });
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/api/music/tracks/${trackId}/metadata`,
+      cookies: { session_id: sharedCookie },
+      payload,
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(JSON.parse(edited.body).track.title).toBe('Shared edit');
+    await app.prisma.user.delete({ where: { id: sharedUser.id } });
+  });
+
   it('returns premium album summaries and disc information', async () => {
     const albumId = (
       await app.prisma.musicTrack.findUniqueOrThrow({
@@ -717,8 +779,8 @@ describe('Music library', () => {
       data: { userId: user.id, trackId, listenedSeconds: 45 },
     });
     await app.prisma.musicPlaybackState.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, currentTrackId: trackId, positionSeconds: 38 },
+      where: { userId_clientId: { userId: user.id, clientId: 'legacy' } },
+      create: { userId: user.id, clientId: 'legacy', currentTrackId: trackId, positionSeconds: 38 },
       update: { currentTrackId: trackId, positionSeconds: 38 },
     });
     const discovery = await app.inject({
@@ -1248,5 +1310,55 @@ describe('Music library', () => {
       payload: state,
     });
     expect(stale.statusCode).toBe(409);
+  });
+
+  it('isolates playback queues and revisions by client', async () => {
+    const firstClient = `web_${randomUUID()}`;
+    const secondClient = `ios_${randomUUID()}`;
+    const firstQueueId = randomUUID();
+    const secondQueueId = randomUUID();
+    const stateFor = (queueId: string, positionSeconds: number) => ({
+      revision: 0,
+      currentTrackId: trackId,
+      currentQueueItemId: queueId,
+      positionSeconds,
+      shuffleEnabled: false,
+      repeatMode: 'off',
+      queue: [{ id: queueId, trackId, sourceOrder: 0, playOrder: 0 }],
+    });
+
+    for (const [clientId, state] of [
+      [firstClient, stateFor(firstQueueId, 12)],
+      [secondClient, stateFor(secondQueueId, 47)],
+    ] as const) {
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/api/music/playback-state?clientId=${clientId}&platform=${clientId.startsWith('ios') ? 'ios' : 'web'}`,
+        cookies: { session_id: cookie },
+        payload: state,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).revision).toBe(1);
+    }
+
+    const [first, second] = await Promise.all(
+      [firstClient, secondClient].map((clientId) =>
+        app.inject({
+          method: 'GET',
+          url: `/api/music/playback-state?clientId=${clientId}`,
+          cookies: { session_id: cookie },
+        }),
+      ),
+    );
+    expect(JSON.parse(first.body).state).toMatchObject({
+      clientId: firstClient,
+      positionSeconds: 12,
+      currentQueueItemId: firstQueueId,
+    });
+    expect(JSON.parse(second.body).state).toMatchObject({
+      clientId: secondClient,
+      positionSeconds: 47,
+      currentQueueItemId: secondQueueId,
+    });
   });
 });

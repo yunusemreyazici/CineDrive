@@ -32,6 +32,34 @@ describe('DriveAccessService', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it("uses the library owner's Drive token for an authorized member", async () => {
+    const getValidAccessToken = vi.fn().mockResolvedValue('owner-token');
+    const count = vi.fn().mockResolvedValue(1);
+    const service = new DriveAccessService(
+      { libraryMembership: { count } } as unknown as PrismaClient,
+      { getValidAccessToken } as unknown as GoogleOAuthService,
+      {} as unknown as GoogleDriveService,
+    );
+    const file = {
+      ...legacyFile(),
+      googleConnectionId: 'owner-connection',
+      library: {
+        id: 'library-1',
+        userId: 'owner-1',
+        googleConnectionId: 'owner-connection',
+      },
+    };
+
+    await expect(service.getAccess('listener-1', file)).resolves.toEqual({
+      accessToken: 'owner-token',
+      connectionId: 'owner-connection',
+    });
+    expect(count).toHaveBeenCalledWith({
+      where: { libraryId: 'library-1', userId: 'listener-1' },
+    });
+    expect(getValidAccessToken).toHaveBeenCalledWith('owner-1', 'owner-connection');
+  });
+
   it('repairs a legacy row with the account that can actually read the file', async () => {
     const file = legacyFile();
     const getConnectionsInfo = vi

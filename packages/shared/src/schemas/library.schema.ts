@@ -31,6 +31,12 @@ export const createDriveScanSourceSchema = z.object({
   rootFolderId: z.string().trim().default(''),
 });
 
+export const upsertLibraryMemberSchema = z.object({
+  userId: z.string().uuid(),
+  role: z.enum(['editor', 'listener']).default('listener'),
+});
+
 export type CreateLibraryInput = z.infer<typeof createLibrarySchema>;
 export type UpdateLibraryInput = z.infer<typeof updateLibrarySchema>;
 export type CreateDriveScanSourceInput = z.infer<typeof createDriveScanSourceSchema>;
+export type UpsertLibraryMemberInput = z.infer<typeof upsertLibraryMemberSchema>;

@@ -23,9 +23,11 @@ model User {
   preferredLanguages          String                       @default("tr,en")
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
+  disabledAt                  DateTime?
   sessions                    Session[]
   googleConnections           GoogleConnection[]
   libraries                   Library[]
+  libraryMemberships          LibraryMembership[]
   playbackProgresses          PlaybackProgress[]
   watchHistories              WatchHistory[]
   favorites                   Favorite[]
@@ -35,7 +37,7 @@ model User {
   musicFavorites              MusicFavorite[]
   musicHistory                MusicHistory[]
   musicPlaylists              MusicPlaylist[]
-  musicPlaybackState          MusicPlaybackState?
+  musicPlaybackStates         MusicPlaybackState[]
   musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
   musicMaintenanceActions     MusicMaintenanceAction[]
 }
@@ -92,7 +94,22 @@ model Library {
   mediaItems         MediaItem[]
   musicTracks        MusicTrack[]
   driveScanSources   DriveScanSource[]
+  memberships        LibraryMembership[]
 
+  @@index([userId])
+}
+
+model LibraryMembership {
+  id        String   @id @default(uuid())
+  libraryId String
+  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("listener")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([libraryId, userId])
   @@index([userId])
 }
 
@@ -643,8 +660,11 @@ model MusicPlaylistItem {
 
 model MusicPlaybackState {
   id                 String           @id @default(uuid())
-  userId             String           @unique
+  userId             String
   user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId           String           @default("legacy")
+  clientName         String?
+  platform           String           @default("unknown")
   currentTrackId     String?
   currentTrack       MusicTrack?      @relation("CurrentMusicTrack", fields: [currentTrackId], references: [id], onDelete: SetNull)
   currentQueueItemId String?
@@ -654,6 +674,9 @@ model MusicPlaybackState {
   revision           Int              @default(0)
   updatedAt          DateTime         @updatedAt
   queue              MusicQueueItem[]
+
+  @@unique([userId, clientId])
+  @@index([userId, updatedAt])
 }
 
 model MusicQueueItem {

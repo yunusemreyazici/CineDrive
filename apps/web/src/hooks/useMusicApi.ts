@@ -626,11 +626,27 @@ export const useToggleMusicFavoriteMutation = () => {
   });
 };
 
-export const fetchMusicPlaybackState = async () =>
-  (await apiClient.get<{ state: MusicPlaybackStateDto }>('/music/playback-state')).data.state;
+export interface MusicPlaybackClientIdentity {
+  clientId: string;
+  clientName: string;
+  platform: 'web';
+}
+
+export const fetchMusicPlaybackState = async (client: MusicPlaybackClientIdentity) =>
+  (
+    await apiClient.get<{ state: MusicPlaybackStateDto }>('/music/playback-state', {
+      params: { clientId: client.clientId, clientName: client.clientName, platform: client.platform },
+    })
+  ).data.state;
 
 export const saveMusicPlaybackState = async (
   state: Omit<MusicPlaybackStateDto, 'queue'> & {
     queue: Array<{ id: string; trackId: string; sourceOrder: number; playOrder: number }>;
   },
-) => (await apiClient.put<{ revision: number }>('/music/playback-state', state)).data;
+  client: MusicPlaybackClientIdentity,
+) =>
+  (
+    await apiClient.put<{ revision: number }>('/music/playback-state', state, {
+      params: { clientId: client.clientId, clientName: client.clientName, platform: client.platform },
+    })
+  ).data;

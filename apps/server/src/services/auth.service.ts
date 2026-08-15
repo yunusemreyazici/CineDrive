@@ -53,6 +53,10 @@ export class AuthService {
     if (!user || !user.passwordHash || !validPassword) {
       throw new Error('INVALID_CREDENTIALS');
     }
+    if (user.disabledAt) throw new Error('ACCOUNT_DISABLED');
+    if (env.NODE_ENV !== 'test' && env.APP_AUTH_MODE === 'single-user' && user.role !== 'admin') {
+      throw new Error('MULTI_USER_DISABLED');
+    }
 
     // Clean up any old expired sessions for this user
     await this.prisma.session.deleteMany({
@@ -98,7 +102,7 @@ export class AuthService {
 
     if (!session) return null;
 
-    if (session.expiresAt < new Date()) {
+    if (session.expiresAt < new Date() || session.user.disabledAt) {
       await this.prisma.session.delete({ where: { id: session.id } });
       return null;
     }
@@ -171,6 +175,72 @@ export class AuthService {
     });
   }
 
+  public async listUsers(): Promise<UserDto[]> {
+    const users = await this.prisma.user.findMany({ orderBy: { createdAt: 'asc' } });
+    return users.map((user) => this.toUserDto(user));
+  }
+
+  public async createUser(input: {
+    email: string;
+    name: string;
+    password: string;
+    role: 'admin' | 'user';
+  }): Promise<UserDto> {
+    const user = await this.prisma.user.create({
+      data: {
+        email: input.email.toLowerCase(),
+        name: input.name,
+        passwordHash: await this.hashPassword(input.password),
+        role: input.role,
+      },
+    });
+    return this.toUserDto(user);
+  }
+
+  public async updateUser(
+    actorUserId: string,
+    targetUserId: string,
+    input: { name?: string; role?: 'admin' | 'user'; disabled?: boolean },
+  ): Promise<UserDto> {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) throw new Error('USER_NOT_FOUND');
+    if (actorUserId === targetUserId && (input.disabled === true || input.role === 'user')) {
+      throw new Error('CANNOT_RESTRICT_SELF');
+    }
+    const removesActiveAdmin =
+      target.role === 'admin' && !target.disabledAt && (input.role === 'user' || input.disabled === true);
+    if (removesActiveAdmin) {
+      const activeAdmins = await this.prisma.user.count({
+        where: { role: 'admin', disabledAt: null },
+      });
+      if (activeAdmins <= 1) throw new Error('LAST_ADMIN_REQUIRED');
+    }
+    const user = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(input.disabled !== undefined ? { disabledAt: input.disabled ? new Date() : null } : {}),
+      },
+    });
+    if (input.disabled === true) {
+      await this.prisma.session.deleteMany({ where: { userId: targetUserId } });
+    }
+    return this.toUserDto(user);
+  }
+
+  public async resetUserPassword(targetUserId: string, password: string): Promise<void> {
+    const exists = await this.prisma.user.count({ where: { id: targetUserId } });
+    if (!exists) throw new Error('USER_NOT_FOUND');
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: targetUserId },
+        data: { passwordHash: await this.hashPassword(password) },
+      }),
+      this.prisma.session.deleteMany({ where: { userId: targetUserId } }),
+    ]);
+  }
+
   public toUserDto(user: User): UserDto {
     return {
       id: user.id,
@@ -178,6 +248,7 @@ export class AuthService {
       name: user.name,
       role: user.role as 'admin' | 'user',
       createdAt: user.createdAt.toISOString(),
+      disabled: Boolean(user.disabledAt),
     };
   }
 }

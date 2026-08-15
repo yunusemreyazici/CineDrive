@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { accessibleLibraryFilter } from '../utils/library-access.js';
 import type { MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
 import {
   formatMusicArtist,
@@ -223,7 +224,7 @@ export class MusicDiscoveryService {
   constructor(private readonly prisma: PrismaClient) {}
 
   public async getDiscovery(userId: string) {
-    const owned = { library: { userId } };
+    const owned = { library: accessibleLibraryFilter(userId) };
     const [rawTracks, history, playbackState, albums, artists] = await Promise.all([
       this.prisma.musicTrack.findMany({
         where: owned,
@@ -250,9 +251,12 @@ export class MusicDiscoveryService {
         orderBy: { playedAt: 'desc' },
         take: 1000,
       }),
-      this.prisma.musicPlaybackState.findUnique({ where: { userId } }),
+      this.prisma.musicPlaybackState.findFirst({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+      }),
       this.prisma.musicAlbum.findMany({
-        where: { userId, tracks: { some: owned } },
+        where: { tracks: { some: owned } },
         include: {
           artwork: { select: { id: true } },
           artist: true,
@@ -261,7 +265,7 @@ export class MusicDiscoveryService {
         take: 1000,
       }),
       this.prisma.musicArtist.findMany({
-        where: { userId, trackCredits: { some: { track: owned } } },
+        where: { trackCredits: { some: { track: owned } } },
         include: {
           _count: { select: { albums: true, trackCredits: true } },
           artwork: { select: { id: true } },
@@ -601,12 +605,20 @@ export class MusicDiscoveryService {
   public async getArtistRadio(userId: string, artistId: string) {
     const [rawTracks, artist, history] = await Promise.all([
       this.prisma.musicTrack.findMany({
-        where: { library: { userId } },
+        where: { library: accessibleLibraryFilter(userId) },
         include: musicTrackInclude(userId),
         orderBy: { createdAt: 'desc' },
         take: 5000,
       }),
-      this.prisma.musicArtist.findFirst({ where: { id: artistId, userId } }),
+      this.prisma.musicArtist.findFirst({
+        where: {
+          id: artistId,
+          OR: [
+            { trackCredits: { some: { track: { library: accessibleLibraryFilter(userId) } } } },
+            { albumTracks: { some: { library: accessibleLibraryFilter(userId) } } },
+          ],
+        },
+      }),
       this.prisma.musicHistory.findMany({
         where: { userId },
         select: { trackId: true },
@@ -626,7 +638,7 @@ export class MusicDiscoveryService {
   public async getTrackRadio(userId: string, trackId: string) {
     const [rawTracks, history] = await Promise.all([
       this.prisma.musicTrack.findMany({
-        where: { library: { userId } },
+        where: { library: accessibleLibraryFilter(userId) },
         include: musicTrackInclude(userId),
         orderBy: { createdAt: 'desc' },
         take: 5000,

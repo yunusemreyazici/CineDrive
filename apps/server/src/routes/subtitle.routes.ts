@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { ownedMediaFilter } from '../utils/library-access.js';
+import { manageableMediaFilter, ownedMediaFilter } from '../utils/library-access.js';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -171,7 +171,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.prisma.user.findUnique({ where: { id: userId } }),
         mediaId
           ? fastify.prisma.mediaItem.findFirst({
-              where: { id: mediaId, ...ownedMediaFilter(userId) },
+              where: { id: mediaId, ...manageableMediaFilter(userId) },
               include: { movie: true },
             })
           : null,
@@ -180,7 +180,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
               where: {
                 id: episodeId,
                 ...(mediaId ? { mediaItemId: mediaId } : {}),
-                mediaItem: ownedMediaFilter(userId),
+                mediaItem: manageableMediaFilter(userId),
               },
             })
           : null,
@@ -316,7 +316,7 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
     const [mediaItem, user] = await Promise.all([
       fastify.prisma.mediaItem.findFirst({
-        where: { id: mediaId, ...ownedMediaFilter(userId) },
+        where: { id: mediaId, ...manageableMediaFilter(userId) },
         include: {
           movie: true,
           episodes: {

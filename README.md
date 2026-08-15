@@ -244,6 +244,8 @@ Never commit `.env`, the OAuth client secret, or downloaded Google credential fi
 
 The administrator from `ADMIN_EMAIL` and `ADMIN_PASSWORD` is created on first boot. After signing in, connect Drive accounts and create libraries from Settings.
 
+For multiple accounts, set `APP_AUTH_MODE=multi-user`, restart the server, then use Settings → Account to create users and grant listener or editor access to libraries. Playback state is isolated per user and playback client, so web tabs and iOS devices do not overwrite one another.
+
 ## Configuration
 
 `.env.example` contains the deployment-oriented defaults. The most important settings are:
@@ -256,6 +258,7 @@ The administrator from `ADMIN_EMAIL` and `ADMIN_PASSWORD` is created on first bo
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`     | Google OAuth client credentials.                                         |
 | `GOOGLE_REDIRECT_URI`                          | OAuth callback; must exactly match the URL registered with Google.       |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`                | Initial administrator created on first boot.                             |
+| `APP_AUTH_MODE`                                | Use `multi-user` to enable administrator-managed account sign-in.        |
 | `METADATA_LANGUAGE`                            | Language used for metadata fetched during future scans; default `tr-TR`. |
 | `MUSIC_METADATA_ONLINE`                        | Enables conservative MusicBrainz completion for missing local tags.      |
 | `HLS_MAX_ACTIVE_JOBS`                          | Maximum simultaneous HLS encoding jobs.                                  |

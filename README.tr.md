@@ -244,6 +244,8 @@ CineDrive sunucu taraflı OAuth 2.0 akışı kullanır. Mevcut dosyaları bulup 
 
 `ADMIN_EMAIL` ve `ADMIN_PASSWORD` ile tanımlanan yönetici ilk açılışta oluşturulur. Giriş yaptıktan sonra Ayarlar'dan Drive hesaplarını bağlayıp kütüphane oluşturabilirsiniz.
 
+Birden fazla hesap için `APP_AUTH_MODE=multi-user` ayarlayıp sunucuyu yeniden başlatın; ardından Ayarlar → Hesap bölümünden kullanıcı oluşturup kütüphanelere listener veya editor erişimi verin. Oynatma durumu kullanıcı ve oynatıcı istemcisi bazında izole edildiği için web sekmeleri ile iOS cihazları birbirinin durumunu ezmez.
+
 ## Yapılandırma
 
 `.env.example` dağıtım odaklı varsayılanları içerir. En önemli ayarlar:
@@ -256,6 +258,7 @@ CineDrive sunucu taraflı OAuth 2.0 akışı kullanır. Mevcut dosyaları bulup 
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`     | Google OAuth istemci bilgileri.                                                |
 | `GOOGLE_REDIRECT_URI`                          | OAuth callback adresi; Google'da kayıtlı adresle birebir aynı olmalı.          |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`                | İlk açılışta oluşturulan yönetici.                                             |
+| `APP_AUTH_MODE`                                | Yönetici tarafından oluşturulan hesap girişleri için `multi-user` kullanılır. |
 | `METADATA_LANGUAGE`                            | Gelecek taramalarda çekilecek metadata dili; varsayılan `tr-TR`.               |
 | `MUSIC_METADATA_ONLINE`                        | Eksik yerel etiketlerin tutucu MusicBrainz eşleşmeleriyle tamamlanmasını açar. |
 | `HLS_MAX_ACTIVE_JOBS`                          | Aynı anda çalışabilecek HLS kodlama işi sayısı.                                |

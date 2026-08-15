@@ -3,12 +3,14 @@ import {
   createDriveScanSourceSchema,
   createLibrarySchema,
   updateLibrarySchema,
+  upsertLibraryMemberSchema,
   type CreateDriveScanSourceInput,
   type CreateLibraryInput,
   type UpdateLibraryInput,
 } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 import type { DriveFolderInspection } from '../services/drive.service.js';
+import { accessibleLibraryFilter, manageableLibraryFilter } from '../utils/library-access.js';
 
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -20,6 +22,8 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
    * endpoint never confirms that an id is real to a caller who cannot use it.
    */
   const findOwnedLibrary = (id: string, userId: string) =>
+    fastify.prisma.library.findFirst({ where: { id, ...manageableLibraryFilter(userId) } });
+  const findOwnerLibrary = (id: string, userId: string) =>
     fastify.prisma.library.findFirst({ where: { id, userId } });
 
   const serializeScanSummary = (scan: {
@@ -115,9 +119,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = request.user!.id;
 
     let libraries = await fastify.prisma.library.findMany({
-      where: { userId },
+      where: accessibleLibraryFilter(userId),
       orderBy: { createdAt: 'asc' },
       include: {
+        memberships: { where: { userId }, select: { role: true } },
         _count: { select: { files: true } },
         scans: {
           orderBy: { startedAt: 'desc' },
@@ -129,19 +134,21 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Keep one configurable Google Drive library available. The environment
     // value is only an initial default and never overwrites UI changes.
-    if (!libraries.some((library) => library.storageType === 'gdrive')) {
+    if (request.user!.role === 'admin' && !libraries.some((library) => library.userId === userId && library.storageType === 'gdrive')) {
       await fastify.prisma.library.create({
         data: {
           userId,
           name: 'Google Drive',
           storageType: 'gdrive',
           rootFolderId: env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',
+          memberships: { create: { userId, role: 'owner' } },
         },
       });
       libraries = await fastify.prisma.library.findMany({
-        where: { userId },
+        where: accessibleLibraryFilter(userId),
         orderBy: { createdAt: 'asc' },
         include: {
+          memberships: { where: { userId }, select: { role: true } },
           _count: { select: { files: true } },
           scans: {
             orderBy: { startedAt: 'desc' },
@@ -153,8 +160,9 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return reply.status(200).send({
-      libraries: libraries.map(({ _count, scans, ...library }) => ({
+      libraries: libraries.map(({ _count, scans, memberships, ...library }) => ({
         ...library,
+        accessRole: library.userId === userId ? 'owner' : memberships[0]?.role || 'listener',
         fileCount: _count.files,
         lastScan: scans[0] ? serializeScanSummary(scans[0]) : null,
       })),
@@ -187,6 +195,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           rootFolderId: rootFolderId || '',
           localFolderPath: localFolderPath || null,
           googleConnectionId: googleConnectionId || null,
+          memberships: { create: { userId: request.user!.id, role: 'owner' } },
         },
       });
 
@@ -201,6 +210,53 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
+  });
+
+  fastify.get<{ Params: { id: string } }>('/:id/members', async (request, reply) => {
+    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    const memberships = await fastify.prisma.libraryMembership.findMany({
+      where: { libraryId: library.id },
+      include: { user: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const owner = await fastify.prisma.user.findUnique({ where: { id: library.userId } });
+    return {
+      members: [
+        ...(owner ? [{ id: `owner:${owner.id}`, userId: owner.id, name: owner.name, email: owner.email, role: 'owner', createdAt: library.createdAt.toISOString() }] : []),
+        ...memberships.filter((membership) => membership.userId !== library.userId).map((membership) => ({
+          id: membership.id,
+          userId: membership.userId,
+          name: membership.user.name,
+          email: membership.user.email,
+          role: membership.role,
+          createdAt: membership.createdAt.toISOString(),
+        })),
+      ],
+    };
+  });
+
+  fastify.put<{ Params: { id: string } }>('/:id/members', async (request, reply) => {
+    const library = await findOwnerLibrary(request.params.id, request.user!.id);
+    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    const parsed = upsertLibraryMemberSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz üyelik bilgileri.', requestId: request.id, details: parsed.error.format() } });
+    if (parsed.data.userId === library.userId) return reply.status(409).send({ error: { code: 'OWNER_MEMBERSHIP_IMMUTABLE', message: 'Kütüphane sahibi üyelik olarak değiştirilemez.', requestId: request.id } });
+    const user = await fastify.prisma.user.findFirst({ where: { id: parsed.data.userId, disabledAt: null } });
+    if (!user) return reply.status(404).send({ error: { code: 'USER_NOT_FOUND', message: 'Kullanıcı bulunamadı.', requestId: request.id } });
+    const membership = await fastify.prisma.libraryMembership.upsert({
+      where: { libraryId_userId: { libraryId: library.id, userId: user.id } },
+      create: { libraryId: library.id, userId: user.id, role: parsed.data.role },
+      update: { role: parsed.data.role },
+    });
+    return { membership };
+  });
+
+  fastify.delete<{ Params: { id: string; userId: string } }>('/:id/members/:userId', async (request, reply) => {
+    const library = await findOwnerLibrary(request.params.id, request.user!.id);
+    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    await fastify.prisma.libraryMembership.deleteMany({ where: { libraryId: library.id, userId: request.params.userId } });
+    return reply.status(204).send();
   });
 
   // PATCH /api/libraries/:id: Update library
@@ -649,7 +705,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   // Removing a local library also removes its indexed CineDrive records. The
   // folder and files on disk are never modified.
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
-    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    const library = await findOwnerLibrary(request.params.id, request.user!.id);
     if (!library) {
       return reply.status(404).send({
         error: {

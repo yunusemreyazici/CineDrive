@@ -157,4 +157,50 @@ describe('Auth & Health API Integration Tests', () => {
 
     expect(logoutResponse.statusCode).toBe(200);
   });
+
+  it('lets an administrator create and disable a user account', async () => {
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const adminCookie = adminLogin.cookies.find((cookie) => cookie.name === 'session_id')!.value;
+    const email = `managed-${Date.now()}@cinedrive.test`;
+    const password = 'ManagedUserPassword123!';
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/auth/users',
+      cookies: { session_id: adminCookie },
+      payload: { email, name: 'Managed User', password, role: 'user' },
+    });
+    expect(created.statusCode).toBe(201);
+    const user = JSON.parse(created.body).user;
+    expect(user).toMatchObject({ email, role: 'user', disabled: false });
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email, password },
+    });
+    expect(login.statusCode).toBe(200);
+
+    const disabled = await app.inject({
+      method: 'PATCH',
+      url: `/api/auth/users/${user.id}`,
+      cookies: { session_id: adminCookie },
+      payload: { disabled: true },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(JSON.parse(disabled.body).user.disabled).toBe(true);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          payload: { email, password },
+        })
+      ).statusCode,
+    ).toBe(403);
+    await app.prisma.user.delete({ where: { id: user.id } });
+  });
 });
