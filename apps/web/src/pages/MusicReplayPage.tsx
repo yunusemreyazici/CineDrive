@@ -16,10 +16,11 @@ import { Link } from 'react-router-dom';
 import { ArtistArtworkFallback } from '../components/music/ArtistArtworkFallback';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { ErrorState } from '../components/common/ErrorState';
+import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { useMusicReplayQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
 
-type ReplayPeriod = 'week' | 'month' | 'year';
+type ReplayPeriod = 'day' | 'week' | 'month' | 'year';
 
 const panelClass = 'rounded-2xl border border-white/[0.07] bg-white/[0.025]';
 
@@ -80,6 +81,7 @@ const ReplayStat: React.FC<{ icon: LucideIcon; label: string; value: string }> =
 );
 
 export const MusicReplayPage: React.FC = () => {
+  const player = useMusicPlayer();
   const currentYear = new Date().getFullYear();
   const [period, setPeriod] = useState<ReplayPeriod>('week');
   const [year, setYear] = useState(currentYear);
@@ -218,7 +220,7 @@ export const MusicReplayPage: React.FC = () => {
               role="group"
               aria-label={t.music.replayPeriodLabel}
             >
-              {(['week', 'month', 'year'] as const).map((item) => (
+              {(['day', 'week', 'month', 'year'] as const).map((item) => (
                 <button
                   key={item}
                   type="button"
@@ -306,12 +308,14 @@ export const MusicReplayPage: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-r from-[#100d11] via-[#100d11]/90 to-[#100d11]/45" />
                 <div className="relative flex min-w-0 items-center gap-5">
                   {topArtist && (
-                    <ReplayArtwork
-                      src={topArtist.artworkUrl}
-                      name={topArtist.name}
-                      round
-                      className="h-28 w-28 shrink-0 border border-white/10 shadow-2xl sm:h-36 sm:w-36"
-                    />
+                    <Link to={`/music/artists/${topArtist.id}`} aria-label={topArtist.name}>
+                      <ReplayArtwork
+                        src={topArtist.artworkUrl}
+                        name={topArtist.name}
+                        round
+                        className="h-28 w-28 shrink-0 border border-white/10 shadow-2xl transition-transform hover:scale-[1.02] sm:h-36 sm:w-36"
+                      />
+                    </Link>
                   )}
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-300">
@@ -339,7 +343,11 @@ export const MusicReplayPage: React.FC = () => {
                     {t.music.replayTopTrack}
                   </p>
                   {topTrack && (
-                    <div className="mt-4 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => player.playTracks(data.topTracks.map((item) => item.track), 0)}
+                      className="group mt-4 flex w-full items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                    >
                       <ReplayArtwork
                         src={topTrack.track.artworkUrl}
                         name={topTrack.track.title}
@@ -347,13 +355,13 @@ export const MusicReplayPage: React.FC = () => {
                       />
                       <div className="min-w-0">
                         <p className="truncate text-base font-semibold text-zinc-100">
-                          {topTrack.track.title}
+                          <span className="group-hover:text-brand-300">{topTrack.track.title}</span>
                         </p>
                         <p className="mt-1 truncate text-xs text-zinc-500">
                           {topTrack.track.primaryArtist?.name || t.music.unknownArtist}
                         </p>
                       </div>
-                    </div>
+                    </button>
                   )}
                 </div>
                 <p className="mt-5 text-xs text-zinc-500">

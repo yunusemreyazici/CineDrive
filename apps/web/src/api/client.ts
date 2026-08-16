@@ -41,6 +41,7 @@ export type QueryParams = Record<string, string | number | boolean | undefined |
 
 export interface RequestConfig {
   params?: QueryParams;
+  timeoutMs?: number;
 }
 
 /** Same rule axios applied: `undefined` and `null` values are left out. */
@@ -62,7 +63,7 @@ const request = async <T>(
   config?: RequestConfig,
 ): Promise<{ data: T }> => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), config?.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(`${baseURL}${path}${buildQuery(config?.params)}`, {

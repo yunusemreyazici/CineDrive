@@ -585,7 +585,7 @@ export const en: Translations = {
     tapTiming: 'Set to current time',
     replay: 'CineDrive Replay',
     replayHint: 'A clear, personal summary of your listening habits',
-    replayPeriods: { week: 'Week', month: 'Month', year: 'Year' },
+    replayPeriods: { day: 'Day', week: 'Week', month: 'Month', year: 'Year' },
     replayPeriodLabel: 'Replay period',
     replayPreviousYear: 'Previous year',
     replayNextYear: 'Next year',

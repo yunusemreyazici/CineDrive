@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { accessibleLibraryFilter } from '../utils/library-access.js';
-import type { MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
+import type { MusicDiscoveryDto, MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
 import {
   formatMusicArtist,
   formatMusicTrack,
@@ -46,9 +46,18 @@ const ignoredGenres = new Set([
 const isUsefulGenre = (genre: string) =>
   genre.length >= 3 && !ignoredGenres.has(genre) && !genre.startsWith('music for ');
 
-const trackGenres = (track: MusicTrackDto) => [
-  ...new Set([...track.genres, ...(track.album?.genres || [])].map(normalizeGenre).filter(Boolean)),
-];
+const normalizedTrackGenres = new WeakMap<MusicTrackDto, string[]>();
+const trackGenres = (track: MusicTrackDto) => {
+  const cached = normalizedTrackGenres.get(track);
+  if (cached) return cached;
+  const genres = [
+    ...new Set(
+      [...track.genres, ...(track.album?.genres || [])].map(normalizeGenre).filter(Boolean),
+    ),
+  ];
+  normalizedTrackGenres.set(track, genres);
+  return genres;
+};
 
 const trackArtistKey = (track: MusicTrackDto) =>
   track.primaryArtist?.id || track.artists[0]?.id || `unknown:${track.id}`;
@@ -221,9 +230,32 @@ export const buildRadioMix = (
 };
 
 export class MusicDiscoveryService {
+  private readonly discoveryCache = new Map<
+    string,
+    { expiresAt: number; value: MusicDiscoveryDto }
+  >();
+  private readonly discoveryInflight = new Map<string, Promise<MusicDiscoveryDto>>();
+
   constructor(private readonly prisma: PrismaClient) {}
 
-  public async getDiscovery(userId: string) {
+  public async getDiscovery(userId: string): Promise<MusicDiscoveryDto> {
+    const cached = this.discoveryCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const inflight = this.discoveryInflight.get(userId);
+    if (inflight) return inflight;
+
+    const task = this.computeDiscovery(userId);
+    this.discoveryInflight.set(userId, task);
+    try {
+      const value = await task;
+      this.discoveryCache.set(userId, { expiresAt: Date.now() + 90_000, value });
+      return value;
+    } finally {
+      this.discoveryInflight.delete(userId);
+    }
+  }
+
+  private async computeDiscovery(userId: string): Promise<MusicDiscoveryDto> {
     const owned = { library: accessibleLibraryFilter(userId) };
     const [rawTracks, history, playbackState, albums, artists] = await Promise.all([
       this.prisma.musicTrack.findMany({
@@ -260,14 +292,19 @@ export class MusicDiscoveryService {
         include: {
           artwork: { select: { id: true } },
           artist: true,
-          _count: { select: { tracks: true } },
+          _count: { select: { tracks: { where: owned } } },
         },
         take: 1000,
       }),
       this.prisma.musicArtist.findMany({
         where: { trackCredits: { some: { track: owned } } },
         include: {
-          _count: { select: { albums: true, trackCredits: true } },
+          _count: {
+            select: {
+              albums: { where: { tracks: { some: owned } } },
+              trackCredits: { where: { track: owned } },
+            },
+          },
           artwork: { select: { id: true } },
         },
         take: 1000,
@@ -275,8 +312,20 @@ export class MusicDiscoveryService {
     ]);
     const tracks = rawTracks.map(formatMusicTrack);
     const trackById = new Map(tracks.map((track) => [track.id, track]));
-    const listenedIds = new Set(history.map((entry) => entry.trackId));
-    const recentlyListenedIds = new Set(history.slice(0, 80).map((entry) => entry.trackId));
+    const isMeaningfulListen = (entry: (typeof history)[number]) => {
+      const threshold = entry.track.duration
+        ? Math.min(30, entry.track.duration * 0.45)
+        : 15;
+      return entry.listenedSeconds >= threshold;
+    };
+    // A quick skip is not a completed listen: keep that track eligible for
+    // rediscovery instead of teaching the recommendation model to hide it.
+    const listenedIds = new Set(
+      history.filter(isMeaningfulListen).map((entry) => entry.trackId),
+    );
+    const recentlyListenedIds = new Set(
+      history.filter(isMeaningfulListen).slice(0, 80).map((entry) => entry.trackId),
+    );
     const artistWeights = new Map<string, number>();
     const genreWeights = new Map<string, number>();
     history.forEach((entry, index) => {
@@ -396,25 +445,28 @@ export class MusicDiscoveryService {
       .filter((item) => item.tracks.length >= 8 && artistDiversity(item.tracks) >= 3);
 
     const genreCounts = new Map<string, { label: string; count: number }>();
+    const genreArtists = new Map<string, Set<string>>();
     for (const track of tracks) {
       const labels = [...track.genres, ...(track.album?.genres || [])];
+      const countedGenres = new Set<string>();
       for (const label of labels) {
         const key = normalizeGenre(label);
-        if (!key) continue;
+        if (!key || !countedGenres.add(key)) continue;
         const current = genreCounts.get(key);
         genreCounts.set(key, {
           label: current?.label || label.trim(),
           count: (current?.count || 0) + 1,
         });
+        const artistKey = trackArtistKey(track);
+        const artistIDs = genreArtists.get(key) || new Set<string>();
+        artistIDs.add(artistKey);
+        genreArtists.set(key, artistIDs);
       }
     }
     const rankedGenres = [...genreCounts.entries()]
       .filter(([, value]) => value.count >= 4)
       .filter(([genre]) => isUsefulGenre(genre))
-      .filter(
-        ([genre]) =>
-          artistDiversity(tracks.filter((track) => trackGenres(track).includes(genre))) >= 3,
-      )
+      .filter(([genre]) => (genreArtists.get(genre)?.size || 0) >= 3)
       .sort((left, right) => right[1].count - left[1].count);
     const selectedGenres: typeof rankedGenres = [];
     for (const entry of rankedGenres) {
@@ -493,12 +545,19 @@ export class MusicDiscoveryService {
       set.add(entry.trackId);
       albumHistory.set(entry.track.albumId, set);
     });
+    const tracksByAlbum = new Map<string, MusicTrackDto[]>();
+    for (const track of tracks) {
+      const albumId = track.album?.id;
+      if (!albumId) continue;
+      const albumTracks = tracksByAlbum.get(albumId) || [];
+      albumTracks.push(track);
+      tracksByAlbum.set(albumId, albumTracks);
+    }
     const unfinishedAlbums = albums
       .map((album) => {
         const played = albumHistory.get(album.id)?.size || 0;
         const progress = album._count.tracks ? played / album._count.tracks : 0;
-        const albumTracks = tracks
-          .filter((track) => track.album?.id === album.id)
+        const albumTracks = (tracksByAlbum.get(album.id) || [])
           .sort((a, b) => a.discNumber - b.discNumber || a.trackNumber - b.trackNumber);
         return {
           id: album.id,

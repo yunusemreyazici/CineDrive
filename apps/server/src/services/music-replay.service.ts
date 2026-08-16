@@ -1,11 +1,16 @@
 import type { PrismaClient } from '@prisma/client';
 import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
 
-export type ReplayPeriod = 'week' | 'month' | 'year';
+export type ReplayPeriod = 'day' | 'week' | 'month' | 'year';
 
 const periodStart = (period: ReplayPeriod, year?: number) => {
   const now = new Date();
   if (period === 'year') return new Date(Date.UTC(year || now.getUTCFullYear(), 0, 1));
+  if (period === 'day') {
+    const result = new Date(now);
+    result.setHours(0, 0, 0, 0);
+    return result;
+  }
   const result = new Date(now);
   result.setUTCDate(result.getUTCDate() - (period === 'week' ? 7 : 30));
   return result;

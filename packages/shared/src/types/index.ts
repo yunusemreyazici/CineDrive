@@ -324,6 +324,7 @@ export interface MusicPlaylistDto {
   itemCount: number;
   duration: number;
   updatedAt: string;
+  trackIds?: string[];
   items?: Array<{ id: string; position: number; track: MusicTrackDto }>;
 }
 
@@ -485,7 +486,7 @@ export interface MusicLyricsDto {
 }
 
 export interface MusicReplayDto {
-  period: 'week' | 'month' | 'year';
+  period: 'day' | 'week' | 'month' | 'year';
   year: number | null;
   range: { start: string; end: string };
   totalSeconds: number;

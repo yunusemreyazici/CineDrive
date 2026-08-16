@@ -55,7 +55,7 @@ export const useMusicDiscoveryQuery = () =>
     staleTime: 5 * 60 * 1000,
   });
 
-export const useMusicReplayQuery = (period: 'week' | 'month' | 'year', year?: number) =>
+export const useMusicReplayQuery = (period: 'day' | 'week' | 'month' | 'year', year?: number) =>
   useQuery({
     queryKey: ['music', 'replay', period, year],
     queryFn: async () =>
@@ -349,7 +349,7 @@ export const useScanArtistArtworkMutation = () => {
         await apiClient.post<ArtistArtworkScanResult>('/music/maintenance/artists/artwork/scan', {
           limit: 12,
           ...input,
-        })
+        }, { timeoutMs: 120_000 })
       ).data,
     onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
   });

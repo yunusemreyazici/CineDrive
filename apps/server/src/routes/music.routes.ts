@@ -333,7 +333,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         include: {
           artwork: { select: { id: true } },
           artist: true,
-          _count: { select: { tracks: true } },
+          _count: { select: { tracks: { where: trackWhere } } },
         },
         orderBy: { createdAt: 'desc' },
         take: 12,
@@ -341,7 +341,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.prisma.musicArtist.findMany({
         where: { trackCredits: { some: { track: trackWhere } } },
         include: {
-          _count: { select: { albums: true, trackCredits: true } },
+          _count: {
+            select: {
+              albums: { where: { tracks: { some: trackWhere } } },
+              trackCredits: { where: { track: trackWhere } },
+            },
+          },
           artwork: { select: { id: true } },
         },
         orderBy: { name: 'asc' },
@@ -372,6 +377,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         itemCount: playlist.items.length,
         duration: playlist.items.reduce((total, item) => total + (item.track.duration || 0), 0),
         updatedAt: playlist.updatedAt.toISOString(),
+        trackIds: playlist.items.map((item) => item.trackId),
       })),
       recentHistory: recentHistory.map((entry) => ({
         id: entry.id,
@@ -424,7 +430,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.prisma.musicArtist.findMany({
           where: { trackCredits: { some: { track: trackWhere } } },
           include: {
-            _count: { select: { albums: true, trackCredits: true } },
+            _count: {
+              select: {
+                albums: { where: { tracks: { some: trackWhere } } },
+                trackCredits: { where: { track: trackWhere } },
+              },
+            },
             artwork: { select: { id: true } },
           },
           orderBy: { name: 'asc' },
@@ -460,6 +471,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         itemCount: playlist.items.length,
         duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
         updatedAt: playlist.updatedAt.toISOString(),
+        trackIds: playlist.items.map((item) => item.trackId),
       })),
       favoriteTrackIds: favoriteTrackIds.map((favorite) => favorite.trackId),
       history: history.map((entry) => ({
@@ -1271,8 +1283,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const { search, artistId, page, limit, sortOrder } = parsed.data;
+    const trackWhere = ownedTrackWhere(request.user!.id);
     const where: Prisma.MusicAlbumWhereInput = {
-      tracks: { some: ownedTrackWhere(request.user!.id) },
+      tracks: { some: trackWhere },
       ...(artistId ? { artistId } : {}),
       ...(search
         ? { OR: [{ title: { contains: search } }, { artist: { name: { contains: search } } }] }
@@ -1284,7 +1297,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         include: {
           artwork: { select: { id: true } },
           artist: true,
-          _count: { select: { tracks: true } },
+          _count: { select: { tracks: { where: trackWhere } } },
         },
         orderBy: { title: sortOrder },
         skip: (page - 1) * limit,
@@ -1300,14 +1313,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { id: string } }>('/albums/:id', async (request, reply) => {
     const userId = request.user!.id;
+    const trackWhere = ownedTrackWhere(userId);
     const album = await fastify.prisma.musicAlbum.findFirst({
-      where: { id: request.params.id, tracks: { some: ownedTrackWhere(userId) } },
+      where: { id: request.params.id, tracks: { some: trackWhere } },
       include: {
         artwork: { select: { id: true } },
         artist: true,
-        _count: { select: { tracks: true } },
+        _count: { select: { tracks: { where: trackWhere } } },
         tracks: {
-          where: ownedTrackWhere(userId),
+          where: trackWhere,
           include: musicTrackInclude(userId),
           orderBy: [{ discNumber: 'asc' }, { trackNumber: 'asc' }, { title: 'asc' }],
         },
@@ -1322,12 +1336,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       ? await fastify.prisma.musicAlbum.findMany({
           where: {
             id: { not: album.id },
-            tracks: { some: ownedTrackWhere(userId) },
+            tracks: { some: trackWhere },
           },
           include: {
             artwork: { select: { id: true } },
             artist: true,
-            _count: { select: { tracks: true } },
+            _count: { select: { tracks: { where: trackWhere } } },
           },
           take: 60,
         })
@@ -1373,10 +1387,16 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/artists', async (request) => {
     const userId = request.user!.id;
+    const trackWhere = ownedTrackWhere(userId);
     const artists = await fastify.prisma.musicArtist.findMany({
-      where: { trackCredits: { some: { track: ownedTrackWhere(userId) } } },
+      where: { trackCredits: { some: { track: trackWhere } } },
       include: {
-        _count: { select: { albums: true, trackCredits: true } },
+        _count: {
+          select: {
+            albums: { where: { tracks: { some: trackWhere } } },
+            trackCredits: { where: { track: trackWhere } },
+          },
+        },
         artwork: { select: { id: true } },
       },
       orderBy: { name: 'asc' },
@@ -1388,24 +1408,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { id: string } }>('/artists/:id', async (request, reply) => {
     const userId = request.user!.id;
+    const trackWhere = ownedTrackWhere(userId);
     const artist = await fastify.prisma.musicArtist.findFirst({
       where: {
         id: request.params.id,
-        trackCredits: { some: { track: ownedTrackWhere(userId) } },
+        trackCredits: { some: { track: trackWhere } },
       },
       include: {
         artwork: { select: { id: true } },
         albums: {
-          where: { tracks: { some: ownedTrackWhere(userId) } },
+          where: { tracks: { some: trackWhere } },
           include: {
             artwork: { select: { id: true } },
             artist: true,
-            _count: { select: { tracks: true } },
+            _count: { select: { tracks: { where: trackWhere } } },
           },
           orderBy: { year: 'desc' },
         },
         trackCredits: {
-          where: { track: ownedTrackWhere(userId) },
+          where: { track: trackWhere },
           include: { track: { include: musicTrackInclude(userId) } },
           orderBy: { position: 'asc' },
         },
@@ -1428,13 +1449,18 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       ? await fastify.prisma.musicArtist.findMany({
           where: {
             id: { not: artist.id },
-            trackCredits: { some: { track: ownedTrackWhere(userId) } },
+            trackCredits: { some: { track: trackWhere } },
           },
           include: {
-            _count: { select: { albums: true, trackCredits: true } },
+            _count: {
+              select: {
+                albums: { where: { tracks: { some: trackWhere } } },
+                trackCredits: { where: { track: trackWhere } },
+              },
+            },
             artwork: { select: { id: true } },
             trackCredits: {
-              where: { track: ownedTrackWhere(userId) },
+              where: { track: trackWhere },
               select: { track: { select: { genres: true } } },
             },
           },
@@ -1474,12 +1500,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/search', async (request) => {
     const userId = request.user!.id;
+    const trackWhere = ownedTrackWhere(userId);
     const q = String((request.query as { q?: string }).q || '').trim();
     if (!q) return { tracks: [], albums: [], artists: [] };
     const [tracks, albums, artists] = await Promise.all([
       fastify.prisma.musicTrack.findMany({
         where: {
-          ...ownedTrackWhere(userId),
+          ...trackWhere,
           OR: [
             { title: { contains: q } },
             { primaryArtist: { name: { contains: q } } },
@@ -1491,23 +1518,28 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicAlbum.findMany({
         where: {
-          tracks: { some: ownedTrackWhere(userId) },
+          tracks: { some: trackWhere },
           OR: [{ title: { contains: q } }, { artist: { name: { contains: q } } }],
         },
         include: {
           artwork: { select: { id: true } },
           artist: true,
-          _count: { select: { tracks: true } },
+          _count: { select: { tracks: { where: trackWhere } } },
         },
         take: 6,
       }),
       fastify.prisma.musicArtist.findMany({
         where: {
           name: { contains: q },
-          trackCredits: { some: { track: ownedTrackWhere(userId) } },
+          trackCredits: { some: { track: trackWhere } },
         },
         include: {
-          _count: { select: { albums: true, trackCredits: true } },
+          _count: {
+            select: {
+              albums: { where: { tracks: { some: trackWhere } } },
+              trackCredits: { where: { track: trackWhere } },
+            },
+          },
           artwork: { select: { id: true } },
         },
         take: 6,
@@ -1665,6 +1697,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         itemCount: playlist.items.length,
         duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
         updatedAt: playlist.updatedAt.toISOString(),
+        trackIds: playlist.items.map((item) => item.trackId),
       })),
     };
   });

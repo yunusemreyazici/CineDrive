@@ -52,14 +52,14 @@ export const MusicArtistPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-10 overflow-x-clip pb-32">
+    <div className="min-w-0 space-y-8 overflow-x-clip pb-32 sm:space-y-10">
       <PlaylistDestinationModal
         tracks={artist.tracks}
         isOpen={playlistOpen}
         onClose={() => setPlaylistOpen(false)}
       />
       <header
-        className="relative isolate -mx-4 -mt-4 flex min-h-[430px] items-end overflow-hidden px-5 pb-12 pt-20 sm:-mx-6 sm:px-8 lg:-mx-8 lg:px-12"
+        className="relative isolate -mx-4 -mt-4 flex min-h-[360px] items-end overflow-hidden px-4 pb-8 pt-16 sm:-mx-6 sm:min-h-[430px] sm:px-8 sm:pb-12 sm:pt-20 lg:-mx-8 lg:px-12"
         style={{
           backgroundImage: `radial-gradient(circle at 24% 28%, rgb(${palette.primary} / .68), transparent 45%), radial-gradient(circle at 78% 75%, rgb(${palette.secondary} / .3), transparent 48%), linear-gradient(to bottom, rgb(${palette.primary} / .15), #08090b 94%)`,
         }}
@@ -72,8 +72,8 @@ export const MusicArtistPage: React.FC = () => {
           />
         )}
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-black/10 via-black/25 to-[#08090b]" />
-        <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-7 sm:flex-row sm:items-end">
-          <div className="flex h-48 w-48 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-black/25 shadow-[0_30px_90px_rgba(0,0,0,.6)] sm:h-56 sm:w-56">
+        <div className="mx-auto flex min-w-0 w-full max-w-7xl flex-col items-center gap-5 sm:flex-row sm:items-end sm:gap-7">
+          <div className="flex h-36 w-36 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-black/25 shadow-[0_30px_90px_rgba(0,0,0,.6)] sm:h-56 sm:w-56">
             {artist.artworkUrl ? (
               <img src={artist.artworkUrl} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -84,17 +84,17 @@ export const MusicArtistPage: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/50">
               {t.music.artist}
             </p>
-            <h1 className="mt-2 text-balance font-display text-5xl font-black tracking-tight sm:text-6xl lg:text-8xl">
+            <h1 className="mt-2 max-w-full break-words text-balance font-display text-4xl font-black tracking-tight sm:text-6xl lg:text-8xl">
               {artist.name}
             </h1>
             <p className="mt-4 text-sm text-white/50">
               {t.music.trackCount(artist.tracks.length)} · {artist.albums.length}{' '}
               {t.music.albums.toLocaleLowerCase()}
             </p>
-            <div className="mt-7 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+            <div className="mt-6 flex max-w-full flex-wrap items-center justify-center gap-2.5 sm:mt-7 sm:gap-3 sm:justify-start">
               <button
                 onClick={() => player.playTracks(artist.tracks)}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-bold text-black shadow-xl transition hover:scale-[1.03]"
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black shadow-xl transition hover:scale-[1.03] sm:px-6 sm:py-3 sm:text-base"
               >
                 <Play className="h-5 w-5 fill-current" />
                 {t.music.playAll}

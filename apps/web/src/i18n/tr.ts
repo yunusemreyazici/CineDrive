@@ -585,7 +585,7 @@ export const tr = {
     tapTiming: 'Geçerli zamana yerleştir',
     replay: 'CineDrive Replay',
     replayHint: 'Dinleme alışkanlıklarının sade ve kişisel özeti',
-    replayPeriods: { week: 'Hafta', month: 'Ay', year: 'Yıl' },
+    replayPeriods: { day: 'Gün', week: 'Hafta', month: 'Ay', year: 'Yıl' },
     replayPeriodLabel: 'Replay dönemi',
     replayPreviousYear: 'Önceki yıl',
     replayNextYear: 'Sonraki yıl',
