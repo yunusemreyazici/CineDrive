@@ -795,6 +795,17 @@ describe('Music library', () => {
         expect.objectContaining({ type: 'daily', tracks: expect.any(Array) }),
       ]),
     });
+    const compactDiscovery = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery?compact=1',
+      cookies: { session_id: cookie },
+    });
+    const compactMix = JSON.parse(compactDiscovery.body).mixes.find(
+      (mix: { type: string }) => mix.type === 'daily',
+    );
+    expect(compactDiscovery.statusCode).toBe(200);
+    expect(compactMix).toMatchObject({ trackIds: expect.any(Array) });
+    expect(compactMix).not.toHaveProperty('tracks');
     const artistId = (
       await app.prisma.musicTrack.findUniqueOrThrow({
         where: { id: trackId },

@@ -1,9 +1,35 @@
-import { spawn } from 'node:child_process';
-import ffmpegPath from 'ffmpeg-static';
+import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import sharp from 'sharp';
 
-const MAX_CACHE_ENTRIES = 256;
-const THUMBNAIL_EDGE = 256;
+const MAX_MEMORY_CACHE_ENTRIES = 512;
 const MAX_CONCURRENT_RENDERS = 2;
+
+export const musicArtworkVariantSpecs = {
+  row: { width: 192, height: 192, quality: 78 },
+  small: { width: 256, height: 256, quality: 80 },
+  card: { width: 384, height: 384, quality: 82 },
+  hero: { width: 768, height: 768, quality: 84 },
+} as const;
+
+export type MusicArtworkVariant = keyof typeof musicArtworkVariantSpecs;
+type VariantSpec = (typeof musicArtworkVariantSpecs)[MusicArtworkVariant];
+type LegacyOptions = { width?: number; height?: number; quality?: number };
+type ArtworkRenderer = (source: Buffer, spec: VariantSpec) => Promise<Buffer | null>;
+
+const defaultCacheDirectory = path.resolve(process.cwd(), 'data', 'music_artwork_cache');
+
+export const isMusicArtworkVariant = (value: string): value is MusicArtworkVariant =>
+  Object.prototype.hasOwnProperty.call(musicArtworkVariantSpecs, value);
+
+export const nearestMusicArtworkVariant = (options: LegacyOptions): MusicArtworkVariant => {
+  const requestedEdge = Math.max(Number(options.width || 0), Number(options.height || 0));
+  if (requestedEdge <= musicArtworkVariantSpecs.row.width) return 'row';
+  if (requestedEdge <= musicArtworkVariantSpecs.small.width) return 'small';
+  if (requestedEdge <= musicArtworkVariantSpecs.card.width) return 'card';
+  return 'hero';
+};
 
 export class MusicArtworkThumbnailService {
   private readonly cache = new Map<string, Buffer>();
@@ -13,38 +39,45 @@ export class MusicArtworkThumbnailService {
 
   public constructor(
     private readonly maxConcurrentRenders = MAX_CONCURRENT_RENDERS,
-    private readonly renderer?: (source: Buffer) => Promise<Buffer | null>,
+    private readonly renderer?: ArtworkRenderer,
+    private readonly cacheDirectory = defaultCacheDirectory,
   ) {}
 
   public async thumbnail(
-    id: string,
+    checksum: string,
     source: Buffer,
-    options: { width?: number; height?: number; quality?: number } = {},
+    variantOrOptions: MusicArtworkVariant | LegacyOptions = 'small',
   ): Promise<Buffer | null> {
-    const width = Math.max(32, Math.min(2048, Math.round(options.width || THUMBNAIL_EDGE)));
-    const height = Math.max(32, Math.min(2048, Math.round(options.height || width)));
-    const quality = Math.max(20, Math.min(100, Math.round(options.quality || 82)));
-    const cacheKey = `${id}:${width}x${height}:q${quality}`;
+    const variant =
+      typeof variantOrOptions === 'string'
+        ? variantOrOptions
+        : nearestMusicArtworkVariant(variantOrOptions);
+    const cacheKey = `${checksum}:${variant}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.cache.delete(cacheKey);
       this.cache.set(cacheKey, cached);
       return cached;
     }
+
+    const diskPath = this.variantPath(checksum, variant);
+    const diskCached = await fs.readFile(diskPath).catch(() => null);
+    if (diskCached) {
+      this.remember(cacheKey, diskCached);
+      return diskCached;
+    }
+
     const existing = this.inFlight.get(cacheKey);
     if (existing) return existing;
 
+    const spec = musicArtworkVariantSpecs[variant];
     const pending = this.withRenderSlot(
-      () => this.renderer?.(source) ?? this.render(source, width, height, quality),
+      () => this.renderer?.(source, spec) ?? this.render(source, spec),
     )
-      .then((result) => {
+      .then(async (result) => {
         if (!result) return null;
-        this.cache.set(cacheKey, result);
-        while (this.cache.size > MAX_CACHE_ENTRIES) {
-          const oldest = this.cache.keys().next().value as string | undefined;
-          if (!oldest) break;
-          this.cache.delete(oldest);
-        }
+        await this.persist(diskPath, result).catch(() => undefined);
+        this.remember(cacheKey, result);
         return result;
       })
       .finally(() => this.inFlight.delete(cacheKey));
@@ -52,43 +85,57 @@ export class MusicArtworkThumbnailService {
     return pending;
   }
 
-  private render(
-    source: Buffer,
-    width: number,
-    height: number,
-    quality: number,
-  ): Promise<Buffer | null> {
-    if (!ffmpegPath) return Promise.resolve(null);
-    const binary = ffmpegPath as string;
-    return new Promise((resolve) => {
-      const child = spawn(binary, [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        'pipe:0',
-        '-vf',
-        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-        '-frames:v',
-        '1',
-        '-f',
-        'image2pipe',
-        '-vcodec',
-        'mjpeg',
-        '-q:v',
-        String(Math.max(2, Math.round(31 - (quality / 100) * 29))),
-        'pipe:1',
-      ]);
-      const chunks: Buffer[] = [];
-      child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
-      child.stderr?.resume();
-      child.stdin?.on('error', () => undefined);
-      child.once('error', () => resolve(null));
-      child.once('close', (code: number | null) =>
-        resolve(code === 0 ? Buffer.concat(chunks) : null),
-      );
-      child.stdin?.end(source);
-    });
+  public async prewarm(checksum: string, source: Buffer): Promise<void> {
+    await Promise.all(
+      (Object.keys(musicArtworkVariantSpecs) as MusicArtworkVariant[]).map((variant) =>
+        this.thumbnail(checksum, source, variant),
+      ),
+    );
+  }
+
+  private async render(source: Buffer, spec: VariantSpec): Promise<Buffer | null> {
+    try {
+      return await sharp(source, { failOn: 'none', sequentialRead: true })
+        .rotate()
+        .resize(spec.width, spec.height, {
+          fit: 'inside',
+          withoutEnlargement: true,
+          fastShrinkOnLoad: true,
+        })
+        .jpeg({ quality: spec.quality, mozjpeg: true })
+        .toBuffer();
+    } catch {
+      return null;
+    }
+  }
+
+  private variantPath(checksum: string, variant: MusicArtworkVariant) {
+    const normalizedChecksum = checksum.toLowerCase();
+    const safeChecksum = /^[a-f0-9]{32,}$/.test(normalizedChecksum)
+      ? normalizedChecksum
+      : createHash('sha256').update(checksum).digest('hex');
+    const directory = path.join(this.cacheDirectory, safeChecksum.slice(0, 2));
+    return path.join(directory, `${safeChecksum}-${variant}.jpg`);
+  }
+
+  private async persist(destination: string, data: Buffer) {
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    const temporary = `${destination}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, data);
+      await fs.rename(temporary, destination);
+    } finally {
+      await fs.rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private remember(key: string, value: Buffer) {
+    this.cache.set(key, value);
+    while (this.cache.size > MAX_MEMORY_CACHE_ENTRIES) {
+      const oldest = this.cache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.cache.delete(oldest);
+    }
   }
 
   private async withRenderSlot<T>(operation: () => Promise<T>): Promise<T> {
@@ -113,8 +160,10 @@ export class MusicArtworkThumbnailService {
     });
   }
 
-  private releaseRenderSlot(): void {
+  private releaseRenderSlot() {
     this.activeRenders = Math.max(0, this.activeRenders - 1);
     this.renderWaiters.shift()?.();
   }
 }
+
+export const musicArtworkThumbnails = new MusicArtworkThumbnailService();

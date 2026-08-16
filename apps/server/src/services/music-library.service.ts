@@ -1,14 +1,10 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { promisify } from 'node:util';
 import type { PrismaClient } from '@prisma/client';
-import ffmpegPath from 'ffmpeg-static';
+import sharp from 'sharp';
 import { MusicMetadataService, type ParsedMusicMetadata } from './music-metadata.service.js';
 import { MusicBrainzService } from './musicbrainz.service.js';
 import { MusicLyricsService } from './music-lyrics.service.js';
+import { musicArtworkThumbnails } from './music-artwork-thumbnail.service.js';
 
 const normalize = (value: string) =>
   value
@@ -17,7 +13,6 @@ const normalize = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-const execFileAsync = promisify(execFile);
 const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
 
 export class MusicLibraryService {
@@ -280,39 +275,20 @@ export class MusicLibraryService {
       update: {},
     });
     this.artworkCache.set(cacheKey, record.id);
+    void musicArtworkThumbnails.prewarm(checksum, normalized.data).catch(() => undefined);
     return record.id;
   }
 
   private async normalizeArtwork(artwork: { mimeType: string; data: Buffer }) {
-    if (!ffmpegPath) return artwork.data.length <= MAX_ARTWORK_BYTES ? artwork : undefined;
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'cinedrive-artwork-'));
-    const extension = artwork.mimeType.includes('png')
-      ? '.png'
-      : artwork.mimeType.includes('webp')
-        ? '.webp'
-        : '.jpg';
-    const input = path.join(directory, `input${extension}`);
-    const output = path.join(directory, 'cover.jpg');
     try {
-      await fs.writeFile(input, artwork.data);
-      await execFileAsync(ffmpegPath, [
-        '-y',
-        '-i',
-        input,
-        '-vf',
-        'scale=1000:1000:force_original_aspect_ratio=decrease',
-        '-frames:v',
-        '1',
-        '-q:v',
-        '4',
-        output,
-      ]);
-      const data = await fs.readFile(output);
+      const data = await sharp(artwork.data, { failOn: 'none', sequentialRead: true })
+        .rotate()
+        .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 86, mozjpeg: true })
+        .toBuffer();
       return data.length <= MAX_ARTWORK_BYTES ? { mimeType: 'image/jpeg', data } : undefined;
     } catch {
       return artwork.data.length <= MAX_ARTWORK_BYTES ? artwork : undefined;
-    } finally {
-      await fs.rm(directory, { recursive: true, force: true });
     }
   }
 }

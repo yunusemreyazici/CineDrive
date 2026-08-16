@@ -58,7 +58,11 @@ import {
   hasMeaningfulSuggestionChange,
 } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
-import { MusicArtworkThumbnailService } from '../services/music-artwork-thumbnail.service.js';
+import {
+  isMusicArtworkVariant,
+  musicArtworkThumbnails,
+  nearestMusicArtworkVariant,
+} from '../services/music-artwork-thumbnail.service.js';
 
 // A native media player can probe many queued assets at once. Keep one client
 // from turning those probes into hundreds of simultaneous Google Drive streams
@@ -66,7 +70,6 @@ import { MusicArtworkThumbnailService } from '../services/music-artwork-thumbnai
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT = 2;
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 6;
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_GLOBAL = 24;
-const artworkThumbnails = new MusicArtworkThumbnailService();
 
 const normalizeMusicName = (value: string) =>
   value
@@ -88,10 +91,7 @@ const ownerTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
 
 const manageableTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   library: {
-    OR: [
-      { userId },
-      { memberships: { some: { userId, role: { in: ['owner', 'editor'] } } } },
-    ],
+    OR: [{ userId }, { memberships: { some: { userId, role: { in: ['owner', 'editor'] } } } }],
   },
   driveFile: { status: 'active' },
 });
@@ -253,8 +253,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const active = activeDirectTransfers.get(clientKey) || new Set<AbortController>();
     const userActive = activeDirectTransfersByUser.get(userId) || new Set<AbortController>();
     if (
-      active.size >=
-        (clientId === 'legacy' ? 4 : MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT) ||
+      active.size >= (clientId === 'legacy' ? 4 : MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT) ||
       userActive.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER ||
       allActiveDirectTransfers.size >= MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_GLOBAL
     )
@@ -483,7 +482,22 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get('/discovery', async (request) => discoveryService.getDiscovery(request.user!.id));
+  fastify.get<{ Querystring: { compact?: string } }>('/discovery', async (request) => {
+    const discovery = await discoveryService.getDiscovery(request.user!.id);
+    if (request.query.compact !== '1' && request.query.compact !== 'true') return discovery;
+
+    const compactMix = ({ tracks, ...mix }: (typeof discovery.mixes)[number]) => ({
+      ...mix,
+      trackIds: tracks.map((track) => track.id),
+    });
+    return {
+      ...discovery,
+      mixes: discovery.mixes.map(compactMix),
+      moodCollections: discovery.moodCollections.map(compactMix),
+      genreCollections: discovery.genreCollections.map(compactMix),
+      decadeCollections: discovery.decadeCollections.map(compactMix),
+    };
+  });
 
   fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
     const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);
@@ -2048,128 +2062,92 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { reordered: true };
   });
 
-  fastify.get<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
-    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
-    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
-    const userId = request.user!.id;
-    const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId_clientId: { userId, clientId: client.data.clientId } },
-      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
-      update: { clientName: client.data.clientName, platform: client.data.platform },
-      include: {
-        queue: {
-          include: { track: { include: musicTrackInclude(userId) } },
-          orderBy: { playOrder: 'asc' },
+  fastify.get<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
+    '/playback-state',
+    async (request, reply) => {
+      const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+      if (!client.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_CLIENT',
+              message: 'Geçersiz oynatıcı kimliği.',
+              requestId: request.id,
+            },
+          });
+      const userId = request.user!.id;
+      const state = await fastify.prisma.musicPlaybackState.upsert({
+        where: { userId_clientId: { userId, clientId: client.data.clientId } },
+        create: {
+          userId,
+          clientId: client.data.clientId,
+          clientName: client.data.clientName,
+          platform: client.data.platform,
         },
-      },
-    });
-    return {
-      state: {
-        revision: state.revision,
-        clientId: state.clientId,
-        currentTrackId: state.currentTrackId,
-        currentQueueItemId: state.currentQueueItemId,
-        positionSeconds: state.positionSeconds,
-        shuffleEnabled: state.shuffleEnabled,
-        repeatMode: state.repeatMode,
-        queue: state.queue.map((item) => ({
-          id: item.id,
-          trackId: item.trackId,
-          sourceOrder: item.sourceOrder,
-          playOrder: item.playOrder,
-          track: formatMusicTrack(item.track),
-        })),
-      },
-    };
-  });
-  fastify.put<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
-    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
-    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
-    const parsed = updateMusicPlaybackStateSchema.safeParse(request.body);
-    if (!parsed.success)
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Geçersiz oynatma durumu.',
-          requestId: request.id,
+        update: { clientName: client.data.clientName, platform: client.data.platform },
+        include: {
+          queue: {
+            include: { track: { include: musicTrackInclude(userId) } },
+            orderBy: { playOrder: 'asc' },
+          },
         },
       });
-    const userId = request.user!.id;
-    const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId_clientId: { userId, clientId: client.data.clientId } },
-      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
-      update: { clientName: client.data.clientName, platform: client.data.platform },
-    });
-    if (state.revision !== parsed.data.revision)
-      return reply.status(409).send({
-        error: {
-          code: 'PLAYBACK_REVISION_CONFLICT',
-          message: 'Oynatma durumu başka bir cihazda değişti.',
-          requestId: request.id,
+      return {
+        state: {
+          revision: state.revision,
+          clientId: state.clientId,
+          currentTrackId: state.currentTrackId,
+          currentQueueItemId: state.currentQueueItemId,
+          positionSeconds: state.positionSeconds,
+          shuffleEnabled: state.shuffleEnabled,
+          repeatMode: state.repeatMode,
+          queue: state.queue.map((item) => ({
+            id: item.id,
+            trackId: item.trackId,
+            sourceOrder: item.sourceOrder,
+            playOrder: item.playOrder,
+            track: formatMusicTrack(item.track),
+          })),
         },
-      });
-    const trackIds = [
-      ...new Set(
-        parsed.data.queue.map((item) => item.trackId).concat(parsed.data.currentTrackId || []),
-      ),
-    ];
-    const ownedCount = await fastify.prisma.musicTrack.count({
-      where: { id: { in: trackIds }, ...ownedTrackWhere(userId) },
-    });
-    if (ownedCount !== trackIds.length)
-      return reply.status(404).send({
-        error: {
-          code: 'TRACK_NOT_FOUND',
-          message: 'Kuyruktaki parçalardan biri bulunamadı.',
-          requestId: request.id,
-        },
-      });
-    const queue = parsed.data.queue.map((item) => ({ ...item, id: item.id || randomUUID() }));
-    if (
-      new Set(queue.map((item) => item.sourceOrder)).size !== queue.length ||
-      new Set(queue.map((item) => item.playOrder)).size !== queue.length
-    )
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_QUEUE_ORDER',
-          message: 'Kuyruk sırası benzersiz olmalıdır.',
-          requestId: request.id,
-        },
-      });
-    const currentQueueItemId =
-      parsed.data.currentQueueItemId &&
-      queue.some((item) => item.id === parsed.data.currentQueueItemId)
-        ? parsed.data.currentQueueItemId
-        : null;
-    const revisionConflict = new Error('PLAYBACK_REVISION_CONFLICT');
-    try {
-      await fastify.prisma.$transaction(async (tx) => {
-        const updated = await tx.musicPlaybackState.updateMany({
-          where: { id: state.id, revision: parsed.data.revision },
-          data: {
-            currentTrackId: parsed.data.currentTrackId,
-            currentQueueItemId,
-            positionSeconds: parsed.data.positionSeconds,
-            shuffleEnabled: parsed.data.shuffleEnabled,
-            repeatMode: parsed.data.repeatMode,
-            revision: { increment: 1 },
+      };
+    },
+  );
+  fastify.put<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
+    '/playback-state',
+    async (request, reply) => {
+      const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+      if (!client.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_CLIENT',
+              message: 'Geçersiz oynatıcı kimliği.',
+              requestId: request.id,
+            },
+          });
+      const parsed = updateMusicPlaybackStateSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz oynatma durumu.',
+            requestId: request.id,
           },
         });
-        if (updated.count !== 1) throw revisionConflict;
-        await tx.musicQueueItem.deleteMany({ where: { playbackStateId: state.id } });
-        if (queue.length)
-          await tx.musicQueueItem.createMany({
-            data: queue.map((item) => ({
-              id: item.id,
-              playbackStateId: state.id,
-              trackId: item.trackId,
-              sourceOrder: item.sourceOrder,
-              playOrder: item.playOrder,
-            })),
-          });
+      const userId = request.user!.id;
+      const state = await fastify.prisma.musicPlaybackState.upsert({
+        where: { userId_clientId: { userId, clientId: client.data.clientId } },
+        create: {
+          userId,
+          clientId: client.data.clientId,
+          clientName: client.data.clientName,
+          platform: client.data.platform,
+        },
+        update: { clientName: client.data.clientName, platform: client.data.platform },
       });
-    } catch (error) {
-      if (error === revisionConflict)
+      if (state.revision !== parsed.data.revision)
         return reply.status(409).send({
           error: {
             code: 'PLAYBACK_REVISION_CONFLICT',
@@ -2177,87 +2155,174 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      throw error;
-    }
-    return {
-      revision: state.revision + 1,
-      queue: queue.map(({ id, trackId, sourceOrder, playOrder }) => ({
-        id,
-        trackId,
-        sourceOrder,
-        playOrder,
-      })),
-    };
-  });
-
-  fastify.patch<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>('/playback-state', async (request, reply) => {
-    const client = musicPlaybackClientQuerySchema.safeParse(request.query);
-    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
-    const parsed = patchMusicPlaybackStateSchema.safeParse(request.body);
-    if (!parsed.success)
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Geçersiz oynatma durumu.',
-          requestId: request.id,
-        },
+      const trackIds = [
+        ...new Set(
+          parsed.data.queue.map((item) => item.trackId).concat(parsed.data.currentTrackId || []),
+        ),
+      ];
+      const ownedCount = await fastify.prisma.musicTrack.count({
+        where: { id: { in: trackIds }, ...ownedTrackWhere(userId) },
       });
-    const userId = request.user!.id;
-    const state = await fastify.prisma.musicPlaybackState.upsert({
-      where: { userId_clientId: { userId, clientId: client.data.clientId } },
-      create: { userId, clientId: client.data.clientId, clientName: client.data.clientName, platform: client.data.platform },
-      update: { clientName: client.data.clientName, platform: client.data.platform },
-      include: { queue: { select: { id: true } } },
-    });
-    if (state.revision !== parsed.data.revision)
-      return reply.status(409).send({
-        error: {
-          code: 'PLAYBACK_REVISION_CONFLICT',
-          message: 'Oynatma durumu başka bir cihazda değişti.',
-          requestId: request.id,
-        },
-      });
-    if (
-      parsed.data.currentQueueItemId &&
-      !state.queue.some((item) => item.id === parsed.data.currentQueueItemId)
-    )
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_CURRENT_QUEUE_ITEM',
-          message: 'Geçerli kuyruk öğesi bulunamadı.',
-          requestId: request.id,
-        },
-      });
-    if (parsed.data.currentTrackId) {
-      const owned = await fastify.prisma.musicTrack.count({
-        where: { id: parsed.data.currentTrackId, ...ownedTrackWhere(userId) },
-      });
-      if (!owned)
+      if (ownedCount !== trackIds.length)
         return reply.status(404).send({
-          error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+          error: {
+            code: 'TRACK_NOT_FOUND',
+            message: 'Kuyruktaki parçalardan biri bulunamadı.',
+            requestId: request.id,
+          },
         });
-    }
-    const updated = await fastify.prisma.musicPlaybackState.updateMany({
-      where: { id: state.id, revision: parsed.data.revision },
-      data: {
-        currentTrackId: parsed.data.currentTrackId,
-        currentQueueItemId: parsed.data.currentQueueItemId || null,
-        positionSeconds: parsed.data.positionSeconds,
-        shuffleEnabled: parsed.data.shuffleEnabled,
-        repeatMode: parsed.data.repeatMode,
-        revision: { increment: 1 },
-      },
-    });
-    if (updated.count !== 1)
-      return reply.status(409).send({
-        error: {
-          code: 'PLAYBACK_REVISION_CONFLICT',
-          message: 'Oynatma durumu başka bir cihazda değişti.',
-          requestId: request.id,
+      const queue = parsed.data.queue.map((item) => ({ ...item, id: item.id || randomUUID() }));
+      if (
+        new Set(queue.map((item) => item.sourceOrder)).size !== queue.length ||
+        new Set(queue.map((item) => item.playOrder)).size !== queue.length
+      )
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_QUEUE_ORDER',
+            message: 'Kuyruk sırası benzersiz olmalıdır.',
+            requestId: request.id,
+          },
+        });
+      const currentQueueItemId =
+        parsed.data.currentQueueItemId &&
+        queue.some((item) => item.id === parsed.data.currentQueueItemId)
+          ? parsed.data.currentQueueItemId
+          : null;
+      const revisionConflict = new Error('PLAYBACK_REVISION_CONFLICT');
+      try {
+        await fastify.prisma.$transaction(async (tx) => {
+          const updated = await tx.musicPlaybackState.updateMany({
+            where: { id: state.id, revision: parsed.data.revision },
+            data: {
+              currentTrackId: parsed.data.currentTrackId,
+              currentQueueItemId,
+              positionSeconds: parsed.data.positionSeconds,
+              shuffleEnabled: parsed.data.shuffleEnabled,
+              repeatMode: parsed.data.repeatMode,
+              revision: { increment: 1 },
+            },
+          });
+          if (updated.count !== 1) throw revisionConflict;
+          await tx.musicQueueItem.deleteMany({ where: { playbackStateId: state.id } });
+          if (queue.length)
+            await tx.musicQueueItem.createMany({
+              data: queue.map((item) => ({
+                id: item.id,
+                playbackStateId: state.id,
+                trackId: item.trackId,
+                sourceOrder: item.sourceOrder,
+                playOrder: item.playOrder,
+              })),
+            });
+        });
+      } catch (error) {
+        if (error === revisionConflict)
+          return reply.status(409).send({
+            error: {
+              code: 'PLAYBACK_REVISION_CONFLICT',
+              message: 'Oynatma durumu başka bir cihazda değişti.',
+              requestId: request.id,
+            },
+          });
+        throw error;
+      }
+      return {
+        revision: state.revision + 1,
+        queue: queue.map(({ id, trackId, sourceOrder, playOrder }) => ({
+          id,
+          trackId,
+          sourceOrder,
+          playOrder,
+        })),
+      };
+    },
+  );
+
+  fastify.patch<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
+    '/playback-state',
+    async (request, reply) => {
+      const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+      if (!client.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_CLIENT',
+              message: 'Geçersiz oynatıcı kimliği.',
+              requestId: request.id,
+            },
+          });
+      const parsed = patchMusicPlaybackStateSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz oynatma durumu.',
+            requestId: request.id,
+          },
+        });
+      const userId = request.user!.id;
+      const state = await fastify.prisma.musicPlaybackState.upsert({
+        where: { userId_clientId: { userId, clientId: client.data.clientId } },
+        create: {
+          userId,
+          clientId: client.data.clientId,
+          clientName: client.data.clientName,
+          platform: client.data.platform,
+        },
+        update: { clientName: client.data.clientName, platform: client.data.platform },
+        include: { queue: { select: { id: true } } },
+      });
+      if (state.revision !== parsed.data.revision)
+        return reply.status(409).send({
+          error: {
+            code: 'PLAYBACK_REVISION_CONFLICT',
+            message: 'Oynatma durumu başka bir cihazda değişti.',
+            requestId: request.id,
+          },
+        });
+      if (
+        parsed.data.currentQueueItemId &&
+        !state.queue.some((item) => item.id === parsed.data.currentQueueItemId)
+      )
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_CURRENT_QUEUE_ITEM',
+            message: 'Geçerli kuyruk öğesi bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      if (parsed.data.currentTrackId) {
+        const owned = await fastify.prisma.musicTrack.count({
+          where: { id: parsed.data.currentTrackId, ...ownedTrackWhere(userId) },
+        });
+        if (!owned)
+          return reply.status(404).send({
+            error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
+          });
+      }
+      const updated = await fastify.prisma.musicPlaybackState.updateMany({
+        where: { id: state.id, revision: parsed.data.revision },
+        data: {
+          currentTrackId: parsed.data.currentTrackId,
+          currentQueueItemId: parsed.data.currentQueueItemId || null,
+          positionSeconds: parsed.data.positionSeconds,
+          shuffleEnabled: parsed.data.shuffleEnabled,
+          repeatMode: parsed.data.repeatMode,
+          revision: { increment: 1 },
         },
       });
-    return { revision: state.revision + 1 };
-  });
+      if (updated.count !== 1)
+        return reply.status(409).send({
+          error: {
+            code: 'PLAYBACK_REVISION_CONFLICT',
+            message: 'Oynatma durumu başka bir cihazda değişti.',
+            requestId: request.id,
+          },
+        });
+      return { revision: state.revision + 1 };
+    },
+  );
 
   fastify.get('/playback-clients', async (request) => ({
     clients: await fastify.prisma.musicPlaybackState.findMany({
@@ -2274,16 +2339,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     }),
   }));
 
-  fastify.delete<{ Params: { clientId: string } }>('/playback-clients/:clientId', async (request, reply) => {
-    await fastify.prisma.musicPlaybackState.deleteMany({
-      where: { userId: request.user!.id, clientId: request.params.clientId },
-    });
-    return reply.status(204).send();
-  });
+  fastify.delete<{ Params: { clientId: string } }>(
+    '/playback-clients/:clientId',
+    async (request, reply) => {
+      await fastify.prisma.musicPlaybackState.deleteMany({
+        where: { userId: request.user!.id, clientId: request.params.clientId },
+      });
+      return reply.status(204).send();
+    },
+  );
 
   fastify.get<{
     Params: { id: string };
-    Querystring: { thumbnail?: string; width?: string; height?: string; quality?: string };
+    Querystring: {
+      variant?: string;
+      thumbnail?: string;
+      width?: string;
+      height?: string;
+      quality?: string;
+    };
   }>('/artwork/:id', async (request, reply) => {
     const artwork = await fastify.prisma.musicArtwork.findFirst({
       where: {
@@ -2307,32 +2381,33 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
+    if (request.query.variant && !isMusicArtworkVariant(request.query.variant)) {
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_ARTWORK_VARIANT',
+          message: 'Geçersiz kapak görseli boyutu.',
+          requestId: request.id,
+        },
+      });
+    }
     const requestedWidth = Number(request.query.width || 0);
     const requestedHeight = Number(request.query.height || 0);
-    const requestedQuality = Number(request.query.quality || 0);
     const shouldResize =
+      !!request.query.variant ||
       request.query.thumbnail === '1' ||
       (Number.isFinite(requestedWidth) && requestedWidth > 0) ||
       (Number.isFinite(requestedHeight) && requestedHeight > 0);
-    const width = Math.max(
-      32,
-      Math.min(2048, Math.round(requestedWidth > 0 ? requestedWidth : 256)),
-    );
-    const height = Math.max(
-      32,
-      Math.min(2048, Math.round(requestedHeight > 0 ? requestedHeight : width)),
-    );
-    const quality = Math.max(
-      20,
-      Math.min(100, Math.round(requestedQuality > 0 ? requestedQuality : 82)),
-    );
-    const variant = shouldResize ? `${width}x${height}q${quality}` : 'original';
-    const etag = `"${artwork.checksum}-${variant}"`;
+    const variant =
+      request.query.variant && isMusicArtworkVariant(request.query.variant)
+        ? request.query.variant
+        : nearestMusicArtworkVariant({ width: requestedWidth, height: requestedHeight });
+    const responseVariant = shouldResize ? variant : 'original';
+    const etag = `"${artwork.checksum}-${responseVariant}"`;
     if (request.headers['if-none-match'] === etag)
       return reply.header('ETag', etag).status(304).send();
     const source = Buffer.from(artwork.data);
     const thumbnail = shouldResize
-      ? await artworkThumbnails.thumbnail(artwork.id, source, { width, height, quality })
+      ? await musicArtworkThumbnails.thumbnail(artwork.checksum, source, variant)
       : null;
     reply
       .header('Content-Type', thumbnail ? 'image/jpeg' : artwork.mimeType)
@@ -2963,8 +3038,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     head = false,
   ) => {
     const userId = request.user!.id;
-    const client = musicPlaybackClientQuerySchema.shape.clientId.safeParse(request.query.clientId || 'legacy');
-    if (!client.success) return reply.status(400).send({ error: { code: 'INVALID_PLAYBACK_CLIENT', message: 'Geçersiz oynatıcı kimliği.', requestId: request.id } });
+    const client = musicPlaybackClientQuerySchema.shape.clientId.safeParse(
+      request.query.clientId || 'legacy',
+    );
+    if (!client.success)
+      return reply
+        .status(400)
+        .send({
+          error: {
+            code: 'INVALID_PLAYBACK_CLIENT',
+            message: 'Geçersiz oynatıcı kimliği.',
+            requestId: request.id,
+          },
+        });
     const track = await fastify.prisma.musicTrack.findFirst({
       where: { id: request.params.id, ...ownedTrackWhere(userId) },
       include: { driveFile: { include: { library: true } } },
@@ -3088,7 +3174,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
     const transfer = beginDirectTransfer(userId, client.data, request, reply);
     if (!transfer) {
-      fastify.log.warn({ userId, clientId: client.data, code: 'MUSIC_TRANSFER_CAPACITY_REACHED' }, 'Music transfer capacity reached');
+      fastify.log.warn(
+        { userId, clientId: client.data, code: 'MUSIC_TRANSFER_CAPACITY_REACHED' },
+        'Music transfer capacity reached',
+      );
       return transferCapacityError(request, reply);
     }
 
@@ -3148,12 +3237,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       .status(upstream.status);
     return reply.send(upstream.stream);
   };
-  fastify.get<{ Params: { id: string }; Querystring: { transcode?: string; start?: string; clientId?: string } }>(
-    '/tracks/:id/stream',
-    (request, reply) => handleTrackStream(request, reply),
-  );
-  fastify.head<{ Params: { id: string }; Querystring: { transcode?: string; start?: string; clientId?: string } }>(
-    '/tracks/:id/stream',
-    (request, reply) => handleTrackStream(request, reply, true),
-  );
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { transcode?: string; start?: string; clientId?: string };
+  }>('/tracks/:id/stream', (request, reply) => handleTrackStream(request, reply));
+  fastify.head<{
+    Params: { id: string };
+    Querystring: { transcode?: string; start?: string; clientId?: string };
+  }>('/tracks/:id/stream', (request, reply) => handleTrackStream(request, reply, true));
 };
