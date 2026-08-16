@@ -10,6 +10,7 @@ const METADATA_PATTERN = /^\[(ar|ti|al|by|length|re|ve|la):([^\]]*)\]$/i;
 const LRCLIB_API_BASE_URL = 'https://lrclib.net/api';
 const LRCLIB_USER_AGENT = `CineDrive/1.0.0 (${env.PUBLIC_URL})`;
 const LOOKUP_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const NOT_FOUND_LOOKUP_CACHE_TTL_MS = 15 * 60 * 1000;
 const MIN_REQUEST_INTERVAL_MS = 300;
 
 interface LrclibLyrics {
@@ -59,8 +60,9 @@ const scheduleProviderRequest = <T>(request: () => Promise<T>) => {
 
 const normalizeSignaturePart = (value: string) =>
   value
-    .normalize('NFKC')
+    .normalize('NFKD')
     .toLocaleLowerCase('en-US')
+    .replace(/\p{M}+/gu, '')
     .replace(/[’']/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
@@ -149,7 +151,11 @@ export const findOnlineLyrics = async (input: OnlineLyricsLookupInput) => {
   const cached = onlineLookupCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.result;
   const result = await scheduleProviderRequest(() => requestLrclib(input));
-  onlineLookupCache.set(cacheKey, { expiresAt: Date.now() + LOOKUP_CACHE_TTL_MS, result });
+  onlineLookupCache.set(cacheKey, {
+    expiresAt:
+      Date.now() + (result === null ? NOT_FOUND_LOOKUP_CACHE_TTL_MS : LOOKUP_CACHE_TTL_MS),
+    result,
+  });
   return result;
 };
 

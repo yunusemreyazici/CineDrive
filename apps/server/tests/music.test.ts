@@ -1059,6 +1059,37 @@ describe('Music library', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api/search?');
   });
 
+  it('matches LRCLIB titles without requiring identical diacritics', async () => {
+    const title = `Bon appétit ${randomUUID()}`;
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { title } });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 88,
+          trackName: title.replace('appétit', 'appetit'),
+          artistName: 'Test Artist',
+          albumName: 'Test Album',
+          duration: 120,
+          instrumental: false,
+          plainLyrics: 'Diacritic-safe line',
+          syncedLyrics: null,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/lookup`,
+      cookies: { session_id: cookie },
+    });
+
+    expect(JSON.parse(response.body)).toMatchObject({
+      lookupStatus: 'found',
+      lyrics: { sourceName: 'LRCLIB #88' },
+    });
+  });
+
   it('lists owned tracks and serves byte ranges', async () => {
     const list = await app.inject({
       method: 'GET',
