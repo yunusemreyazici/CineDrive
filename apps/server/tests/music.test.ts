@@ -109,6 +109,22 @@ describe('Music library', () => {
     fs.rmSync(fixturePath.replace(/\.mp3$/i, '.lrc'), { force: true });
   });
 
+  it('publishes the native client capability contract without authentication', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/client-bootstrap' });
+    expect(response.statusCode).toBe(200);
+    const manifest = JSON.parse(response.body);
+    expect(manifest).toMatchObject({
+      apiVersion: 2,
+      minimumIOSBuild: expect.any(Number),
+      features: {
+        deltaSyncV2: true,
+        downloadManifest: true,
+        localizedDiscovery: true,
+      },
+      serverTime: expect.any(String),
+    });
+  });
+
   it('cleans numbered music filenames', () => {
     expect(cleanMusicFilenameTitle('CD2 01 - Hello.World.mp3')).toBe('Hello World');
     for (const extension of AUDIO_EXTENSIONS)
@@ -176,6 +192,23 @@ describe('Music library', () => {
       tracks: [expect.objectContaining({ id: trackId, title: 'Updated Test Song' })],
     });
 
+    const v2 = await app.inject({
+      method: 'GET',
+      url: `/api/music/sync?version=2&cursor=${encodeURIComponent(initialBody.cursor)}`,
+      cookies: { session_id: cookie },
+    });
+    expect(v2.statusCode).toBe(200);
+    expect(JSON.parse(v2.body)).toMatchObject({
+      version: 2,
+      revision: expect.any(Number),
+      full: false,
+      trackIds: [trackId],
+      albumIds: expect.any(Array),
+      artistIds: expect.any(Array),
+      playlistIds: expect.any(Array),
+      deletedTrackIds: expect.any(Array),
+    });
+
     const tracks = await app.inject({
       method: 'GET',
       url: '/api/music/tracks',
@@ -227,7 +260,8 @@ describe('Music library', () => {
       payload: { trackIds: [trackId], format: 'original' },
     });
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toMatchObject({
+    const manifest = JSON.parse(response.body);
+    expect(manifest).toMatchObject({
       format: 'original',
       items: [
         {
@@ -238,6 +272,8 @@ describe('Music library', () => {
         },
       ],
     });
+    const grantedDownload = await app.inject({ method: 'GET', url: manifest.items[0].url });
+    expect(grantedDownload.statusCode).toBe(200);
   });
 
   it('validates download format and ownership', async () => {
@@ -792,19 +828,30 @@ describe('Music library', () => {
     expect(JSON.parse(discovery.body)).toMatchObject({
       continueListening: { track: { id: trackId }, positionSeconds: 38 },
       mixes: expect.arrayContaining([
-        expect.objectContaining({ type: 'daily', tracks: expect.any(Array) }),
+        expect.objectContaining({
+          type: 'daily',
+          titleKey: 'music.discovery.daily.title',
+          subtitleKey: 'music.discovery.daily.subtitle',
+          tracks: expect.any(Array),
+        }),
       ]),
     });
     const compactDiscovery = await app.inject({
       method: 'GET',
       url: '/api/music/discovery?compact=1',
+      headers: { 'x-cinemusic-version': '1.0' },
       cookies: { session_id: cookie },
     });
     const compactMix = JSON.parse(compactDiscovery.body).mixes.find(
       (mix: { type: string }) => mix.type === 'daily',
     );
     expect(compactDiscovery.statusCode).toBe(200);
-    expect(compactMix).toMatchObject({ trackIds: expect.any(Array) });
+    expect(compactMix).toMatchObject({
+      titleKey: 'music.discovery.daily.title',
+      trackIds: expect.any(Array),
+    });
+    expect(compactMix).not.toHaveProperty('title');
+    expect(compactMix).not.toHaveProperty('subtitle');
     expect(compactMix).not.toHaveProperty('tracks');
     const artistId = (
       await app.prisma.musicTrack.findUniqueOrThrow({

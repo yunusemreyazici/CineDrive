@@ -57,7 +57,11 @@ export const updateMusicPlaybackStateSchema = z.object({
 export const patchMusicPlaybackStateSchema = updateMusicPlaybackStateSchema.omit({ queue: true });
 
 export const musicPlaybackClientQuerySchema = z.object({
-  clientId: z.string().trim().regex(/^[a-zA-Z0-9_-]{6,128}$/).default('legacy'),
+  clientId: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9_-]{6,128}$/)
+    .default('legacy'),
   clientName: z.string().trim().min(1).max(120).optional(),
   platform: z.enum(['web', 'ios', 'android', 'desktop', 'unknown']).default('unknown'),
 });
@@ -81,6 +85,7 @@ export const createMusicHistoryBatchSchema = z.object({
 
 export const musicSyncQuerySchema = z.object({
   cursor: z.string().datetime().optional(),
+  version: z.coerce.number().int().min(1).max(2).default(1),
 });
 
 export const musicDownloadManifestSchema = z.object({

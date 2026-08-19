@@ -359,9 +359,28 @@ export interface MusicMixDto {
   title: string;
   subtitle: string;
   description?: string;
+  titleKey?: string;
+  titleArguments?: Array<string | number>;
+  subtitleKey?: string;
+  subtitleArguments?: Array<string | number>;
+  descriptionKey?: string;
+  descriptionArguments?: Array<string | number>;
   accent: string;
   artworkUrls: string[];
   tracks: MusicTrackDto[];
+}
+
+export interface ClientBootstrapDto {
+  apiVersion: number;
+  minimumIOSBuild: number;
+  features: {
+    deltaSyncV2: boolean;
+    downloadManifest: boolean;
+    seekableAAC: boolean;
+    localizedDiscovery: boolean;
+    scopedDownloadGrants: boolean;
+  };
+  serverTime: string;
 }
 
 export interface MusicDiscoveryDto {

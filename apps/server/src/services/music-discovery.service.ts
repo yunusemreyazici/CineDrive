@@ -128,6 +128,17 @@ const mix = (
   tracks: MusicTrackDto[],
   accentIndex: number,
   description?: string,
+  presentation?: Partial<
+    Pick<
+      MusicMixDto,
+      | 'titleKey'
+      | 'titleArguments'
+      | 'subtitleKey'
+      | 'subtitleArguments'
+      | 'descriptionKey'
+      | 'descriptionArguments'
+    >
+  >,
 ): MusicMixDto => ({
   id,
   type,
@@ -137,6 +148,7 @@ const mix = (
   accent: accents[accentIndex % accents.length]!,
   artworkUrls: artworkUrls(tracks),
   tracks: uniqueTracks(tracks, type === 'artist-radio' ? 60 : 30),
+  ...presentation,
 });
 
 const moodRules = [
@@ -226,6 +238,12 @@ export const buildRadioMix = (
     'Benzer türler, dönemler ve farklı sanatçılardan aralıksız akış',
     selected,
     4,
+    undefined,
+    {
+      titleKey: 'music.discovery.radio.title',
+      titleArguments: [seed.title],
+      subtitleKey: 'music.discovery.radio.subtitle',
+    },
   );
 };
 
@@ -313,18 +331,17 @@ export class MusicDiscoveryService {
     const tracks = rawTracks.map(formatMusicTrack);
     const trackById = new Map(tracks.map((track) => [track.id, track]));
     const isMeaningfulListen = (entry: (typeof history)[number]) => {
-      const threshold = entry.track.duration
-        ? Math.min(30, entry.track.duration * 0.45)
-        : 15;
+      const threshold = entry.track.duration ? Math.min(30, entry.track.duration * 0.45) : 15;
       return entry.listenedSeconds >= threshold;
     };
     // A quick skip is not a completed listen: keep that track eligible for
     // rediscovery instead of teaching the recommendation model to hide it.
-    const listenedIds = new Set(
-      history.filter(isMeaningfulListen).map((entry) => entry.trackId),
-    );
+    const listenedIds = new Set(history.filter(isMeaningfulListen).map((entry) => entry.trackId));
     const recentlyListenedIds = new Set(
-      history.filter(isMeaningfulListen).slice(0, 80).map((entry) => entry.trackId),
+      history
+        .filter(isMeaningfulListen)
+        .slice(0, 80)
+        .map((entry) => entry.trackId),
     );
     const artistWeights = new Map<string, number>();
     const genreWeights = new Map<string, number>();
@@ -415,6 +432,12 @@ export class MusicDiscoveryService {
           'Son dinlediklerinden hazırlandı',
           selected,
           index + 1,
+          undefined,
+          {
+            titleKey: 'music.discovery.artistMix.title',
+            titleArguments: [artist.name],
+            subtitleKey: 'music.discovery.artistMix.subtitle',
+          },
         );
       })
       .filter((item): item is MusicMixDto => !!item && item.tracks.length > 0);
@@ -440,6 +463,12 @@ export class MusicDiscoveryService {
           `${selected.length} parçalık ruh hali seçkisi`,
           selected,
           index + 2,
+          undefined,
+          {
+            titleKey: `music.discovery.mood.${rule.id}.title`,
+            subtitleKey: 'music.discovery.selection.mood.subtitle',
+            subtitleArguments: [selected.length],
+          },
         );
       })
       .filter((item) => item.tracks.length >= 8 && artistDiversity(item.tracks) >= 3);
@@ -491,6 +520,11 @@ export class MusicDiscoveryService {
         `${value.count} parçalık tür seçkisi`,
         selected,
         index + 1,
+        undefined,
+        {
+          subtitleKey: 'music.discovery.selection.genre.subtitle',
+          subtitleArguments: [value.count],
+        },
       );
     });
 
@@ -518,6 +552,13 @@ export class MusicDiscoveryService {
             24,
           ),
           index + 3,
+          undefined,
+          {
+            titleKey: 'music.discovery.decade.title',
+            titleArguments: [decade],
+            subtitleKey: 'music.discovery.selection.decade.subtitle',
+            subtitleArguments: [items.length],
+          },
         ),
       );
 
@@ -557,8 +598,9 @@ export class MusicDiscoveryService {
       .map((album) => {
         const played = albumHistory.get(album.id)?.size || 0;
         const progress = album._count.tracks ? played / album._count.tracks : 0;
-        const albumTracks = (tracksByAlbum.get(album.id) || [])
-          .sort((a, b) => a.discNumber - b.discNumber || a.trackNumber - b.trackNumber);
+        const albumTracks = (tracksByAlbum.get(album.id) || []).sort(
+          (a, b) => a.discNumber - b.discNumber || a.trackNumber - b.trackNumber,
+        );
         return {
           id: album.id,
           title: album.title,
@@ -600,6 +642,11 @@ export class MusicDiscoveryService {
         'Dinleme alışkanlıkların, az çalınanlar ve kütüphane çeşitliliğiyle hazırlandı',
         daily,
         0,
+        undefined,
+        {
+          titleKey: 'music.discovery.daily.title',
+          subtitleKey: 'music.discovery.daily.subtitle',
+        },
       ),
       ...(rediscovery.length
         ? [
@@ -610,6 +657,11 @@ export class MusicDiscoveryService {
               'Bir süredir dinlemediğin güçlü seçimler',
               rediscovery,
               4,
+              undefined,
+              {
+                titleKey: 'music.discovery.rediscovery.title',
+                subtitleKey: 'music.discovery.rediscovery.subtitle',
+              },
             ),
           ]
         : []),
@@ -622,6 +674,11 @@ export class MusicDiscoveryService {
               'Favorilerinden çeşitlendirilmiş günlük akış',
               favoritesMix,
               3,
+              undefined,
+              {
+                titleKey: 'music.discovery.favorites.title',
+                subtitleKey: 'music.discovery.favorites.subtitle',
+              },
             ),
           ]
         : []),
@@ -647,6 +704,11 @@ export class MusicDiscoveryService {
             24,
           ),
           5,
+          undefined,
+          {
+            titleKey: 'music.discovery.collection.title',
+            subtitleKey: 'music.discovery.collection.subtitle',
+          },
         ),
       );
 

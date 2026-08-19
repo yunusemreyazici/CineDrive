@@ -21,7 +21,7 @@ import { databaseRoutes } from './routes/database.routes.js';
 import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { musicRoutes } from './routes/music.routes.js';
-import type { HealthResponse, ApiErrorResponse } from '@cinedrive/shared';
+import type { HealthResponse, ApiErrorResponse, ClientBootstrapDto } from '@cinedrive/shared';
 
 // A single 4-second-segment HLS viewer issues roughly 15 segment requests per
 // minute on top of playlist polls and scrub previews, so the general API budget
@@ -78,9 +78,7 @@ export const buildApp = async (): Promise<FastifyInstance> => {
 
   await app.register(rateLimit, {
     max: (request) =>
-      rateLimitBucket(request.url) === 'playback'
-        ? PLAYBACK_RATE_LIMIT_MAX
-        : API_RATE_LIMIT_MAX,
+      rateLimitBucket(request.url) === 'playback' ? PLAYBACK_RATE_LIMIT_MAX : API_RATE_LIMIT_MAX,
     keyGenerator: (request) => rateLimitKey(request.ip, request.url),
     timeWindow: '1 minute',
   });
@@ -114,6 +112,21 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       uptime: process.uptime(),
     };
   });
+
+  // Public and deliberately small: native clients use this before restoring a
+  // session so new protocol features can be adopted without breaking old servers.
+  app.get<{ Reply: ClientBootstrapDto }>('/api/client-bootstrap', async () => ({
+    apiVersion: 2,
+    minimumIOSBuild: 6,
+    features: {
+      deltaSyncV2: true,
+      downloadManifest: true,
+      seekableAAC: false,
+      localizedDiscovery: true,
+      scopedDownloadGrants: true,
+    },
+    serverTime: new Date().toISOString(),
+  }));
 
   // Register All Application Routes
   await app.register(authRoutes, { prefix: '/api/auth' });
