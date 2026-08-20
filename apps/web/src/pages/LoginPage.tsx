@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@cinedrive/shared';
@@ -13,6 +13,7 @@ const FIELD_CLASSES =
 
 export const LoginPage: React.FC = () => {
   const fieldId = useId();
+  const location = useLocation();
   const navigate = useNavigate();
   const loginMutation = useLoginMutation();
   const [showPassword, setShowPassword] = useState(false);
@@ -31,7 +32,14 @@ export const LoginPage: React.FC = () => {
 
   const onSubmit = (data: LoginInput) => {
     loginMutation.mutate(data, {
-      onSuccess: () => navigate('/'),
+      onSuccess: () => {
+        const requestedPath = (location.state as { returnTo?: unknown } | null)?.returnTo;
+        const returnTo =
+          typeof requestedPath === 'string' && requestedPath.startsWith('/') && !requestedPath.startsWith('//')
+            ? requestedPath
+            : '/';
+        navigate(returnTo, { replace: true });
+      },
     });
   };
 

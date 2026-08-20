@@ -1,10 +1,11 @@
 import React from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useSessionQuery } from '../hooks/useApi';
 import { t } from '../i18n';
 
 export const ProtectedRoute: React.FC = () => {
+  const location = useLocation();
   const { data: session, isLoading } = useSessionQuery();
 
   if (isLoading) {
@@ -17,7 +18,13 @@ export const ProtectedRoute: React.FC = () => {
   }
 
   if (!session?.authenticated) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
+      />
+    );
   }
 
   return <Outlet />;

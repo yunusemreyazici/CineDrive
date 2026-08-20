@@ -1,0 +1,25 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "XA6P6K5LVT.yuem.cinedrive.CineMusic"
+        ],
+        "components": [
+          {
+            "/": "/music/tracks/*",
+            "comment": "Open shared tracks in CineMusic"
+          },
+          {
+            "/": "/music/albums/*",
+            "comment": "Open shared albums in CineMusic"
+          },
+          {
+            "/": "/music/playlists/*",
+            "comment": "Open shared playlists in CineMusic"
+          }
+        ]
+      }
+    ]
+  }
+}
