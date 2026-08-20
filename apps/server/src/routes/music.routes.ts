@@ -35,6 +35,7 @@ import {
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
+import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
   formatMusicArtist,
   formatMusicTrack,
@@ -594,8 +595,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const nativeClient = typeof request.headers['x-cinemusic-version'] === 'string';
     const presentMix = (mix: (typeof discovery.mixes)[number]) => {
       if (!nativeClient) return mix;
-      const { title: _title, subtitle: _subtitle, description: _description, ...localized } = mix;
-      return localized;
+      return presentMusicMixForNativeClient(mix);
     };
     const presented = {
       ...discovery,
@@ -626,8 +626,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     if (typeof request.headers['x-cinemusic-version'] !== 'string') return { mix };
-    const { title: _title, subtitle: _subtitle, description: _description, ...localized } = mix;
-    return { mix: localized };
+    return { mix: presentMusicMixForNativeClient(mix) };
   });
 
   fastify.get('/replay', async (request, reply) => {
@@ -657,8 +656,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const mix = await discoveryService.getArtistRadio(request.user!.id, artist.id);
     if (typeof request.headers['x-cinemusic-version'] !== 'string') return { mix };
-    const { title: _title, subtitle: _subtitle, description: _description, ...localized } = mix;
-    return { mix: localized };
+    return { mix: presentMusicMixForNativeClient(mix) };
   });
 
   fastify.get('/maintenance', async (request) => {
