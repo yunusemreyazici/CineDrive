@@ -1248,21 +1248,21 @@ describe('Music library', () => {
       };
     });
 
-    const activeRequests = Array.from({ length: 4 }, () =>
+    const activeRequests = Array.from({ length: 3 }, () =>
       app.inject({
         method: 'GET',
-        url: `/api/music/tracks/${trackId}/stream`,
+        url: `/api/music/tracks/${trackId}/stream?clientId=ios-test-client`,
         cookies: { session_id: cookie },
       }),
     );
-    for (let attempt = 0; attempt < 50 && streams.length < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 50 && streams.length < 3; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
-    expect(streams).toHaveLength(4);
+    expect(streams).toHaveLength(3);
 
     const overflow = await app.inject({
       method: 'GET',
-      url: `/api/music/tracks/${trackId}/stream`,
+      url: `/api/music/tracks/${trackId}/stream?clientId=ios-test-client`,
       cookies: { session_id: cookie },
     });
     expect(overflow.statusCode).toBe(429);

@@ -69,7 +69,7 @@ import {
 // A native media player can probe many queued assets at once. Keep one client
 // from turning those probes into hundreds of simultaneous Google Drive streams
 // that exhaust the server's sockets and collapse unrelated network traffic.
-const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT = 2;
+const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_CLIENT = 3;
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_PER_USER = 6;
 const MAX_ACTIVE_DIRECT_MUSIC_TRANSFERS_GLOBAL = 24;
 const DOWNLOAD_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -3334,6 +3334,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
     upstream.stream.on('error', (streamError) => {
+      if (transfer.signal.aborted) {
+        request.log.debug(
+          {
+            event: 'music_stream_cancelled',
+            side: 'server',
+            code: 'CLIENT_ABORTED',
+            userId,
+            clientId: client.data,
+          },
+          'Music upstream stream cancelled by client',
+        );
+        return;
+      }
       request.log.error(
         {
           event: 'music_stream_error',
