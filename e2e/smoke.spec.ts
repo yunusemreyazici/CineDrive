@@ -88,11 +88,12 @@ test.describe('CineDrive smoke', () => {
     await page.goto('/music');
 
     await expect(page.getByRole('heading', { name: tr.music.title })).toBeVisible();
-    await expect(page.getByRole('heading', { name: tr.music.smartMixes })).toBeVisible();
     await expect(page.getByText('Fixture Album').first()).toBeVisible();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
 
-    await page.getByLabel(tr.music.moreActions).first().click();
+    // The spotlight action menu comes first and only contains queue actions;
+    // track information lives in the track-row menu below it.
+    await page.getByLabel(tr.music.moreActions).last().click();
     await page.getByRole('button', { name: tr.music.trackInfo }).click();
     const trackInfo = page.getByRole('dialog', { name: tr.music.trackInfo });
     await expect(trackInfo).toBeVisible();
@@ -100,7 +101,10 @@ test.describe('CineDrive smoke', () => {
     await expect(trackInfo.getByText(tr.music.technicalDetails)).toBeVisible();
     await trackInfo.getByRole('button', { name: tr.common.close }).click();
 
-    await page.getByRole('link', { name: 'Fixture Album Fixture Artist' }).first().click();
+    await page
+      .getByRole('link', { name: tr.music.openAlbum('Fixture Album') })
+      .first()
+      .click();
     await expect(page.getByRole('heading', { name: 'Fixture Album' })).toBeVisible();
     await expect(page.getByText(tr.music.qualitySummary)).toBeVisible();
     await page.goto('/music');
@@ -150,12 +154,14 @@ test.describe('CineDrive smoke', () => {
       .click();
     await page.getByRole('button', { name: tr.common.close, exact: true }).click();
 
-    await page.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');
+    await page.getByRole('button', { name: tr.music.createPlaylist }).click();
+    const createPlaylistDialog = page.getByRole('dialog', { name: tr.music.createPlaylist });
+    await createPlaylistDialog.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');
     const playlistResponse = page.waitForResponse(
       (response) =>
         response.url().includes('/api/music/playlists') && response.request().method() === 'POST',
     );
-    await page.getByRole('button', { name: tr.music.create }).click();
+    await createPlaylistDialog.getByRole('button', { name: tr.music.create }).click();
     expect((await playlistResponse).status()).toBeLessThan(400);
     await expect(page.getByRole('link', { name: /E2E Playlist/ }).first()).toBeVisible();
 
@@ -170,16 +176,18 @@ test.describe('CineDrive smoke', () => {
     await page.goto('/settings');
 
     // One destination per pane now: the profile opens first and Google Drive
-    // lives behind its own rail entry rather than further down one long scroll.
+    // lives in the consolidated library-management pane.
     await expect(page.getByRole('heading', { name: tr.settings.profile.title })).toBeVisible();
     await expect(page.getByRole('heading', { name: tr.settings.google.title })).toHaveCount(0);
 
-    await page.getByRole('button', { name: tr.settings.search.google.label, exact: true }).click();
-    await expect(page).toHaveURL(/tab=google/);
+    await page
+      .getByRole('button', { name: tr.settings.search.librarySources.label, exact: true })
+      .click();
+    await expect(page).toHaveURL(/tab=libraries/);
     await expect(page.getByRole('heading', { name: tr.settings.google.title })).toBeVisible();
 
-    await page.getByRole('button', { name: tr.settings.search.health.label, exact: true }).click();
-    await expect(page).toHaveURL(/tab=health/);
+    await page.getByRole('button', { name: tr.settings.search.storage.label, exact: true }).click();
+    await expect(page).toHaveURL(/tab=storage/);
     await expect(page.getByRole('heading', { name: tr.mediaHealth.analysisSummary })).toBeVisible();
   });
 

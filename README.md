@@ -330,3 +330,7 @@ CI runs typecheck, lint, unit tests, and production builds for every pull reques
 - **Playback waits before starting:** inspect active FFmpeg jobs and the queue. Increase `HLS_MAX_ACTIVE_JOBS` only when the host has enough CPU and memory.
 - **Music metadata is incomplete:** check embedded tags first, then run Music library care suggestions. MusicBrainz completion never overrides authoritative local tags automatically.
 - **Lyrics translation is unavailable:** configure `LIBRETRANSLATE_URL`; lyric lookup itself does not require LibreTranslate.
+
+## License
+
+CineDrive is available under the [MIT License](LICENSE).

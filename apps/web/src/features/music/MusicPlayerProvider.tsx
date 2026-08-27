@@ -167,7 +167,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       return 0.8;
     }
   });
-  const playbackClient = useMemo(playbackClientIdentity, []);
+  const playbackClient = useMemo(() => playbackClientIdentity(), []);
 
   const orderedQueue = useMemo(() => [...queue].sort((a, b) => a.playOrder - b.playOrder), [queue]);
   const currentEntry = queue.find((item) => item.id === currentQueueItemId) || null;

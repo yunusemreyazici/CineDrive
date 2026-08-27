@@ -330,3 +330,7 @@ CI her pull request'te ve `main` dalına her push'ta typecheck, lint, birim test
 - **Oynatma başlamadan bekliyor:** aktif FFmpeg işlerini ve kuyruğu inceleyin. `HLS_MAX_ACTIVE_JOBS` değerini yalnızca sunucuda yeterli CPU ve bellek varsa artırın.
 - **Müzik metadatası eksik:** önce gömülü etiketleri kontrol edin, ardından Müzik kütüphanesi bakımı önerilerini çalıştırın. MusicBrainz tamamlama, güvenilir yerel etiketlerin üzerine otomatik yazmaz.
 - **Şarkı sözü çevirisi kullanılamıyor:** `LIBRETRANSLATE_URL` ayarlayın; şarkı sözü aramasının kendisi LibreTranslate gerektirmez.
+
+## Lisans
+
+CineDrive, [MIT Lisansı](LICENSE) altında sunulur.

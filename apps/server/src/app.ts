@@ -93,10 +93,11 @@ export const buildApp = async (): Promise<FastifyInstance> => {
     app.log.error({ err: error, requestId }, 'Unhandled request error');
 
     const statusCode = error.statusCode || 500;
+    const isServerError = statusCode >= 500;
     const response: ApiErrorResponse = {
       error: {
-        code: error.code || 'INTERNAL_SERVER_ERROR',
-        message: error.message || 'Sunucu hatası oluştu.',
+        code: isServerError ? 'INTERNAL_SERVER_ERROR' : error.code || 'INTERNAL_SERVER_ERROR',
+        message: isServerError ? 'Sunucu hatası oluştu.' : error.message || 'Sunucu hatası oluştu.',
         requestId,
       },
     };

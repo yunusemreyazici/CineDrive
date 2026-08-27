@@ -141,7 +141,14 @@ export const seedE2EDatabase = async () => {
     ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss', '--schema', schemaPath],
     {
       cwd: serverRoot,
-      env: { ...process.env, DATABASE_URL: E2E_DATABASE_URL },
+      env: {
+        ...process.env,
+        DATABASE_URL: E2E_DATABASE_URL,
+        // Prisma 6's schema engine can exit before opening SQLite in the
+        // sandboxed macOS app unless its Rust debug path is enabled. Keep the
+        // workaround local to macOS so Linux CI output is unchanged.
+        ...(process.platform === 'darwin' ? { RUST_LOG: 'debug' } : {}),
+      },
       stdio: 'inherit',
     },
   );
