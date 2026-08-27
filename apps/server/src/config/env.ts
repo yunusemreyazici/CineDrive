@@ -1,8 +1,7 @@
-import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { envSchema, type EnvConfig } from '@cinedrive/shared';
+import { loadDotenvFiles } from './dotenv-loader.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,11 +17,7 @@ const envPaths = [
   path.resolve(__dirname, '../../../../.env.example'),
 ];
 
-for (const envPath of envPaths) {
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  }
-}
+loadDotenvFiles(envPaths);
 
 const parseEnv = (): EnvConfig => {
   const result = envSchema.safeParse(process.env);
