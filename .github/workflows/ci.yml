@@ -27,7 +27,7 @@ jobs:
       TOKEN_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
@@ -69,7 +69,7 @@ jobs:
     needs: verify
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
