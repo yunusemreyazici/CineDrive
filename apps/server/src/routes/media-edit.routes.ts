@@ -16,7 +16,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_ERROR',
-          message: parseResult.error.errors[0]?.message || 'En az 1 içerik seçilmelidir.',
+          message: parseResult.error.issues[0]?.message || 'En az 1 içerik seçilmelidir.',
           requestId: request.id,
         },
       });
@@ -104,7 +104,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(400).send({
           error: {
             code: 'VALIDATION_ERROR',
-            message: parseResult.error.errors[0]?.message || 'Geçersiz veri.',
+            message: parseResult.error.issues[0]?.message || 'Geçersiz veri.',
             requestId: request.id,
           },
         });

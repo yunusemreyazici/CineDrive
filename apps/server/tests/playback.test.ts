@@ -51,6 +51,33 @@ describe('Playback & History API Integration Tests', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it('PUT /api/playback/progress keeps validation issue details in the 400 response', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        mediaItemId: 'media_test_pb_1',
+        positionSeconds: -1,
+        durationSeconds: 8100,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = JSON.parse(response.body);
+    expect(body.error.code).toBe('VALIDATION_ERROR');
+    expect(body.error.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: ['positionSeconds'] })]),
+    );
+  });
+
   it('PUT /api/playback/progress with valid payload should calculate percentage and completed status', async () => {
     const loginRes = await app.inject({
       method: 'POST',
