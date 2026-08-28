@@ -1,12 +1,6 @@
-/* Self-hosted variable fonts. The weight-axis-only files keep the payload small
-   and remove the render-blocking round trip to the Google Fonts CDN, which also
-   makes the app usable on a fully offline home server. */
-@import '@fontsource-variable/inter/wght.css';
-@import '@fontsource-variable/outfit/wght.css';
+@import 'tailwindcss';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@config '../tailwind.config.js';
 
 @layer base {
   :root {
