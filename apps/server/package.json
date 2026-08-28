@@ -37,7 +37,7 @@
   "devDependencies": {
     "@types/ffmpeg-static": "^5.1.0",
     "@types/fluent-ffmpeg": "^2.1.28",
-    "@types/node": "^22.13.4",
+    "@types/node": "^26.3.0",
     "pino-pretty": "^13.0.0",
     "prisma": "^6.3.1",
     "tsx": "^4.23.12",
