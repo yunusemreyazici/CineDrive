@@ -19,7 +19,7 @@ export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Geçersiz parametre değerleri.',
-          details: parseResult.error.errors,
+          details: parseResult.error.issues,
           requestId: request.id,
         },
       });

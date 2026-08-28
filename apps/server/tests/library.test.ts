@@ -73,6 +73,30 @@ describe('Library API Integration Tests', () => {
     expect(Array.isArray(body.libraries)).toBe(true);
   });
 
+  it('POST /api/media/batch-delete preserves its validation error response', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/media/batch-delete',
+      cookies: { session_id: sessionCookie!.value },
+      payload: { ids: [] },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error).toEqual(
+      expect.objectContaining({
+        code: 'VALIDATION_ERROR',
+        message: 'En az 1 içerik seçilmelidir.',
+      }),
+    );
+  });
+
   it('POST /api/libraries with auth should create new library', async () => {
     const loginRes = await app.inject({
       method: 'POST',
