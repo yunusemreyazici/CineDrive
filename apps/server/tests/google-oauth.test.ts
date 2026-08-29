@@ -6,32 +6,35 @@ import { env } from '../src/config/env';
 
 // Mock googleapis
 vi.mock('googleapis', () => {
-  const mockOAuth2Client = {
-    generateAuthUrl: vi.fn().mockImplementation((opts: { state: string }) => {
+  // Vitest 4 requires constructors invoked with `new` (like `new google.auth.OAuth2()`)
+  // to be real classes or function constructors — plain arrow-function mocks throw
+  // "() => mockOAuth2Client is not a constructor".
+  class MockOAuth2 {
+    generateAuthUrl = vi.fn().mockImplementation((opts: { state: string }) => {
       return `https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent&state=${opts.state}`;
-    }),
-    getToken: vi.fn().mockResolvedValue({
+    });
+    getToken = vi.fn().mockResolvedValue({
       tokens: {
         access_token: 'mock-access-token',
         refresh_token: 'mock-refresh-token',
         expiry_date: Date.now() + 3600 * 1000,
         scope: 'https://www.googleapis.com/auth/drive.readonly',
       },
-    }),
-    setCredentials: vi.fn(),
-    refreshAccessToken: vi.fn().mockResolvedValue({
+    });
+    setCredentials = vi.fn();
+    refreshAccessToken = vi.fn().mockResolvedValue({
       credentials: {
         access_token: 'new-refreshed-access-token',
         expiry_date: Date.now() + 3600 * 1000,
       },
-    }),
-    revokeToken: vi.fn().mockResolvedValue({}),
-  };
+    });
+    revokeToken = vi.fn().mockResolvedValue({});
+  }
 
   return {
     google: {
       auth: {
-        OAuth2: vi.fn().mockImplementation(() => mockOAuth2Client),
+        OAuth2: MockOAuth2,
       },
       oauth2: vi.fn().mockReturnValue({
         userinfo: {
