@@ -21,9 +21,8 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
 
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
+      "@/*": ["./src/*"],
       "@cinedrive/shared": ["../../packages/shared/dist"]
     }
   },
