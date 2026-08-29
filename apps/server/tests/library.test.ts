@@ -5,18 +5,21 @@ import { env } from '../src/config/env';
 
 // Mock googleapis to avoid 15s network timeout on unauthenticated Google OAuth refresh
 vi.mock('googleapis', () => {
-  const mockOAuth2Client = {
-    generateAuthUrl: vi.fn(),
-    getToken: vi.fn(),
-    setCredentials: vi.fn(),
-    refreshAccessToken: vi.fn().mockRejectedValue(new Error('GOOGLE_ACCOUNT_NOT_CONNECTED')),
-    revokeToken: vi.fn(),
-  };
+  // Vitest 4 requires constructors invoked with `new` (like `new google.auth.OAuth2()`)
+  // to be real classes or function constructors — plain arrow-function mocks throw
+  // "() => mockOAuth2Client is not a constructor".
+  class MockOAuth2 {
+    generateAuthUrl = vi.fn();
+    getToken = vi.fn();
+    setCredentials = vi.fn();
+    refreshAccessToken = vi.fn().mockRejectedValue(new Error('GOOGLE_ACCOUNT_NOT_CONNECTED'));
+    revokeToken = vi.fn();
+  }
 
   return {
     google: {
       auth: {
-        OAuth2: vi.fn().mockImplementation(() => mockOAuth2Client),
+        OAuth2: MockOAuth2,
       },
       drive: vi.fn().mockReturnValue({
         files: {
