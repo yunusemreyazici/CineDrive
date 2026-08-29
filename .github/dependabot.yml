@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Keep Node.js declarations aligned with CineDrive's supported runtimes.
+    # Remove this rule when the documented, container, installer, and CI targets
+    # intentionally move to a newer Node.js major.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
     groups:
       production-patch-and-minor:
         dependency-type: production
