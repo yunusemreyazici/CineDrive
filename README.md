@@ -124,7 +124,7 @@ All media queries and transport endpoints validate that the requested file is re
 
 ### Requirements
 
-- Node.js 20.19+ on the Node 20 line, 22.12+ on Node 22, or Node 24+
+- Node.js 22.13+ on the Node 22 line, or Node.js 24
 - pnpm 11 (the repository is a pnpm workspace)
 - OpenSSL for generating secrets
 - A Google Cloud OAuth client with the Drive API enabled when using Google Drive
@@ -308,6 +308,29 @@ pnpm build
 
 Migrations are versioned and applied with `prisma migrate deploy`. The server test suite and end-to-end environment use isolated SQLite databases and do not touch the development database.
 
+### Database backups
+
+Create a consistent SQLite snapshot while CineDrive is running. Every snapshot is checked with SQLite's `integrity_check`; the newest 14 are retained by default:
+
+```bash
+pnpm db:backup
+pnpm db:backup -- --output-dir /secure/cinedrive-backups --retain 30
+```
+
+The VPS installer enables `cinedrive-backup.timer`, which runs this verified backup daily and keeps 14 snapshots under `/var/lib/cinedrive/backups`. Docker backups remain inside the application data volume:
+
+```bash
+docker compose exec server node apps/server/dist/cli/database-backup.js --retain 14
+```
+
+Restore is a dry run unless `--apply` is present. The dry run verifies the selected file and prints the target. Stop CineDrive before applying a restore; the tool creates an additional pre-restore safety backup and removes stale SQLite WAL sidecars during the atomic replacement.
+
+```bash
+pnpm db:restore -- --from /secure/cinedrive-backups/cinedrive-YYYYMMDDTHHMMSSZ.db
+# Stop the server, then:
+pnpm db:restore -- --from /secure/cinedrive-backups/cinedrive-YYYYMMDDTHHMMSSZ.db --apply
+```
+
 ## Development commands
 
 ```bash
@@ -316,10 +339,12 @@ pnpm lint           # ESLint, React hooks, JSX accessibility, React Refresh
 pnpm test           # Vitest suites for shared, web, and server
 pnpm test:e2e       # Playwright smoke scenarios
 pnpm build          # Production builds for shared, server, and web
+pnpm db:backup      # Create and verify a retained SQLite snapshot
+pnpm db:restore     # Verify a backup; requires --apply to restore it
 pnpm format         # Format TypeScript, JSON, and Markdown with Prettier
 ```
 
-CI runs typecheck, lint, unit tests, and production builds for every pull request and push to `main`; Playwright runs after those checks pass.
+CI runs typecheck, tests, and production builds at the supported Node 22.13 floor and on Node 24. It also starts the production Docker Compose stack and probes the API through Nginx; Playwright runs after the primary verification succeeds.
 
 ## Troubleshooting
 

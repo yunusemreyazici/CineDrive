@@ -13,7 +13,11 @@ services:
     networks:
       - cinedrive_net
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
+      test:
+        [
+          'CMD-SHELL',
+          'wget --quiet --tries=1 --output-document=/dev/null http://127.0.0.1:3000/api/health || exit 1',
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -21,8 +25,8 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
   nginx:
     build:
@@ -31,7 +35,7 @@ services:
     container_name: cinedrive-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
+      - '80:80'
     depends_on:
       server:
         condition: service_healthy
@@ -42,8 +46,8 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
 volumes:
   app_data:

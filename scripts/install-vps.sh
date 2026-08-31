@@ -10,7 +10,7 @@ APP_DIR="/opt/cinedrive"
 DATA_DIR="/var/lib/cinedrive"
 REPO_URL="${REPO_URL:-https://github.com/yunusemreyazici/CineDrive.git}"
 BRANCH="${BRANCH:-main}"
-PNPM_VERSION="${PNPM_VERSION:-11.17.0}"
+PNPM_VERSION="${PNPM_VERSION:-11.22.0}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Bu script root olarak çalıştırılmalı." >&2
@@ -84,6 +84,45 @@ wait_for_api() {
     --retry-connrefused \
     --retry-delay 1 \
     http://127.0.0.1:3000/api/health >/dev/null
+}
+
+install_backup_timer() {
+  cat >/etc/systemd/system/cinedrive-backup.service <<EOF
+[Unit]
+Description=CineDrive verified SQLite backup
+ConditionPathExists=${DATABASE_PATH}
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_GROUP}
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/.env
+ExecStart=/usr/bin/node ${APP_DIR}/apps/server/dist/cli/database-backup.js --output-dir ${DATA_DIR}/backups --retain 14
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=${DATA_DIR}
+UMask=0027
+EOF
+
+  cat >/etc/systemd/system/cinedrive-backup.timer <<'EOF'
+[Unit]
+Description=Create a daily CineDrive database backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+Unit=cinedrive-backup.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now cinedrive-backup.timer
 }
 
 INSTALL_MODE="fresh"
@@ -165,10 +204,25 @@ if [[ "${TLS_MODE:-}" == "certbot" ]]; then
 fi
 DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 
-if ! command -v node >/dev/null 2>&1 || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 22 ]]; then
+NODE_MAJOR=0
+NODE_MINOR=0
+if command -v node >/dev/null 2>&1; then
+  NODE_VERSION="$(node --version)"
+  NODE_VERSION="${NODE_VERSION#v}"
+  IFS=. read -r NODE_MAJOR NODE_MINOR _ <<<"$NODE_VERSION"
+fi
+if (( ! (NODE_MAJOR == 22 && NODE_MINOR >= 13) && NODE_MAJOR != 24 )); then
   echo "Node.js 22 kuruluyor..."
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+fi
+
+NODE_VERSION="$(node --version)"
+NODE_VERSION="${NODE_VERSION#v}"
+IFS=. read -r NODE_MAJOR NODE_MINOR _ <<<"$NODE_VERSION"
+if (( ! (NODE_MAJOR == 22 && NODE_MINOR >= 13) && NODE_MAJOR != 24 )); then
+  echo "CineDrive Node.js 22.13+ veya Node.js 24 gerektiriyor; bulunan sürüm: ${NODE_VERSION}" >&2
+  exit 1
 fi
 
 echo "pnpm ${PNPM_VERSION} kuruluyor..."
@@ -261,15 +315,18 @@ DATABASE_BACKUP=""
 if [[ -f "$DATABASE_PATH" ]]; then
   BACKUP_DIR="${DATA_DIR}/backups"
   install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$BACKUP_DIR"
-  DATABASE_BACKUP="${BACKUP_DIR}/app-$(date -u +%Y%m%dT%H%M%SZ).db"
-  echo "Migration öncesi SQLite yedeği alınıyor: ${DATABASE_BACKUP}"
-  sudo -u "$APP_USER" sqlite3 "$DATABASE_PATH" ".backup '${DATABASE_BACKUP}'"
-  chmod 0640 "$DATABASE_BACKUP"
+  echo "Migration öncesi doğrulamalı SQLite yedeği alınıyor..."
+  sudo -u "$APP_USER" -H env DATABASE_URL="$DATABASE_URL" \
+    node "$APP_DIR/apps/server/dist/cli/database-backup.js" \
+      --output-dir "$BACKUP_DIR" --retain 14
+  DATABASE_BACKUP="$BACKUP_DIR"
 fi
 
 echo "Production migration'ları uygulanıyor..."
 sudo -u "$APP_USER" -H env DATABASE_URL="$DATABASE_URL" \
   pnpm --dir "$APP_DIR" --filter @cinedrive/server prisma:deploy
+
+install_backup_timer
 
 if [[ "$INSTALL_MODE" == "update" ]]; then
   echo "CineDrive servisi yeniden başlatılıyor..."
@@ -284,7 +341,7 @@ if [[ "$INSTALL_MODE" == "update" ]]; then
   echo
   echo "CineDrive güncellemesi tamamlandı."
   if [[ -n "$DATABASE_BACKUP" ]]; then
-    echo "Veritabanı yedeği: ${DATABASE_BACKUP}"
+    echo "Veritabanı yedek dizini: ${DATABASE_BACKUP}"
   fi
   exit 0
 fi
