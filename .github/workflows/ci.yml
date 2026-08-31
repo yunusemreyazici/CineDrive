@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies
+        run: pnpm audit:prod
+
       # The server imports @prisma/client, so the client has to exist before
       # anything is type-checked.
       - name: Generate Prisma client

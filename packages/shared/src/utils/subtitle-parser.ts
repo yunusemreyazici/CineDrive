@@ -58,8 +58,8 @@ export function parseSubtitleFilename(filename: string): ParsedSubtitleInfo {
   const hearingImpaired =
     lower.includes('.sdh.') || lower.includes('_sdh.') || lower.includes('.hi.');
 
-  const langMatch = lower.match(/\.([a-z]{2,3})\.(vtt|srt)$/i) ||
-    lower.match(/[\._\-]([a-z]{2,3})[\._\-]/i);
+  const langMatch =
+    lower.match(/\.([a-z]{2,3})\.(vtt|srt)$/i) || lower.match(/[\._\-]([a-z]{2,3})[\._\-]/i);
 
   const rawLang = langMatch?.[1]?.toLowerCase();
   const normalized = rawLang ? ISO_639_2_TO_1[rawLang] || rawLang : undefined;
@@ -106,15 +106,11 @@ export function convertSrtToVtt(srtContent: string): string {
     '$1.$2 --> $3.$4',
   );
 
-  clean = clean.replace(
-    /(\d{2}:\d{2}),(\d{3})\s*-->\s*(\d{2}:\d{2}),(\d{3})/g,
-    '$1.$2 --> $3.$4',
-  );
+  clean = clean.replace(/(\d{2}:\d{2}),(\d{3})\s*-->\s*(\d{2}:\d{2}),(\d{3})/g, '$1.$2 --> $3.$4');
 
-  // 4. Sanitize potentially dangerous HTML tags while preserving standard subtitle formatting (b, i, u, v, font)
-  clean = clean.replace(/<script\b[^<]*>([\s\S]*?)<\/script>/gi, '');
-  clean = clean.replace(/<style\b[^<]*>([\s\S]*?)<\/style>/gi, '');
-  clean = clean.replace(/<iframe\b[^<]*>([\s\S]*?)<\/iframe>/gi, '');
+  // 4. Preserve a small WebVTT emphasis allowlist and discard active or
+  // embedded markup without relying on bypass-prone replacement regexes.
+  clean = sanitizeWebVttMarkup(clean);
 
   // Prepend WEBVTT header if not already present
   if (!clean.trim().startsWith('WEBVTT')) {
@@ -123,3 +119,4 @@ export function convertSrtToVtt(srtContent: string): string {
 
   return clean;
 }
+import { sanitizeWebVttMarkup } from './html-text';

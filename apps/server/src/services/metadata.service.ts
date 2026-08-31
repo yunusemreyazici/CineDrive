@@ -1,3 +1,4 @@
+import { htmlToPlainText } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 
 export interface CastMember {
@@ -80,7 +81,7 @@ export class MetadataService {
             seasonNumber: ep.season,
             episodeNumber: ep.number,
             name: ep.name,
-            overview: ep.summary ? ep.summary.replace(/<[^>]*>/g, '').trim() : null,
+            overview: ep.summary ? htmlToPlainText(ep.summary) : null,
             stillUrl: ep.image?.original || ep.image?.medium || null,
           });
         }
@@ -295,7 +296,7 @@ export class MetadataService {
         };
 
         const posterUrl = data.image?.original || data.image?.medium || null;
-        const overview = data.summary ? data.summary.replace(/<[^>]*>/g, '').trim() : null;
+        const overview = data.summary ? htmlToPlainText(data.summary) : null;
         const year = data.premiered ? parseInt(data.premiered.substring(0, 4), 10) : undefined;
         const voteAverage = data.rating?.average || undefined;
         const genres = data.genres || undefined;
