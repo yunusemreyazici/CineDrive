@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { convertSrtToVtt } from '@cinedrive/shared';
+import { useResettableState } from '../../../hooks/useResettableState';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { parseWebVttCues } from '../utils/subtitleCues';
 import { normalizeSubtitleTrack } from '../utils/subtitleTracks';
@@ -39,8 +40,14 @@ export const useSubtitleTracks = ({
   const activeSubtitleId = usePlayerStore((state) => state.activeSubtitleId);
   const setActiveSubtitleId = usePlayerStore((state) => state.setActiveSubtitleId);
 
-  const [customSubtitles, setCustomSubtitles] = useState<SubtitleTrackType[]>([]);
-  const [loadedCues, setLoadedCues] = useState<Record<string, SubtitleTrackType['cues']>>({});
+  const [customSubtitles, setCustomSubtitles] = useResettableState<SubtitleTrackType[]>(
+    [],
+    ownerId,
+  );
+  const [loadedCues, setLoadedCues] = useResettableState<Record<string, SubtitleTrackType['cues']>>(
+    {},
+    ownerId,
+  );
   /** Bumped whenever a native <track> finishes parsing, to re-sync cue times. */
   const [trackLoadVersion, setTrackLoadVersion] = useState(0);
 
@@ -74,13 +81,6 @@ export const useSubtitleTracks = ({
   );
 
   const availabilityKey = availableSubtitles.map((subtitle) => subtitle.id).join('|');
-
-  // Switching episode drops uploaded tracks and cached cues; they belong to the
-  // previous file.
-  useEffect(() => {
-    setCustomSubtitles([]);
-    setLoadedCues({});
-  }, [ownerId]);
 
   const selectSubtitle = useCallback(
     (subtitleId: string | null) => {
@@ -142,7 +142,7 @@ export const useSubtitleTracks = ({
       });
 
     return () => controller.abort();
-  }, [isPendingLoaded, onLoadError, pendingId, pendingUrl]);
+  }, [isPendingLoaded, onLoadError, pendingId, pendingUrl, setLoadedCues]);
 
   const uploadCustomSubtitle = useCallback(
     async (file: File) => {
@@ -168,7 +168,7 @@ export const useSubtitleTracks = ({
         onLoadError(t.subtitles.fileReadFailed);
       }
     },
-    [onLoadError, selectSubtitle],
+    [onLoadError, selectSubtitle, setCustomSubtitles],
   );
 
   const addDownloadedSubtitle = useCallback(
@@ -183,7 +183,7 @@ export const useSubtitleTracks = ({
       ]);
       selectSubtitle(downloaded.id);
     },
-    [selectSubtitle],
+    [selectSubtitle, setCustomSubtitles],
   );
 
   return {

@@ -3,11 +3,12 @@ import { Navigate, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { AppLayout } from '../layouts/AppLayout';
 import { t } from '../i18n';
-import { HomePage } from '../pages/HomePage';
 
-// Only the dashboard ships in the initial bundle. Every other route — the
-// player, the settings tooling, and the login form with its validation stack —
-// is fetched on demand so a cold start does not download the whole application.
+// Pages are fetched on demand so the app shell and login route do not download
+// dashboard, player, or settings code before it is needed.
+const HomePage = React.lazy(() =>
+  import('../pages/HomePage').then((module) => ({ default: module.HomePage })),
+);
 const LoginPage = React.lazy(() =>
   import('../pages/LoginPage').then((module) => ({ default: module.LoginPage })),
 );
