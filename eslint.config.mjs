@@ -63,6 +63,13 @@ export default [
     },
   },
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**', '*.config.js', '*.config.mjs'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      'apps/server/src/generated/prisma/**',
+      '*.config.js',
+      '*.config.mjs',
+    ],
   },
 ];

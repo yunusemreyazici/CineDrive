@@ -13,6 +13,12 @@ updates:
         update-types:
           - version-update:semver-major
     groups:
+      # Prisma 7 requires its CLI, generated client and driver adapter to move
+      # together; independent updates can make client generation fail.
+      prisma:
+        patterns:
+          - prisma
+          - '@prisma/*'
       production-patch-and-minor:
         dependency-type: production
         update-types:

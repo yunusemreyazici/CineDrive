@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { GoogleDriveService } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
 

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import sharp from 'sharp';
 import { MusicMetadataService, type ParsedMusicMetadata } from './music-metadata.service.js';
 import { MusicBrainzService } from './musicbrainz.service.js';

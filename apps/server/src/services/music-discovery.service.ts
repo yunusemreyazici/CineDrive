@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { accessibleLibraryFilter } from '../utils/library-access.js';
 import type { MusicDiscoveryDto, MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
 import {

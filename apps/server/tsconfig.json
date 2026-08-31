@@ -3,8 +3,12 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
+    "rewriteRelativeImportExtensions": true,
     "paths": {
-      "@cinedrive/shared": ["../../packages/shared/dist"]
+      "@cinedrive/shared": ["../../packages/shared/dist"],
+      // Prisma 7 generates the client into src/generated; this alias keeps the
+      // ~20 consumer imports short and independent of each file's depth.
+      "@cinedrive/prisma": ["./src/generated/prisma/client.js"]
     }
   },
   "include": ["src/**/*"]

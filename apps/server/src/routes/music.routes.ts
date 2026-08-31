@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@cinedrive/prisma';
 import {
   addMusicPlaylistItemSchema,
   addMusicPlaylistItemsSchema,

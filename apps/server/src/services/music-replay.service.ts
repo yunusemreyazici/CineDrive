@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { formatMusicTrack, musicTrackInclude, parseGenres } from '../utils/music-format.js';
 
 export type ReplayPeriod = 'day' | 'week' | 'month' | 'year';

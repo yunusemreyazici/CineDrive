@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@cinedrive/prisma';
 import type { UpdateProgressInput } from '@cinedrive/shared';
 
 const DEFAULT_COMPLETION_THRESHOLD_PERCENT = 92;

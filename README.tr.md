@@ -124,7 +124,7 @@ Tüm medya sorguları ve aktarım uçları, istenen dosyanın oturum açan kulla
 
 ### Gereksinimler
 
-- Node.js 20 veya üzeri
+- Node.js 20 serisinde 20.19+, Node 22 serisinde 22.12+ veya Node 24+
 - pnpm 11 (depo bir pnpm workspace'idir)
 - Gizli anahtar üretmek için OpenSSL
 - Google Drive kullanacaksanız Drive API etkin bir Google Cloud OAuth istemcisi

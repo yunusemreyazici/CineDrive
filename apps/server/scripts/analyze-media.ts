@@ -1,7 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import { env } from '../src/config/env.js';
+import { createPrismaClient } from '../src/lib/prisma-client.js';
 import { MediaProbeService } from '../src/services/media-probe.service.js';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient(env.DATABASE_URL);
 const probeService = new MediaProbeService();
 const CONCURRENCY = 2;
 
@@ -39,9 +40,7 @@ const main = async () => {
             data: {
               mediaAnalyzedAt: new Date(),
               mediaAnalysisError:
-                error instanceof Error
-                  ? error.message.slice(0, 500)
-                  : 'MEDIA_PROBE_FAILED',
+                error instanceof Error ? error.message.slice(0, 500) : 'MEDIA_PROBE_FAILED',
             },
           });
           console.error(`[MediaAnalyze] Başarısız: ${file.name}`, error);

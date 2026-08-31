@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@cinedrive/prisma';
 
 export interface RemovedGoogleConnectionContent {
   sources: number;

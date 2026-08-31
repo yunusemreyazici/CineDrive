@@ -65,4 +65,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
 # `migrate deploy` applies the versioned migration history and refuses to
 # discard data, unlike `db push`, which resolves whatever difference it finds
 # between the schema file and the container's database.
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=apps/server/prisma/schema.prisma && node apps/server/dist/index.js"]
+CMD ["sh", "-c", "apps/server/node_modules/.bin/prisma migrate deploy --config=apps/server/prisma.config.ts && node apps/server/dist/index.js"]

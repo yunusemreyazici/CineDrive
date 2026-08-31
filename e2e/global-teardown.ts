@@ -1,5 +1,5 @@
-import { teardownE2EDatabase } from './seed.js';
+import { teardownE2EArtifacts } from './cleanup.js';
 
 export default function globalTeardown() {
-  teardownE2EDatabase();
+  teardownE2EArtifacts();
 }

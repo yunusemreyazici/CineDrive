@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { MusicBrainzService } from './musicbrainz.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 

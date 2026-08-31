@@ -1,0 +1,12 @@
+{
+  // Type-checks tests, scripts and config files too. Kept separate from
+  // tsconfig.json because the build config pins rootDir to src/ for a clean
+  // dist/ layout, which would reject these files.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "prisma.config.ts"]
+}

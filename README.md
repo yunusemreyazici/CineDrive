@@ -124,7 +124,7 @@ All media queries and transport endpoints validate that the requested file is re
 
 ### Requirements
 
-- Node.js 20 or newer
+- Node.js 20.19+ on the Node 20 line, 22.12+ on Node 22, or Node 24+
 - pnpm 11 (the repository is a pnpm workspace)
 - OpenSSL for generating secrets
 - A Google Cloud OAuth client with the Drive API enabled when using Google Drive

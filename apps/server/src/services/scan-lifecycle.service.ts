@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 
 export type ScanInterruptionReason = 'server_restarted' | 'server_shutdown' | 'watchdog_timeout';
 

@@ -22,11 +22,10 @@ export const setup = () => {
   fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
   removeTestDatabase();
 
-  execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'], {
+  execFileSync('npx', ['prisma', 'db', 'push'], {
     cwd: serverRoot,
-    // Prisma 6's macOS schema engine can exit before opening SQLite when no
-    // Rust log filter is present under an app sandbox. The engine currently
-    // needs its debug path enabled; Prisma still keeps successful runs quiet.
+    // Prisma's schema engine needs its debug path enabled inside the sandboxed
+    // macOS app. Scope this workaround to the disposable test database.
     env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, RUST_LOG: 'debug' },
     stdio: 'inherit',
   });

@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-// Imported for its side effect: loads the repository .env, so the script talks
-// to exactly the database the server uses rather than a guessed path.
-import '../src/config/env.js';
+import { env } from '../src/config/env.js';
+import { createPrismaClient } from '../src/lib/prisma-client.js';
 
 /**
  * Adds `Library.userId` to a database created before libraries had an owner.
@@ -20,12 +18,10 @@ import '../src/config/env.js';
  * Dry run by default. Pass `--apply` to actually write.
  */
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient(env.DATABASE_URL);
 
 const hasOwnerColumn = async () => {
-  const columns = await prisma.$queryRawUnsafe<{ name: string }[]>(
-    'PRAGMA table_info("Library")',
-  );
+  const columns = await prisma.$queryRawUnsafe<{ name: string }[]>('PRAGMA table_info("Library")');
   return columns.some((column) => column.name === 'userId');
 };
 

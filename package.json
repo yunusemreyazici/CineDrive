@@ -2,6 +2,9 @@
   "name": "cinedrive-monorepo",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter \"@cinedrive/shared\" build && pnpm --filter \"./apps/*\" build",

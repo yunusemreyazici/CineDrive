@@ -77,7 +77,7 @@ describe('GoogleOAuthService Unit Tests', () => {
       },
     };
     googleService = new GoogleOAuthService(
-      mockPrisma as unknown as import('@prisma/client').PrismaClient,
+      mockPrisma as unknown as import('@cinedrive/prisma').PrismaClient,
     );
   });
 
