@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { KeyRound, Trash2, UserPlus, Users } from 'lucide-react';
 import {
   useCreateUserMutation,
@@ -13,19 +13,23 @@ import {
 } from '../../../hooks/useApi';
 import { toast } from '../../../stores/useToastStore';
 import { t } from '../../../i18n';
+import { useSyncedState } from '../../../hooks/useSyncedState';
 import { SettingsButton, SettingsCard, SETTINGS_INPUT_CLASSES } from '../SettingsCard';
 
 export const UserManagementSection: React.FC = () => {
   const { data: session } = useSessionQuery();
   const isAdmin = session?.user?.role === 'admin';
   const { data: userData } = useUsersQuery(isAdmin);
-  const users = userData?.users || [];
+  const users = useMemo(() => userData?.users || [], [userData?.users]);
   const createUser = useCreateUserMutation();
   const updateUser = useUpdateUserMutation();
   const resetPassword = useResetUserPasswordMutation();
   const { data: libraries = [] } = useLibrariesQuery();
-  const ownedLibraries = libraries.filter((library) => library.accessRole === 'owner');
-  const [libraryId, setLibraryId] = useState('');
+  const ownedLibraries = useMemo(
+    () => libraries.filter((library) => library.accessRole === 'owner'),
+    [libraries],
+  );
+  const [libraryId, setLibraryId] = useSyncedState(ownedLibraries[0]?.id || '');
   const { data: members = [] } = useLibraryMembersQuery(libraryId, isAdmin);
   const upsertMember = useUpsertLibraryMemberMutation();
   const removeMember = useRemoveLibraryMemberMutation();
@@ -35,10 +39,6 @@ export const UserManagementSection: React.FC = () => {
   const [role, setRole] = useState<'admin' | 'user'>('user');
   const [memberUserId, setMemberUserId] = useState('');
   const [memberRole, setMemberRole] = useState<'listener' | 'editor'>('listener');
-
-  useEffect(() => {
-    if (!libraryId && ownedLibraries[0]) setLibraryId(ownedLibraries[0].id);
-  }, [libraryId, ownedLibraries]);
 
   const availableUsers = useMemo(() => {
     const memberIds = new Set(members.map((member) => member.userId));
@@ -97,15 +97,47 @@ export const UserManagementSection: React.FC = () => {
       ) : null}
 
       <form onSubmit={handleCreate} className="grid gap-3 md:grid-cols-4">
-        <input className={SETTINGS_INPUT_CLASSES} value={name} onChange={(event) => setName(event.target.value)} placeholder={t.settings.users.name} required />
-        <input className={SETTINGS_INPUT_CLASSES} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t.settings.users.email} required />
-        <input className={SETTINGS_INPUT_CLASSES} type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t.settings.users.password} required />
+        <input
+          className={SETTINGS_INPUT_CLASSES}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder={t.settings.users.name}
+          required
+        />
+        <input
+          className={SETTINGS_INPUT_CLASSES}
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder={t.settings.users.email}
+          required
+        />
+        <input
+          className={SETTINGS_INPUT_CLASSES}
+          type="password"
+          minLength={8}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder={t.settings.users.password}
+          required
+        />
         <div className="flex gap-2">
-          <select className={SETTINGS_INPUT_CLASSES} value={role} onChange={(event) => setRole(event.target.value as 'admin' | 'user')}>
+          <select
+            className={SETTINGS_INPUT_CLASSES}
+            value={role}
+            onChange={(event) => setRole(event.target.value as 'admin' | 'user')}
+          >
             <option value="user">{t.settings.users.user}</option>
             <option value="admin">{t.settings.users.admin}</option>
           </select>
-          <SettingsButton type="submit" icon={UserPlus} isLoading={createUser.isPending} loadingLabel={t.settings.users.creating}>{t.settings.users.create}</SettingsButton>
+          <SettingsButton
+            type="submit"
+            icon={UserPlus}
+            isLoading={createUser.isPending}
+            loadingLabel={t.settings.users.creating}
+          >
+            {t.settings.users.create}
+          </SettingsButton>
         </div>
       </form>
 
@@ -114,24 +146,47 @@ export const UserManagementSection: React.FC = () => {
           <tbody className="divide-y divide-zinc-800/60">
             {users.map((user) => (
               <tr key={user.id}>
-                <td className="px-4 py-3"><p className="font-medium text-zinc-200">{user.name}</p><p className="text-xs text-zinc-500">{user.email}</p></td>
+                <td className="px-4 py-3">
+                  <p className="font-medium text-zinc-200">{user.name}</p>
+                  <p className="text-xs text-zinc-500">{user.email}</p>
+                </td>
                 <td className="px-4 py-3">
                   <select
                     className={`${SETTINGS_INPUT_CLASSES} max-w-40`}
                     value={user.role}
                     disabled={user.id === session?.user?.id}
-                    onChange={(event) => void updateUser.mutateAsync({ id: user.id, input: { role: event.target.value as 'admin' | 'user' } }).catch((error) => toast.fromError(error, t.settings.users.failed))}
+                    onChange={(event) =>
+                      void updateUser
+                        .mutateAsync({
+                          id: user.id,
+                          input: { role: event.target.value as 'admin' | 'user' },
+                        })
+                        .catch((error) => toast.fromError(error, t.settings.users.failed))
+                    }
                   >
                     <option value="user">{t.settings.users.user}</option>
                     <option value="admin">{t.settings.users.admin}</option>
                   </select>
                 </td>
-                <td className="px-4 py-3 text-xs text-zinc-400">{user.disabled ? t.settings.users.disabled : t.settings.users.active}</td>
+                <td className="px-4 py-3 text-xs text-zinc-400">
+                  {user.disabled ? t.settings.users.disabled : t.settings.users.active}
+                </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-2">
-                    <SettingsButton icon={KeyRound} onClick={() => void handleResetPassword(user.id)}>{t.settings.users.resetPassword}</SettingsButton>
+                    <SettingsButton
+                      icon={KeyRound}
+                      onClick={() => void handleResetPassword(user.id)}
+                    >
+                      {t.settings.users.resetPassword}
+                    </SettingsButton>
                     {user.id !== session?.user?.id ? (
-                      <SettingsButton onClick={() => void updateUser.mutateAsync({ id: user.id, input: { disabled: !user.disabled } }).catch((error) => toast.fromError(error, t.settings.users.failed))}>
+                      <SettingsButton
+                        onClick={() =>
+                          void updateUser
+                            .mutateAsync({ id: user.id, input: { disabled: !user.disabled } })
+                            .catch((error) => toast.fromError(error, t.settings.users.failed))
+                        }
+                      >
                         {user.disabled ? t.settings.users.active : t.settings.users.disabled}
                       </SettingsButton>
                     ) : null}
@@ -145,26 +200,73 @@ export const UserManagementSection: React.FC = () => {
 
       {ownedLibraries.length > 0 ? (
         <div className="mt-7 border-t border-zinc-800 pt-5">
-          <h4 className="mb-3 text-sm font-semibold text-zinc-200">{t.settings.users.libraryAccess}</h4>
+          <h4 className="mb-3 text-sm font-semibold text-zinc-200">
+            {t.settings.users.libraryAccess}
+          </h4>
           <div className="grid gap-3 md:grid-cols-4">
-            <select className={SETTINGS_INPUT_CLASSES} value={libraryId} onChange={(event) => setLibraryId(event.target.value)}>
-              {ownedLibraries.map((library) => <option key={library.id} value={library.id}>{library.name}</option>)}
+            <select
+              className={SETTINGS_INPUT_CLASSES}
+              value={libraryId}
+              onChange={(event) => setLibraryId(event.target.value)}
+            >
+              {ownedLibraries.map((library) => (
+                <option key={library.id} value={library.id}>
+                  {library.name}
+                </option>
+              ))}
             </select>
-            <select className={SETTINGS_INPUT_CLASSES} value={memberUserId} onChange={(event) => setMemberUserId(event.target.value)}>
+            <select
+              className={SETTINGS_INPUT_CLASSES}
+              value={memberUserId}
+              onChange={(event) => setMemberUserId(event.target.value)}
+            >
               <option value="">{t.settings.users.selectUser}</option>
-              {availableUsers.map((user) => <option key={user.id} value={user.id}>{user.name} · {user.email}</option>)}
+              {availableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name} · {user.email}
+                </option>
+              ))}
             </select>
-            <select className={SETTINGS_INPUT_CLASSES} value={memberRole} onChange={(event) => setMemberRole(event.target.value as 'listener' | 'editor')}>
+            <select
+              className={SETTINGS_INPUT_CLASSES}
+              value={memberRole}
+              onChange={(event) => setMemberRole(event.target.value as 'listener' | 'editor')}
+            >
               <option value="listener">{t.settings.users.listener}</option>
               <option value="editor">{t.settings.users.editor}</option>
             </select>
-            <SettingsButton icon={UserPlus} onClick={() => void handleGrant()} disabled={!memberUserId}>{t.settings.users.addAccess}</SettingsButton>
+            <SettingsButton
+              icon={UserPlus}
+              onClick={() => void handleGrant()}
+              disabled={!memberUserId}
+            >
+              {t.settings.users.addAccess}
+            </SettingsButton>
           </div>
           <div className="mt-3 space-y-2">
             {members.map((member) => (
-              <div key={member.id} className="flex items-center justify-between rounded-lg border border-zinc-800/70 px-3 py-2">
-                <div><p className="text-sm text-zinc-200">{member.name}</p><p className="text-xs text-zinc-500">{member.email} · {t.settings.users[member.role]}</p></div>
-                {member.role !== 'owner' ? <SettingsButton icon={Trash2} onClick={() => void removeMember.mutateAsync({ libraryId, userId: member.userId }).catch((error) => toast.fromError(error, t.settings.users.failed))}>{t.settings.users.removeAccess}</SettingsButton> : null}
+              <div
+                key={member.id}
+                className="flex items-center justify-between rounded-lg border border-zinc-800/70 px-3 py-2"
+              >
+                <div>
+                  <p className="text-sm text-zinc-200">{member.name}</p>
+                  <p className="text-xs text-zinc-500">
+                    {member.email} · {t.settings.users[member.role]}
+                  </p>
+                </div>
+                {member.role !== 'owner' ? (
+                  <SettingsButton
+                    icon={Trash2}
+                    onClick={() =>
+                      void removeMember
+                        .mutateAsync({ libraryId, userId: member.userId })
+                        .catch((error) => toast.fromError(error, t.settings.users.failed))
+                    }
+                  >
+                    {t.settings.users.removeAccess}
+                  </SettingsButton>
+                ) : null}
               </div>
             ))}
           </div>

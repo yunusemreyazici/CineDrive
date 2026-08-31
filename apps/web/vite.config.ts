@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   server: {
@@ -32,6 +32,12 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    // hls.js is intentionally loaded as a separate, on-demand player chunk
+    // (~574 kB). Keep the budget just above it so unexpected larger chunks
+    // still surface during production builds.
+    chunkSizeWarningLimit: 600,
   },
   test: {
     globals: true,

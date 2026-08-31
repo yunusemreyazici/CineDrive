@@ -15,6 +15,7 @@ import { useActiveMedia } from '../hooks/useActiveMedia';
 import { usePlaybackSource } from '../hooks/usePlaybackSource';
 import { useSubtitleTracks } from '../hooks/useSubtitleTracks';
 import { usePlayerTelemetry } from '../hooks/usePlayerTelemetry';
+import { useResettableState } from '../../../hooks/useResettableState';
 import {
   getBufferedAheadSeconds,
   isSafariBrowser,
@@ -104,11 +105,25 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bufferedTime, setBufferedTime] = useState(0);
-  const [showResumeModal, setShowResumeModal] = useState(false);
-  const [showNextEpisodeModal, setShowNextEpisodeModal] = useState(false);
-  const [errorState, setErrorState] = useState<PlayerErrorState | null>(null);
+  const sourceResetKey = `${active.driveFileId || 'missing'}:${recommendedMode}:${source.automaticQuality}`;
+  const missingDriveError: PlayerErrorState | null = active.driveFileId
+    ? null
+    : {
+        code: 'STREAM_FAILED',
+        message: t.player.noDriveFile,
+        isRetryable: false,
+      };
+  const [showResumeModal, setShowResumeModal] = useResettableState(false, sourceResetKey);
+  const [showNextEpisodeModal, setShowNextEpisodeModal] = useResettableState(false, episodeId);
+  const [errorState, setErrorState] = useResettableState<PlayerErrorState | null>(
+    missingDriveError,
+    sourceResetKey,
+  );
   const [isNativeVideoFullscreen, setIsNativeVideoFullscreen] = useState(false);
-  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [connectionMessage, setConnectionMessage] = useResettableState<string | null>(
+    null,
+    sourceResetKey,
+  );
   const [fullscreenError, setFullscreenError] = useState<string | null>(null);
   const [delayToast, setDelayToast] = useState<string | null>(null);
 
@@ -116,7 +131,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleSubtitleLoadError = useCallback(
     (message: string) => setConnectionMessage(message),
-    [],
+    [setConnectionMessage],
   );
   const subtitles = useSubtitleTracks({
     ownerId: active.activeEpisodeId || media.id,
@@ -182,15 +197,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     stallRecoveryAttemptsRef.current = 0;
     sourceErrorRecoveryAttemptsRef.current = 0;
     recoveryPositionRef.current = null;
-    setShowResumeModal(false);
-    setErrorState(null);
-    setConnectionMessage(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restart only when the file or its recommended strategy changes
   }, [active.driveFileId, recommendedMode, source.automaticQuality]);
 
   useEffect(() => {
     nextEpisodeDismissedRef.current = false;
-    setShowNextEpisodeModal(false);
   }, [episodeId]);
 
   useLayoutEffect(() => {
@@ -199,16 +210,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     firstFrameReportedRef.current = false;
     stallStartedAtRef.current = null;
   }, [source.sourceUrl, suppressNextEpisode]);
-
-  useEffect(() => {
-    if (active.driveFileId) return;
-    setErrorState({
-      code: 'STREAM_FAILED',
-      message:
-        t.player.noDriveFile,
-      isRetryable: false,
-    });
-  }, [active.driveFileId]);
 
   // Clean up every pending timer on unmount.
   useEffect(
@@ -228,7 +229,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       message: t.player.hlsUnsupported,
       isRetryable: true,
     });
-  }, []);
+  }, [setErrorState]);
   const handleFatalHlsError = useCallback(
     () => dispatchSource({ type: 'restart' }),
     [dispatchSource],
@@ -268,7 +269,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (!videoRef.current) return;
     Array.from(videoRef.current.textTracks).forEach((track, index) => {
       const subtitle = resolvedSubtitles[index];
-      if (subtitle && (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId))) {
+      if (
+        subtitle &&
+        (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId))
+      ) {
         // Cue-backed subtitles use the styled HTML overlay inline, but iPhone
         // native fullscreen can only display a showing native text track.
         track.mode = subtitle.cues?.length && !isNativeVideoFullscreen ? 'hidden' : 'showing';
@@ -288,7 +292,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       Array.from(video.textTracks).forEach((track, index) => {
         const subtitle = resolvedSubtitles[index];
         track.mode =
-          subtitle && (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId))
+          subtitle &&
+          (subtitle.id === activeSubtitleId || (subtitle.isDefault && !activeSubtitleId))
             ? 'showing'
             : 'disabled';
       });
@@ -445,7 +450,14 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         dispatchSource({ type: 'seekTo', offsetSeconds: Math.floor(targetTime) });
       }, HLS_SEEK_DEBOUNCE_MS);
     },
-    [dispatchSource, duration, source.playbackMode, source.startOffset, suppressNextEpisode],
+    [
+      dispatchSource,
+      duration,
+      setConnectionMessage,
+      source.playbackMode,
+      source.startOffset,
+      suppressNextEpisode,
+    ],
   );
 
   // --- Media element event handlers ---------------------------------------
@@ -508,8 +520,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     audioCompatibilityTimerRef.current = setTimeout(() => {
       const video = videoRef.current as
-        | (HTMLVideoElement & { webkitAudioDecodedByteCount?: number })
-        | null;
+        (HTMLVideoElement & { webkitAudioDecodedByteCount?: number }) | null;
 
       // Chromium can play the video track of AC-3/E-AC-3/DTS files without
       // raising a media error. In that state the picture advances but no audio
@@ -580,7 +591,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const isNearEnd =
       (remainingSeconds >= 0 && remainingSeconds <= 15) || (percentage >= 94 && percentage <= 100);
 
-    if (isNearEnd && !showNextEpisodeModal && !nextEpisodeDismissedRef.current && active.nextEpisode) {
+    if (
+      isNearEnd &&
+      !showNextEpisodeModal &&
+      !nextEpisodeDismissedRef.current &&
+      active.nextEpisode
+    ) {
       saveProgress(true);
       if (autoPlayNext) setShowNextEpisodeModal(true);
     }
@@ -665,10 +681,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       }
 
       setConnectionMessage(
-        t.player.reestablishing(
-          stallRecoveryAttemptsRef.current,
-          MAX_STALL_RECOVERY_ATTEMPTS,
-        ),
+        t.player.reestablishing(stallRecoveryAttemptsRef.current, MAX_STALL_RECOVERY_ATTEMPTS),
       );
       stalledVideo.load();
     }, STALL_RECOVERY_DELAY_MS);
@@ -677,6 +690,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     source.effectiveQuality,
     source.playbackMode,
     source.qualityPreference,
+    setConnectionMessage,
     suppressNextEpisode,
     timelineOffset,
   ]);
@@ -719,7 +733,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     stablePlaybackTimerRef.current = setTimeout(() => {
       stallRecoveryAttemptsRef.current = 0;
     }, STABLE_PLAYBACK_RESET_MS);
-  }, [reportTelemetry, source.playbackMode]);
+  }, [reportTelemetry, setConnectionMessage, source.playbackMode]);
 
   const handleCanPlayReady = useCallback(() => {
     setIsBuffering(false);
@@ -753,10 +767,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       setErrorState(null);
       setIsBuffering(true);
       setConnectionMessage(
-        t.player.mobileRetry(
-          sourceErrorRecoveryAttemptsRef.current,
-          MAX_SOURCE_ERROR_RETRIES,
-        ),
+        t.player.mobileRetry(sourceErrorRecoveryAttemptsRef.current, MAX_SOURCE_ERROR_RETRIES),
       );
 
       clearTimer(sourceErrorRecoveryTimerRef);
@@ -787,6 +798,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     isPlaying,
     isSafari,
     reportTelemetry,
+    setConnectionMessage,
+    setErrorState,
     source.playbackMode,
     suppressNextEpisode,
   ]);
@@ -829,7 +842,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         isRetryable: false,
       });
     });
-  }, [isPlaying]);
+  }, [isPlaying, setErrorState]);
 
   const skipBy = useCallback(
     (deltaSeconds: number) => {
@@ -1036,9 +1049,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
             kind="subtitles"
             srcLang={subtitle.language}
             label={subtitle.label || (subtitle.language || 'und').toUpperCase()}
-            default={
-              activeSubtitleId === subtitle.id || (subtitle.isDefault && !activeSubtitleId)
-            }
+            default={activeSubtitleId === subtitle.id || (subtitle.isDefault && !activeSubtitleId)}
             onLoad={markTrackLoaded}
           />
         ))}
@@ -1178,7 +1189,9 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           onTogglePiP={togglePiP}
           onToggleFullscreen={toggleFullscreen}
           onPreviousEpisode={
-            active.previousEpisode ? () => handleEpisodeChange(active.previousEpisode!.id) : undefined
+            active.previousEpisode
+              ? () => handleEpisodeChange(active.previousEpisode!.id)
+              : undefined
           }
           onNextEpisode={
             active.nextEpisode ? () => handleEpisodeChange(active.nextEpisode!.id) : undefined

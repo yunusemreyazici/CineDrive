@@ -35,11 +35,6 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
   const directVideo = isDirectVideoUrl(trailerUrl);
 
   useEffect(() => {
-    setEnabled(false);
-    setReady(false);
-    setMuted(true);
-    onPlayingChange(false);
-
     if (!trailerUrl || (!youtubeId && !directVideo)) return;
 
     const connection = (
@@ -51,7 +46,10 @@ const HeroTrailer: React.FC<HeroTrailerProps> = ({ title, trailerUrl, onPlayingC
     if (connection?.saveData || reduceMotion) return;
 
     const timer = window.setTimeout(() => setEnabled(true), AUTOPLAY_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      onPlayingChange(false);
+    };
   }, [directVideo, onPlayingChange, trailerUrl, youtubeId]);
 
   useEffect(() => {
@@ -194,6 +192,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
       )}
 
       <HeroTrailer
+        key={`${media.id}:${media.trailerUrl || ''}`}
         title={media.title}
         trailerUrl={media.trailerUrl}
         onPlayingChange={setTrailerPlaying}

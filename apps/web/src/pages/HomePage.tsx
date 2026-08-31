@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
@@ -9,14 +9,42 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { t } from '../i18n';
 import type { MediaItemType } from '../types/media';
-import {
-  useMediaListQuery,
-  useContinueWatchingQuery,
-} from '../hooks/useApi';
+import { useMediaListQuery, useContinueWatchingQuery } from '../hooks/useApi';
 import { useMusicOverviewQuery } from '../hooks/useMusicApi';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 
 const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
+
+const chooseFeaturedId = (candidates: MediaItemType[]): string | null => {
+  let lastFeaturedId: string | null = null;
+  try {
+    lastFeaturedId = window.sessionStorage.getItem(LAST_FEATURED_MEDIA_KEY);
+  } catch {
+    // Random selection still works when storage access is blocked.
+  }
+
+  const freshCandidates =
+    candidates.length > 1 ? candidates.filter((media) => media.id !== lastFeaturedId) : candidates;
+  const selected =
+    freshCandidates[Math.floor(Math.random() * freshCandidates.length)] || candidates[0];
+  return selected?.id || null;
+};
+
+const FeaturedHomeHero: React.FC<{ candidates: MediaItemType[] }> = ({ candidates }) => {
+  const [featuredId] = useState(() => chooseFeaturedId(candidates));
+  const featuredItem = candidates.find((media) => media.id === featuredId) || candidates[0];
+
+  useEffect(() => {
+    if (!featuredItem) return;
+    try {
+      window.sessionStorage.setItem(LAST_FEATURED_MEDIA_KEY, featuredItem.id);
+    } catch {
+      // Persisting the pick is best-effort.
+    }
+  }, [featuredItem]);
+
+  return featuredItem ? <FeaturedHero key={featuredItem.id} media={featuredItem} /> : null;
+};
 
 interface HomeSectionProps {
   title: string;
@@ -63,7 +91,6 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [featuredId, setFeaturedId] = useState<string | null>(null);
   const {
     data: mediaData,
     isLoading: isMediaLoading,
@@ -86,56 +113,22 @@ export const HomePage: React.FC = () => {
     const moviesOnly = allMedia.filter((media) => media.type === 'movie');
     const candidatePool = moviesOnly.length > 0 ? moviesOnly : allMedia;
     const richCandidates = candidatePool.filter(
-      (media) =>
-        Boolean(media.backdropUrl || media.backdropDriveFileId) &&
-        Boolean(media.overview),
+      (media) => Boolean(media.backdropUrl || media.backdropDriveFileId) && Boolean(media.overview),
     );
     const visualCandidates = candidatePool.filter((media) =>
       Boolean(media.backdropUrl || media.backdropDriveFileId),
     );
 
-    return (
-      richCandidates.length > 0
-        ? richCandidates
-        : visualCandidates.length > 0
-          ? visualCandidates
-          : candidatePool
-    );
+    return richCandidates.length > 0
+      ? richCandidates
+      : visualCandidates.length > 0
+        ? visualCandidates
+        : candidatePool;
   }, [allMedia]);
-  const featuredItem =
-    featuredCandidates.find((media) => media.id === featuredId) || featuredCandidates[0];
   const genres = useMemo(
     () => Array.from(new Set(allMedia.flatMap((media) => media.genres || []))).slice(0, 10),
     [allMedia],
   );
-
-  useLayoutEffect(() => {
-    if (featuredId || allMedia.length === 0) return;
-
-    const candidates = featuredCandidates;
-
-    let lastFeaturedId: string | null = null;
-    try {
-      lastFeaturedId = window.sessionStorage.getItem(LAST_FEATURED_MEDIA_KEY);
-    } catch {
-      // Random selection still works when storage access is blocked.
-    }
-
-    const freshCandidates =
-      candidates.length > 1
-        ? candidates.filter((media) => media.id !== lastFeaturedId)
-        : candidates;
-    const selected =
-      freshCandidates[Math.floor(Math.random() * freshCandidates.length)] || candidates[0];
-    if (!selected) return;
-
-    setFeaturedId(selected.id);
-    try {
-      window.sessionStorage.setItem(LAST_FEATURED_MEDIA_KEY, selected.id);
-    } catch {
-      // Persisting the pick is best-effort.
-    }
-  }, [allMedia.length, featuredCandidates, featuredId]);
 
   if (isMediaLoading) {
     return (
@@ -173,9 +166,7 @@ export const HomePage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-8">
-      {featuredItem && (
-        <FeaturedHero media={featuredItem} />
-      )}
+      <FeaturedHomeHero candidates={featuredCandidates} />
 
       {continueWatching && continueWatching.length > 0 && (
         <section className="space-y-3">
@@ -206,11 +197,23 @@ export const HomePage: React.FC = () => {
       {musicOverview && musicOverview.recentAlbums.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">{t.music.recentAlbums}</h2>
-            <Link to="/music" className="text-xs font-semibold text-zinc-500 hover:text-brand-400">{t.common.seeAll}</Link>
+            <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
+              {t.music.recentAlbums}
+            </h2>
+            <Link to="/music" className="text-xs font-semibold text-zinc-500 hover:text-brand-400">
+              {t.common.seeAll}
+            </Link>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-            {musicOverview.recentAlbums.slice(0, 6).map((album) => <MusicCollectionCard key={album.id} href={`/music/albums/${album.id}`} title={album.title} subtitle={album.artist?.name} artworkUrl={album.artworkUrl} />)}
+            {musicOverview.recentAlbums.slice(0, 6).map((album) => (
+              <MusicCollectionCard
+                key={album.id}
+                href={`/music/albums/${album.id}`}
+                title={album.title}
+                subtitle={album.artist?.name}
+                artworkUrl={album.artworkUrl}
+              />
+            ))}
           </div>
         </section>
       )}
