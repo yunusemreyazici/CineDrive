@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 .env.local
+release.env
 *.db
 *.db-journal
 # Copies taken before a schema change; `*.db` alone does not match them.

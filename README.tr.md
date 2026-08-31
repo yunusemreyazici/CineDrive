@@ -319,6 +319,18 @@ docker compose logs -f
 
 Nginx web uygulamasını sunar ve `/api` isteklerini 80 numaralı porttan sunucuya aktarır. Sunucu konteyneri başlamadan önce sürümlenmiş Prisma migration'larını uygular. Uygulama verisi, altyazı önbelleği ve Nginx logları adlandırılmış volume'larda tutulur.
 
+Etiketli sürümler GHCR'a `linux/amd64` ve `linux/arm64` image'ları da yayınlar. Tekrarlanabilir dağıtım için release Compose override'ını GitHub Release'e eklenen immutable digest referanslarıyla kullanın:
+
+```bash
+cp release.env.example release.env
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml pull
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
+```
+
+Image doğrulama, güncelleme ve geri dönüş adımları için [CineDrive Sürümleme](docs/RELEASING.tr.md) belgesine bakın.
+
 ### Debian/Ubuntu VPS
 
 Yeni bir VPS için etkileşimli kurucu; özel sistem kullanıcısını, Node.js'i, pnpm'i, FFmpeg'i, systemd'yi, Nginx'i, veritabanını ve TLS'i ayarlar:
@@ -392,10 +404,11 @@ pnpm test:e2e       # Playwright smoke senaryoları
 pnpm build          # shared, server ve web production derlemeleri
 pnpm db:backup      # Saklama politikası uygulanan doğrulamalı SQLite snapshot'ı
 pnpm db:restore     # Yedeği doğrular; geri yüklemek için --apply gerekir
+pnpm release:check  # Birlikte ilerleyen SemVer ve changelog metadatasını doğrular
 pnpm format         # TypeScript, JSON ve Markdown dosyalarını Prettier ile biçimlendirir
 ```
 
-CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Ayrıca production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; Playwright ana doğrulama başarılı olduktan sonra koşar. Ayrı bir least-privilege workflow iki production image'ını düzeltmesi bulunan high/critical açıklar için tarar ve CycloneDX SBOM'larını build artifact'i olarak saklar. Digest ile sabitlenen base image'ları Dependabot güncel tutar.
+CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Ayrıca production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; Playwright ana doğrulama başarılı olduktan sonra koşar. Ayrı bir least-privilege workflow iki production image'ını düzeltmesi bulunan high/critical açıklar için tarar ve CycloneDX SBOM'larını build artifact'i olarak saklar. Release pull request'leri iki hedef mimariyi dry-run ile derler; `v*` etiketleri provenance attestation'lı, keyless imzalı GHCR image'larıyla birlikte SBOM ve immutable digest manifestleri yayınlar. Dependabot, digest ile sabitlenen base image'ları ve SHA ile sabitlenen action'ları güncel tutar.
 
 ## Sorun giderme
 
@@ -409,6 +422,7 @@ CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typeche
 
 ## Katkı ve güvenlik
 
+- Sürüm hazırlamadan önce [değişiklik günlüğünü](CHANGELOG.md) ve [sürüm politikasını](docs/RELEASING.tr.md) inceleyin.
 - Tekrarlanabilir bug'lar ve odaklı özellik istekleri için [issue şablonlarını](https://github.com/yunusemreyazici/CineDrive/issues/new/choose) kullanın.
 - Kod göndermeden önce gerekli kontrolleri ve repo kurallarını içeren [CONTRIBUTING.md](CONTRIBUTING.md) dosyasını okuyun.
 - Güvenlik açıklarını public issue olarak bildirmeyin. GitHub private vulnerability reporting kanalını kullanmak için [SECURITY.md](SECURITY.md) yönergelerini izleyin.

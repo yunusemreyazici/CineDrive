@@ -1,0 +1,10 @@
+# Use with docker-compose.yml to replace local builds with an exact published
+# version or, preferably, an immutable digest from a GitHub Release manifest.
+services:
+  server:
+    image: ${CINEDRIVE_SERVER_IMAGE:?Set CINEDRIVE_SERVER_IMAGE to a GHCR tag or digest}
+    build: !reset null
+
+  nginx:
+    image: ${CINEDRIVE_WEB_IMAGE:?Set CINEDRIVE_WEB_IMAGE to a GHCR tag or digest}
+    build: !reset null
