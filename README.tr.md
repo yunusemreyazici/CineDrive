@@ -124,7 +124,7 @@ Tüm medya sorguları ve aktarım uçları, istenen dosyanın oturum açan kulla
 
 ### Gereksinimler
 
-- Node.js 20 serisinde 20.19+, Node 22 serisinde 22.12+ veya Node 24+
+- Node.js 22 serisinde 22.13+ veya Node.js 24
 - pnpm 11 (depo bir pnpm workspace'idir)
 - Gizli anahtar üretmek için OpenSSL
 - Google Drive kullanacaksanız Drive API etkin bir Google Cloud OAuth istemcisi
@@ -258,7 +258,7 @@ Birden fazla hesap için `APP_AUTH_MODE=multi-user` ayarlayıp sunucuyu yeniden 
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`     | Google OAuth istemci bilgileri.                                                |
 | `GOOGLE_REDIRECT_URI`                          | OAuth callback adresi; Google'da kayıtlı adresle birebir aynı olmalı.          |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`                | İlk açılışta oluşturulan yönetici.                                             |
-| `APP_AUTH_MODE`                                | Yönetici tarafından oluşturulan hesap girişleri için `multi-user` kullanılır. |
+| `APP_AUTH_MODE`                                | Yönetici tarafından oluşturulan hesap girişleri için `multi-user` kullanılır.  |
 | `METADATA_LANGUAGE`                            | Gelecek taramalarda çekilecek metadata dili; varsayılan `tr-TR`.               |
 | `MUSIC_METADATA_ONLINE`                        | Eksik yerel etiketlerin tutucu MusicBrainz eşleşmeleriyle tamamlanmasını açar. |
 | `HLS_MAX_ACTIVE_JOBS`                          | Aynı anda çalışabilecek HLS kodlama işi sayısı.                                |
@@ -308,6 +308,29 @@ pnpm build
 
 Migration'lar sürümlüdür ve `prisma migrate deploy` ile uygulanır. Sunucu testleriyle uçtan uca ortam izole SQLite veritabanları kullanır; geliştirme veritabanına dokunmaz.
 
+### Veritabanı yedekleri
+
+CineDrive çalışırken tutarlı bir SQLite snapshot'ı oluşturabilirsiniz. Her snapshot SQLite `integrity_check` ile doğrulanır; varsayılan olarak en yeni 14 yedek saklanır:
+
+```bash
+pnpm db:backup
+pnpm db:backup -- --output-dir /secure/cinedrive-backups --retain 30
+```
+
+VPS kurucusu, bu doğrulamalı yedeği her gün çalıştıran `cinedrive-backup.timer` birimini etkinleştirir ve `/var/lib/cinedrive/backups` altında 14 snapshot tutar. Docker yedekleri uygulama veri volume'u içinde kalır:
+
+```bash
+docker compose exec server node apps/server/dist/cli/database-backup.js --retain 14
+```
+
+`--apply` verilmedikçe geri yükleme yalnızca dry-run yapar: seçilen dosyayı doğrular ve hedefi gösterir. Gerçek geri yüklemeden önce CineDrive'ı durdurun. Araç atomik değiştirme öncesinde ek bir güvenlik yedeği alır ve eski SQLite WAL yan dosyalarını temizler.
+
+```bash
+pnpm db:restore -- --from /secure/cinedrive-backups/cinedrive-YYYYMMDDTHHMMSSZ.db
+# Sunucuyu durdurduktan sonra:
+pnpm db:restore -- --from /secure/cinedrive-backups/cinedrive-YYYYMMDDTHHMMSSZ.db --apply
+```
+
 ## Geliştirme komutları
 
 ```bash
@@ -316,10 +339,12 @@ pnpm lint           # ESLint, React hooks, JSX erişilebilirlik, React Refresh
 pnpm test           # shared, web ve server Vitest takımları
 pnpm test:e2e       # Playwright smoke senaryoları
 pnpm build          # shared, server ve web production derlemeleri
+pnpm db:backup      # Saklama politikası uygulanan doğrulamalı SQLite snapshot'ı
+pnpm db:restore     # Yedeği doğrular; geri yüklemek için --apply gerekir
 pnpm format         # TypeScript, JSON ve Markdown dosyalarını Prettier ile biçimlendirir
 ```
 
-CI her pull request'te ve `main` dalına her push'ta typecheck, lint, birim testleri ve production derlemelerini çalıştırır; Playwright bunlar başarılı olduktan sonra koşar.
+CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Ayrıca production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; Playwright ana doğrulama başarılı olduktan sonra koşar.
 
 ## Sorun giderme
 
