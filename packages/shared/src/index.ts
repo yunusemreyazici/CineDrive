@@ -9,4 +9,5 @@ export * from './schemas/playback.schema';
 export * from './schemas/music.schema';
 export * from './types';
 export * from './constants';
+export * from './utils/html-text';
 export { parseMediaFilename, parseSubtitleFilename, convertSrtToVtt };

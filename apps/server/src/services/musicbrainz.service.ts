@@ -1,3 +1,5 @@
+import { htmlToPlainText } from '@cinedrive/shared';
+
 const MUSICBRAINZ_BASE = 'https://musicbrainz.org/ws/2';
 const COVER_ART_BASE = 'https://coverartarchive.org';
 const WIKIDATA_ENTITY_BASE = 'https://www.wikidata.org/wiki/Special:EntityData';
@@ -704,14 +706,7 @@ export class MusicBrainzService {
     if (!data.length || data.length > MAX_ARTIST_IMAGE_BYTES) return null;
     const mimeType = imageResponse.headers.get('content-type') || imageInfo.mime || 'image/jpeg';
     if (!mimeType.startsWith('image/')) return null;
-    const cleanMetadata = (value?: string) =>
-      value
-        ?.replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;|&#160;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const cleanMetadata = (value?: string) => (value ? htmlToPlainText(value) : undefined);
     const metadata = imageInfo.extmetadata || {};
     return {
       musicbrainzId: input.musicbrainzId,

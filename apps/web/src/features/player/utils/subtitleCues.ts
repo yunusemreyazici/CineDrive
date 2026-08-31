@@ -15,15 +15,6 @@ const parseTimestamp = (value: string) => {
   return hours * 3600 + minutes * 60 + seconds;
 };
 
-const decodeEntities = (value: string) =>
-  value
-    .replace(/&nbsp;/gi, '\u00a0')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'");
-
 export const parseWebVttCues = (source: string): SubtitleCue[] => {
   const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const blocks = normalized.split(/\n{2,}/);
@@ -43,23 +34,16 @@ export const parseWebVttCues = (source: string): SubtitleCue[] => {
     const endTime = rawEnd ? parseTimestamp(rawEnd) : null;
     if (startTime === null || endTime === null || endTime <= startTime) continue;
 
-    const text = decodeEntities(
-      lines
-        .slice(timingIndex + 1)
-        .join('\n')
-        .replace(/<[^>]*>/g, ''),
-    ).trim();
+    const text = htmlToPlainText(lines.slice(timingIndex + 1).join('\n'), {
+      preserveLineBreaks: true,
+    });
     if (text) cues.push({ startTime, endTime, text });
   }
 
   return cues.sort((a, b) => a.startTime - b.startTime);
 };
 
-export const findActiveSubtitleCue = (
-  cues: SubtitleCue[],
-  currentTime: number,
-  delay = 0,
-) => {
+export const findActiveSubtitleCue = (cues: SubtitleCue[], currentTime: number, delay = 0) => {
   const cueTime = currentTime - delay;
   let low = 0;
   let high = cues.length - 1;
@@ -75,3 +59,4 @@ export const findActiveSubtitleCue = (
 
   return undefined;
 };
+import { htmlToPlainText } from '@cinedrive/shared';

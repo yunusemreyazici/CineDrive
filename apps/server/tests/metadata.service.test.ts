@@ -21,7 +21,8 @@ describe('MetadataService', () => {
 
       const tvMazeResponse = {
         name: 'Inception',
-        summary: '<p>A thief who steals corporate secrets.</p>',
+        summary:
+          '<p>A thief who steals corporate secrets.</p><script><script>alert(1)</script></script>',
         premiered: '2010-07-16',
         genres: ['Action', 'Sci-Fi'],
         rating: { average: 8.8 },
@@ -29,7 +30,7 @@ describe('MetadataService', () => {
       };
 
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
-        if (String(url).includes('api.tvmaze.com')) {
+        if (new URL(String(url)).hostname === 'api.tvmaze.com') {
           return new Response(JSON.stringify(tvMazeResponse), { status: 200 });
         }
         return new Response(null, { status: 404 });

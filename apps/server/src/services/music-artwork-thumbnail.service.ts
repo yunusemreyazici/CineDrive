@@ -34,24 +34,31 @@ export const nearestMusicArtworkVariant = (options: LegacyOptions): MusicArtwork
 export class MusicArtworkThumbnailService {
   private readonly cache = new Map<string, Buffer>();
   private readonly inFlight = new Map<string, Promise<Buffer | null>>();
+  private readonly cacheDirectory: string;
   private activeRenders = 0;
   private readonly renderWaiters: Array<() => void> = [];
 
   public constructor(
     private readonly maxConcurrentRenders = MAX_CONCURRENT_RENDERS,
     private readonly renderer?: ArtworkRenderer,
-    private readonly cacheDirectory = defaultCacheDirectory,
-  ) {}
+    cacheDirectory = defaultCacheDirectory,
+  ) {
+    this.cacheDirectory = path.resolve(cacheDirectory);
+  }
 
   public async thumbnail(
     checksum: string,
     source: Buffer,
     variantOrOptions: MusicArtworkVariant | LegacyOptions = 'small',
   ): Promise<Buffer | null> {
-    const variant =
+    const requestedVariant =
       typeof variantOrOptions === 'string'
         ? variantOrOptions
         : nearestMusicArtworkVariant(variantOrOptions);
+    if (!isMusicArtworkVariant(requestedVariant)) {
+      throw new Error('Unsupported music artwork variant.');
+    }
+    const variant = requestedVariant;
     const cacheKey = `${checksum}:${variant}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -110,12 +117,16 @@ export class MusicArtworkThumbnailService {
   }
 
   private variantPath(checksum: string, variant: MusicArtworkVariant) {
-    const normalizedChecksum = checksum.toLowerCase();
-    const safeChecksum = /^[a-f0-9]{32,}$/.test(normalizedChecksum)
-      ? normalizedChecksum
-      : createHash('sha256').update(checksum).digest('hex');
+    // Always hash external identifiers instead of conditionally trusting a
+    // checksum-shaped value. Only fixed variant names reach the filesystem.
+    const safeChecksum = createHash('sha256').update(checksum).digest('hex');
     const directory = path.join(this.cacheDirectory, safeChecksum.slice(0, 2));
-    return path.join(directory, `${safeChecksum}-${variant}.jpg`);
+    const candidate = path.join(directory, `${safeChecksum}-${variant}.jpg`);
+    const relative = path.relative(this.cacheDirectory, candidate);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('Artwork cache path escaped its configured root.');
+    }
+    return candidate;
   }
 
   private async persist(destination: string, data: Buffer) {

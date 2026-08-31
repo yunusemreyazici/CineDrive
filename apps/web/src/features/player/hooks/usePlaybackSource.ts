@@ -54,7 +54,11 @@ type PlaybackSourceAction =
   | { type: 'restart' }
   /** Switch compatibility mode, optionally carrying the current position. */
   | { type: 'setMode'; playbackMode: PlaybackMode; offsetSeconds?: number }
-  | { type: 'setQualityPreference'; quality: QualityPreference; automatic: '1080p' | '720p' | '480p' }
+  | {
+      type: 'setQualityPreference';
+      quality: QualityPreference;
+      automatic: '1080p' | '720p' | '480p';
+    }
   /** Auto-downshift after a stall. */
   | { type: 'setAdaptiveQuality'; quality: '1080p' | '720p' | '480p' };
 
@@ -80,8 +84,7 @@ const reducer = (state: PlaybackSourceState, action: PlaybackSourceAction): Play
       return {
         ...state,
         playbackMode: action.playbackMode,
-        startOffset:
-          action.offsetSeconds !== undefined ? action.offsetSeconds : state.startOffset,
+        startOffset: action.offsetSeconds !== undefined ? action.offsetSeconds : state.startOffset,
       };
     case 'setQualityPreference':
       return {
@@ -96,10 +99,15 @@ const reducer = (state: PlaybackSourceState, action: PlaybackSourceAction): Play
   }
 };
 
-const createSessionId = () =>
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `player_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+const createSessionId = () => {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi) throw new Error('Secure random number generation is unavailable.');
+  if (typeof cryptoApi.randomUUID === 'function') return cryptoApi.randomUUID();
+
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+  return `player_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+};
 
 interface UsePlaybackSourceOptions {
   driveFileId: string | null;

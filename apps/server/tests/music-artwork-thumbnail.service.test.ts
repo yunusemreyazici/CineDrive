@@ -75,4 +75,29 @@ describe('MusicArtworkThumbnailService', () => {
     expect(renders).toBe(1);
     await fs.rm(cacheDirectory, { recursive: true, force: true });
   });
+
+  it('keeps attacker-controlled artwork IDs inside the cache root', async () => {
+    const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-path-test-'));
+    const cacheDirectory = path.join(temporaryRoot, 'cache');
+    const service = new MusicArtworkThumbnailService(1, async (source) => source, cacheDirectory);
+
+    await service.thumbnail('../../outside/../../escape', Buffer.from('image'), 'row');
+
+    const files = await fs.readdir(cacheDirectory, { recursive: true });
+    expect(files.some((entry) => String(entry).includes('..'))).toBe(false);
+    await expect(fs.access(path.join(temporaryRoot, 'escape-row.jpg'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  });
+
+  it('rejects artwork variants outside the runtime allowlist', async () => {
+    const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-cache-test-'));
+    const service = new MusicArtworkThumbnailService(1, async (source) => source, cacheDirectory);
+
+    await expect(
+      service.thumbnail('artwork', Buffer.from('image'), '../escape' as 'row'),
+    ).rejects.toThrow('Unsupported music artwork variant');
+    await fs.rm(cacheDirectory, { recursive: true, force: true });
+  });
 });

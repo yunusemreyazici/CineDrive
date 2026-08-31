@@ -81,10 +81,11 @@ Merhaba dünya!
     it('should sanitize script tags for XSS protection', () => {
       const maliciousSrt = `1
 00:00:01,000 --> 00:00:04,000
-Normal text <script>alert("xss")</script> after.
+Normal <i class="ignored">text</i> <ScRiPt data-test="x"><script>alert("xss")</script></ScRiPt> after.
 `;
       const vtt = convertSrtToVtt(maliciousSrt);
-      expect(vtt).not.toContain('<script>');
+      expect(vtt).toContain('Normal <i>text</i>  after.');
+      expect(vtt.toLowerCase()).not.toContain('<script');
       expect(vtt).not.toContain('alert("xss")');
     });
   });

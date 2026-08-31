@@ -52,7 +52,9 @@ describe('MusicBrainz artist artwork', () => {
                       descriptionurl: 'https://commons.wikimedia.org/wiki/File:Artist_portrait.jpg',
                       mime: 'image/jpeg',
                       extmetadata: {
-                        Artist: { value: '<b>Jane Photographer</b>' },
+                        Artist: {
+                          value: '<b>Jane Photographer</b><script><script>hidden</script></script>',
+                        },
                         LicenseShortName: { value: 'CC BY-SA 4.0' },
                       },
                     },

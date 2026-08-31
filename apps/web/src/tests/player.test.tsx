@@ -145,6 +145,22 @@ Sonraki cümle`);
     expect(findActiveSubtitleCue(cues, 1928.5, -0.5)?.text).toBe('Sonraki cümle');
   });
 
+  it('treats encoded or nested subtitle markup as plain text, never active content', () => {
+    const cues = parseWebVttCues(`WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+<i>safe</i><script><script>hidden</script></script>&lt;img src=x onerror=alert(1)&gt;
+&amp;lt;b&amp;gt;literal`);
+
+    expect(cues).toEqual([
+      {
+        startTime: 1,
+        endTime: 4,
+        text: 'safe\n&lt;b&gt;literal',
+      },
+    ]);
+  });
+
   it('serializes downloaded subtitle cues into a native fullscreen WebVTT track', () => {
     expect(
       serializeSubtitleCuesToVtt([
