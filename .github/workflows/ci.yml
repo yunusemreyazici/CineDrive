@@ -131,7 +131,7 @@ jobs:
         run: docker compose up --detach --build
 
       - name: Wait for the proxied API health endpoint
-        run: curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1/api/health
+        run: curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1/api/health
 
       - if: failure()
         run: docker compose logs --no-color
