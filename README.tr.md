@@ -13,17 +13,29 @@
   <p><strong>Türkçe</strong> · <a href="README.md">English</a></p>
 
   <p>
-    <img src="https://img.shields.io/badge/DURUM-AKTİF%20GELİŞTİRME-06B6D4?style=for-the-badge&labelColor=18181B" alt="Durum: aktif geliştirme" />
-    <img src="https://img.shields.io/badge/WEB-REACT%2019-06B6D4?style=for-the-badge&labelColor=18181B" alt="Web: React 19" />
-    <img src="https://img.shields.io/badge/API-FASTIFY%205-06B6D4?style=for-the-badge&labelColor=18181B" alt="API: Fastify 5" />
-    <img src="https://img.shields.io/badge/VERİ-PRISMA%20%2B%20SQLITE-06B6D4?style=for-the-badge&labelColor=18181B" alt="Veri: Prisma ve SQLite" />
-    <img src="https://img.shields.io/badge/MEDYA-FFMPEG%20%2B%20HLS-06B6D4?style=for-the-badge&labelColor=18181B" alt="Medya: FFmpeg ve HLS" />
+    <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI durumu" /></a>
+    <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL durumu" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/lisans-MIT-06B6D4" alt="MIT Lisansı" /></a>
+    <img src="https://img.shields.io/badge/Node.js-22.13%20%7C%2024-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.13 veya 24" />
+    <img src="https://img.shields.io/badge/dağıtım-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose dağıtımı" />
   </p>
 
   <p>⭐ CineDrive işinize yarıyorsa projeye yıldız vermeyi düşünebilirsiniz.</p>
 </div>
 
 ---
+
+<p align="center">
+  <a href="#öne-çıkanlar">Öne çıkanlar</a> ·
+  <a href="#hızlı-başlangıç">Hızlı başlangıç</a> ·
+  <a href="#yapılandırma">Yapılandırma</a> ·
+  <a href="#dağıtım">Dağıtım</a> ·
+  <a href="#veritabanı-yedekleri">Yedekler</a> ·
+  <a href="#katkı-ve-güvenlik">Katkı</a>
+</p>
+
+> [!IMPORTANT]
+> CineDrive aktif olarak geliştirilmektedir. Production kurulumunu güncellemeden önce yükseltme notlarını ve yapılandırma değişikliklerini inceleyin; doğrulanmış veritabanı yedekleri tutun.
 
 ## Ekran görüntüleri
 
@@ -122,6 +134,16 @@ Tüm medya sorguları ve aktarım uçları, istenen dosyanın oturum açan kulla
 
 ## Hızlı başlangıç
 
+### Kurulum yolunu seçin
+
+| Amaç                                  | Buradan başlayın                      | En uygun kullanım                              |
+| ------------------------------------- | ------------------------------------- | ---------------------------------------------- |
+| CineDrive üzerinde geliştirme yapmak  | [Yerel geliştirme](#yerel-geliştirme) | Katkıda bulunanlar ve özellik geliştirme       |
+| Mevcut Docker sunucusunda çalıştırmak | [Docker Compose](#docker-compose)     | İzole servislerle tekrarlanabilir self-hosting |
+| Debian/Ubuntu sunucusu hazırlamak     | [VPS kurucusu](#debianubuntu-vps)     | systemd, Nginx ve TLS kullanan özel bir sunucu |
+
+Tüm yollar production kalitesinde gizli anahtarlar gerektirir. Google Drive ayrıca bir OAuth istemcisi ister; yalnızca yerel klasör kullanan kurulumlar Drive'a bağlanmaz, ancak mevcut ortam şeması sözdizimsel olarak geçerli placeholder OAuth değerleri bekler.
+
 ### Gereksinimler
 
 - Node.js 22 serisinde 22.13+ veya Node.js 24
@@ -194,10 +216,12 @@ CineDrive sunucu taraflı OAuth 2.0 akışı kullanır. Mevcut dosyaları bulup 
 
 ### Yerel geliştirme
 
-1. Bağımlılıkları kurun:
+1. Depoyu klonlayıp kilitlenmiş bağımlılıkları kurun:
 
    ```bash
-   pnpm install
+   git clone https://github.com/yunusemreyazici/CineDrive.git
+   cd CineDrive
+   pnpm install --frozen-lockfile
    ```
 
 2. Ortam dosyasını oluşturun:
@@ -275,7 +299,15 @@ TMDB, OpenSubtitles ve AcoustID anahtarları kullanıcı başına **Ayarlar → 
 
 ### Docker Compose
 
-`.env` dosyasını production adresleri ve gizli anahtarlarla ayarlayıp çalıştırın:
+Ortam dosyasını oluşturun, tüm örnek kimlik bilgilerini ve URL'leri değiştirin; iki gizli alan için de benzersiz değer üretin:
+
+```bash
+cp .env.example .env
+openssl rand -hex 32 # SESSION_SECRET
+openssl rand -hex 32 # TOKEN_ENCRYPTION_KEY
+```
+
+Üretilen değerleri `.env` dosyasına yapıştırın, yönetici ve isteğe bağlı Google OAuth bilgilerini ayarlayın; ardından stack'i başlatın:
 
 ```bash
 docker compose up -d --build
@@ -294,6 +326,15 @@ sudo bash scripts/install-vps.sh
 ```
 
 Kurucu Cloudflare Origin Certificate, Certbot/Let's Encrypt veya yalnızca HTTP modlarını destekler. Mevcut bir sunucuda çalıştırmadan önce betiği inceleyin; systemd ve Nginx yapılandırmasına yazar.
+
+### Production kontrol listesi
+
+- CineDrive'ı HTTPS üzerinden sunun; internete API container'ını değil Nginx giriş noktasını açın.
+- Tüm örnek parola ve OAuth gizlilerini, `SESSION_SECRET` ile `TOKEN_ENCRYPTION_KEY` değerlerini değiştirin; geliştirme kimlik bilgilerini yeniden kullanmayın.
+- `APP_URL`, `PUBLIC_URL`, `CORS_ORIGIN` ve Google'da kayıtlı callback adresini aynı public origin ile birebir eşleştirin.
+- `TRUST_PROXY=true` değerini yalnızca dahil edilen Nginx veya başka bir güvenilir reverse proxy arkasında kullanın.
+- Docker'da `docker compose ps` çıktısında server'ın healthy olduğunu; VPS'de `systemctl status cinedrive` durumunu doğrulayın.
+- Doğrulanmış veritabanı snapshot'larını yedek planı kapsamında uygulama host'u veya Docker volume'u dışında da saklayın.
 
 ### Güncelleme
 
@@ -321,6 +362,12 @@ VPS kurucusu, bu doğrulamalı yedeği her gün çalıştıran `cinedrive-backup
 
 ```bash
 docker compose exec server node apps/server/dist/cli/database-backup.js --retain 14
+```
+
+Docker volume, container'ın değiştirilmesine karşı korur; host veya disk kaybına karşı korumaz. Doğrulanmış snapshot'ları volume dışındaki bir depolamaya kopyalayın:
+
+```bash
+docker compose cp server:/app/data/backups ./cinedrive-backups
 ```
 
 `--apply` verilmedikçe geri yükleme yalnızca dry-run yapar: seçilen dosyayı doğrular ve hedefi gösterir. Gerçek geri yüklemeden önce CineDrive'ı durdurun. Araç atomik değiştirme öncesinde ek bir güvenlik yedeği alır ve eski SQLite WAL yan dosyalarını temizler.
@@ -355,6 +402,12 @@ CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typeche
 - **Oynatma başlamadan bekliyor:** aktif FFmpeg işlerini ve kuyruğu inceleyin. `HLS_MAX_ACTIVE_JOBS` değerini yalnızca sunucuda yeterli CPU ve bellek varsa artırın.
 - **Müzik metadatası eksik:** önce gömülü etiketleri kontrol edin, ardından Müzik kütüphanesi bakımı önerilerini çalıştırın. MusicBrainz tamamlama, güvenilir yerel etiketlerin üzerine otomatik yazmaz.
 - **Şarkı sözü çevirisi kullanılamıyor:** `LIBRETRANSLATE_URL` ayarlayın; şarkı sözü aramasının kendisi LibreTranslate gerektirmez.
+
+## Katkı ve güvenlik
+
+- Tekrarlanabilir bug'lar ve odaklı özellik istekleri için [issue şablonlarını](https://github.com/yunusemreyazici/CineDrive/issues/new/choose) kullanın.
+- Kod göndermeden önce gerekli kontrolleri ve repo kurallarını içeren [CONTRIBUTING.md](CONTRIBUTING.md) dosyasını okuyun.
+- Güvenlik açıklarını public issue olarak bildirmeyin. GitHub private vulnerability reporting kanalını kullanmak için [SECURITY.md](SECURITY.md) yönergelerini izleyin.
 
 ## Lisans
 

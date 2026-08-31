@@ -13,17 +13,29 @@
   <p><a href="README.tr.md">Türkçe</a> · <strong>English</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/STATUS-ACTIVE%20DEVELOPMENT-06B6D4?style=for-the-badge&labelColor=18181B" alt="Status: active development" />
-    <img src="https://img.shields.io/badge/WEB-REACT%2019-06B6D4?style=for-the-badge&labelColor=18181B" alt="Web: React 19" />
-    <img src="https://img.shields.io/badge/API-FASTIFY%205-06B6D4?style=for-the-badge&labelColor=18181B" alt="API: Fastify 5" />
-    <img src="https://img.shields.io/badge/DATA-PRISMA%20%2B%20SQLITE-06B6D4?style=for-the-badge&labelColor=18181B" alt="Data: Prisma and SQLite" />
-    <img src="https://img.shields.io/badge/MEDIA-FFMPEG%20%2B%20HLS-06B6D4?style=for-the-badge&labelColor=18181B" alt="Media: FFmpeg and HLS" />
+    <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" /></a>
+    <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL status" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-06B6D4" alt="MIT License" /></a>
+    <img src="https://img.shields.io/badge/Node.js-22.13%20%7C%2024-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.13 or 24" />
+    <img src="https://img.shields.io/badge/deployment-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose deployment" />
   </p>
 
   <p>⭐ If CineDrive is useful to you, consider giving the project a star.</p>
 </div>
 
 ---
+
+<p align="center">
+  <a href="#highlights">Highlights</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#deployment">Deployment</a> ·
+  <a href="#database-backups">Backups</a> ·
+  <a href="#contributing-and-security">Contributing</a>
+</p>
+
+> [!IMPORTANT]
+> CineDrive is under active development. Read the upgrade notes, keep verified database backups, and review configuration changes before updating a production installation.
 
 ## Screenshots
 
@@ -122,6 +134,16 @@ All media queries and transport endpoints validate that the requested file is re
 
 ## Quick start
 
+### Pick a setup
+
+| Goal                              | Start here                              | Best for                                       |
+| --------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| Work on CineDrive                 | [Local development](#local-development) | Contributors and feature development           |
+| Run it on an existing Docker host | [Docker Compose](#docker-compose)       | Repeatable self-hosting with isolated services |
+| Provision a Debian/Ubuntu server  | [VPS installer](#debianubuntu-vps)      | A dedicated host with systemd, Nginx, and TLS  |
+
+All paths require production-quality secrets. Google Drive also requires an OAuth client; local-folder-only installations do not connect to Drive, but the current environment schema still expects syntactically valid placeholder OAuth values.
+
 ### Requirements
 
 - Node.js 22.13+ on the Node 22 line, or Node.js 24
@@ -194,10 +216,12 @@ Never commit `.env`, the OAuth client secret, or downloaded Google credential fi
 
 ### Local development
 
-1. Install dependencies:
+1. Clone the repository and install the locked dependencies:
 
    ```bash
-   pnpm install
+   git clone https://github.com/yunusemreyazici/CineDrive.git
+   cd CineDrive
+   pnpm install --frozen-lockfile
    ```
 
 2. Create the environment file:
@@ -275,7 +299,15 @@ TMDB, OpenSubtitles, and AcoustID keys can be saved per user under **Settings �
 
 ### Docker Compose
 
-Configure `.env` with production URLs and secrets, then run:
+Create the environment file, replace every example credential and URL, and generate unique values for both secret fields:
+
+```bash
+cp .env.example .env
+openssl rand -hex 32 # SESSION_SECRET
+openssl rand -hex 32 # TOKEN_ENCRYPTION_KEY
+```
+
+Paste the generated values into `.env`, configure the administrator and optional Google OAuth credentials, then start the stack:
 
 ```bash
 docker compose up -d --build
@@ -294,6 +326,15 @@ sudo bash scripts/install-vps.sh
 ```
 
 The installer supports Cloudflare Origin Certificates, Certbot/Let's Encrypt, or HTTP-only mode. Review the script before running it on an existing server because it writes systemd and Nginx configuration.
+
+### Production checklist
+
+- Serve CineDrive over HTTPS and expose the Nginx entry point, not the API container, to the internet.
+- Replace every example password, OAuth secret, `SESSION_SECRET`, and `TOKEN_ENCRYPTION_KEY`; never reuse development credentials.
+- Make `APP_URL`, `PUBLIC_URL`, `CORS_ORIGIN`, and the registered Google callback agree exactly with the public origin.
+- Use `TRUST_PROXY=true` only behind the included Nginx or another trusted reverse proxy.
+- Confirm `docker compose ps` reports the server as healthy, or check `systemctl status cinedrive` on a VPS.
+- Keep verified database snapshots outside the application host or Docker volume as part of the backup schedule.
 
 ### Upgrades
 
@@ -321,6 +362,12 @@ The VPS installer enables `cinedrive-backup.timer`, which runs this verified bac
 
 ```bash
 docker compose exec server node apps/server/dist/cli/database-backup.js --retain 14
+```
+
+A Docker volume protects against container replacement, not host or disk loss. Copy verified snapshots to storage outside that volume:
+
+```bash
+docker compose cp server:/app/data/backups ./cinedrive-backups
 ```
 
 Restore is a dry run unless `--apply` is present. The dry run verifies the selected file and prints the target. Stop CineDrive before applying a restore; the tool creates an additional pre-restore safety backup and removes stale SQLite WAL sidecars during the atomic replacement.
@@ -355,6 +402,12 @@ CI runs typecheck, tests, and production builds at the supported Node 22.13 floo
 - **Playback waits before starting:** inspect active FFmpeg jobs and the queue. Increase `HLS_MAX_ACTIVE_JOBS` only when the host has enough CPU and memory.
 - **Music metadata is incomplete:** check embedded tags first, then run Music library care suggestions. MusicBrainz completion never overrides authoritative local tags automatically.
 - **Lyrics translation is unavailable:** configure `LIBRETRANSLATE_URL`; lyric lookup itself does not require LibreTranslate.
+
+## Contributing and security
+
+- Use the [issue templates](https://github.com/yunusemreyazici/CineDrive/issues/new/choose) for reproducible bugs and focused feature requests.
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting code; it lists the required checks and repository conventions.
+- Do not report vulnerabilities in a public issue. Follow [SECURITY.md](SECURITY.md) to use GitHub's private vulnerability reporting channel.
 
 ## License
 
