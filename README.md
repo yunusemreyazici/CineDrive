@@ -339,7 +339,7 @@ The installer supports Cloudflare Origin Certificates, Certbot/Let's Encrypt, or
 
 ### Upgrades
 
-After pulling a new version, install locked dependencies, regenerate Prisma Client, apply migrations, and rebuild before restarting the service:
+Before upgrading, create and copy a verified database snapshot outside the application host or Docker volume, and record the currently deployed commit or image tag. Then install locked dependencies, regenerate Prisma Client, apply migrations, and rebuild before restarting the service:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -348,7 +348,9 @@ pnpm --filter @cinedrive/server prisma:deploy
 pnpm build
 ```
 
-Migrations are versioned and applied with `prisma migrate deploy`. The server test suite and end-to-end environment use isolated SQLite databases and do not touch the development database.
+Migrations are versioned and applied with `prisma migrate deploy`. Do not use `prisma db push` against production. After startup, require `/api/ready` to return `200` and verify sign-in plus one existing library before considering the upgrade complete.
+
+If migration or startup fails, stop CineDrive and preserve the failed database and logs for diagnosis. Roll back the application to the recorded version and restore the pre-upgrade snapshot with the procedure below; an older binary must not be started against a database that newer migrations have already changed. The migration regression suite upgrades populated historical video and music databases, checks SQLite integrity and foreign keys, detects schema drift, and repeats deployment to catch non-idempotent startup behavior.
 
 ### Database backups
 
