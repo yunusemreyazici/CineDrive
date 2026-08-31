@@ -718,6 +718,7 @@ model LibraryScan {
   errors             LibraryScanError[]
 
   @@index([driveScanSourceId])
+  @@index([status, heartbeatAt])
 }
 
 model LibraryScanError {

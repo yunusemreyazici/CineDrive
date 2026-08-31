@@ -135,11 +135,39 @@ jobs:
           LOG_LEVEL=info
           EOF
 
-      - name: Build and start production containers
-        run: docker compose up --detach --build
+      - name: Build production containers
+        run: docker compose build
+
+      - name: Seed a historical database volume
+        run: |
+          docker compose run --rm --no-deps --entrypoint sh server -c '
+            set -eu
+            historical_root=/tmp/cinedrive-legacy
+            mkdir -p "$historical_root/migrations"
+            cp apps/server/prisma/schema.prisma "$historical_root/schema.prisma"
+            cp apps/server/prisma/migrations/migration_lock.toml "$historical_root/migrations/migration_lock.toml"
+            cp -R apps/server/prisma/migrations/20260101000000_init "$historical_root/migrations/"
+            CINEDRIVE_MIGRATION_TEST_SCHEMA="$historical_root/schema.prisma" \
+              CINEDRIVE_MIGRATION_TEST_MIGRATIONS="$historical_root/migrations" \
+              apps/server/node_modules/.bin/prisma migrate deploy \
+                --config=apps/server/tests/fixtures/migration-test.config.ts
+            node apps/server/tests/fixtures/migration-fixture.mjs seed-initial /app/data/app.db
+          '
+
+      - name: Start production containers and apply current migrations
+        run: docker compose up --detach
 
       - name: Wait for the proxied API readiness endpoint
         run: curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1/api/ready
+
+      - name: Verify upgraded data and migration integrity
+        run: docker compose exec -T server node apps/server/tests/fixtures/migration-fixture.mjs verify-initial /app/data/app.db
+
+      - name: Verify restart and migration idempotency
+        run: |
+          docker compose restart server
+          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1/api/ready
+          docker compose exec -T server node apps/server/tests/fixtures/migration-fixture.mjs verify-initial /app/data/app.db
 
       - if: failure()
         run: docker compose logs --no-color

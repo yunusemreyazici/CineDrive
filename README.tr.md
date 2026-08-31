@@ -339,7 +339,7 @@ Kurucu Cloudflare Origin Certificate, Certbot/Let's Encrypt veya yalnızca HTTP 
 
 ### Güncelleme
 
-Yeni sürümü çektikten sonra servisi yeniden başlatmadan önce kilitli bağımlılıkları kurun, Prisma Client'ı üretin, migration'ları uygulayın ve projeyi derleyin:
+Güncellemeden önce doğrulanmış bir veritabanı snapshot'ı oluşturup uygulama host'u veya Docker volume'u dışına kopyalayın ve kullanımda olan commit ya da image tag'ini kaydedin. Ardından servisi yeniden başlatmadan önce kilitli bağımlılıkları kurun, Prisma Client'ı üretin, migration'ları uygulayın ve projeyi derleyin:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -348,7 +348,9 @@ pnpm --filter @cinedrive/server prisma:deploy
 pnpm build
 ```
 
-Migration'lar sürümlüdür ve `prisma migrate deploy` ile uygulanır. Sunucu testleriyle uçtan uca ortam izole SQLite veritabanları kullanır; geliştirme veritabanına dokunmaz.
+Migration'lar sürümlüdür ve `prisma migrate deploy` ile uygulanır. Production veritabanında `prisma db push` kullanmayın. Başlangıçtan sonra güncellemeyi tamamlanmış saymadan önce `/api/ready` yolunun `200` döndürdüğünü, giriş yapılabildiğini ve mevcut bir kütüphanenin açıldığını doğrulayın.
+
+Migration veya başlangıç başarısız olursa CineDrive'ı durdurun; inceleme için başarısız veritabanını ve logları koruyun. Uygulamayı kaydettiğiniz sürüme geri alın ve aşağıdaki prosedürle güncelleme öncesi snapshot'ı geri yükleyin; eski bir binary'yi yeni migration'ların değiştirdiği veritabanıyla başlatmayın. Migration regression takımı dolu tarihsel video ve müzik veritabanlarını yükseltir, SQLite bütünlüğünü ve foreign key'leri denetler, şema drift'ini bulur ve idempotent olmayan başlangıç davranışını yakalamak için deploy'u tekrarlar.
 
 ### Veritabanı yedekleri
 
