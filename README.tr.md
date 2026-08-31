@@ -15,6 +15,7 @@
   <p>
     <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI durumu" /></a>
     <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL durumu" /></a>
+    <a href="https://github.com/yunusemreyazici/CineDrive/actions/workflows/container-security.yml"><img src="https://github.com/yunusemreyazici/CineDrive/actions/workflows/container-security.yml/badge.svg?branch=main" alt="Container güvenliği durumu" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/lisans-MIT-06B6D4" alt="MIT Lisansı" /></a>
     <img src="https://img.shields.io/badge/Node.js-22.13%20%7C%2024-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.13 veya 24" />
     <img src="https://img.shields.io/badge/dağıtım-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose dağıtımı" />
@@ -394,7 +395,7 @@ pnpm db:restore     # Yedeği doğrular; geri yüklemek için --apply gerekir
 pnpm format         # TypeScript, JSON ve Markdown dosyalarını Prettier ile biçimlendirir
 ```
 
-CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Ayrıca production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; Playwright ana doğrulama başarılı olduktan sonra koşar.
+CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Ayrıca production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; Playwright ana doğrulama başarılı olduktan sonra koşar. Ayrı bir least-privilege workflow iki production image'ını düzeltmesi bulunan high/critical açıklar için tarar ve CycloneDX SBOM'larını build artifact'i olarak saklar. Digest ile sabitlenen base image'ları Dependabot güncel tutar.
 
 ## Sorun giderme
 

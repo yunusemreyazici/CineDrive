@@ -1,14 +1,15 @@
-# Stage 1: Build stage
-FROM node:22-alpine AS builder
+# Shared dependency stage. The final runtime stage starts from the pinned base
+# again so package-manager tooling from this stage cannot leak into production.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS dependency-base
 
 WORKDIR /app
 
-# pnpm requires an explicit non-interactive environment when pruning the
-# dependency tree during an image build.
 ENV CI=true
 
-# Enable Corepack for pnpm
 RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
+
+# Stage 1: Build stage
+FROM dependency-base AS builder
 
 # Copy monorepo configuration files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -32,26 +33,49 @@ RUN pnpm exec prisma generate
 # Build server TypeScript code
 RUN pnpm --filter "@cinedrive/server" build
 
-# Prune dev dependencies for production
-WORKDIR /app
+# Stage 2: Install production dependencies into a clean virtual store. Running
+# `install --prod` over the builder tree leaves unreferenced development
+# packages in pnpm's virtual store, where scanners (and an attacker with file
+# access) can still reach them.
+FROM dependency-base AS production-dependencies
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json ./packages/shared/
+COPY apps/server/package.json ./apps/server/
+
 RUN pnpm install --prod --frozen-lockfile
 
-# Stage 2: Production runtime stage
-FROM node:22-alpine AS runner
+# Stage 3: Production runtime stage
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner
 
 WORKDIR /app
 
-# Install openssl and wget for Prisma SQLite & healthcheck
-RUN apk add --no-cache openssl wget ca-certificates chromaprint
+# Apply published Alpine security fixes, then install Prisma/runtime tools.
+RUN apk upgrade --no-cache && \
+    apk add --no-cache openssl wget ca-certificates chromaprint
+
+# npm/Corepack are build-time package managers. Removing them from the runtime
+# image reduces both executable surface and vulnerabilities unrelated to the
+# application. The locally installed Prisma binary remains available below.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-v1.22.22 && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 # Create non-root app directory & data volumes with write permissions
 RUN mkdir -p /app/data /app/data/subtitle_cache && \
     chown -R node:node /app
 
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /app/packages/shared ./packages/shared
-COPY --from=builder --chown=node:node /app/apps/server ./apps/server
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=production-dependencies --chown=node:node /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=production-dependencies --chown=node:node /app/apps/server/node_modules ./apps/server/node_modules
+COPY --chown=node:node packages/shared/package.json ./packages/shared/package.json
+COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
+COPY --chown=node:node apps/server/package.json apps/server/prisma.config.ts ./apps/server/
+COPY --from=builder --chown=node:node /app/apps/server/dist ./apps/server/dist
+COPY --chown=node:node apps/server/prisma ./apps/server/prisma
+# These fixtures are exercised by the container migration smoke test; no other
+# test or source files are included in the production image.
+COPY --chown=node:node apps/server/tests/fixtures/migration-test.config.ts apps/server/tests/fixtures/migration-fixture.mjs ./apps/server/tests/fixtures/
 
 # Switch to non-root user
 USER node
