@@ -1,6 +1,6 @@
 # Shared dependency stage. The final runtime stage starts from the pinned base
 # again so package-manager tooling from this stage cannot leak into production.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS dependency-base
+FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS dependency-base
 
 WORKDIR /app
 
@@ -46,7 +46,7 @@ COPY apps/server/package.json ./apps/server/
 RUN pnpm install --prod --frozen-lockfile
 
 # Stage 3: Production runtime stage
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner
+FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS runner
 
 WORKDIR /app
 
