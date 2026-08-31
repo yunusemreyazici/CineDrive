@@ -264,7 +264,8 @@ Never commit `.env`, the OAuth client secret, or downloaded Google credential fi
 
    - Web: `http://localhost:5173`
    - API: `http://localhost:3000`
-   - Health check: `http://localhost:3000/api/health`
+   - Liveness check: `http://localhost:3000/api/health`
+   - Database readiness check: `http://localhost:3000/api/ready`
 
 The administrator from `ADMIN_EMAIL` and `ADMIN_PASSWORD` is created on first boot. After signing in, connect Drive accounts and create libraries from Settings.
 
@@ -333,7 +334,7 @@ The installer supports Cloudflare Origin Certificates, Certbot/Let's Encrypt, or
 - Replace every example password, OAuth secret, `SESSION_SECRET`, and `TOKEN_ENCRYPTION_KEY`; never reuse development credentials.
 - Make `APP_URL`, `PUBLIC_URL`, `CORS_ORIGIN`, and the registered Google callback agree exactly with the public origin.
 - Use `TRUST_PROXY=true` only behind the included Nginx or another trusted reverse proxy.
-- Confirm `docker compose ps` reports the server as healthy, or check `systemctl status cinedrive` on a VPS.
+- Confirm `docker compose ps` reports the server as healthy, or check `systemctl status cinedrive` on a VPS. Container and VPS startup checks use `/api/ready`, which returns `503` until SQLite can answer; `/api/health` remains a process-only liveness check.
 - Keep verified database snapshots outside the application host or Docker volume as part of the backup schedule.
 
 ### Upgrades

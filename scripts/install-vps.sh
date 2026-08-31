@@ -83,7 +83,7 @@ wait_for_api() {
     --retry 10 \
     --retry-connrefused \
     --retry-delay 1 \
-    http://127.0.0.1:3000/api/health >/dev/null
+    http://127.0.0.1:3000/api/ready >/dev/null
 }
 
 install_backup_timer() {

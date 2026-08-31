@@ -264,7 +264,8 @@ CineDrive sunucu taraflı OAuth 2.0 akışı kullanır. Mevcut dosyaları bulup 
 
    - Web: `http://localhost:5173`
    - API: `http://localhost:3000`
-   - Sağlık kontrolü: `http://localhost:3000/api/health`
+   - Canlılık kontrolü: `http://localhost:3000/api/health`
+   - Veritabanı hazırlık kontrolü: `http://localhost:3000/api/ready`
 
 `ADMIN_EMAIL` ve `ADMIN_PASSWORD` ile tanımlanan yönetici ilk açılışta oluşturulur. Giriş yaptıktan sonra Ayarlar'dan Drive hesaplarını bağlayıp kütüphane oluşturabilirsiniz.
 
@@ -333,7 +334,7 @@ Kurucu Cloudflare Origin Certificate, Certbot/Let's Encrypt veya yalnızca HTTP 
 - Tüm örnek parola ve OAuth gizlilerini, `SESSION_SECRET` ile `TOKEN_ENCRYPTION_KEY` değerlerini değiştirin; geliştirme kimlik bilgilerini yeniden kullanmayın.
 - `APP_URL`, `PUBLIC_URL`, `CORS_ORIGIN` ve Google'da kayıtlı callback adresini aynı public origin ile birebir eşleştirin.
 - `TRUST_PROXY=true` değerini yalnızca dahil edilen Nginx veya başka bir güvenilir reverse proxy arkasında kullanın.
-- Docker'da `docker compose ps` çıktısında server'ın healthy olduğunu; VPS'de `systemctl status cinedrive` durumunu doğrulayın.
+- Docker'da `docker compose ps` çıktısında server'ın healthy olduğunu; VPS'de `systemctl status cinedrive` durumunu doğrulayın. Container ve VPS başlangıç kontrolleri, SQLite yanıt verene kadar `503` döndüren `/api/ready` yolunu kullanır; `/api/health` yalnızca process canlılığını bildirir.
 - Doğrulanmış veritabanı snapshot'larını yedek planı kapsamında uygulama host'u veya Docker volume'u dışında da saklayın.
 
 ### Güncelleme

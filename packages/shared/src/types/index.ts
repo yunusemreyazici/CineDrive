@@ -177,6 +177,19 @@ export interface HealthResponse {
   uptime: number;
 }
 
+export type ReadinessResponse =
+  | {
+      status: 'ready';
+      timestamp: string;
+      checks: { database: 'ok' };
+    }
+  | {
+      status: 'not_ready';
+      timestamp: string;
+      checks: { database: 'error' };
+      requestId: string;
+    };
+
 export interface LibraryDto {
   id: string;
   name: string;
