@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import type { Prisma } from '../src/generated/prisma/client.js';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
 
@@ -25,6 +26,65 @@ describe('Auth & Health API Integration Tests', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe('ok');
     expect(body.timestamp).toBeDefined();
+  });
+
+  it('GET /api/ready should return 200 when the database responds', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/ready',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: 'ready',
+      checks: { database: 'ok' },
+    });
+  });
+
+  it('GET /api/ready should return a safe 503 when the database check fails', async () => {
+    const internalMessage = 'file:/private/database/path.db could not be opened';
+    vi.spyOn(app.prisma, '$queryRaw').mockRejectedValueOnce(new Error(internalMessage));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/ready',
+      headers: { 'x-request-id': 'readiness-failure-request' },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      status: 'not_ready',
+      checks: { database: 'error' },
+      timestamp: expect.any(String),
+      requestId: 'readiness-failure-request',
+    });
+    expect(response.body).not.toContain(internalMessage);
+  });
+
+  it('GET /api/ready should time out without leaking implementation details', async () => {
+    const timeoutApp = await buildApp({ readinessTimeoutMs: 10 });
+    await timeoutApp.ready();
+    vi.spyOn(timeoutApp.prisma, '$queryRaw').mockImplementationOnce(
+      () => new Promise(() => undefined) as Prisma.PrismaPromise<unknown>,
+    );
+
+    try {
+      const response = await timeoutApp.inject({
+        method: 'GET',
+        url: '/api/ready',
+        headers: { 'x-request-id': 'readiness-timeout-request' },
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({
+        status: 'not_ready',
+        checks: { database: 'error' },
+        requestId: 'readiness-timeout-request',
+      });
+      expect(response.body).not.toContain('timed out');
+    } finally {
+      await timeoutApp.close();
+    }
   });
 
   it('GET /api/auth/session without cookie should return unauthenticated state', async () => {

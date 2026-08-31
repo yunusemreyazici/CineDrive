@@ -21,7 +21,12 @@ import { databaseRoutes } from './routes/database.routes.js';
 import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { musicRoutes } from './routes/music.routes.js';
-import type { HealthResponse, ApiErrorResponse, ClientBootstrapDto } from '@cinedrive/shared';
+import type {
+  HealthResponse,
+  ReadinessResponse,
+  ApiErrorResponse,
+  ClientBootstrapDto,
+} from '@cinedrive/shared';
 
 // A single 4-second-segment HLS viewer issues roughly 15 segment requests per
 // minute on top of playlist polls and scrub previews, so the general API budget
@@ -30,13 +35,31 @@ const PLAYBACK_PATH_PATTERN =
   /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|music\/(?:tracks\/[^/]+\/(?:stream|download)|artwork\/[^/]+)|internal\/drive-source\/)/;
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
+const DATABASE_READINESS_TIMEOUT_MS = 2_000;
 
 export const rateLimitBucket = (url: string): 'playback' | 'api' =>
   PLAYBACK_PATH_PATTERN.test(url.split('?')[0] || '') ? 'playback' : 'api';
 
 export const rateLimitKey = (ip: string, url: string): string => `${ip}:${rateLimitBucket(url)}`;
 
-export const buildApp = async (): Promise<FastifyInstance> => {
+const withTimeout = async <T>(operation: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error('Database readiness check timed out.')), timeoutMs);
+    timeout.unref();
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
+
+export const buildApp = async (
+  options: { readinessTimeoutMs?: number } = {},
+): Promise<FastifyInstance> => {
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? DATABASE_READINESS_TIMEOUT_MS;
   const app = Fastify({
     exposeHeadRoutes: false,
     // Drive-source capability tokens (base64url payload + HMAC) travel as a
@@ -114,6 +137,31 @@ export const buildApp = async (): Promise<FastifyInstance> => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
     };
+  });
+
+  // Readiness is deliberately separate from the stable liveness endpoint:
+  // orchestrators should stop routing traffic when SQLite cannot answer, while
+  // /api/health remains useful for determining whether the process is alive.
+  app.get<{ Reply: ReadinessResponse }>('/api/ready', async (request, reply) => {
+    const timestamp = new Date().toISOString();
+
+    try {
+      await withTimeout(app.prisma.$queryRaw`SELECT 1`, readinessTimeoutMs);
+      return {
+        status: 'ready',
+        timestamp,
+        checks: { database: 'ok' },
+      };
+    } catch (error) {
+      const requestId = request.id;
+      app.log.error({ err: error, requestId }, 'Database readiness check failed');
+      return reply.status(503).send({
+        status: 'not_ready',
+        timestamp,
+        checks: { database: 'error' },
+        requestId,
+      });
+    }
   });
 
   // Public and deliberately small: native clients use this before restoring a
