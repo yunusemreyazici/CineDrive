@@ -1,6 +1,6 @@
 import argon2 from 'argon2';
 import crypto from 'crypto';
-import type { PrismaClient, User } from '@prisma/client';
+import type { PrismaClient, User } from '@cinedrive/prisma';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 

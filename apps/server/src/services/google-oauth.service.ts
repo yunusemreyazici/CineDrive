@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import crypto from 'crypto';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { env } from '../config/env.js';
 import { CryptoService } from './crypto.service.js';
 

@@ -1,10 +1,10 @@
 import fp from 'fastify-plugin';
 import fs from 'fs';
 import path from 'path';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../generated/prisma/client.js';
 import type { FastifyPluginAsync, FastifyInstance } from 'fastify';
 import { env } from '../config/env.js';
-import { configureDatabaseUrl } from '../config/database-url.js';
+import { createPrismaClient } from '../lib/prisma-client.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -23,10 +23,10 @@ export const prismaPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstan
     }
   }
 
-  const prisma = new PrismaClient({
-    datasourceUrl: configureDatabaseUrl(env.DATABASE_URL),
-    log: fastify.log.level === 'debug' ? ['query', 'info', 'warn', 'error'] : ['error'],
-  });
+  const prisma = createPrismaClient(
+    env.DATABASE_URL,
+    fastify.log.level === 'debug' ? ['query', 'info', 'warn', 'error'] : ['error'],
+  );
 
   await prisma.$connect();
   fastify.log.info('📦 Prisma SQLite Database connected');

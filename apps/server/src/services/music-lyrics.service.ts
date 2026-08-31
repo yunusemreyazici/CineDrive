@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import type { MusicLyricsLineDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 

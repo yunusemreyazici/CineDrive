@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { parseMediaFilename } from '@cinedrive/shared';
 import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import argon2 from 'argon2';
 import ffmpegPath from 'ffmpeg-static';
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../apps/server/src/lib/prisma-client.js';
+import { removeE2EDatabase } from './cleanup.js';
 import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
@@ -21,14 +22,6 @@ const CLIP_SECONDS = 3;
 const CLIP_NAME = 'Smoke Test Movie (2024).mp4';
 const AUDIO_SECONDS = 4;
 const AUDIO_NAME = '01 - Smoke Test Song.m4a';
-
-const sidecarSuffixes = ['', '-journal', '-wal', '-shm'];
-
-const removeDatabase = () => {
-  for (const suffix of sidecarSuffixes) {
-    fs.rmSync(`${e2eDatabasePath}${suffix}`, { force: true });
-  }
-};
 
 /**
  * Renders a real, playable H.264 file so the streaming path is exercised end to
@@ -131,27 +124,20 @@ const renderAudio = (target: string, coverTarget: string) => {
 };
 
 export const seedE2EDatabase = async () => {
-  removeDatabase();
+  removeE2EDatabase();
   fs.rmSync(e2eMediaRoot, { recursive: true, force: true });
   fs.mkdirSync(e2eMediaRoot, { recursive: true });
   fs.mkdirSync(path.dirname(e2eDatabasePath), { recursive: true });
 
-  execFileSync(
-    'npx',
-    ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss', '--schema', schemaPath],
-    {
-      cwd: serverRoot,
-      env: {
-        ...process.env,
-        DATABASE_URL: E2E_DATABASE_URL,
-        // Prisma 6's schema engine can exit before opening SQLite in the
-        // sandboxed macOS app unless its Rust debug path is enabled. Keep the
-        // workaround local to macOS so Linux CI output is unchanged.
-        ...(process.platform === 'darwin' ? { RUST_LOG: 'debug' } : {}),
-      },
-      stdio: 'inherit',
+  execFileSync('npx', ['prisma', 'db', 'push', '--schema', schemaPath], {
+    cwd: serverRoot,
+    env: {
+      ...process.env,
+      DATABASE_URL: E2E_DATABASE_URL,
+      ...(process.platform === 'darwin' ? { RUST_LOG: 'debug' } : {}),
     },
-  );
+    stdio: 'inherit',
+  });
 
   const clipPath = path.join(e2eMediaRoot, CLIP_NAME);
   const audioPath = path.join(e2eMediaRoot, AUDIO_NAME);
@@ -159,9 +145,7 @@ export const seedE2EDatabase = async () => {
   renderClip(clipPath);
   renderAudio(audioPath, coverPath);
 
-  const prisma = new PrismaClient({
-    datasources: { db: { url: `file:${e2eDatabasePath}` } },
-  });
+  const prisma = createPrismaClient(E2E_DATABASE_URL);
 
   try {
     // Libraries are owned, so the owner has to exist before them. The server's
@@ -342,11 +326,6 @@ export const seedE2EDatabase = async () => {
   } finally {
     await prisma.$disconnect();
   }
-};
-
-export const teardownE2EDatabase = () => {
-  removeDatabase();
-  fs.rmSync(e2eMediaRoot, { recursive: true, force: true });
 };
 
 // Allows `tsx e2e/seed.ts` for debugging a failing run by hand.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { DriveAccessService } from '../src/services/drive-access.service.js';
 import type { GoogleDriveService } from '../src/services/drive.service.js';
 import type { GoogleOAuthService } from '../src/services/google-oauth.service.js';

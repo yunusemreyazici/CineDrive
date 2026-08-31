@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { parseMediaFilename, parseSubtitleFilename } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';

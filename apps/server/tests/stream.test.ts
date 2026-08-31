@@ -218,7 +218,9 @@ describe('Video Media Streaming API Integration Tests', () => {
       }),
     );
     // The Google access token must never reach FFmpeg's argv.
-    const [sourceUrl, sourceOptions] = transcodeMock.mock.calls[0];
+    const firstCall = transcodeMock.mock.calls[0];
+    if (!firstCall) throw new Error('Expected createTranscodedStream to have been called');
+    const [sourceUrl, sourceOptions] = firstCall;
     expect(sourceUrl).not.toContain('mock-access-token');
     expect(JSON.stringify(sourceOptions.inputOptions)).not.toContain('mock-access-token');
     expect(app.driveService.createMediaStream).not.toHaveBeenCalled();

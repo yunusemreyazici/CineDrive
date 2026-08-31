@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@cinedrive/prisma';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';

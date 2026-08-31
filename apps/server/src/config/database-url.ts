@@ -1,25 +1,20 @@
-const SQLITE_CONNECTION_LIMIT = '1';
-const SQLITE_SOCKET_TIMEOUT_SECONDS = '15';
-
 /**
- * SQLite only permits one writer at a time. Prisma otherwise sizes its pool
- * from the host CPU count, which lets background scans and API requests race
- * for SQLite's write lock. Keep one connection for the embedded database and
- * give external lock holders (for example a backup) a bounded grace period.
+ * Prisma 7 connects through the better-sqlite3 driver adapter instead of the
+ * old Rust query engine. The engine-era `connection_limit`/`socket_timeout`
+ * query parameters no longer apply: better-sqlite3 is synchronous and the
+ * adapter opens a single connection per client, so there is nothing to tune.
+ *
+ * The adapter accepts `{ url }` where `url` is a SQLite file path (or the
+ * special `:memory:` marker), so strip the `file:` scheme and legacy engine
+ * query parameters from DATABASE_URL.
  */
-export const configureDatabaseUrl = (databaseUrl: string): string => {
-  if (!databaseUrl.startsWith('file:')) return databaseUrl;
+export const toSqliteAdapterInput = (databaseUrl: string): { url: string } => {
+  if (databaseUrl === ':memory:') return { url: databaseUrl };
+  if (!databaseUrl.startsWith('file:')) return { url: databaseUrl };
 
-  const queryIndex = databaseUrl.indexOf('?');
-  const pathname = queryIndex === -1 ? databaseUrl : databaseUrl.slice(0, queryIndex);
-  const search = new URLSearchParams(queryIndex === -1 ? '' : databaseUrl.slice(queryIndex + 1));
+  const withoutScheme = databaseUrl.replace(/^file:/, '');
+  const queryIndex = withoutScheme.indexOf('?');
+  const pathname = queryIndex === -1 ? withoutScheme : withoutScheme.slice(0, queryIndex);
 
-  if (!search.has('connection_limit')) {
-    search.set('connection_limit', SQLITE_CONNECTION_LIMIT);
-  }
-  if (!search.has('socket_timeout')) {
-    search.set('socket_timeout', SQLITE_SOCKET_TIMEOUT_SECONDS);
-  }
-
-  return `${pathname}?${search.toString()}`;
+  return { url: pathname };
 };

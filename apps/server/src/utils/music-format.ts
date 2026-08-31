@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@cinedrive/prisma';
 import path from 'node:path';
 
 const MUSIC_CONTENT_TYPES: Record<string, string> = {

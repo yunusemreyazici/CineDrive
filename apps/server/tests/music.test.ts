@@ -1439,6 +1439,7 @@ describe('Music library', () => {
         }),
       ),
     );
+    if (!first || !second) throw new Error('Expected both playback-state responses');
     expect(JSON.parse(first.body).state).toMatchObject({
       clientId: firstClient,
       positionSeconds: 12,

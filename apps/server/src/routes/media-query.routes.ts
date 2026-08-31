@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@cinedrive/prisma';
 import { buildPlaybackPlan } from '../services/playback-plan.service.js';
 import { ownedMediaFilter } from '../utils/library-access.js';
 

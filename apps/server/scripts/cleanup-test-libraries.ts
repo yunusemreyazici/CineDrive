@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-// Imported for its side effect: loads the repository .env, so the script talks
-// to exactly the database the server uses rather than a guessed path.
-import '../src/config/env.js';
+import { env } from '../src/config/env.js';
+import { createPrismaClient } from '../src/lib/prisma-client.js';
 
 /**
  * Removes libraries left behind by the server test suite.
@@ -21,7 +19,7 @@ const FIXTURE_LIBRARY_NAMES = [
   'Streaming Test Library',
 ];
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient(env.DATABASE_URL);
 
 const run = async () => {
   const apply = process.argv.includes('--apply');
