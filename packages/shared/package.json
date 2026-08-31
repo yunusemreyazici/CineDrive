@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -21,7 +21,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "tsup": "^8.3.6",
+    "esbuild": "^0.28.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"
   }
