@@ -64,6 +64,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          NODE_ENV: production
 
   node-compatibility:
     name: Node compatibility (${{ matrix.node-version }})
@@ -98,7 +100,10 @@ jobs:
       - run: pnpm --filter @cinedrive/shared build
       - run: pnpm -r run typecheck
       - run: pnpm -r run test
-      - run: pnpm build
+      - name: Build production bundles
+        run: pnpm build
+        env:
+          NODE_ENV: production
 
   docker-smoke:
     runs-on: ubuntu-latest
