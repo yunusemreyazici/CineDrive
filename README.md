@@ -319,6 +319,18 @@ docker compose logs -f
 
 Nginx serves the web app and proxies `/api` to the server on port 80. The server container applies versioned Prisma migrations before starting. Application data, subtitle cache, and Nginx logs live in named volumes.
 
+Tagged releases also publish `linux/amd64` and `linux/arm64` images to GHCR. For a repeatable deployment, use the release Compose override with the immutable digest references attached to the GitHub Release:
+
+```bash
+cp release.env.example release.env
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml pull
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml up -d --no-build
+```
+
+See [Releasing CineDrive](docs/RELEASING.md) for image verification, upgrade, and rollback procedures.
+
 ### Debian/Ubuntu VPS
 
 For a fresh VPS, the interactive installer configures a dedicated system user, Node.js, pnpm, FFmpeg, systemd, Nginx, the database, and TLS:
@@ -392,10 +404,11 @@ pnpm test:e2e       # Playwright smoke scenarios
 pnpm build          # Production builds for shared, server, and web
 pnpm db:backup      # Create and verify a retained SQLite snapshot
 pnpm db:restore     # Verify a backup; requires --apply to restore it
+pnpm release:check  # Validate lockstep SemVer and changelog metadata
 pnpm format         # Format TypeScript, JSON, and Markdown with Prettier
 ```
 
-CI runs typecheck, tests, and production builds at the supported Node 22.13 floor and on Node 24. It also starts the production Docker Compose stack and probes the API through Nginx; Playwright runs after the primary verification succeeds. A separate least-privilege workflow scans both production images for fixable high/critical vulnerabilities and retains CycloneDX SBOMs as build artifacts. Dependabot keeps the digest-pinned base images current.
+CI runs typecheck, tests, and production builds at the supported Node 22.13 floor and on Node 24. It also starts the production Docker Compose stack and probes the API through Nginx; Playwright runs after the primary verification succeeds. A separate least-privilege workflow scans both production images for fixable high/critical vulnerabilities and retains CycloneDX SBOMs as build artifacts. Release pull requests dry-run both target architectures; `v*` tags publish provenance-attested, keyless-signed GHCR images plus SBOMs and immutable digest manifests. Dependabot keeps the digest-pinned base images and SHA-pinned actions current.
 
 ## Troubleshooting
 
@@ -409,6 +422,7 @@ CI runs typecheck, tests, and production builds at the supported Node 22.13 floo
 
 ## Contributing and security
 
+- Review the [changelog](CHANGELOG.md) and [release policy](docs/RELEASING.md) before preparing a version.
 - Use the [issue templates](https://github.com/yunusemreyazici/CineDrive/issues/new/choose) for reproducible bugs and focused feature requests.
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting code; it lists the required checks and repository conventions.
 - Do not report vulnerabilities in a public issue. Follow [SECURITY.md](SECURITY.md) to use GitHub's private vulnerability reporting channel.

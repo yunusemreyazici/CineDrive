@@ -9,6 +9,7 @@
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter \"@cinedrive/shared\" build && pnpm --filter \"./apps/*\" build && pnpm bundle:check",
     "bundle:check": "node scripts/check-web-bundle-size.mjs",
+    "release:check": "node scripts/validate-release.mjs",
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint \"**/*.{ts,tsx}\" --max-warnings 0",
     "audit:prod": "pnpm audit --prod --audit-level high",
