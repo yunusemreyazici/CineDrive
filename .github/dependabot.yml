@@ -45,6 +45,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Keep container runtimes aligned with package.json, CI, the VPS installer,
+    # and the documented Node.js support policy. Digest and in-major updates
+    # remain enabled.
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
     groups:
       docker-base-images:
         patterns:
