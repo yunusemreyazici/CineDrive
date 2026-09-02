@@ -1,10 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import {
-  E2E_API_PORT,
-  E2E_BASE_URL,
-  E2E_WEB_PORT,
-  e2eServerEnv,
-} from './e2e/env.js';
+import { E2E_API_PORT, E2E_BASE_URL, E2E_WEB_PORT, e2eServerEnv } from './e2e/env.js';
 
 /**
  * System-level smoke coverage: the unit and integration suites verify pieces,
@@ -29,14 +24,16 @@ export default defineConfig({
     video: 'off',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  ],
 
   webServer: [
     {
       // Playwright starts webServer entries before globalSetup, so seeding has
       // to happen here — the API refuses to boot against an empty schema.
-      command:
-        'pnpm exec tsx e2e/seed.ts && pnpm --filter @cinedrive/server exec tsx src/index.ts',
+      command: 'pnpm exec tsx e2e/seed.ts && pnpm --filter @cinedrive/server exec tsx src/index.ts',
       port: E2E_API_PORT,
       reuseExistingServer: false,
       stdout: 'pipe',

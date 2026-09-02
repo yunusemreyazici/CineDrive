@@ -410,6 +410,8 @@ pnpm format         # Format TypeScript, JSON, and Markdown with Prettier
 
 CI runs typecheck, tests, and production builds at the supported Node 22.13 floor and on Node 24. It also starts the production Docker Compose stack and probes the API through Nginx; Playwright runs after the primary verification succeeds. A separate least-privilege workflow scans both production images for fixable high/critical vulnerabilities and retains CycloneDX SBOMs as build artifacts. Release pull requests dry-run both target architectures; `v*` tags publish provenance-attested, keyless-signed GHCR images plus SBOMs and immutable digest manifests. Dependabot keeps the digest-pinned base images and SHA-pinned actions current.
 
+The E2E suite runs in Chromium and WebKit and checks real video playback advancement, forward/backward seeking, and server-persisted resume after reload. Install both browsers with `pnpm exec playwright install --with-deps chromium webkit`; run one with `pnpm test:e2e --project=chromium` or `--project=webkit`. CI uses Linux for Chromium and macOS for WebKit, and the required `e2e` check passes only when both suites succeed. Media codec availability varies by platform: [Playwright WebKit](https://playwright.dev/docs/browsers#webkit) is not branded Safari or a real iOS device test. Run WebKit playback checks on macOS for the closest Safari coverage. HLS and interrupted-network recovery are not covered by these direct-play smoke scenarios.
+
 ## Troubleshooting
 
 - **The local login redirects or the cookie is not saved:** confirm `NODE_ENV=development`, the localhost URLs above, and `TRUST_PROXY=false`.
