@@ -16,6 +16,72 @@ const signIn = async (page: Page) => {
   await expect(page).toHaveURL(/\/$/);
 };
 
+const openMovie = async (page: Page) => {
+  await signIn(page);
+  // Browser contexts are fresh, but projects/retries share the fixture server.
+  // Reset only this test movie via the real API before loading its player.
+  const reset = await page.request.delete('/api/playback/e2e_movie_smoke');
+  expect(reset.status()).toBe(200);
+  const streamResponse = page.waitForResponse(
+    (response) => response.url().includes('/stream') && response.status() < 400,
+  );
+  await page.goto('/watch/e2e_movie_smoke');
+  expect([200, 206]).toContain((await streamResponse).status());
+  const video = page.locator('video');
+  await expect(video).toBeVisible();
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState))
+    .toBeGreaterThanOrEqual(2);
+  await expect(page.getByRole('slider', { name: tr.player.seekLabel })).toBeVisible();
+
+  // Respect autoplay restrictions: a real user gesture starts paused media.
+  // DOM evaluation below only observes the media, never sets time or calls play().
+  if (await video.evaluate((element: HTMLVideoElement) => element.paused)) {
+    await video.click();
+  }
+};
+
+const expectPlaybackAdvance = async (page: Page) => {
+  const video = page.locator('video');
+  const startTime = await video.evaluate((element: HTMLVideoElement) => element.currentTime);
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThan(startTime + 1);
+  await expect
+    .poll(() =>
+      video.evaluate((element: HTMLVideoElement) => ({
+        paused: element.paused,
+        seeking: element.seeking,
+        error: element.error?.code ?? null,
+      })),
+    )
+    .toEqual({ paused: false, seeking: false, error: null });
+};
+
+const seekMovie = async (page: Page, seconds: number) => {
+  const timeline = page.getByRole('slider', { name: tr.player.seekLabel });
+  await page.locator('video').hover();
+  const duration = Number(await timeline.getAttribute('aria-valuemax'));
+  expect(duration).toBe(90);
+  const box = await timeline.boundingBox();
+  expect(box).not.toBeNull();
+  await timeline.click({ position: { x: (box!.width * seconds) / duration, y: box!.height / 2 } });
+  await expect
+    .poll(() =>
+      page
+        .locator('video')
+        .evaluate(
+          (element: HTMLVideoElement, target) =>
+            !element.seeking &&
+            element.currentTime >= target - 1 &&
+            element.currentTime < target + 4,
+          seconds,
+        ),
+    )
+    .toBe(true);
+  await expectPlaybackAdvance(page);
+};
+
 test.describe('CineDrive smoke', () => {
   test('signs in and lands on a populated home page', async ({ page }) => {
     await signIn(page);
@@ -53,37 +119,76 @@ test.describe('CineDrive smoke', () => {
     await expect(page.getByRole('button', { name: tr.mediaDetail.play })).toBeVisible();
   });
 
-  test('plays the media through the streaming endpoint', async ({ page }) => {
-    await signIn(page);
+  test('plays and advances real media through the streaming endpoint', async ({ page }) => {
+    await openMovie(page);
+    await expectPlaybackAdvance(page);
+  });
 
-    const streamResponse = page.waitForResponse(
-      (response) => response.url().includes('/stream') && response.status() < 400,
-    );
-    await page.goto('/watch/e2e_movie_smoke');
+  test('seeks forward and backward through the timeline and continues playing', async ({
+    page,
+  }) => {
+    await openMovie(page);
+    await expectPlaybackAdvance(page);
+    await seekMovie(page, 30);
+    await seekMovie(page, 10);
+  });
 
-    // The server actually served bytes — not merely that a <video> rendered.
-    const response = await streamResponse;
-    expect([200, 206]).toContain(response.status());
-
-    await expect(page.getByRole('slider', { name: tr.player.seekLabel })).toBeVisible();
-
-    // The element decoded far enough to have a duration and a buffered range.
+  test('saves a paused position and resumes it after reload', async ({ page }) => {
+    await openMovie(page);
+    await seekMovie(page, 30);
+    const savedResponse = page.waitForResponse((response) => {
+      if (
+        !response.url().endsWith('/api/playback/progress') ||
+        response.request().method() !== 'PUT'
+      ) {
+        return false;
+      }
+      const body = response.request().postDataJSON();
+      return body.mediaItemId === 'e2e_movie_smoke' && body.positionSeconds > 15;
+    });
+    await page.locator('video').click();
     await expect
-      .poll(
-        () =>
-          page.evaluate(() => {
-            const video = document.querySelector('video');
-            if (!video) return null;
-            return { readyState: video.readyState, error: video.error?.code ?? null };
-          }),
-        { timeout: 20_000 },
+      .poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.paused))
+      .toBe(true);
+    const response = await savedResponse;
+    expect(response.status()).toBe(200);
+    const { progress } = await response.json();
+    const savedPosition = progress.positionSeconds as number;
+    expect(savedPosition).toBeGreaterThanOrEqual(30);
+    expect(savedPosition).toBeLessThan(40);
+    expect(progress.completed).toBe(false);
+    const storedResponse = await page.request.get('/api/playback/e2e_movie_smoke');
+    expect(storedResponse.status()).toBe(200);
+    expect((await storedResponse.json()).progress.positionSeconds).toBe(savedPosition);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: tr.player.resume.title })).toBeVisible();
+    await expect
+      .poll(() => page.locator('video').evaluate((element: HTMLVideoElement) => element.paused))
+      .toBe(true);
+    // The offered position must be the one saved by the player, not test-seeded state.
+    const timestamp = `0:${String(savedPosition).padStart(2, '0')}`;
+    await page
+      .getByRole('button', { name: tr.player.resume.continueAt(timestamp), exact: true })
+      .click();
+    await expect(page.getByRole('heading', { name: tr.player.resume.title })).toBeHidden();
+    await expect
+      .poll(() =>
+        page
+          .locator('video')
+          .evaluate(
+            (element: HTMLVideoElement, saved) =>
+              element.currentTime >= saved - 1 && element.currentTime < saved + 4,
+            savedPosition,
+          ),
       )
-      .toMatchObject({ readyState: 4, error: null });
+      .toBe(true);
+    await expectPlaybackAdvance(page);
   });
 
   test('plays tagged music, creates a playlist, and restores the queue after refresh', async ({
     page,
-  }) => {
+  }, testInfo) => {
     await signIn(page);
     await page.goto('/music');
 
@@ -156,14 +261,16 @@ test.describe('CineDrive smoke', () => {
 
     await page.getByRole('button', { name: tr.music.createPlaylist }).click();
     const createPlaylistDialog = page.getByRole('dialog', { name: tr.music.createPlaylist });
-    await createPlaylistDialog.getByPlaceholder(tr.music.newPlaylist).fill('E2E Playlist');
+    const playlistName = `E2E Playlist ${testInfo.project.name} ${testInfo.retry}`;
+    await createPlaylistDialog.getByPlaceholder(tr.music.newPlaylist).fill(playlistName);
     const playlistResponse = page.waitForResponse(
       (response) =>
         response.url().includes('/api/music/playlists') && response.request().method() === 'POST',
     );
     await createPlaylistDialog.getByRole('button', { name: tr.music.create }).click();
     expect((await playlistResponse).status()).toBeLessThan(400);
-    await expect(page.getByRole('link', { name: /E2E Playlist/ }).first()).toBeVisible();
+    // The accessible link name also includes the track count.
+    await expect(page.getByRole('link', { name: playlistName }).first()).toBeVisible();
 
     await page.reload();
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();

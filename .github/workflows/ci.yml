@@ -175,11 +175,22 @@ jobs:
       - if: always()
         run: docker compose down --volumes
 
-  e2e:
-    runs-on: ubuntu-latest
+  e2e-browsers:
+    name: E2E (${{ matrix.browser }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     # Only worth the browser download once the cheap checks are green.
     needs: verify
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            os: ubuntu-latest
+          # Media codec support is platform-dependent; test WebKit on macOS.
+          - browser: webkit
+            os: macos-15
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,16 +214,30 @@ jobs:
         run: pnpm --filter @cinedrive/shared build
 
       - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       # The suite seeds its own database, renders its own fixture clip and
       # starts both servers on dedicated ports, so it needs no repository .env.
       - name: Run end-to-end smoke suite
-        run: pnpm test:e2e
+        run: pnpm test:e2e --project=${{ matrix.browser }}
 
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 7
+
+  # Preserve the existing required check name. A failed, skipped or cancelled
+  # browser matrix must not turn this gate green.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: always()
+    needs: [verify, e2e-browsers]
+    steps:
+      - name: Require both browser suites to pass
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          BROWSERS_RESULT: ${{ needs.e2e-browsers.result }}
+        run: test "$VERIFY_RESULT" = success && test "$BROWSERS_RESULT" = success

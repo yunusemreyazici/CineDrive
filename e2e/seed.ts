@@ -17,8 +17,8 @@ import {
   serverRoot,
 } from './env.js';
 
-/** Short enough to generate instantly, long enough for the player to buffer. */
-const CLIP_SECONDS = 3;
+/** Resume requires >15s watched and >30s remaining; keep real media/DB durations aligned. */
+const CLIP_SECONDS = 90;
 const CLIP_NAME = 'Smoke Test Movie (2024).mp4';
 const AUDIO_SECONDS = 4;
 const AUDIO_NAME = '01 - Smoke Test Song.m4a';
@@ -49,6 +49,8 @@ const renderClip = (target: string) => {
       'yuv420p',
       '-preset',
       'ultrafast',
+      '-g',
+      '30',
       '-c:a',
       'aac',
       '-shortest',
