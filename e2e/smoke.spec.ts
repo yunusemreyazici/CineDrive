@@ -110,13 +110,16 @@ test.describe('CineDrive smoke', () => {
 
   test('opens a media detail page from a card', async ({ page }) => {
     await signIn(page);
+    // Another project may have saved progress; this scenario expects a fresh
+    // play action, not the resume button left by a previous browser's test.
+    expect((await page.request.delete('/api/playback/e2e_movie_smoke')).status()).toBe(200);
     await page.goto('/library');
 
     await page.getByRole('link', { name: tr.mediaCard.openDetails('Smoke Test Movie') }).click();
 
     await expect(page).toHaveURL(/\/media\/e2e_movie_smoke$/);
-    await expect(page.getByRole('heading', { name: 'Smoke Test Movie' })).toBeVisible();
-    await expect(page.getByRole('button', { name: tr.mediaDetail.play })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Smoke Test Movie', level: 1 })).toBeVisible();
+    await expect(page.getByRole('button', { name: tr.mediaDetail.play, exact: true })).toBeVisible();
   });
 
   test('plays and advances real media through the streaming endpoint', async ({ page }) => {

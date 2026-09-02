@@ -33,7 +33,7 @@ export default defineConfig({
     {
       // Playwright starts webServer entries before globalSetup, so seeding has
       // to happen here — the API refuses to boot against an empty schema.
-      command: 'pnpm exec tsx e2e/seed.ts && pnpm --filter @cinedrive/server exec tsx src/index.ts',
+      command: 'pnpm exec tsx e2e/seed.ts && pnpm exec tsx e2e/start-server.ts',
       port: E2E_API_PORT,
       reuseExistingServer: false,
       stdout: 'pipe',
