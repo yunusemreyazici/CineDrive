@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Security
+
+- Override Prisma's transitive `mysql2` dependency to 3.22.0, which disables the insecure `mysql_clear_password` authentication plugin by default.
+
 ## [1.0.0] - 2026-09-01
 
 ### Added
