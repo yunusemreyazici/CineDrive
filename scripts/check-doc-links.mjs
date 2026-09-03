@@ -26,13 +26,16 @@ function prose(source) {
 }
 
 function slug(text) {
-  // This computes a plain-text anchor, not sanitized HTML. Remove complete tags
-  // and any stray angle brackets in the same pass so malformed markup cannot
-  // leave or reconstruct a tag delimiter during text extraction.
+  // This computes a plain-text anchor, not sanitized HTML. Remove tags until
+  // stable, then strip individual delimiters left by incomplete markup.
+  text = text.replace(/!?(?:\[([^\]]*)\])\([^)]*\)/g, '$1');
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(/<[^>]*>/g, '');
+  } while (text !== previous);
   return text
-    .replace(/!?(?:\[([^\]]*)\])\([^)]*\)/g, '$1')
-    .replace(/<[^>]*>|[<>]/g, '')
-    .replace(/[*`]/g, '')
+    .replace(/[<>*`]/g, '')
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{M}\p{N}_\-\s]/gu, '')
