@@ -44,6 +44,11 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit:prod
 
+      - name: Validate release tooling and metadata
+        run: |
+          pnpm release:test
+          pnpm release:check
+
       # The server imports @prisma/client, so the client has to exist before
       # anything is type-checked.
       - name: Generate Prisma client
@@ -96,6 +101,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm release:test
       - run: pnpm prisma:generate
       - run: pnpm --filter @cinedrive/shared build
       - run: pnpm -r run typecheck

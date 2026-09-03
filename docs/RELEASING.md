@@ -14,6 +14,11 @@ Git tags. The root, server, web, and shared package versions move together.
 Every release must have a matching `CHANGELOG.md` section. Keep upcoming work under
 `[Unreleased]`, then move it to the new version and date when preparing the release.
 
+The initial target is `1.0.0`, already shared by all four packages. A preparation
+PR, changelog date, or successful dry run is not a published release. Check the
+[GitHub Releases page](https://github.com/yunusemreyazici/CineDrive/releases) for
+availability; the example image references must not be assumed to exist.
+
 ## Prepare and validate
 
 1. Update the version in `package.json`, `apps/server/package.json`,
@@ -24,6 +29,7 @@ Every release must have a matching `CHANGELOG.md` section. Keep upcoming work un
    ```bash
    pnpm install --frozen-lockfile
    pnpm prisma:generate
+   pnpm release:test
    pnpm release:check
    pnpm -r run typecheck
    pnpm lint
@@ -32,14 +38,28 @@ Every release must have a matching `CHANGELOG.md` section. Keep upcoming work un
    pnpm test:e2e
    ```
 
-4. Open a pull request. The Release workflow performs a no-push build of the server
+4. Preview the exact curated notes without creating a tag or publishing anything:
+
+   ```bash
+   node scripts/validate-release.mjs --tag v1.0.0 --notes
+   ```
+
+   Validation requires matching package versions, one exact version heading, a
+   valid calendar date, and nonempty change entries. This checks local metadata,
+   not remote tag availability, image signatures, or permission to publish.
+
+5. Open a pull request. The Release workflow performs a no-push build of the server
    and web images for both `linux/amd64` and `linux/arm64`.
-5. After the pull request is merged and all `main` checks pass, create the tag from
-   that exact commit. Prefer a signed tag:
+6. Stop at the preparation PR unless publishing is separately approved. Before
+   publishing, finalize the changelog date if the release day has changed, merge
+   the reviewed PR, and require every check on that exact `main` commit to pass.
+   Record its full SHA and verify that the target tag/release does not exist.
+   Only then create the tag on that commit. Prefer a signed tag:
 
    ```bash
    git switch main
    git pull --ff-only
+   git rev-parse HEAD  # must equal the approved, tested release commit
    pnpm release:check -- --tag v1.0.0
    git tag -s v1.0.0 -m "CineDrive v1.0.0"
    git push origin v1.0.0
@@ -47,6 +67,8 @@ Every release must have a matching `CHANGELOG.md` section. Keep upcoming work un
 
 Pushing a valid tag is the only event that can publish. Manual workflow dispatches
 are dry runs and receive no package, attestation, or identity-token write access.
+The GitHub Release body includes the validated version's curated changelog notes
+followed by GitHub's generated change list; `[Unreleased]` is not included.
 
 ## Release outputs
 
@@ -93,6 +115,13 @@ cosign verify \
 
 Repeat both checks for the web image.
 
+Before declaring the first release usable, verify that both image manifests name
+the approved version and commit, both SBOMs are attached, and both platforms are
+present. For a public release, a maintainer must confirm GHCR package visibility
+and anonymous pulls. A public Git repository alone does not guarantee public
+packages. Do not claim that signing or anonymous pulls were tested by a no-push
+build: those checks require the published artifacts.
+
 ## Deploy a fixed release
 
 Copy the example and replace both values with the digest references attached to the
@@ -118,6 +147,15 @@ save the currently deployed server and web digest references. Update both values
 `release.env`, pull, start with `--no-build`, and require `/api/ready` plus a sign-in
 and existing-library check to pass.
 
+Also preserve the old deployment configuration and `TOKEN_ENCRYPTION_KEY` securely
+outside Git. The database contains encrypted credentials but not the key needed
+to decrypt them. A database snapshot does not back up local media or Drive files.
+
+Create the snapshot while the current server is running, then copy the selected
+snapshot to separate storage. Record its exact filename and checksum, together
+with the old image references. Do not use a guessed filename or "latest" backup
+during recovery.
+
 If startup or migration fails:
 
 1. Stop the stack and retain its logs and failed database for diagnosis.
@@ -127,6 +165,44 @@ If startup or migration fails:
 4. Pull and start the stack with the fixed-release commands above.
 5. Verify `/api/ready`, sign-in, and one existing library before restoring traffic.
 
+For Docker, a stopped server cannot run `compose exec`. Use a one-off maintenance
+container with the current release image, the same runtime `.env`, and the same
+data volume. In the example below, replace the path with the recorded snapshot
+already available inside `/app/data`; if only the off-host copy remains, copy it
+into the volume first. The first restore command only verifies the snapshot:
+
+```bash
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml stop
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml run --rm --no-deps \
+  --entrypoint node server apps/server/dist/cli/database-restore.js \
+  --from /app/data/backups/RECORDED-SNAPSHOT.db
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml run --rm --no-deps \
+  --entrypoint node server apps/server/dist/cli/database-restore.js \
+  --from /app/data/backups/RECORDED-SNAPSHOT.db --apply
+```
+
+Do not use `down --volumes` during upgrade or recovery. The restore tool retains a
+pre-restore safety snapshot; preserve the original failure logs/database too.
+Only after restoring the database should you select and start the old images.
+Restoring a snapshot discards application changes made since that snapshot.
+
+Regression tests exercise populated historical video and music databases through
+backup, upgrade, dry-run restore, applied restore, and re-upgrade. They verify the
+complete restored snapshot, preserved post-upgrade safety copy, and schema/data
+integrity after re-upgrade. Since there is no earlier official release before
+`1.0.0`, this is a schema recovery drill, not proof of rollback between two
+published image versions. For the first upgrade from a source installation,
+retain its exact commit/image and configuration as the fallback.
+
 The GitHub Release is considered complete only when both image manifests, both
 SBOMs, and the release entry exist. A partial workflow failure must be fixed with a
 new version; do not move or rerun an already published tag to replace its contents.
+
+## References
+
+- [GitHub release creation and notes](https://cli.github.com/manual/gh_release_create)
+- [Docker Compose one-off commands](https://docs.docker.com/reference/cli/docker/compose/run/)
+- [GHCR visibility and authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
