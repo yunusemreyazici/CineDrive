@@ -1,5 +1,7 @@
 # Releasing CineDrive
 
+[Documentation](../README.md#documentation) · [Türkçe](RELEASING.tr.md)
+
 CineDrive uses Semantic Versioning and publishes releases from immutable `v*`
 Git tags. The root, server, web, and shared package versions move together.
 

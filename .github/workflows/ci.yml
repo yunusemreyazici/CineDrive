@@ -44,6 +44,11 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit:prod
 
+      - name: Validate documentation links and checker
+        run: |
+          pnpm docs:test
+          pnpm docs:check
+
       - name: Validate release tooling and metadata
         run: |
           pnpm release:test

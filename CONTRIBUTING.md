@@ -4,7 +4,7 @@ Thanks for helping improve CineDrive. Keep changes focused and use an issue to d
 
 ## Development setup
 
-Requirements and environment configuration are documented in the [README](README.md). After cloning the repository:
+Follow [local installation](docs/INSTALLATION.md#local-development) and [configuration](docs/CONFIGURATION.md) first; [Development](docs/DEVELOPMENT.md) covers architecture and test coverage. After cloning the repository:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -34,6 +34,8 @@ pnpm build
 Run `pnpm test:e2e` when the change affects a user flow, API integration, playback, or deployment behavior.
 
 ## Pull requests
+
+For documentation changes, keep English and Turkish guides aligned and run `pnpm docs:check`. When changing the link checker, also run `pnpm docs:test`.
 
 Describe the problem and solution, link related issues, and list the verification you performed. Keep commits free of generated caches and local data. By contributing, you agree that your contribution is licensed under the project's [MIT License](LICENSE).
 

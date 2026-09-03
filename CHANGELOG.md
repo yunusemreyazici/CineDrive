@@ -17,6 +17,11 @@ after its matching GitHub Release and verified container artifacts exist.
 ### Added
 
 - HLS recovery regression tests and real-browser transport-failure coverage using an isolated HTTP fault proxy; no production test endpoints are introduced.
+- Offline documentation link validation and regression tests in CI.
+
+### Changed
+
+- Shortened the English and Turkish READMEs into product overviews and quick starts; moved installation, configuration, Drive setup, playback, operations, and development details into bilingual guides.
 
 ## [1.0.0] - 2026-09-03
 

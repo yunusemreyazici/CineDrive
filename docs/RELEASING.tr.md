@@ -1,5 +1,7 @@
 # CineDrive Sürümleme
 
+[Dokümantasyon](../README.tr.md#dokümantasyon) · [English](RELEASING.md)
+
 CineDrive Semantik Sürümleme kullanır ve sürümleri değiştirilemez `v*` Git
 etiketlerinden yayınlar. Kök, sunucu, web ve ortak paket sürümleri birlikte ilerler.
 
