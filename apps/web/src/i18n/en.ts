@@ -755,6 +755,8 @@ export const en: Translations = {
     streamStartFailed: 'The video stream could not be started.',
     streamFailed: 'An error occurred while fetching the video stream from the server.',
     hlsUnsupported: 'This browser does not support compatible HLS playback.',
+    hlsRecoveryFailed:
+      'The stream could not be restored. Check your connection and try again; your playback position is preserved.',
     codecUnsupported: 'Your browser does not support this video format directly.',
     fullscreenUnsupported: 'This browser does not support fullscreen video playback.',
     reconnecting: 'Reconnecting the stream',
@@ -762,7 +764,6 @@ export const en: Translations = {
       `Reconnecting the stream (${attempt}/${max})`,
     reestablishing: (attempt: number, max: number) =>
       `Re-establishing the connection (${attempt}/${max})`,
-    mobileRetry: (attempt: number, max: number) => `Retrying the mobile stream (${attempt}/${max})`,
     preparingFrom: (timestamp: string) => `Preparing the stream from ${timestamp}`,
     requalifying: (quality: string) => `Re-preparing the opening stream at ${quality}`,
     subtitleDelay: (value: string) => `Subtitle timing: ${value}`,
@@ -775,6 +776,7 @@ export const en: Translations = {
       genericBody: 'An error occurred while loading the video stream.',
       enableTranscode: 'Play in audio / Safari compatibility mode',
       retryDirect: 'Retry direct playback',
+      retryStream: 'Retry stream',
     },
 
     resume: {

@@ -435,7 +435,7 @@ Sonraki cümle`);
     expect(video?.getAttribute('src')).toContain('/hls/index.m3u8');
     fireEvent.error(video!);
 
-    expect(screen.getByText('Mobil akış yeniden deneniyor (1/2)')).toBeInTheDocument();
+    expect(screen.getByText('Akış yeniden bağlanıyor (1/3)')).toBeInTheDocument();
     expect(screen.queryByText('Oynatma Hatası')).not.toBeInTheDocument();
   });
 
@@ -988,6 +988,58 @@ Sonraki cümle`);
     expect(container.querySelector('video')?.getAttribute('src')).toBe(
       '/api/media/gdrive_interstellar_file/stream',
     );
+  });
+
+  it('preserves a paused HLS position on the timeline across native recovery and manual retry', () => {
+    vi.useFakeTimers();
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15',
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const plannedMovie: MediaItemType = {
+      ...mockMovie,
+      movie: {
+        ...mockMovie.movie!,
+        playbackPlan: { safari: 'hls', chromium: 'hls', reason: 'test', analyzed: true },
+        technicalMetadata: { mediaDuration: 180, mediaHeight: 720 },
+      },
+    };
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <MediaPlayer media={plannedMovie} />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    const video = container.querySelector('video')!;
+    vi.spyOn(video, 'pause').mockImplementation(() => {});
+    const play = vi.spyOn(video, 'play').mockResolvedValue();
+    vi.spyOn(video, 'load').mockImplementation(() => {
+      video.currentTime = 0;
+    });
+    video.currentTime = 42;
+    fireEvent.timeUpdate(video);
+    fireEvent.error(video);
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.timeUpdate(video);
+    expect(screen.getByRole('slider', { name: 'Oynatma konumu' })).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    );
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42);
+    expect(play).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(29_000));
+    fireEvent.timeUpdate(video);
+    expect(screen.getByRole('slider', { name: 'Oynatma konumu' })).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Akışı Tekrar Dene' }));
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(42);
+    expect(play).not.toHaveBeenCalled();
   });
 
   it('reconnects a stalled direct stream after the recovery threshold', () => {

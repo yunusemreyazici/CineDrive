@@ -10,6 +10,14 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ## [Unreleased]
 
+### Fixed
+
+- Bound HLS transport/media recovery on Chromium and native WebKit, preserving playback position and pause intent with an actionable manual retry after exhaustion.
+
+### Added
+
+- HLS recovery regression tests and real-browser transport-failure coverage using an isolated HTTP fault proxy; no production test endpoints are introduced.
+
 ## [1.0.0] - 2026-09-03
 
 ### Added

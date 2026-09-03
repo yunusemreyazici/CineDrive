@@ -6,10 +6,11 @@ import { t } from '../../../i18n';
 interface PlayerErrorProps {
   error: PlayerErrorState;
   onRetry: () => void;
+  retryLabel?: string;
   onEnableTranscode?: () => void;
 }
 
-export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, onEnableTranscode }) => {
+export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, retryLabel, onEnableTranscode }) => {
   const isCodecError = error.code === 'CODEC_NOT_SUPPORTED';
 
   return (
@@ -45,7 +46,7 @@ export const PlayerError: React.FC<PlayerErrorProps> = ({ error, onRetry, onEnab
               onClick={onRetry}
               className="inline-flex items-center justify-center gap-2 px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-xl transition-all"
             >
-              {t.player.error.retryDirect}
+              {retryLabel || t.player.error.retryDirect}
             </button>
           )}
         </div>
