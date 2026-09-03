@@ -10,6 +10,10 @@ import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
   E2E_DATABASE_URL,
+  E2E_HLS_MOVIE_ID,
+  E2E_HLS_FILE_ID,
+  E2E_HLS_CLIP_NAME,
+  E2E_HLS_SECONDS,
   schemaPath,
   e2eDatabasePath,
   e2eMediaRoot,
@@ -28,8 +32,9 @@ const AUDIO_NAME = '01 - Smoke Test Song.m4a';
  * end rather than stubbed. A test that never moves bytes would not have caught
  * the route split this suite is meant to protect.
  */
-const renderClip = (target: string) => {
+const renderClip = (target: string, hls = false) => {
   if (!ffmpegPath) throw new Error('ffmpeg-static binary unavailable');
+  const duration = hls ? E2E_HLS_SECONDS : CLIP_SECONDS;
 
   const result = spawnSync(
     ffmpegPath,
@@ -38,11 +43,11 @@ const renderClip = (target: string) => {
       '-f',
       'lavfi',
       '-i',
-      `testsrc=size=320x180:rate=15:duration=${CLIP_SECONDS}`,
+      `testsrc=size=320x180:rate=15:duration=${duration}`,
       '-f',
       'lavfi',
       '-i',
-      `sine=frequency=440:duration=${CLIP_SECONDS}`,
+      `sine=frequency=440:duration=${duration}`,
       '-c:v',
       'libx264',
       '-pix_fmt',
@@ -52,10 +57,10 @@ const renderClip = (target: string) => {
       '-g',
       '30',
       '-c:a',
-      'aac',
+      // MKV + PCM requires the real HLS compatibility plan on both browsers.
+      hls ? 'pcm_s16le' : 'aac',
       '-shortest',
-      '-movflags',
-      '+faststart',
+      ...(hls ? [] : ['-movflags', '+faststart']),
       target,
     ],
     { stdio: 'pipe', encoding: 'utf8' },
@@ -142,9 +147,11 @@ export const seedE2EDatabase = async () => {
   });
 
   const clipPath = path.join(e2eMediaRoot, CLIP_NAME);
+  const hlsClipPath = path.join(e2eMediaRoot, E2E_HLS_CLIP_NAME);
   const audioPath = path.join(e2eMediaRoot, AUDIO_NAME);
   const coverPath = path.join(e2eMediaRoot, 'cover.jpg');
   renderClip(clipPath);
+  renderClip(hlsClipPath, true);
   renderAudio(audioPath, coverPath);
 
   const prisma = createPrismaClient(E2E_DATABASE_URL);
@@ -215,6 +222,39 @@ export const seedE2EDatabase = async () => {
 
     await prisma.movie.create({
       data: { mediaItemId: mediaItem.id, driveFileId: driveFile.id },
+    });
+
+    const hlsFile = await prisma.driveFile.create({
+      data: {
+        id: E2E_HLS_FILE_ID,
+        libraryId: library.id,
+        storageType: 'local',
+        localFilePath: hlsClipPath,
+        name: E2E_HLS_CLIP_NAME,
+        mimeType: 'video/x-matroska',
+        size: BigInt(fs.statSync(hlsClipPath).size),
+        modifiedTime: new Date(),
+        status: 'active',
+        mediaContainer: 'matroska',
+        videoCodec: 'h264',
+        audioCodec: 'pcm_s16le',
+        mediaWidth: 320,
+        mediaHeight: 180,
+        mediaDuration: E2E_HLS_SECONDS,
+        mediaAnalyzedAt: new Date(),
+      },
+    });
+    await prisma.mediaItem.create({
+      data: {
+        id: E2E_HLS_MOVIE_ID,
+        libraryId: library.id,
+        type: 'movie',
+        title: 'HLS Test Movie',
+        normalizedTitle: 'hls test movie',
+        year: 2024,
+        duration: E2E_HLS_SECONDS,
+        movie: { create: { driveFileId: hlsFile.id } },
+      },
     });
 
     const audioFile = await prisma.driveFile.create({

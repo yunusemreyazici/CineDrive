@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { e2eDatabasePath, e2eMediaRoot } from './env.js';
+import { e2eDatabasePath, e2eMediaRoot, e2eRuntimeRoot } from './env.js';
 
 const sqliteSidecarSuffixes = ['', '-journal', '-wal', '-shm'];
 
@@ -12,4 +12,5 @@ export const removeE2EDatabase = (): void => {
 export const teardownE2EArtifacts = (): void => {
   removeE2EDatabase();
   fs.rmSync(e2eMediaRoot, { recursive: true, force: true });
+  fs.rmSync(e2eRuntimeRoot, { recursive: true, force: true });
 };

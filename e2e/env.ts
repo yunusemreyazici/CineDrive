@@ -22,6 +22,13 @@ export const serverRoot = path.join(repoRoot, 'apps/server');
 export const schemaPath = path.join(serverRoot, 'prisma/schema.prisma');
 export const e2eDatabasePath = path.join(serverRoot, 'prisma/data/e2e.db');
 export const e2eMediaRoot = path.join(serverRoot, 'prisma/data/e2e-media');
+/** Isolate cwd-relative HLS, preview and subtitle caches from development data. */
+export const e2eRuntimeRoot = path.join(serverRoot, 'prisma/data/e2e-runtime');
+export const E2E_HLS_MOVIE_ID = 'e2e_movie_hls';
+export const E2E_HLS_FILE_ID = '00000000-0000-4000-8000-000000000201';
+export const E2E_HLS_CLIP_NAME = 'HLS Test Movie (2024).mkv';
+// Long enough to seek beyond the generated window while an encoder is still alive.
+export const E2E_HLS_SECONDS = 180;
 /**
  * Absolute on purpose. Prisma resolves a relative `file:` URL against the
  * schema directory rather than the working directory, so the CLI and the server
@@ -41,6 +48,8 @@ export const e2eServerEnv = {
   TOKEN_ENCRYPTION_KEY: '0'.repeat(64),
   CORS_ORIGIN: E2E_BASE_URL,
   LOG_LEVEL: 'warn',
+  HLS_MAX_ACTIVE_JOBS: '2',
+  HLS_CACHE_MAX_BYTES: String(64 * 1024 * 1024),
   // Keep the suite off the network: metadata lookups would otherwise call TMDB.
   TMDB_API_KEY: '',
   // envSchema requires these. The suite never reaches Google — the fixture
