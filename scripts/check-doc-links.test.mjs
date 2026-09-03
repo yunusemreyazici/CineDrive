@@ -52,6 +52,42 @@ test('supports Turkish headings, encoded paths, duplicate headings and explicit 
   assert.deepEqual(result.errors, []);
 });
 
+test('preserves heading anchors with inline tags, Markdown formatting, and comparisons', (t) => {
+  const result = checkDocumentation(
+    fixture(t, {
+      'README.md': [
+        '## <strong>Özellikler</strong> ve **kurulum**',
+        '## Cine<em>Drive</em>',
+        '## 2 < 3',
+        '[A](#özellikler-ve-kurulum)',
+        '[B](#cinedrive)',
+        '[C](#2--3)',
+      ].join('\n'),
+    }),
+  );
+  assert.equal(result.checked, 3);
+  assert.deepEqual(result.errors, []);
+});
+
+test('handles malformed tag fragments as plain-text anchors, never HTML', (t) => {
+  const result = checkDocumentation(
+    fixture(t, {
+      'README.md': [
+        '## <scrip<script>t>Demo</script>',
+        '## <script',
+        '## >Plain<',
+        '[A](#tdemo)',
+        '[B](#script)',
+        '[C](#plain)',
+        '[Not an HTML anchor](#%3Cscript)',
+      ].join('\n'),
+    }),
+  );
+  assert.equal(result.checked, 4);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /README.md:7: missing heading or anchor: #%3Cscript/);
+});
+
 test('ignores fenced examples, inline code, comments and external URLs', (t) => {
   const result = checkDocumentation(
     fixture(t, {

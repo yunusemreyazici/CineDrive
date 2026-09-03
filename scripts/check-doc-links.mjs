@@ -26,9 +26,12 @@ function prose(source) {
 }
 
 function slug(text) {
+  // This computes a plain-text anchor, not sanitized HTML. Remove complete tags
+  // and any stray angle brackets in the same pass so malformed markup cannot
+  // leave or reconstruct a tag delimiter during text extraction.
   return text
     .replace(/!?(?:\[([^\]]*)\])\([^)]*\)/g, '$1')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^>]*>|[<>]/g, '')
     .replace(/[*`]/g, '')
     .trim()
     .toLowerCase()
