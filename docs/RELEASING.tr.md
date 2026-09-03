@@ -14,6 +14,11 @@ etiketlerinden yayınlar. Kök, sunucu, web ve ortak paket sürümleri birlikte 
 Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelecek değişiklikleri
 `[Unreleased]` altında tutun; sürüm hazırlanırken yeni sürüme ve tarihe taşıyın.
 
+İlk hedef, dört pakette de mevcut olan `1.0.0` sürümüdür. Hazırlık PR'ı, changelog
+tarihi veya başarılı dry-run, sürümün yayımlandığı anlamına gelmez. Kullanılabilirliği
+[GitHub Releases sayfasından](https://github.com/yunusemreyazici/CineDrive/releases)
+kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
+
 ## Hazırlama ve doğrulama
 
 1. `package.json`, `apps/server/package.json`, `apps/web/package.json` ve
@@ -24,6 +29,7 @@ Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelec
    ```bash
    pnpm install --frozen-lockfile
    pnpm prisma:generate
+   pnpm release:test
    pnpm release:check
    pnpm -r run typecheck
    pnpm lint
@@ -32,14 +38,28 @@ Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelec
    pnpm test:e2e
    ```
 
-4. Pull request açın. Release workflow'u sunucu ve web image'larını registry'ye
+4. Tag oluşturmadan veya yayın yapmadan sürüme ait notları önizleyin:
+
+   ```bash
+   node scripts/validate-release.mjs --tag v1.0.0 --notes
+   ```
+
+   Kontrol; eşleşen paket sürümleri, tek ve tam eşleşen sürüm başlığı, geçerli takvim
+   tarihi ve boş olmayan değişiklik maddeleri ister. Yerel metadata'yı doğrular;
+   uzaktaki tag durumunu, image imzalarını veya yayın iznini doğrulamaz.
+
+5. Pull request açın. Release workflow'u sunucu ve web image'larını registry'ye
    göndermeden `linux/amd64` ve `linux/arm64` için derler.
-5. Pull request merge edildikten ve `main` kontrolleri geçtikten sonra etiketi tam o
-   commit üzerinde oluşturun. İmzalı etiket tercih edin:
+6. Yayın ayrıca onaylanmadıkça hazırlık PR'ında durun. Yayın günü değiştiyse önce
+   changelog tarihini güncelleyin; incelenen PR'ı birleştirin ve tam o `main`
+   commit'inin bütün kontrollerinin geçmesini bekleyin. Tam SHA'yı kaydedin ve
+   hedef tag/release'in mevcut olmadığını doğrulayın. Ancak bundan sonra etiketi
+   o commit üzerinde oluşturun. İmzalı etiket tercih edin:
 
    ```bash
    git switch main
    git pull --ff-only
+   git rev-parse HEAD  # onaylanan ve test edilen release commit'i ile eşleşmeli
    pnpm release:check -- --tag v1.0.0
    git tag -s v1.0.0 -m "CineDrive v1.0.0"
    git push origin v1.0.0
@@ -47,6 +67,8 @@ Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelec
 
 Yalnızca geçerli bir tag push'u yayın yapabilir. Manuel workflow çalıştırmaları
 dry-run'dır ve paket, attestation veya identity token yazma yetkisi almaz.
+GitHub Release açıklamasına doğrulanan sürümün changelog notları ve ardından
+GitHub'ın ürettiği değişiklik listesi eklenir; `[Unreleased]` dahil edilmez.
 
 ## Sürüm çıktıları
 
@@ -93,6 +115,14 @@ cosign verify \
 
 İki doğrulamayı web image'ı için de tekrarlayın.
 
+İlk sürümü kullanılabilir ilan etmeden önce iki image manifestinin onaylanan
+sürüm/commit'i gösterdiğini, iki SBOM'un eklendiğini ve iki platformun bulunduğunu
+doğrulayın. Herkese açık yayın için bir maintainer GHCR paket görünürlüğünü ve
+kimlik doğrulamasız image çekmeyi kontrol etmelidir. Git repository'sinin public
+olması paketlerin de public olduğunu garanti etmez. No-push derlemeyi, imzalama
+veya anonim indirme doğrulaması olarak raporlamayın; bunlar yayımlanmış artifact
+gerektirir.
+
 ## Sabit sürümü dağıtma
 
 Örneği kopyalayın ve iki değeri aynı GitHub Release'e eklenen digest referanslarıyla
@@ -118,6 +148,15 @@ sunucu/web digest referanslarını kaydedin. `release.env` içindeki iki değeri
 güncelleyin, image'ları çekin, `--no-build` ile başlatın; `/api/ready`, giriş ve mevcut
 bir kütüphane kontrolü geçmeden güncellemeyi tamamlanmış saymayın.
 
+Eski dağıtım yapılandırmasını ve `TOKEN_ENCRYPTION_KEY` değerini de Git dışında,
+güvenli biçimde saklayın. Veritabanında şifrelenmiş kimlik bilgileri bulunur ancak
+bunları çözmek için gereken anahtar bulunmaz. Veritabanı snapshot'ı yerel medya
+veya Drive dosyalarını yedeklemez.
+
+Mevcut sunucu çalışırken snapshot alın, ardından seçilen dosyayı ayrı depolamaya
+kopyalayın. Tam dosya adını ve checksum'ını eski image referanslarıyla birlikte
+kaydedin. Kurtarmada tahmini dosya adı veya "en son" yedek seçimi kullanmayın.
+
 Başlangıç veya migration başarısız olursa:
 
 1. Stack'i durdurun; logları ve başarısız veritabanını inceleme için saklayın.
@@ -127,6 +166,44 @@ Başlangıç veya migration başarısız olursa:
 4. Sabit sürüm komutlarıyla image'ları çekip stack'i başlatın.
 5. Trafiği açmadan `/api/ready`, giriş ve mevcut bir kütüphaneyi doğrulayın.
 
+Docker'da duran sunucuda `compose exec` çalışmaz. Mevcut release image'ı, aynı
+runtime `.env` dosyası ve aynı veri volume'u ile tek seferlik bakım konteyneri
+kullanın. Aşağıdaki yolu `/app/data` içinde bulunan kayıtlı snapshot ile değiştirin;
+yalnızca sunucu dışı kopya kaldıysa önce volume'a kopyalayın. İlk restore komutu
+yalnızca snapshot'ı doğrular:
+
+```bash
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml stop
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml run --rm --no-deps \
+  --entrypoint node server apps/server/dist/cli/database-restore.js \
+  --from /app/data/backups/RECORDED-SNAPSHOT.db
+docker compose --env-file release.env \
+  -f docker-compose.yml -f docker-compose.release.yml run --rm --no-deps \
+  --entrypoint node server apps/server/dist/cli/database-restore.js \
+  --from /app/data/backups/RECORDED-SNAPSHOT.db --apply
+```
+
+Güncelleme veya kurtarmada `down --volumes` kullanmayın. Restore aracı ayrıca
+işlem öncesi güvenlik snapshot'ı saklar; asıl hata loglarını/veritabanını da koruyun.
+Eski image'ları ancak veritabanı geri yüklendikten sonra seçip başlatın. Snapshot'a
+dönüş, snapshot sonrasındaki uygulama değişikliklerini kaybettirir.
+
+Regresyon testleri dolu tarihsel video ve müzik veritabanlarında yedekleme,
+yükseltme, dry-run restore, gerçek restore ve yeniden yükseltme adımlarını sınar.
+Geri dönen snapshot'ın tamamını, yükseltme sonrası güvenlik yedeğini ve yeniden
+yükseltme sonrası şema/veri bütünlüğünü doğrular. `1.0.0` öncesinde resmî sürüm
+olmadığından bu, iki yayımlanmış image arasında rollback kanıtı değil, şema
+kurtarma provasıdır. Kaynaktan kurulmuş sistemin ilk güncellemesinde geri dönüş
+için tam commit/image ve yapılandırmayı saklayın.
+
 GitHub Release yalnızca iki image manifesti, iki SBOM ve release kaydı oluştuğunda
 tamamlanmış sayılır. Kısmi workflow hatasını yeni bir sürümle düzeltin; yayınlanmış
 bir etiketi taşımayın veya içeriğini değiştirmek için yeniden kullanmayın.
+
+## Kaynaklar
+
+- [GitHub release oluşturma ve notlar](https://cli.github.com/manual/gh_release_create)
+- [Docker Compose tek seferlik komutlar](https://docs.docker.com/reference/cli/docker/compose/run/)
+- [GHCR görünürlüğü ve kimlik doğrulama](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)

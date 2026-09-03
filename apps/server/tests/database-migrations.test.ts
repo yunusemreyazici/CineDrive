@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createDatabaseBackup, restoreDatabaseBackup } from '../src/lib/database-backup.js';
 import { serverRoot } from './test-database.js';
 
 const migrationsRoot = path.join(serverRoot, 'prisma/migrations');
@@ -98,6 +99,44 @@ afterEach(async () => {
 });
 
 describe('production database migrations', () => {
+  it.each([
+    ['video', '20260101000000_init', 'seed-initial', 'verify-initial'],
+    ['music', '20260809040000_music_discovery_lyrics_tools', 'seed-music', 'verify-music'],
+  ])(
+    'restores the pre-upgrade %s snapshot and can upgrade it again',
+    async (_label, checkpoint, seedMode, verifyMode) => {
+      const { databasePath, databaseUrl } = await createHistoricalDatabase(checkpoint, seedMode);
+      const backup = await createDatabaseBackup({ databaseUrl });
+      const snapshotBytes = await fs.readFile(backup.backupPath);
+
+      deployCurrentMigrations(databaseUrl);
+      verifyFixture(verifyMode, databasePath);
+      const upgradedBytes = await fs.readFile(databasePath);
+      expect(upgradedBytes.equals(snapshotBytes)).toBe(false);
+
+      const dryRun = await restoreDatabaseBackup({ databaseUrl, backupPath: backup.backupPath });
+      expect(dryRun.applied).toBe(false);
+      expect(await fs.readFile(databasePath)).toEqual(upgradedBytes);
+
+      // No server or database connection is running during replacement. The
+      // entire file must return to the snapshot, including migration history.
+      const restored = await restoreDatabaseBackup({
+        databaseUrl,
+        backupPath: backup.backupPath,
+        apply: true,
+      });
+      expect(restored.applied).toBe(true);
+      expect(await fs.readFile(databasePath)).toEqual(snapshotBytes);
+      expect(restored.preRestoreBackupPath).toBeTruthy();
+      verifyFixture(verifyMode, restored.preRestoreBackupPath!);
+
+      deployCurrentMigrations(databaseUrl);
+      verifyFixture(verifyMode, databasePath);
+      verifyNoSchemaDrift(databaseUrl);
+    },
+    60_000,
+  );
+
   it('upgrades the initial video schema without losing relational data and is repeatable', async () => {
     const { databasePath, databaseUrl } = await createHistoricalDatabase(
       '20260101000000_init',
