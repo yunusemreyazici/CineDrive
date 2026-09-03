@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, type Page } from '@playwright/test';
+import { test as baseTest, expect, type Page } from '@playwright/test';
+import { startHlsNetworkProxy } from './hls-network-proxy.js';
 import type { HlsCacheStats } from '../apps/server/src/services/hls-types.js';
 import { tr } from '../apps/web/src/i18n/tr.js';
 import {
@@ -15,6 +16,16 @@ import {
 
 const hlsPath = `/api/media/${E2E_HLS_FILE_ID}/hls/`;
 const registryPath = path.join(e2eRuntimeRoot, 'data/hls_cache/.active-processes.json');
+const test = baseTest.extend<{ hlsProxy: Awaited<ReturnType<typeof startHlsNetworkProxy>> }>({
+  hlsProxy: async ({}, use) => {
+    const proxy = await startHlsNetworkProxy();
+    try {
+      await use(proxy);
+    } finally {
+      await proxy.close();
+    }
+  },
+});
 
 const mediaState = (page: Page) =>
   page.locator('video').evaluate((video: HTMLVideoElement) => ({
@@ -92,15 +103,15 @@ const waitForPlaylist = (page: Page, start: number) =>
     );
   });
 
-const openHlsMovie = async (page: Page) => {
-  await page.goto('/login');
+const openHlsMovie = async (page: Page, origin = '') => {
+  await page.goto(`${origin}/login`);
   await page.getByLabel(tr.auth.email).fill(E2E_ADMIN_EMAIL);
   await page.getByLabel(tr.auth.password, { exact: true }).fill(E2E_ADMIN_PASSWORD);
   await page.getByRole('button', { name: tr.auth.signIn }).click();
   await expect(page).toHaveURL(/\/$/);
   expect((await page.request.delete(`/api/playback/${E2E_HLS_MOVIE_ID}`)).status()).toBe(200);
   const playlist = waitForPlaylist(page, 0);
-  await page.goto(`/watch/${E2E_HLS_MOVIE_ID}`);
+  await page.goto(`${origin}/watch/${E2E_HLS_MOVIE_ID}`);
   const response = await playlist;
   expect(response.headers()['content-type']).toContain('application/vnd.apple.mpegurl');
   const manifest = await response.text();
@@ -260,5 +271,109 @@ test.describe('CineDrive HLS', () => {
     expect(response.status()).toBe(200);
     expect(await response.json()).toEqual({ stopped: true });
     await expectNoEncoders(page, [job.pid]);
+  });
+
+  test('recovers from a failed real HLS segment request', async ({ page, hlsProxy }) => {
+    await openHlsMovie(page, hlsProxy.origin);
+    const successfulBefore = hlsProxy.stats().successfulSegments;
+    hlsProxy.failNextSegment();
+    await expect.poll(() => hlsProxy.stats().failures).toBe(1);
+    await expect.poll(() => hlsProxy.stats().successfulSegments).toBeGreaterThan(successfulBefore);
+    await expectAdvancingVideo(page);
+    await expect(page.getByText(tr.player.hlsRecoveryFailed)).toHaveCount(0);
+  });
+
+  for (const pauseDuringRecovery of [false, true]) {
+    test(`restores HLS after an outage and ${pauseDuringRecovery ? 'honors a pause during recovery' : 'preserves playback position'}`, async ({
+      page,
+      hlsProxy,
+    }) => {
+      test.setTimeout(90_000);
+      const initialUrl = await openHlsMovie(page, hlsProxy.origin);
+      hlsProxy.setOutage(true);
+      // Exhaust the existing buffer quickly. This is a real media seek, not a
+      // synthetic waiting/error event; the browser must encounter the outage.
+      const video = page.locator('video');
+      await video.evaluate((element: HTMLVideoElement) => {
+        if (element.buffered.length)
+          element.currentTime = Math.max(
+            element.currentTime,
+            element.buffered.end(element.buffered.length - 1) - 0.2,
+          );
+      });
+      await expect.poll(() => hlsProxy.stats().failures).toBeGreaterThan(0);
+      await expect(page.getByText(/Akış yeniden bağlanıyor \(\d\/3\)/)).toBeVisible({
+        timeout: 25_000,
+      });
+      const positionBefore = Number(
+        await page.getByRole('slider', { name: tr.player.seekLabel }).getAttribute('aria-valuenow'),
+      );
+      expect(positionBefore).toBeGreaterThan(1);
+      if (pauseDuringRecovery) {
+        await video.hover();
+        await page.getByRole('button', { name: tr.player.controls.pause, exact: true }).click();
+      }
+      const successfulBefore = hlsProxy.stats().successfulSegments;
+      hlsProxy.setOutage(false);
+      await expect
+        .poll(() => hlsProxy.stats().successfulSegments, { timeout: 20_000 })
+        .toBeGreaterThan(successfulBefore);
+      if (pauseDuringRecovery) {
+        await expect
+          .poll(() => video.evaluate((element: HTMLVideoElement) => element.paused))
+          .toBe(true);
+        // Observe beyond the longest backoff so a delayed autoplay cannot pass.
+        await page.waitForTimeout(4_500);
+        expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+        const positionAfter = Number(
+          await page
+            .getByRole('slider', { name: tr.player.seekLabel })
+            .getAttribute('aria-valuenow'),
+        );
+        expect(Math.abs(positionAfter - positionBefore)).toBeLessThanOrEqual(2);
+        await video.click();
+      }
+      await expectAdvancingVideo(page);
+      const finalPosition = Number(
+        await page.getByRole('slider', { name: tr.player.seekLabel }).getAttribute('aria-valuenow'),
+      );
+      expect(finalPosition).toBeGreaterThanOrEqual(positionBefore - 1);
+      expect((await hlsStats(page)).jobs[0]?.startSeconds).toBe(
+        Number(initialUrl.searchParams.get('start')),
+      );
+      await expect(page.getByText(tr.player.hlsRecoveryFailed)).toHaveCount(0);
+    });
+  }
+
+  test('bounds a permanent outage and allows manual retry without restarting the movie', async ({
+    page,
+    hlsProxy,
+  }) => {
+    test.setTimeout(90_000);
+    await openHlsMovie(page, hlsProxy.origin);
+    hlsProxy.setOutage(true);
+    await page.locator('video').evaluate((video: HTMLVideoElement) => {
+      if (video.buffered.length)
+        video.currentTime = Math.max(
+          video.currentTime,
+          video.buffered.end(video.buffered.length - 1) - 0.2,
+        );
+    });
+    await expect(page.getByText(tr.player.hlsRecoveryFailed)).toBeVisible({ timeout: 50_000 });
+    const positionBefore = Number(
+      await page.getByRole('slider', { name: tr.player.seekLabel }).getAttribute('aria-valuenow'),
+    );
+    const failuresAtStop = hlsProxy.stats().failures;
+    await page.waitForTimeout(4_500);
+    expect(hlsProxy.stats().failures).toBe(failuresAtStop);
+    hlsProxy.setOutage(false);
+    await page.getByRole('button', { name: tr.player.error.retryStream, exact: true }).click();
+    await expectAdvancingVideo(page);
+    expect(
+      Number(
+        await page.getByRole('slider', { name: tr.player.seekLabel }).getAttribute('aria-valuenow'),
+      ),
+    ).toBeGreaterThanOrEqual(positionBefore - 1);
+    await expect(page.getByText(tr.player.hlsRecoveryFailed)).toHaveCount(0);
   });
 });

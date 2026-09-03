@@ -755,6 +755,8 @@ export const tr = {
     streamStartFailed: 'Video akışı başlatılamadı.',
     streamFailed: 'Video akışı sunucudan alınırken hata oluştu.',
     hlsUnsupported: 'Bu tarayıcı uyumlu HLS oynatmayı desteklemiyor.',
+    hlsRecoveryFailed:
+      'Akış yeniden bağlanamadı. Bağlantınızı kontrol edip tekrar deneyin; oynatma konumunuz korunuyor.',
     codecUnsupported: 'Bu videonun biçimi tarayıcınız tarafından doğrudan desteklenmiyor.',
     fullscreenUnsupported: 'Bu tarayıcı tam ekran video oynatmayı desteklemiyor.',
     reconnecting: 'Akış yeniden bağlanıyor',
@@ -762,8 +764,6 @@ export const tr = {
       `Akış yeniden bağlanıyor (${attempt}/${max})`,
     reestablishing: (attempt: number, max: number) =>
       `Bağlantı yeniden kuruluyor (${attempt}/${max})`,
-    mobileRetry: (attempt: number, max: number) =>
-      `Mobil akış yeniden deneniyor (${attempt}/${max})`,
     preparingFrom: (timestamp: string) => `${timestamp} konumundan akış hazırlanıyor`,
     requalifying: (quality: string) =>
       `Başlangıç akışı ${quality} kalitesinde yeniden hazırlanıyor`,
@@ -777,6 +777,7 @@ export const tr = {
       genericBody: 'Video akışı yüklenirken bir hata oluştu.',
       enableTranscode: 'Ses / Safari Uyum Modunda Oynat',
       retryDirect: 'Doğrudan Tekrar Dene',
+      retryStream: 'Akışı Tekrar Dene',
     },
 
     resume: {
@@ -1024,7 +1025,8 @@ export const tr = {
     users: {
       title: 'Kullanıcılar ve Erişim',
       description: 'Hesapları ve ortak kütüphane erişimini yönetin',
-      multiUserDisabled: 'Yeni kullanıcıların giriş yapabilmesi için APP_AUTH_MODE=multi-user ayarlanmalıdır.',
+      multiUserDisabled:
+        'Yeni kullanıcıların giriş yapabilmesi için APP_AUTH_MODE=multi-user ayarlanmalıdır.',
       create: 'Kullanıcı Oluştur',
       creating: 'Oluşturuluyor…',
       name: 'Ad',

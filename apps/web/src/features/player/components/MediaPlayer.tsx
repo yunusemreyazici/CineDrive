@@ -37,7 +37,6 @@ interface MediaPlayerProps {
 
 const STALL_RECOVERY_DELAY_MS = 12_000;
 const MAX_STALL_RECOVERY_ATTEMPTS = 2;
-const MAX_SOURCE_ERROR_RETRIES = 2;
 const HLS_SEEK_DEBOUNCE_MS = 400;
 /** After any source change, ignore end-of-media heuristics for this long. */
 const NEXT_EPISODE_SUPPRESSION_MS = 20_000;
@@ -81,10 +80,8 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const audioCompatibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stablePlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sourceErrorRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallRecoveryAttemptsRef = useRef(0);
-  const sourceErrorRecoveryAttemptsRef = useRef(0);
   const recoveryPositionRef = useRef<number | null>(null);
   const resumeAfterSourceChangeRef = useRef<PlaybackMode | null>(null);
   const resumePromptHandledRef = useRef(false);
@@ -195,7 +192,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     });
     resumePromptHandledRef.current = false;
     stallRecoveryAttemptsRef.current = 0;
-    sourceErrorRecoveryAttemptsRef.current = 0;
     recoveryPositionRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- restart only when the file or its recommended strategy changes
   }, [active.driveFileId, recommendedMode, source.automaticQuality]);
@@ -217,7 +213,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       clearTimer(audioCompatibilityTimerRef);
       clearTimer(stallRecoveryTimerRef);
       clearTimer(stablePlaybackTimerRef);
-      clearTimer(sourceErrorRecoveryTimerRef);
       clearTimer(pendingSeekTimerRef);
     },
     [],
@@ -230,16 +225,43 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       isRetryable: true,
     });
   }, [setErrorState]);
-  const handleFatalHlsError = useCallback(
-    () => dispatchSource({ type: 'restart' }),
-    [dispatchSource],
+  const handleFatalHlsError = useCallback(() => {
+    resumeAfterSourceChangeRef.current = null;
+    setIsBuffering(false);
+    setConnectionMessage(null);
+    setErrorState({
+      code: 'STREAM_FAILED',
+      message: t.player.hlsRecoveryFailed,
+      isRetryable: true,
+    });
+  }, [setConnectionMessage, setErrorState]);
+  const handleHlsRecovering = useCallback(
+    (attempt: number, max: number) => {
+      resumeAfterSourceChangeRef.current = null;
+      setIsBuffering(true);
+      setConnectionMessage(t.player.reconnectingAttempt(attempt, max));
+    },
+    [setConnectionMessage],
   );
-  useHlsPlayback({
+  const handleHlsRecovered = useCallback(() => {
+    setIsBuffering(false);
+    setConnectionMessage(null);
+  }, [setConnectionMessage]);
+  const {
+    retry: retryHls,
+    setPlaybackIntent: setHlsPlaybackIntent,
+    handleLoadedMetadata: handleHlsLoadedMetadata,
+    handleSourceError: handleHlsSourceError,
+    getRecoveryPosition: getHlsRecoveryPosition,
+  } = useHlsPlayback({
     videoRef,
     sourceUrl: source.sourceUrl,
-    active: source.playbackMode === 'hls' && !isSafari,
+    active: source.playbackMode === 'hls',
+    native: isSafari,
     onUnsupported: handleHlsUnsupported,
     onFatalError: handleFatalHlsError,
+    onRecovering: handleHlsRecovering,
+    onRecovered: handleHlsRecovered,
   });
 
   // Autoplay again once a replacement source is ready, if we were playing.
@@ -475,6 +497,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
           : 0,
     );
 
+    // A recovery owns position restoration and playback intent. In particular,
+    // do not let the normal initial autoplay undo a pause during reconnection.
+    if (source.playbackMode === 'hls' && handleHlsLoadedMetadata()) return;
+
     if (video.error) {
       setErrorState({
         code: 'STREAM_FAILED',
@@ -555,7 +581,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     const video = videoRef.current;
     if (!video) return;
 
-    const localPlaybackTime = video.currentTime;
+    // Native HLS load() temporarily reports zero. Keep the saved position on
+    // screen until metadata can restore the media element to that position.
+    const localPlaybackTime =
+      source.playbackMode === 'hls'
+        ? (getHlsRecoveryPosition() ?? video.currentTime)
+        : video.currentTime;
     const playbackPosition = localPlaybackTime + timelineOffset;
     setCurrentTime(playbackPosition);
 
@@ -630,6 +661,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     if (stallStartedAtRef.current === null) stallStartedAtRef.current = performance.now();
     setIsBuffering(true);
+    if (source.playbackMode === 'hls') return; // Owned by the shared HLS recovery budget.
     clearTimer(stallRecoveryTimerRef);
 
     stallRecoveryTimerRef.current = setTimeout(() => {
@@ -725,7 +757,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
     setIsBuffering(false);
     setConnectionMessage(null);
-    sourceErrorRecoveryAttemptsRef.current = 0;
     clearTimer(stallRecoveryTimerRef);
 
     // Only forgive earlier stall attempts once playback has actually held.
@@ -742,6 +773,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleSourceError = useCallback(() => {
     reportTelemetry('error');
+    if (source.playbackMode === 'hls') {
+      handleHlsSourceError();
+      return;
+    }
 
     // Safari reports unsupported containers/codecs as a generic media error.
     // Retry once with full H.264/AAC compatibility transcoding; if that also
@@ -759,34 +794,6 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       return;
     }
 
-    if (
-      source.playbackMode === 'hls' &&
-      sourceErrorRecoveryAttemptsRef.current < MAX_SOURCE_ERROR_RETRIES
-    ) {
-      sourceErrorRecoveryAttemptsRef.current += 1;
-      setErrorState(null);
-      setIsBuffering(true);
-      setConnectionMessage(
-        t.player.mobileRetry(sourceErrorRecoveryAttemptsRef.current, MAX_SOURCE_ERROR_RETRIES),
-      );
-
-      clearTimer(sourceErrorRecoveryTimerRef);
-      sourceErrorRecoveryTimerRef.current = setTimeout(() => {
-        const video = videoRef.current;
-        if (!video) return;
-        if (!isSafari) {
-          dispatchSource({ type: 'restart' });
-        } else {
-          video.load();
-        }
-        void video.play().catch(() => {
-          // The retry remains loaded and can still be resumed manually when
-          // the browser requires a fresh user gesture.
-        });
-      }, 1_200);
-      return;
-    }
-
     setErrorState({
       code: 'STREAM_FAILED',
       message: t.player.streamFailed,
@@ -794,11 +801,11 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     });
   }, [
     currentTime,
+    handleHlsSourceError,
     dispatchSource,
     isPlaying,
     isSafari,
     reportTelemetry,
-    setConnectionMessage,
     setErrorState,
     source.playbackMode,
     suppressNextEpisode,
@@ -831,9 +838,12 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     if (!video) return;
 
     if (isPlaying) {
+      setHlsPlaybackIntent(false);
+      resumeAfterSourceChangeRef.current = null;
       video.pause();
       return;
     }
+    setHlsPlaybackIntent(true);
     video.play().catch((err: Error) => {
       if (err.name !== 'NotSupportedError') return;
       setErrorState({
@@ -842,7 +852,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         isRetryable: false,
       });
     });
-  }, [isPlaying, setErrorState]);
+  }, [setHlsPlaybackIntent, isPlaying, setErrorState]);
 
   const skipBy = useCallback(
     (deltaSeconds: number) => {
@@ -920,6 +930,10 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
 
   const handleRetry = () => {
     setErrorState(null);
+    if (source.playbackMode === 'hls') {
+      retryHls();
+      return;
+    }
     const video = videoRef.current;
     if (!video) return;
     video.load();
@@ -1134,6 +1148,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
       {errorState && (
         <PlayerError
           error={errorState}
+          retryLabel={source.playbackMode === 'hls' ? t.player.error.retryStream : undefined}
           onRetry={handleRetry}
           onEnableTranscode={() => {
             dispatchSource({ type: 'setMode', playbackMode: isSafari ? 'hls' : 'audio' });
