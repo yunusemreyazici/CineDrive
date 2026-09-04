@@ -94,6 +94,8 @@ HLS senaryolarını `pnpm test:e2e e2e/hls.spec.ts` ile çalıştırın. Uyumlul
 
 CI; desteklenen en düşük Node 22.13 sürümünde ve Node 24 hattında typecheck, test ve production derlemelerini çalıştırır. Production Docker Compose stack'ini başlatıp API'yi Nginx üzerinden kontrol eder; ardından Chromium ve WebKit E2E işlerini çalıştırır.
 
+Üretim bağımlılığı taraması, audit adımı için beş dakikalık sınır ve pnpm'in yerleşik istek tekrarlarıyla bağımsız çalışır. Audit servisi kesintileri iş bağımlılıkları üzerinden doğrulama, Docker smoke veya tarayıcı testlerini engellemez; paket kurulumu için yine registry erişimi ya da önbellekteki paketler gerekir. Mevcut zorunlu `e2e` kontrolü birleşik bir sonuç kapısıdır: doğrulama, iki tarayıcı ve audit başarılı olmalıdır. Audit başarısız, iptal edilmiş veya atlanmışsa bu kapı kırmızı kalır; registry hataları başarı sayılmaz. Registry düzeldiğinde başarısız CI işlerini yeniden çalıştırın. `pnpm ci:test`, bu bağımlılıkları ve önceki işlerin success/failure/cancelled/skipped/boş sonuçlarının 125 birleşimini doğrular.
+
 Ayrı least-privilege workflow iki production image'ını düzeltmesi bulunan high/critical açıklar için tarar ve CycloneDX SBOM'larını saklar. CodeQL JavaScript ve TypeScript'i tarar. Release PR'ları iki hedef mimariyi dry-run ile derler; `v*` etiketleri provenance attestation'lı ve keyless imzalı GHCR image'larını SBOM ve immutable digest manifestleriyle yayınlar. Dependabot digest ile sabitlenen base image'ları ve SHA ile sabitlenen action'ları günceller.
 
 ## Katkı akışı

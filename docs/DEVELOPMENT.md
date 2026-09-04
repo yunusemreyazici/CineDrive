@@ -94,6 +94,8 @@ Run the HLS scenarios with `pnpm test:e2e e2e/hls.spec.ts`. They use an H.264/PC
 
 CI runs typecheck, tests, and production builds at the supported Node 22.13 floor and on Node 24. It starts the production Docker Compose stack and probes the API through Nginx, then runs Chromium and WebKit E2E jobs.
 
+The production dependency audit runs independently, with a five-minute audit-step limit and pnpm's built-in request retries. Audit-service outages do not block verification, Docker smoke, or browser tests through job dependencies; package installation still requires registry access or cached packages. The existing required `e2e` check is an aggregate gate: verification, both browsers, and the audit must all succeed. An audit failure, cancellation, or skipped result keeps that gate red; registry errors are never treated as a pass. Once the registry recovers, rerun the failed CI jobs. `pnpm ci:test` verifies these dependencies and all 125 combinations of upstream success/failure/cancelled/skipped/empty results.
+
 A separate least-privilege workflow scans both production images for fixable high/critical vulnerabilities and retains CycloneDX SBOMs. CodeQL scans JavaScript and TypeScript. Release pull requests dry-run both target architectures; `v*` tags publish provenance-attested, keyless-signed GHCR images with SBOMs and immutable digest manifests. Dependabot updates digest-pinned base images and SHA-pinned actions.
 
 ## Contribution workflow

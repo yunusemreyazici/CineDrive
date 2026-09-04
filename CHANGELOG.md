@@ -21,6 +21,7 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ### Changed
 
+- Run the production dependency audit independently of application verification so registry outages do not skip Docker/browser tests; keep audit success mandatory through the existing required `e2e` gate, with regression coverage for upstream result combinations.
 - Shortened the English and Turkish READMEs into product overviews and quick starts; moved installation, configuration, Drive setup, playback, operations, and development details into bilingual guides.
 
 ## [1.0.0] - 2026-09-03
