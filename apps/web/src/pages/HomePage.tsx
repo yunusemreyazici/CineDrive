@@ -12,6 +12,7 @@ import type { MediaItemType } from '../types/media';
 import { useMediaListQuery, useContinueWatchingQuery } from '../hooks/useApi';
 import { useMusicOverviewQuery } from '../hooks/useMusicApi';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
+import { SetupEntry } from './setup/SetupEntry';
 
 const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
 
@@ -155,12 +156,17 @@ export const HomePage: React.FC = () => {
 
   if (allMedia.length === 0) {
     return (
-      <EmptyState
-        title={t.home.emptyTitle}
-        description={t.home.emptyDescription}
-        actionLabel={t.home.emptyAction}
-        onAction={() => navigate('/settings')}
-      />
+      <div>
+        <EmptyState
+          title={t.home.emptyTitle}
+          description={t.home.emptyDescription}
+          actionLabel={t.home.emptyAction}
+          onAction={() => navigate('/settings')}
+        />
+        <div className="text-center">
+          <SetupEntry />
+        </div>
+      </div>
     );
   }
 

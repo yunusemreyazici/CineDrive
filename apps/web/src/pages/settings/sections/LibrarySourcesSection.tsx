@@ -4,6 +4,7 @@ import { useDriveScanSourcesQuery, useLibrariesQuery } from '../../../hooks/useA
 import { t } from '../../../i18n';
 import { GoogleDriveSection } from './GoogleDriveSection';
 import { LibrarySourceManagerSection } from './LibrarySourceManagerSection';
+import { SetupEntry } from '../../setup/SetupEntry';
 
 interface SourceSummaryProps {
   icon: React.ComponentType<{ className?: string }>;
@@ -105,6 +106,7 @@ export const LibrarySourcesSection: React.FC = () => {
       </section>
 
       <GoogleDriveSection driveSources={driveSources} />
+      <SetupEntry />
       <LibrarySourceManagerSection />
     </>
   );

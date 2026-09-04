@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+export const validateLocalFolderSchema = z.object({
+  localFolderPath: z.string().trim().min(1).max(4096).refine((value) => !value.includes('\0')),
+});
+export type ValidateLocalFolderInput = z.infer<typeof validateLocalFolderSchema>;
+
 export const createLibrarySchema = z.object({
   name: z.string().min(1, 'Kütüphane adı zorunludur.'),
   storageType: z.enum(['gdrive', 'local']).default('gdrive'),
