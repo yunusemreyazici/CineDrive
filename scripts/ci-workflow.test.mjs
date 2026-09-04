@@ -20,10 +20,14 @@ test('audit is independent, bounded, and fail-closed', () => {
   assert.doesNotMatch(audit, /^    (?:needs|if|continue-on-error):/m);
   assert.match(audit, /^    timeout-minutes: 15$/m);
   assert.match(audit, /run: pnpm install --frozen-lockfile\n/);
-  assert.match(audit, /timeout-minutes: 5\n        run: pnpm audit:prod\n/);
+  assert.match(audit, /timeout-minutes: 10\n        run: pnpm audit:ci\n/);
+  assert.match(audit, /if: always\(\) && steps.audit.outputs.report_dir != ''/);
+  assert.match(audit, /name: dependency-audit-reports/);
   assert.doesNotMatch(audit, /ignore-registry-errors|continue-on-error|\|\|\s*true/);
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(pkg.scripts['audit:prod'], 'pnpm audit --prod --audit-level high');
+  assert.equal(pkg.scripts['audit:ci'], 'node scripts/audit-dependencies.mjs');
+  assert.ok(pkg.scripts['ci:test'].includes('scripts/audit-dependencies.test.mjs'));
 });
 
 test('verification, browser tests, and Docker smoke do not wait for audit', () => {

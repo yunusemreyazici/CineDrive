@@ -18,6 +18,7 @@ after its matching GitHub Release and verified container artifacts exist.
 
 - HLS recovery regression tests and real-browser transport-failure coverage using an isolated HTTP fault proxy; no production test endpoints are introduced.
 - Offline documentation link validation and regression tests in CI.
+- A checksum-pinned OSV-Scanner fallback for recognized npm audit service outages, with full lockfile coverage validation, high/critical and unknown-severity blocking, retained evidence, and fail-closed regression tests. npm findings cannot be overridden by fallback.
 
 ### Changed
 

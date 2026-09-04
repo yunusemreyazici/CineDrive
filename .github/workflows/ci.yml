@@ -35,11 +35,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # pnpm already retries registry requests. Bound the whole audit step and
-      # fail on vulnerabilities, service errors, or exhausted retries alike.
-      - name: Audit production dependencies
-        timeout-minutes: 5
-        run: pnpm audit:prod
+      # Only recognized npm service failures may use the checksum-pinned OSV
+      # fallback. Findings and incomplete scans remain failures.
+      - name: Audit dependencies with verified outage fallback
+        id: audit
+        timeout-minutes: 10
+        run: pnpm audit:ci
+
+      - name: Retain dependency audit evidence
+        if: always() && steps.audit.outputs.report_dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-audit-reports
+          path: ${{ steps.audit.outputs.report_dir }}
+          retention-days: 7
 
   verify:
     runs-on: ubuntu-latest
