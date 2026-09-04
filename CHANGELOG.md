@@ -19,6 +19,7 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ### Added
 
+- Let administrators explicitly choose a specific Drive folder or the whole Google Drive account in first-library setup; keep the narrower folder scope as the default.
 - Optional bilingual first-library setup wizard for local folders and Google Drive, with admin-only local access validation, explicit source creation and scanning, resumable scan status, and unit/browser regression coverage.
 - HLS recovery regression tests and real-browser transport-failure coverage using an isolated HTTP fault proxy; no production test endpoints are introduced.
 - Offline documentation link validation and regression tests in CI.
