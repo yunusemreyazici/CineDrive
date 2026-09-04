@@ -10,6 +10,8 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-04
+
 ### Fixed
 
 - Build release images on native AMD64/ARM64 runners to avoid QEMU illegal-instruction hangs; validate both platform digests before publishing the signed multi-architecture index.
@@ -26,6 +28,13 @@ after its matching GitHub Release and verified container artifacts exist.
 
 - Run the production dependency audit independently of application verification so registry outages do not skip Docker/browser tests; keep audit success mandatory through the existing required `e2e` gate, with regression coverage for upstream result combinations.
 - Shortened the English and Turkish READMEs into product overviews and quick starts; moved installation, configuration, Drive setup, playback, operations, and development details into bilingual guides.
+- Align package and outbound client version identifiers at 1.1.0; show the web package version in Settings → About.
+
+### Upgrade notes
+
+- No database schema/migration, dependency, required environment-variable, or Node runtime changes compared with 1.0.0. Existing libraries and settings remain usable; setup is optional and administrator-only.
+- Back up the database and retain the existing configuration, encryption key, and both image digests before upgrading. Update server and web together using verified release digests; see the bilingual upgrade checklist in `docs/RELEASING.md` and `docs/RELEASING.tr.md`.
+- Live Google OAuth verification and a deployed-image 1.0.0 → 1.1.0 upgrade/rollback smoke test remain manual release checks. Mocked Drive tests and no-push image builds do not replace them.
 
 ## [1.0.0] - 2026-09-03
 
@@ -58,5 +67,6 @@ after its matching GitHub Release and verified container artifacts exist.
 - Historical video/music database upgrade tests, schema-drift checks, repeatable migrations, and restore/re-upgrade drills using isolated test databases.
 - Release metadata and curated-note regression tests; pull-request multi-architecture builds do not publish artifacts to GHCR.
 
-[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/yunusemreyazici/CineDrive/releases/tag/v1.0.0

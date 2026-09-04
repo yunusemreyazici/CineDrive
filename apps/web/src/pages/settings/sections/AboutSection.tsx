@@ -2,6 +2,7 @@ import React from 'react';
 import { Info, Mail } from 'lucide-react';
 import { SettingsCard, SettingsStatus } from '../SettingsCard';
 import { t } from '../../../i18n';
+import { version } from '../../../../package.json';
 
 const DEVELOPER_NAME = 'Yunus Emre YAZICI';
 const GITHUB_URL = 'https://github.com/yunusemreyazici';
@@ -58,7 +59,7 @@ export const AboutSection: React.FC = () => (
     description={t.settings.about.description}
     icon={Info}
     width="full"
-    action={<SettingsStatus tone="neutral">v1.0</SettingsStatus>}
+    action={<SettingsStatus tone="neutral">v{version}</SettingsStatus>}
   >
     <div className="space-y-8">
       <p className="max-w-prose text-[13px] leading-relaxed text-zinc-500">

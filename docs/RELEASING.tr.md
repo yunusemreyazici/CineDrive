@@ -16,7 +16,7 @@ etiketlerinden yayınlar. Kök, sunucu, web ve ortak paket sürümleri birlikte 
 Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelecek değişiklikleri
 `[Unreleased]` altında tutun; sürüm hazırlanırken yeni sürüme ve tarihe taşıyın.
 
-İlk hedef, dört pakette de mevcut olan `1.0.0` sürümüdür. Hazırlık PR'ı, changelog
+Güncel hazırlık hedefi, dört pakette de ortak olan `1.1.0` sürümüdür. Hazırlık PR'ı, changelog
 tarihi veya başarılı dry-run, sürümün yayımlandığı anlamına gelmez. Kullanılabilirliği
 [GitHub Releases sayfasından](https://github.com/yunusemreyazici/CineDrive/releases)
 kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
@@ -46,7 +46,7 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
 4. Tag oluşturmadan veya yayın yapmadan sürüme ait notları önizleyin:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.0.0 --notes
+   node scripts/validate-release.mjs --tag v1.1.0 --notes
    ```
 
    Kontrol; eşleşen paket sürümleri, tek ve tam eşleşen sürüm başlığı, geçerli takvim
@@ -68,9 +68,9 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # onaylanan ve test edilen release commit'i ile eşleşmeli
-   pnpm release:check -- --tag v1.0.0
-   git tag -s v1.0.0 -m "CineDrive v1.0.0"
-   git push origin v1.0.0
+   pnpm release:check -- --tag v1.1.0
+   git tag -s v1.1.0 -m "CineDrive v1.1.0"
+   git push origin v1.1.0
    ```
 
 Yalnızca geçerli bir tag push'u yayın yapabilir. Manuel workflow çalıştırmaları
@@ -131,7 +131,7 @@ cosign verify \
 
 İki doğrulamayı web image'ı için de tekrarlayın.
 
-İlk sürümü kullanılabilir ilan etmeden önce iki image manifestinin onaylanan
+Bir sürümü kullanılabilir ilan etmeden önce iki image manifestinin onaylanan
 sürüm/commit'i gösterdiğini, iki SBOM'un eklendiğini ve iki platformun bulunduğunu
 doğrulayın. Herkese açık yayın için bir maintainer GHCR paket görünürlüğünü ve
 kimlik doğrulamasız image çekmeyi kontrol etmelidir. Git repository'sinin public
@@ -158,6 +158,33 @@ Standart `.env` çalışma zamanı yapılandırmasını ve gizlileri tutmaya dev
 `release.env` yalnızca image referanslarını içerir ve Git tarafından yok sayılır.
 
 ## Güncelleme ve geri dönüş
+
+### 1.0.0'dan 1.1.0'a geçiş kontrol listesi
+
+Bu bir hazırlık rehberidir; 1.1.0 image'larının yayınlandığı veya canlı güncellemenin
+başarılı olduğu anlamına gelmez. Image çekmeden önce sürümün yayınlandığını doğrulayın.
+
+- 1.0.0'a göre veritabanı şeması/migration, bağımlılık, zorunlu ortam değişkeni ve
+  desteklenen Node runtime değişikliği yoktur. Sadece güncelleme için veritabanını
+  sıfırlamayın, mevcut kaynakları yeniden bağlamayın veya kurulumu tekrarlamayın.
+  Yeni sihirbaz isteğe bağlıdır.
+- Yayından önce sihirbazı gerçek Google hesabıyla elle doğrulayın: yeni sekmede
+  bağlayın, hesapları yenileyin, klasörü doğrulayıp kaydedin, taramayı başlatın ve
+  sayfayı yenileyerek devam edin. Otomatik Drive mock testleri canlı OAuth'u kanıtlamaz.
+- Yayından ve image imza/manifest doğrulamasından sonra, production'ı değiştirmeden
+  önce yalıtılmış bir 1.0.0 kurulum kopyasında güncellemeyi prova edin. Eski veritabanı
+  yedeğini, yapılandırmayı, şifreleme anahtarını ve iki image digest'ini koruyun.
+  Kopyalanan kimlik bilgilerini gizli tutun; prova sırasında production medyasına
+  karşı paralel tarama çalıştırmayın.
+- Aşağıdaki komutlarla iki image digest'ini birlikte güncelleyin. `/api/ready`,
+  giriş, mevcut video/müzik kütüphanesi, oynatma ve isteğe bağlı `/setup` sayfasını
+  kontrol edin. Ayrı bir test dizininde yerel klasör taraması yapın.
+- Aşağıdaki kurtarma prosedürüyle, kayıtlı 1.0.0 image'ları ve güncelleme öncesi
+  snapshot üzerinden geri dönüşü prova edin. Production için doğrulanmış demeden
+  önce sonuçları kaydedin. Şema regresyon testleri ve no-push derlemeler tek başına
+  iki image sürümü arasında başarılı güncelleme veya geri dönüş kanıtı değildir.
+
+### Yedekleme ve kurtarma prosedürü
 
 Güncellemeden önce Docker volume dışında doğrulanmış veritabanı yedeği alın ve çalışan
 sunucu/web digest referanslarını kaydedin. `release.env` içindeki iki değeri birlikte
@@ -209,8 +236,8 @@ dönüş, snapshot sonrasındaki uygulama değişikliklerini kaybettirir.
 Regresyon testleri dolu tarihsel video ve müzik veritabanlarında yedekleme,
 yükseltme, dry-run restore, gerçek restore ve yeniden yükseltme adımlarını sınar.
 Geri dönen snapshot'ın tamamını, yükseltme sonrası güvenlik yedeğini ve yeniden
-yükseltme sonrası şema/veri bütünlüğünü doğrular. `1.0.0` öncesinde resmî sürüm
-olmadığından bu, iki yayımlanmış image arasında rollback kanıtı değil, şema
+yükseltme sonrası şema/veri bütünlüğünü doğrular. Bu, iki yayımlanmış image arasında
+rollback kanıtı değil, şema
 kurtarma provasıdır. Kaynaktan kurulmuş sistemin ilk güncellemesinde geri dönüş
 için tam commit/image ve yapılandırmayı saklayın.
 
