@@ -95,7 +95,11 @@ cd CineDrive
 sudo bash scripts/install-vps.sh
 ```
 
-The interactive installer configures a dedicated system user, Node.js, pnpm, FFmpeg, SQLite, systemd, Nginx, and TLS. TLS options include Cloudflare Origin Certificates, Certbot/Let's Encrypt, and HTTP-only mode.
+The interactive installer configures a dedicated system user, Node.js, pinned pnpm, FFmpeg, SQLite, systemd, Nginx, and TLS. TLS options include Cloudflare Origin Certificates, Certbot/Let's Encrypt, and HTTP-only mode. It validates values before writing Nginx or `.env`, verifies Cloudflare certificate/key files, and prevents concurrent runs.
+
+Google Drive is optional during setup. Answer **no** for a local-folder-only installation; the installer writes safe schema placeholders and does not ask for OAuth credentials. Answer **yes** to supply the real web client ID and secret. Cloudflare mode requires readable, unencrypted PEM files at absolute paths.
+
+Run the same command again to update an existing source installation. The updater preserves `.env`, refuses tracked local changes, accepts only a fast-forward of the configured branch, creates and verifies an exact pre-migration SQLite snapshot, and checks `/api/ready` after restart. If a build, migration, or readiness check fails, it prints the previous and target commits plus the snapshot path. It does not automatically restore the database because migrations may require an explicit, coordinated rollback; follow [Operations](OPERATIONS.md#rollback).
 
 Review the installer before running it on a host that already serves other applications: it writes systemd and Nginx configuration.
 

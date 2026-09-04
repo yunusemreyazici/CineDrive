@@ -54,6 +54,8 @@ pnpm build
 
 Production migrations use `prisma migrate deploy`. Do not use `prisma db push` against a production database. After startup, require `/api/ready` to return `200`, then verify sign-in and one existing library before considering the upgrade complete.
 
+For VPS source installations, rerunning `sudo bash scripts/install-vps.sh` performs these steps with additional branch, working-tree, snapshot, and readiness guards. Keep the recovery details printed by a failed run; they identify both commits and the exact pre-migration snapshot.
+
 Tagged releases publish provenance-attested, keyless-signed `linux/amd64` and `linux/arm64` GHCR images plus SBOMs and immutable digest manifests. Follow [Releasing CineDrive](RELEASING.md) to verify artifacts and use `docker-compose.release.yml`.
 
 ## Rollback

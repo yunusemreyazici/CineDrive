@@ -95,7 +95,11 @@ cd CineDrive
 sudo bash scripts/install-vps.sh
 ```
 
-Etkileşimli kurucu; özel sistem kullanıcısını, Node.js'i, pnpm'i, FFmpeg'i, SQLite'ı, systemd'yi, Nginx'i ve TLS'i yapılandırır. TLS seçenekleri Cloudflare Origin Certificate, Certbot/Let's Encrypt ve yalnızca HTTP modlarını içerir.
+Etkileşimli kurucu; özel sistem kullanıcısını, Node.js'i, sabitlenmiş pnpm'i, FFmpeg'i, SQLite'ı, systemd'yi, Nginx'i ve TLS'i yapılandırır. TLS seçenekleri Cloudflare Origin Certificate, Certbot/Let's Encrypt ve yalnızca HTTP modlarını içerir. Nginx veya `.env` yazılmadan önce girdileri doğrular, Cloudflare sertifika/anahtar dosyalarını kontrol eder ve eşzamanlı iki çalıştırmayı engeller.
+
+Google Drive kurulum sırasında isteğe bağlıdır. Yalnızca yerel klasör kullanacaksanız **hayır** yanıtını verin; kurucu güvenli şema placeholder'larını yazar ve OAuth bilgisi istemez. Gerçek web client ID ile secret girmek için **evet** yanıtını verin. Cloudflare modu, mutlak yollarda okunabilir ve parolasız PEM dosyaları gerektirir.
+
+Mevcut kaynak kurulumunu güncellemek için aynı komutu yeniden çalıştırın. Güncelleyici `.env` dosyasını korur, izlenen yerel değişikliklerde durur, yapılandırılmış dalın yalnızca fast-forward ilerlemesini kabul eder, migration öncesinde tam yolu kaydedilen doğrulanmış bir SQLite snapshot'ı alır ve yeniden başlatma sonrasında `/api/ready` kontrolü yapar. Build, migration veya hazırlık kontrolü başarısız olursa önceki/hedef commit'leri ve snapshot yolunu gösterir. Migration'lar açık ve koordineli bir geri dönüş gerektirebileceği için veritabanını otomatik olarak geri yüklemez; [Operasyon](OPERATIONS.tr.md#geri-dönüş) adımlarını izleyin.
 
 Mevcut uygulamaları barındıran bir sunucuda çalıştırmadan önce kurucuyu inceleyin: systemd ve Nginx yapılandırmasına yazar.
 

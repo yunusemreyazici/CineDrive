@@ -1,19 +1,84 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# CineDrive bare-metal installer and safe updater for Ubuntu/Debian VPS hosts.
+# CineDrive bare-metal installer and updater for Ubuntu/Debian VPS hosts.
 # Run as root: bash scripts/install-vps.sh
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# An update can replace this script while Bash is still reading it. Execute a
+# private copy so the running installer remains stable across git fast-forwards.
+if [[ "${CINEDRIVE_INSTALLER_REEXEC:-}" != "true" ]]; then
+  INSTALLER_TEMP_DIR="$(mktemp -d /tmp/cinedrive-installer.XXXXXXXXXX)"
+  cp -- "${SCRIPT_DIR}/install-vps.sh" "${INSTALLER_TEMP_DIR}/install-vps.sh"
+  cp -- "${SCRIPT_DIR}/install-vps-lib.sh" "${INSTALLER_TEMP_DIR}/install-vps-lib.sh"
+  export CINEDRIVE_INSTALLER_REEXEC="true"
+  export CINEDRIVE_INSTALLER_TEMP_DIR="$INSTALLER_TEMP_DIR"
+  exec bash "${INSTALLER_TEMP_DIR}/install-vps.sh" "$@"
+fi
+
+cleanup_installer_copy() {
+  if [[ "${CINEDRIVE_INSTALLER_TEMP_DIR:-}" == /tmp/cinedrive-installer.* &&
+    -d "$CINEDRIVE_INSTALLER_TEMP_DIR" && ! -L "$CINEDRIVE_INSTALLER_TEMP_DIR" ]]; then
+    rm -f -- \
+      "${CINEDRIVE_INSTALLER_TEMP_DIR}/install-vps.sh" \
+      "${CINEDRIVE_INSTALLER_TEMP_DIR}/install-vps-lib.sh"
+    rmdir -- "$CINEDRIVE_INSTALLER_TEMP_DIR" 2>/dev/null || true
+  fi
+}
+trap cleanup_installer_copy EXIT
+
+# shellcheck source=scripts/install-vps-lib.sh
+source "${SCRIPT_DIR}/install-vps-lib.sh"
 
 APP_USER="cinedrive"
 APP_GROUP="cinedrive"
 APP_DIR="/opt/cinedrive"
 DATA_DIR="/var/lib/cinedrive"
+SYSTEMD_UNIT="/etc/systemd/system/cinedrive.service"
+NGINX_SITE="/etc/nginx/sites-enabled/cinedrive"
 REPO_URL="${REPO_URL:-https://github.com/yunusemreyazici/CineDrive.git}"
 BRANCH="${BRANCH:-main}"
 PNPM_VERSION="${PNPM_VERSION:-11.22.0}"
 
+UPDATE_IN_PROGRESS="false"
+PREVIOUS_REV=""
+TARGET_REV=""
+DATABASE_BACKUP=""
+
+update_failure_report() {
+  local exit_code="${1:-$?}"
+  trap - ERR
+
+  if [[ "$UPDATE_IN_PROGRESS" == "true" ]]; then
+    echo >&2
+    echo "Güncelleme kurtarma bilgisi:" >&2
+    echo "  Önceki commit: ${PREVIOUS_REV:-bilinmiyor}" >&2
+    echo "  Hedef commit: ${TARGET_REV:-bilinmiyor}" >&2
+    if [[ -n "$DATABASE_BACKUP" ]]; then
+      echo "  Migration öncesi snapshot: ${DATABASE_BACKUP}" >&2
+    else
+      echo "  Migration öncesi snapshot: henüz oluşturulamadı veya veritabanı yoktu" >&2
+    fi
+    echo "Servisi eski kodla başlatmadan önce docs/OPERATIONS.tr.md içindeki geri dönüş adımlarını izleyin." >&2
+  fi
+
+  exit "$exit_code"
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Bu script root olarak çalıştırılmalı." >&2
+  exit 1
+fi
+
+if ! validate_pnpm_version "$PNPM_VERSION"; then
+  echo "PNPM_VERSION tam bir sürüm olmalı (ör. 11.22.0)." >&2
+  exit 1
+fi
+
+exec 9>/run/lock/cinedrive-installer.lock
+if ! flock --nonblock 9; then
+  echo "Başka bir CineDrive kurulum veya güncelleme işlemi çalışıyor." >&2
   exit 1
 fi
 
@@ -77,6 +142,65 @@ read_database_url() {
   printf '%s' "$value"
 }
 
+load_database_config() {
+  DATABASE_URL="$(read_database_url)"
+  DATABASE_PATH="${DATABASE_URL#file:}"
+  if [[ "$DATABASE_PATH" == *"'"* ]]; then
+    echo "SQLite dosya yolu tek tırnak içeremez." >&2
+    exit 1
+  fi
+}
+
+create_database_backup_if_present() {
+  local backup_line
+  local backup_output
+  local backup_timestamp
+  local collision_index
+
+  [[ -f "$DATABASE_PATH" ]] || return 0
+
+  BACKUP_DIR="${DATA_DIR}/backups"
+  install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$BACKUP_DIR"
+  echo "Migration öncesi doğrulamalı SQLite yedeği alınıyor..."
+
+  if [[ -f "$APP_DIR/apps/server/dist/cli/database-backup.js" ]]; then
+    backup_output="$(sudo -u "$APP_USER" -H env DATABASE_URL="$DATABASE_URL" \
+      node "$APP_DIR/apps/server/dist/cli/database-backup.js" \
+        --output-dir "$BACKUP_DIR" --retain 14)"
+    printf '%s\n' "$backup_output"
+    while IFS= read -r backup_line; do
+      if [[ "$backup_line" == "Database backup created: "* ]]; then
+        DATABASE_BACKUP="${backup_line#Database backup created: }"
+        break
+      fi
+    done <<<"$backup_output"
+  else
+    # Installations predating the backup CLI still need an online, consistent
+    # snapshot before their source tree is updated.
+    backup_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    DATABASE_BACKUP="${BACKUP_DIR}/cinedrive-${backup_timestamp}.db"
+    collision_index=0
+    while [[ -e "$DATABASE_BACKUP" ]]; do
+      collision_index=$((collision_index + 1))
+      DATABASE_BACKUP="${BACKUP_DIR}/cinedrive-${backup_timestamp}-${collision_index}.db"
+    done
+    sudo -u "$APP_USER" sqlite3 "$DATABASE_PATH" ".backup '${DATABASE_BACKUP}'"
+    if [[ "$(sudo -u "$APP_USER" sqlite3 "$DATABASE_BACKUP" 'PRAGMA integrity_check;')" != "ok" ]]; then
+      echo "SQLite fallback snapshot bütünlük kontrolünü geçemedi." >&2
+      exit 1
+    fi
+    chmod 0640 "$DATABASE_BACKUP"
+    chown "$APP_USER:$APP_GROUP" "$DATABASE_BACKUP"
+    echo "Database backup created: ${DATABASE_BACKUP}"
+    echo "Integrity: ok"
+  fi
+
+  if [[ -z "$DATABASE_BACKUP" || ! -f "$DATABASE_BACKUP" ]]; then
+    echo "Oluşturulan veritabanı snapshot yolu doğrulanamadı." >&2
+    exit 1
+  fi
+}
+
 wait_for_api() {
   systemctl is-active --quiet cinedrive || return 1
   curl --fail --show-error --silent \
@@ -126,11 +250,12 @@ EOF
 }
 
 INSTALL_MODE="fresh"
-if [[ -d "$APP_DIR/.git" && -f "$APP_DIR/.env" ]]; then
+if [[ -d "$APP_DIR/.git" && -f "$APP_DIR/.env" && -f "$SYSTEMD_UNIT" && -e "$NGINX_SITE" ]]; then
   INSTALL_MODE="update"
   echo "Mevcut CineDrive kurulumu bulundu; yapılandırma ve gizli anahtarlar korunacak."
-elif [[ -e "$APP_DIR/.git" || -e "$APP_DIR/.env" ]]; then
-  echo "${APP_DIR} altında eksik bir kurulum bulundu (.git ve .env birlikte olmalı)." >&2
+elif [[ -e "$APP_DIR/.git" || -e "$APP_DIR/.env" || -e "$SYSTEMD_UNIT" || -e "$NGINX_SITE" ]]; then
+  echo "Yarım kalmış veya tutarsız bir CineDrive kurulumu bulundu." >&2
+  echo "Beklenen parçalar: ${APP_DIR}/.git, ${APP_DIR}/.env, ${SYSTEMD_UNIT}, ${NGINX_SITE}." >&2
   echo "Veri kaybını önlemek için kurulum durduruldu." >&2
   exit 1
 fi
@@ -140,6 +265,12 @@ if [[ "$INSTALL_MODE" == "fresh" ]]; then
   DOMAIN="${DOMAIN#http://}"
   DOMAIN="${DOMAIN#https://}"
   DOMAIN="${DOMAIN%%/*}"
+  DOMAIN="${DOMAIN,,}"
+
+  if ! validate_domain "$DOMAIN"; then
+    echo "Geçerli, DNS kaydı bu VPS'ye yönlendirilmiş bir alan adı girin." >&2
+    exit 1
+  fi
 
   while true; do
     if [[ -z "${TLS_MODE:-}" ]]; then
@@ -163,28 +294,47 @@ if [[ "$INSTALL_MODE" == "fresh" ]]; then
     CLOUDFLARE_CERT_PATH="${input_cert_path:-$CLOUDFLARE_CERT_PATH}"
     CLOUDFLARE_KEY_PATH="${input_key_path:-$CLOUDFLARE_KEY_PATH}"
 
-    if [[ ! -r "$CLOUDFLARE_CERT_PATH" || ! -r "$CLOUDFLARE_KEY_PATH" ]]; then
+    if ! validate_nginx_path "$CLOUDFLARE_CERT_PATH" ||
+      ! validate_nginx_path "$CLOUDFLARE_KEY_PATH"; then
+      echo "Sertifika yolları güvenli birer mutlak dosya yolu olmalı." >&2
+      exit 1
+    fi
+
+    if [[ ! -f "$CLOUDFLARE_CERT_PATH" || ! -r "$CLOUDFLARE_CERT_PATH" ||
+      ! -f "$CLOUDFLARE_KEY_PATH" || ! -r "$CLOUDFLARE_KEY_PATH" ]]; then
       echo "Cloudflare sertifika veya private key dosyası okunamıyor." >&2
       echo "Dosyaları VPS'ye yükleyip scripti yeniden çalıştırın." >&2
       exit 1
     fi
   elif [[ "$TLS_MODE" == "certbot" ]]; then
     prompt_required LETSENCRYPT_EMAIL "Let's Encrypt e-posta adresi"
+    if ! validate_email "$LETSENCRYPT_EMAIL"; then
+      echo "Let's Encrypt için geçerli bir e-posta adresi girin." >&2
+      exit 1
+    fi
   fi
 
   prompt_required ADMIN_EMAIL "CineDrive yönetici e-postası"
   prompt_required ADMIN_PASSWORD "CineDrive yönetici parolası" true
-  prompt_required GOOGLE_CLIENT_ID "Google OAuth Client ID"
-  prompt_required GOOGLE_CLIENT_SECRET "Google OAuth Client Secret" true
-
-  if [[ "$DOMAIN" == "localhost" || "$DOMAIN" != *.* ]]; then
-    echo "Geçerli, DNS kaydı bu VPS'ye yönlendirilmiş bir alan adı girin." >&2
+  if ! validate_email "$ADMIN_EMAIL"; then
+    echo "Geçerli bir yönetici e-posta adresi girin." >&2
     exit 1
   fi
 
   if [[ ${#ADMIN_PASSWORD} -lt 8 ]]; then
     echo "Yönetici parolası en az 8 karakter olmalı." >&2
     exit 1
+  fi
+
+  prompt_yes_no USE_GOOGLE_DRIVE "Google Drive kütüphanesi kullanacak mısınız?" no
+  if [[ "$USE_GOOGLE_DRIVE" == "true" ]]; then
+    prompt_required GOOGLE_CLIENT_ID "Google OAuth Client ID"
+    prompt_required GOOGLE_CLIENT_SECRET "Google OAuth Client Secret" true
+  else
+    # The runtime schema requires non-empty values even though local libraries
+    # never invoke OAuth. Make that implementation detail invisible to users.
+    GOOGLE_CLIENT_ID="local-only.apps.googleusercontent.com"
+    GOOGLE_CLIENT_SECRET="local-only-not-configured"
   fi
 fi
 
@@ -197,12 +347,34 @@ packages=(
   git \
   nginx \
   openssl \
+  sudo \
   sqlite3
 )
 if [[ "${TLS_MODE:-}" == "certbot" ]]; then
   packages+=(certbot python3-certbot-nginx)
 fi
 DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
+
+if [[ "${TLS_MODE:-}" == "cloudflare" ]]; then
+  if ! openssl x509 -in "$CLOUDFLARE_CERT_PATH" -noout >/dev/null 2>&1; then
+    echo "Cloudflare sertifika dosyası geçerli bir X.509 PEM sertifikası değil." >&2
+    exit 1
+  fi
+  if ! openssl pkey -in "$CLOUDFLARE_KEY_PATH" -noout -passin pass: >/dev/null 2>&1; then
+    echo "Cloudflare private key dosyası geçerli veya parolasız bir PEM anahtarı değil." >&2
+    exit 1
+  fi
+  if ! openssl x509 -in "$CLOUDFLARE_CERT_PATH" -noout -checkend 0 >/dev/null 2>&1; then
+    echo "Cloudflare sertifikasının süresi dolmuş." >&2
+    exit 1
+  fi
+  CERT_PUBLIC_KEY="$(openssl x509 -in "$CLOUDFLARE_CERT_PATH" -pubkey -noout)"
+  KEY_PUBLIC_KEY="$(openssl pkey -in "$CLOUDFLARE_KEY_PATH" -pubout -passin pass:)"
+  if [[ "$CERT_PUBLIC_KEY" != "$KEY_PUBLIC_KEY" ]]; then
+    echo "Cloudflare sertifikası ile private key birbiriyle eşleşmiyor." >&2
+    exit 1
+  fi
+fi
 
 NODE_MAJOR=0
 NODE_MINOR=0
@@ -213,8 +385,19 @@ if command -v node >/dev/null 2>&1; then
 fi
 if (( ! (NODE_MAJOR == 22 && NODE_MINOR >= 13) && NODE_MAJOR != 24 )); then
   echo "Node.js 22 kuruluyor..."
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  NODE_SETUP_SCRIPT="$(mktemp)"
+  curl --fail --silent --show-error --location \
+    --proto '=https' --tlsv1.2 \
+    --output "$NODE_SETUP_SCRIPT" \
+    https://deb.nodesource.com/setup_22.x
+  bash "$NODE_SETUP_SCRIPT"
+  rm -f "$NODE_SETUP_SCRIPT"
   DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+fi
+
+if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || [[ "$BRANCH" == -* ]]; then
+  echo "BRANCH geçerli ve güvenli bir Git dal adı olmalı." >&2
+  exit 1
 fi
 
 NODE_VERSION="$(node --version)"
@@ -242,16 +425,38 @@ install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$DATA_DIR/subtitle_cache"
 
 if [[ -d "$APP_DIR/.git" ]]; then
   echo "Mevcut kaynak kodu güncelleniyor..."
-  sudo -u "$APP_USER" git -C "$APP_DIR" fetch --prune origin
-  sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
-  sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+  if [[ -n "$(sudo -u "$APP_USER" git -C "$APP_DIR" status --porcelain --untracked-files=no)" ]]; then
+    echo "İzlenen dosyalarda yerel değişiklik var; güncelleme bunları ezmemek için durduruldu." >&2
+    exit 1
+  fi
+
+  CURRENT_BRANCH="$(sudo -u "$APP_USER" git -C "$APP_DIR" symbolic-ref --quiet --short HEAD || true)"
+  if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+    echo "Kurulum '${CURRENT_BRANCH:-detached HEAD}' üzerinde; beklenen dal '${BRANCH}'." >&2
+    echo "Dal değişimini açıkça yapıp scripti yeniden çalıştırın." >&2
+    exit 1
+  fi
+
+  PREVIOUS_REV="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse HEAD)"
+  load_database_config
+  create_database_backup_if_present
+  sudo -u "$APP_USER" git -C "$APP_DIR" fetch --prune origin "$BRANCH"
+  TARGET_REV="$(sudo -u "$APP_USER" git -C "$APP_DIR" rev-parse "origin/$BRANCH")"
+  if ! sudo -u "$APP_USER" git -C "$APP_DIR" merge-base --is-ancestor "$PREVIOUS_REV" "$TARGET_REV"; then
+    echo "origin/${BRANCH}, kurulu commit'in fast-forward devamı değil; güncelleme durduruldu." >&2
+    exit 1
+  fi
+
+  UPDATE_IN_PROGRESS="true"
+  trap update_failure_report ERR
+  sudo -u "$APP_USER" git -C "$APP_DIR" merge --ff-only "origin/$BRANCH"
 else
   echo "Kaynak kodu indiriliyor..."
   find "$APP_DIR" -mindepth 1 -maxdepth 1 -print -quit | grep -q . && {
     echo "${APP_DIR} boş değil; güvenlik için kurulum durduruldu." >&2
     exit 1
   }
-  sudo -u "$APP_USER" git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$APP_DIR"
+  sudo -u "$APP_USER" git clone --branch "$BRANCH" --single-branch -- "$REPO_URL" "$APP_DIR"
 fi
 
 if [[ "$INSTALL_MODE" == "fresh" ]]; then
@@ -295,6 +500,11 @@ else
   echo "Mevcut ${APP_DIR}/.env dosyası korunuyor."
 fi
 
+if [[ "$INSTALL_MODE" == "fresh" ]]; then
+  load_database_config
+  create_database_backup_if_present
+fi
+
 echo "Bağımlılıklar, Prisma Client ve production build hazırlanıyor..."
 sudo -u "$APP_USER" -H bash -c "
   set -Eeuo pipefail
@@ -303,24 +513,6 @@ sudo -u "$APP_USER" -H bash -c "
   pnpm prisma:generate
   NODE_OPTIONS='--max-old-space-size=3072' pnpm build
 "
-
-DATABASE_URL="$(read_database_url)"
-DATABASE_PATH="${DATABASE_URL#file:}"
-if [[ "$DATABASE_PATH" == *"'"* ]]; then
-  echo "SQLite dosya yolu tek tırnak içeremez." >&2
-  exit 1
-fi
-
-DATABASE_BACKUP=""
-if [[ -f "$DATABASE_PATH" ]]; then
-  BACKUP_DIR="${DATA_DIR}/backups"
-  install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$BACKUP_DIR"
-  echo "Migration öncesi doğrulamalı SQLite yedeği alınıyor..."
-  sudo -u "$APP_USER" -H env DATABASE_URL="$DATABASE_URL" \
-    node "$APP_DIR/apps/server/dist/cli/database-backup.js" \
-      --output-dir "$BACKUP_DIR" --retain 14
-  DATABASE_BACKUP="$BACKUP_DIR"
-fi
 
 echo "Production migration'ları uygulanıyor..."
 sudo -u "$APP_USER" -H env DATABASE_URL="$DATABASE_URL" \
@@ -335,9 +527,11 @@ if [[ "$INSTALL_MODE" == "update" ]]; then
     echo "CineDrive health check başarısız oldu." >&2
     systemctl status cinedrive --no-pager --full || true
     journalctl -u cinedrive -n 50 --no-pager || true
-    exit 1
+    update_failure_report 1
   fi
 
+  UPDATE_IN_PROGRESS="false"
+  trap - ERR
   echo
   echo "CineDrive güncellemesi tamamlandı."
   if [[ -n "$DATABASE_BACKUP" ]]; then
@@ -346,7 +540,7 @@ if [[ "$INSTALL_MODE" == "update" ]]; then
   exit 0
 fi
 
-cat >/etc/systemd/system/cinedrive.service <<EOF
+cat >"$SYSTEMD_UNIT" <<EOF
 [Unit]
 Description=CineDrive API Server
 After=network-online.target
@@ -479,11 +673,11 @@ ${NGINX_TLS_CONFIG}
 EOF
 
 ln -sfn /etc/nginx/sites-available/cinedrive /etc/nginx/sites-enabled/cinedrive
-rm -f /etc/nginx/sites-enabled/default
 
 systemctl daemon-reload
 systemctl enable --now cinedrive
 nginx -t
+rm -f /etc/nginx/sites-enabled/default
 systemctl reload nginx
 
 if [[ "$TLS_MODE" == "certbot" ]]; then
@@ -518,5 +712,9 @@ if [[ -n "$DATABASE_BACKUP" ]]; then
 fi
 echo "Servis durumu: systemctl status cinedrive"
 echo "Servis logları: journalctl -u cinedrive -f"
-echo "Google OAuth Authorized redirect URI:"
-echo "${PUBLIC_SCHEME}://${DOMAIN}/api/auth/google/callback"
+if [[ "$USE_GOOGLE_DRIVE" == "true" ]]; then
+  echo "Google OAuth Authorized redirect URI:"
+  echo "${PUBLIC_SCHEME}://${DOMAIN}/api/auth/google/callback"
+else
+  echo "Google Drive devre dışı bırakıldı; daha sonra .env içindeki OAuth değerlerini güncelleyebilirsiniz."
+fi
