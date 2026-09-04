@@ -31,6 +31,10 @@ after its matching GitHub Release and verified container artifacts exist.
 - Shortened the English and Turkish READMEs into product overviews and quick starts; moved installation, configuration, Drive setup, playback, operations, and development details into bilingual guides.
 - Align package and outbound client version identifiers at 1.1.0; show the web package version in Settings → About.
 
+### Security
+
+- Harden the Debian/Ubuntu VPS installer with validated Nginx/TLS inputs, optional Google OAuth for local-only deployments, concurrent and partial-install guards, clean fast-forward-only updates, and a verified pre-update SQLite snapshot with exact recovery details.
+
 ### Upgrade notes
 
 - No database schema/migration, dependency, required environment-variable, or Node runtime changes compared with 1.0.0. Existing libraries and settings remain usable; setup is optional and administrator-only.
