@@ -36,6 +36,7 @@ function SetupWorkspace() {
   const createLocal = useCreateLibraryMutation();
   const createDrive = useCreateDriveScanSourceMutation();
   const [kind, setKind] = useState<'local' | 'gdrive'>('local');
+  const [driveScope, setDriveScope] = useState<'folder' | 'all'>('folder');
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
@@ -60,6 +61,7 @@ function SetupWorkspace() {
         sources.data?.some((source) => source.id === sourceId));
   const currentStep = libraryId ? 3 : step;
   const heading = useRef<HTMLHeadingElement>(null);
+  const driveRootFolderId = driveScope === 'folder' ? location.trim() : '';
   useEffect(() => {
     heading.current?.focus();
   }, [currentStep]);
@@ -76,7 +78,7 @@ function SetupWorkspace() {
         const result = await validateDrive.mutateAsync({
           libraryId: driveLibrary.id,
           googleConnectionId: connectionId,
-          rootFolderId: location.trim(),
+          rootFolderId: driveRootFolderId,
         });
         setVerifiedName(result.folderName);
       }
@@ -102,7 +104,7 @@ function SetupWorkspace() {
         const source = await createDrive.mutateAsync({
           libraryId: driveLibrary.id,
           googleConnectionId: connectionId,
-          rootFolderId: location.trim(),
+          rootFolderId: driveRootFolderId,
         });
         setParams({ library: driveLibrary.id, source: source.id }, { replace: true });
       }
@@ -183,6 +185,7 @@ function SetupWorkspace() {
                         checked={kind === value}
                         onChange={() => {
                           setKind(value);
+                          if (value === 'gdrive') setDriveScope('folder');
                           setLocation('');
                           setError('');
                         }}
@@ -260,23 +263,61 @@ function SetupWorkspace() {
                           ))}
                         </select>
                       </SettingsField>
-                      <p id="setup-location-hint" className="text-sm text-zinc-400">
-                        {c.folderHint}
-                      </p>
+                      <fieldset className="space-y-3">
+                        <legend className="text-[13px] font-medium text-zinc-300">
+                          {c.driveScope}
+                        </legend>
+                        {(['folder', 'all'] as const).map((scope) => (
+                          <label
+                            key={scope}
+                            aria-label={scope === 'folder' ? c.specificFolder : c.entireDrive}
+                            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${driveScope === scope ? 'border-brand-500 bg-brand-500/5' : 'border-zinc-800'}`}
+                          >
+                            <input
+                              type="radio"
+                              name="drive-scope"
+                              value={scope}
+                              checked={driveScope === scope}
+                              onChange={() => {
+                                setDriveScope(scope);
+                                setError('');
+                              }}
+                              className="mt-1"
+                            />
+                            <span>
+                              <span className="block text-sm font-medium text-white">
+                                {scope === 'folder' ? c.specificFolder : c.entireDrive}
+                              </span>
+                              <span
+                                className={`mt-1 block text-sm ${scope === 'all' ? 'text-amber-300' : 'text-zinc-400'}`}
+                              >
+                                {scope === 'folder' ? c.specificFolderHint : c.entireDriveHint}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </fieldset>
                     </>
                   )}
-                  <SettingsField id="setup-location" label={kind === 'local' ? c.path : c.folder}>
-                    <input
-                      id="setup-location"
-                      required
-                      maxLength={4096}
-                      aria-describedby="setup-location-hint"
-                      value={location}
-                      onChange={(event) => setLocation(event.target.value)}
-                      className={SETTINGS_INPUT_CLASSES}
-                      placeholder={kind === 'local' ? '/media/films' : ''}
-                    />
-                  </SettingsField>
+                  {(kind === 'local' || driveScope === 'folder') && (
+                    <SettingsField id="setup-location" label={kind === 'local' ? c.path : c.folder}>
+                      {kind === 'gdrive' && (
+                        <p id="setup-location-hint" className="mb-2 text-sm text-zinc-400">
+                          {c.folderHint}
+                        </p>
+                      )}
+                      <input
+                        id="setup-location"
+                        required
+                        maxLength={4096}
+                        aria-describedby={kind === 'gdrive' ? 'setup-location-hint' : undefined}
+                        value={location}
+                        onChange={(event) => setLocation(event.target.value)}
+                        className={SETTINGS_INPUT_CLASSES}
+                        placeholder={kind === 'local' ? '/media/films' : ''}
+                      />
+                    </SettingsField>
+                  )}
                   <div className="flex gap-3">
                     <SettingsButton
                       type="button"
@@ -291,8 +332,11 @@ function SetupWorkspace() {
                     <SettingsButton
                       type="submit"
                       disabled={
-                        !location.trim() ||
-                        (kind === 'local' ? !name.trim() : !connectionId || !driveLibrary)
+                        kind === 'local'
+                          ? !name.trim() || !location.trim()
+                          : !connectionId ||
+                            !driveLibrary ||
+                            (driveScope === 'folder' && !location.trim())
                       }
                       isLoading={busy}
                       loadingLabel={c.busy}
@@ -307,8 +351,12 @@ function SetupWorkspace() {
               <div className="space-y-5">
                 <h2 className="font-semibold text-emerald-300">{c.verified}</h2>
                 <p className="break-words text-lg text-white">{verifiedName}</p>
-                <p className="break-all font-mono text-sm text-zinc-400">{location.trim()}</p>
-                <p className="text-sm text-zinc-400">{c.shallow}</p>
+                <p className="break-all font-mono text-sm text-zinc-400">
+                  {kind === 'gdrive' && driveScope === 'all' ? c.entireDrive : location.trim()}
+                </p>
+                <p className="text-sm text-zinc-400">
+                  {kind === 'gdrive' && driveScope === 'all' ? c.entireDriveReview : c.shallow}
+                </p>
                 <p className="text-sm text-zinc-400">{c.createHint}</p>
                 <div className="flex gap-3">
                   <SettingsButton

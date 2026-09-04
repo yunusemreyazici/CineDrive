@@ -64,7 +64,7 @@ Kurulumu internete açmadan önce [Operasyon](OPERATIONS.tr.md), image doğrulam
 Yönetici olarak giriş yaptıktan sonra boş ana sayfadan veya Ayarlar → Kütüphaneler bölümünden isteğe bağlı kurulum sihirbazını açın. Doğrudan `/setup` adresini de kullanabilirsiniz. Mevcut kütüphaneler ve normal Ayarlar akışı korunur; zorunlu yönlendirme yapılmaz.
 
 1. Yerel klasör veya Google Drive seçin.
-2. Erişimi kontrol edin. Yerel klasör için **sunucunun** gördüğü mutlak yolu (Docker'da konteyner yolunu) girin. Drive için hesabı yeni sekmede bağlayın, geri dönüp hesap listesini yenileyin; ardından hesabı seçip klasör kimliğini girin. OAuth yapılandırması için [Google Drive kurulumu](GOOGLE_DRIVE.tr.md) belgesine bakın.
+2. Erişimi kontrol edin. Yerel klasör için **sunucunun** gördüğü mutlak yolu (Docker'da konteyner yolunu) girin. Drive için hesabı yeni sekmede bağlayın, geri dönüp hesap listesini yenileyin ve hesabı seçin. Daha güvenli varsayılanı koruyup belirli klasör kimliği girebilir veya açıkça tüm hesap seçeneğini seçebilirsiniz. Tüm hesap taraması erişilebilir bütün Drive medyasını indeksler ve çok daha uzun sürebilir. OAuth yapılandırması için [Google Drive kurulumu](GOOGLE_DRIVE.tr.md) belgesine bakın.
 3. Bilgileri gözden geçirip kaynağı oluşturun. Bu işlem taramayı başlatmaz.
 4. Taramayı başlatıp durumunu izleyin. Başarısız tarama, ikinci bir kaynak oluşturmadan yeniden denenebilir.
 

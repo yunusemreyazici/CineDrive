@@ -59,11 +59,20 @@ beforeEach(() => {
               : {};
     return { data } as never;
   });
-  vi.spyOn(apiClient, 'post').mockImplementation(async (url) => {
+  vi.spyOn(apiClient, 'post').mockImplementation(async (url, data) => {
     if (url === '/libraries/validate-local')
       return { data: { validation: { readable: true } } } as never;
     if (url.endsWith('/validate'))
-      return { data: { validation: { folderName: 'Drive films' } } } as never;
+      return {
+        data: {
+          validation: {
+            folderName:
+              (data as { rootFolderId?: string } | undefined)?.rootFolderId === ''
+                ? c.entireDrive
+                : 'Drive films',
+          },
+        },
+      } as never;
     if (url === '/libraries') {
       libraries.push(local);
       return { data: { library: local } } as never;
@@ -135,6 +144,7 @@ describe('optional first-library setup', () => {
     fireEvent.click(await screen.findByRole('radio', { name: new RegExp(c.drive) }));
     fireEvent.click(screen.getByRole('button', { name: c.next }));
     await screen.findByText('owner@example.test');
+    expect(screen.getByRole('radio', { name: new RegExp(c.specificFolder) })).toBeChecked();
     fireEvent.change(screen.getByLabelText(c.account), { target: { value: 'connection-1' } });
     fireEvent.change(screen.getByLabelText(c.folder), { target: { value: 'folder-1' } });
     fireEvent.click(screen.getByRole('button', { name: c.verify }));
@@ -150,6 +160,30 @@ describe('optional first-library setup', () => {
       rootFolderId: 'folder-1',
     });
     expect(apiClient.post).not.toHaveBeenCalledWith('/libraries', expect.anything());
+  });
+  it('validates and saves the whole Drive account without requiring a folder ID', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('radio', { name: new RegExp(c.drive) }));
+    fireEvent.click(screen.getByRole('button', { name: c.next }));
+    await screen.findByText('owner@example.test');
+    fireEvent.change(screen.getByLabelText(c.account), { target: { value: 'connection-1' } });
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(c.entireDrive) }));
+    expect(screen.queryByLabelText(c.folder)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: c.verify })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: c.verify }));
+    await screen.findByText(c.verified);
+    expect(apiClient.post).toHaveBeenCalledWith('/libraries/drive-1/drive-sources/validate', {
+      googleConnectionId: 'connection-1',
+      rootFolderId: '',
+    });
+    expect(screen.getAllByText(c.entireDrive).length).toBeGreaterThan(0);
+    expect(screen.getByText(c.entireDriveReview)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: c.create }));
+    await screen.findByRole('button', { name: c.start });
+    expect(apiClient.post).toHaveBeenCalledWith('/libraries/drive-1/drive-sources', {
+      googleConnectionId: 'connection-1',
+      rootFolderId: '',
+    });
   });
   it('resumes an empty completed scan from its saved URL without creating or scanning again', async () => {
     libraries.push(local);

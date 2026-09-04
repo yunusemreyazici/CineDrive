@@ -18,6 +18,14 @@ const tr = {
   name: 'Kütüphane adı',
   path: 'Sunucudaki klasör yolu',
   folder: 'Drive klasör kimliği',
+  driveScope: 'Tarama kapsamı',
+  specificFolder: 'Belirli bir klasörü tara',
+  specificFolderHint: 'Yalnızca seçtiğin klasör ve alt klasörlerindeki medyayı indeksler.',
+  entireDrive: 'Tüm Google Drive’ı tara',
+  entireDriveHint:
+    'Hesabındaki erişilebilir tüm medya dosyalarını indeksler. Büyük hesaplarda ilk tarama uzun sürebilir.',
+  entireDriveReview:
+    'Tüm erişilebilir Drive medyası taranacak. Tarama uzun sürebilir; dosyalar taşınmaz veya silinmez.',
   account: 'Google hesabı',
   pathHint:
     'Bilgisayarındaki değil, sunucunun gördüğü mutlak yolu kullan. Docker için medya klasörünü salt okunur bağla (ör. /media/films).',
@@ -82,6 +90,14 @@ const en: typeof tr = {
   name: 'Library name',
   path: 'Folder path on the server',
   folder: 'Drive folder ID',
+  driveScope: 'Scan scope',
+  specificFolder: 'Scan a specific folder',
+  specificFolderHint: 'Index media only in the selected folder and its descendants.',
+  entireDrive: 'Scan all of Google Drive',
+  entireDriveHint:
+    'Index every accessible media file in the account. The first scan may take a long time for large accounts.',
+  entireDriveReview:
+    'All accessible Drive media will be scanned. Scanning may take a long time; files are not moved or deleted.',
   account: 'Google account',
   pathHint:
     'Use the absolute path visible to the server, not your computer. Mount media read-only in Docker (e.g. /media/films).',

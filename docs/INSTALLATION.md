@@ -64,7 +64,7 @@ See [Operations](OPERATIONS.md) before exposing the installation to the internet
 After signing in as an administrator, open the optional setup wizard from the empty home page or Settings → Libraries. You can also visit `/setup`. Existing libraries and the usual Settings workflow remain available; there is no forced onboarding.
 
 1. Choose a local folder or Google Drive.
-2. Check access. For local folders, enter an absolute path visible to the **server** (the container path in Docker). For Drive, connect an account in the new tab, return and refresh the accounts, then select an account and enter a folder ID. See [Google Drive setup](GOOGLE_DRIVE.md) for OAuth configuration.
+2. Check access. For local folders, enter an absolute path visible to the **server** (the container path in Docker). For Drive, connect an account in the new tab, return and refresh the accounts, then select an account. Keep the safer default to scan a specific folder and enter its folder ID, or explicitly choose the whole-account option. A whole-account scan indexes all accessible Drive media and can take substantially longer. See [Google Drive setup](GOOGLE_DRIVE.md) for OAuth configuration.
 3. Review and create the source. This does not start a scan.
 4. Start the scan and follow its status. A failed scan can be retried without creating another source.
 
