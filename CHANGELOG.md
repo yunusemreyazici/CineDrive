@@ -12,6 +12,7 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ### Fixed
 
+- Build release images on native AMD64/ARM64 runners to avoid QEMU illegal-instruction hangs; validate both platform digests before publishing the signed multi-architecture index.
 - Bound HLS transport/media recovery on Chromium and native WebKit, preserving playback position and pause intent with an actionable manual retry after exhaustion.
 
 ### Added

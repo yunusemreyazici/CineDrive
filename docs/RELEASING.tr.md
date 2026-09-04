@@ -28,6 +28,9 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
 2. Eşleşen `CHANGELOG.md` bölümünü ekleyin.
 3. Tam doğrulama takımını çalıştırın:
 
+   `release:test`, gerçek index yayınlama betiğini sahte registry ile sınamak için
+   Bash ve `jq` gerektirir. Linux CI runner'larında iki araç da bulunur.
+
    ```bash
    pnpm install --frozen-lockfile
    pnpm prisma:generate
@@ -51,7 +54,10 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
    uzaktaki tag durumunu, image imzalarını veya yayın iznini doğrulamaz.
 
 5. Pull request açın. Release workflow'u sunucu ve web image'larını registry'ye
-   göndermeden `linux/amd64` ve `linux/arm64` için derler.
+   göndermeden `linux/amd64` ve `linux/arm64` için, mimariyle eşleşen native
+   `ubuntu-24.04` ve `ubuntu-24.04-arm` runner'larında derler. Her image yerel olarak
+   yüklenir; mimarisi ve Prisma migration veya Nginx yapılandırması kontrol edilir.
+   Bağımlılık kurulumu ve derlemelerde QEMU kullanılmaz.
 6. Yayın ayrıca onaylanmadıkça hazırlık PR'ında durun. Yayın günü değiştiyse önce
    changelog tarihini güncelleyin; incelenen PR'ı birleştirin ve tam o `main`
    commit'inin bütün kontrollerinin geçmesini bekleyin. Tam SHA'yı kaydedin ve
@@ -84,15 +90,23 @@ Her image tam SemVer, major/minor kolaylık etiketi ve tam commit SHA etiketi al
 `image@sha256:...` referansını GitHub Release'e eklenen JSON manifestinde kaydeder.
 Dağıtım ve geri dönüşte bu digest referansını kaynak kabul edin.
 
+Tag derlemeleri dry-run ile aynı native runner/platform matrisini kullanır.
+Platform image'ları yalnızca digest ile gönderilir; sürüm etiketleri bütün platform
+derlemeleri başarılı olduktan sonra oluşturulur. Birleştirme adımı index'in tam olarak
+beklenen AMD64 ve ARM64 digest'lerini içerdiğini kontrol eder; birleşik digest için
+attestation/imza üretmeden önce yayınlanan index'i de doğrular. Eksik platform veya
+geçersiz manifest sürüm yayınını başarısız kılar.
+
 Her digest ayrıca şunları içerir:
 
 - GitHub artifact attestations tarafından oluşturulan SLSA provenance;
 - OCI image'ına ve GitHub Release'e eklenen CycloneDX SBOM;
 - GitHub Actions OIDC üzerinden üretilen keyless Cosign imzası.
 
-Uzun ömürlü registry veya imzalama gizlisi kullanılmaz. Yalnızca publish job'u
-`packages: write`, `attestations: write`, `artifact-metadata: write` ve
-`id-token: write`; yalnızca son release job'u `contents: write` alır.
+Uzun ömürlü registry veya imzalama gizlisi kullanılmaz. Yalnızca tag üzerinde çalışan
+native build job'ları `packages: write` alır; tag üzerinde çalışan publish job'u ek
+olarak `attestations: write`, `artifact-metadata: write` ve `id-token: write` alır.
+Yalnızca son release job'u `contents: write` alır.
 
 ## Sürümü doğrulama
 

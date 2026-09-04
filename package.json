@@ -10,7 +10,7 @@
     "build": "pnpm --filter \"@cinedrive/shared\" build && pnpm --filter \"./apps/*\" build && pnpm bundle:check",
     "bundle:check": "node scripts/check-web-bundle-size.mjs",
     "release:check": "node scripts/validate-release.mjs",
-    "release:test": "node --test scripts/validate-release.test.mjs",
+    "release:test": "node --test scripts/validate-release.test.mjs scripts/release-workflow.test.mjs",
     "docs:check": "node scripts/check-doc-links.mjs",
     "docs:test": "node --test scripts/check-doc-links.test.mjs",
     "ci:test": "node --test scripts/ci-workflow.test.mjs scripts/audit-dependencies.test.mjs",
