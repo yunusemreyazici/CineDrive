@@ -59,6 +59,17 @@ docker compose --env-file release.env \
 
 See [Operations](OPERATIONS.md) before exposing the installation to the internet and [Releasing CineDrive](RELEASING.md) for image verification and rollback procedures.
 
+## First library setup
+
+After signing in as an administrator, open the optional setup wizard from the empty home page or Settings → Libraries. You can also visit `/setup`. Existing libraries and the usual Settings workflow remain available; there is no forced onboarding.
+
+1. Choose a local folder or Google Drive.
+2. Check access. For local folders, enter an absolute path visible to the **server** (the container path in Docker). For Drive, connect an account in the new tab, return and refresh the accounts, then select an account and enter a folder ID. See [Google Drive setup](GOOGLE_DRIVE.md) for OAuth configuration.
+3. Review and create the source. This does not start a scan.
+4. Start the scan and follow its status. A failed scan can be retried without creating another source.
+
+The local access check only opens the selected directory; it does not inspect media or guarantee access to every child. Scanning does not move or delete your media. Once the source is saved, its ID is kept in the page URL, so you can reload or return through the saved-source list. Unsaved form details are not persisted. Scans continue on the server after you leave the page.
+
 ## Local media in Docker
 
 The container cannot see host media folders unless you mount them. Add a read-only bind mount to the existing `server.volumes` in `docker-compose.yml`, preserving the named volumes:

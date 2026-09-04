@@ -15,6 +15,8 @@ import type {
   CreateUserInput,
   UpdateUserInput,
   LibraryMemberDto,
+  ValidateLocalFolderInput,
+  LocalFolderValidationDto,
 } from '@cinedrive/shared';
 import type { MediaItemType, WatchHistoryType, LibraryScanType, EpisodeType } from '../types/media';
 import { useUiStore } from '../stores/useUiStore';
@@ -214,6 +216,17 @@ export function useUnlinkGoogleConnectionMutation() {
 }
 
 // --- LIBRARY HOOKS ---
+export function useValidateLocalFolderMutation() {
+  return useMutation({
+    mutationFn: async (input: ValidateLocalFolderInput) =>
+      (
+        await apiClient.post<{ validation: LocalFolderValidationDto }>(
+          '/libraries/validate-local', input,
+        )
+      ).data.validation,
+  });
+}
+
 export function useLibrariesQuery() {
   return useQuery({
     queryKey: ['libraries'],

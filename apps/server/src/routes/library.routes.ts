@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import {
   createDriveScanSourceSchema,
   createLibrarySchema,
+  validateLocalFolderSchema,
   updateLibrarySchema,
   upsertLibraryMemberSchema,
   type CreateDriveScanSourceInput,
@@ -11,6 +12,7 @@ import {
 import { env } from '../config/env.js';
 import type { DriveFolderInspection } from '../services/drive.service.js';
 import { accessibleLibraryFilter, manageableLibraryFilter } from '../utils/library-access.js';
+import { validateLocalFolder } from '../services/local-folder-validation.js';
 
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -167,6 +169,33 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         lastScan: scans[0] ? serializeScanSummary(scans[0]) : null,
       })),
     });
+  });
+
+  // Admin-only: do not expose filesystem existence to ordinary library members.
+  fastify.post('/validate-local', async (request, reply) => {
+    if (request.user!.role !== 'admin') {
+      return reply.code(403).send({
+        error: { code: 'FORBIDDEN', message: 'Yönetici erişimi gereklidir.', requestId: request.id },
+      });
+    }
+    const parsed = validateLocalFolderSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'Geçerli bir klasör yolu girin.', requestId: request.id },
+      });
+    }
+    try {
+      return { validation: await validateLocalFolder(parsed.data.localFolderPath) };
+    } catch (err) {
+      request.log.warn({ err, requestId: request.id }, 'Local folder validation failed');
+      return reply.code(400).send({
+        error: {
+          code: 'LOCAL_FOLDER_UNAVAILABLE',
+          message: 'Klasör sunucuda bulunamadı veya okunamıyor.',
+          requestId: request.id,
+        },
+      });
+    }
   });
 
   // POST /api/libraries: Create a new library

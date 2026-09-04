@@ -206,6 +206,10 @@ export interface LibraryDto {
   accessRole?: 'owner' | 'editor' | 'listener';
 }
 
+export interface LocalFolderValidationDto {
+  readable: true;
+}
+
 export interface SourceScanSummaryDto {
   status: 'running' | 'completed' | 'failed' | 'interrupted';
   startedAt: string;

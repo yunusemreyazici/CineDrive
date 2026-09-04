@@ -59,6 +59,17 @@ docker compose --env-file release.env \
 
 Kurulumu internete açmadan önce [Operasyon](OPERATIONS.tr.md), image doğrulama ve geri dönüş için [CineDrive Sürümleme](RELEASING.tr.md) belgelerini okuyun.
 
+## İlk kütüphane kurulumu
+
+Yönetici olarak giriş yaptıktan sonra boş ana sayfadan veya Ayarlar → Kütüphaneler bölümünden isteğe bağlı kurulum sihirbazını açın. Doğrudan `/setup` adresini de kullanabilirsiniz. Mevcut kütüphaneler ve normal Ayarlar akışı korunur; zorunlu yönlendirme yapılmaz.
+
+1. Yerel klasör veya Google Drive seçin.
+2. Erişimi kontrol edin. Yerel klasör için **sunucunun** gördüğü mutlak yolu (Docker'da konteyner yolunu) girin. Drive için hesabı yeni sekmede bağlayın, geri dönüp hesap listesini yenileyin; ardından hesabı seçip klasör kimliğini girin. OAuth yapılandırması için [Google Drive kurulumu](GOOGLE_DRIVE.tr.md) belgesine bakın.
+3. Bilgileri gözden geçirip kaynağı oluşturun. Bu işlem taramayı başlatmaz.
+4. Taramayı başlatıp durumunu izleyin. Başarısız tarama, ikinci bir kaynak oluşturmadan yeniden denenebilir.
+
+Yerel erişim kontrolü yalnızca seçilen dizini açar; medyayı incelemez ve her alt öğeye erişimi garanti etmez. Tarama medya dosyalarınızı taşımaz veya silmez. Kaynak kaydedildikten sonra kimliği sayfa URL'sinde tutulur; sayfayı yenileyebilir veya kaydedilmiş kaynaklar listesinden dönebilirsiniz. Kaydedilmemiş form bilgileri kalıcı tutulmaz. Sayfadan ayrılsanız da tarama sunucuda devam eder.
+
 ## Docker'da yerel medya
 
 Konteyner, mount edilmemiş host medya klasörlerini göremez. `docker-compose.yml` içindeki mevcut `server.volumes` listesine salt okunur bind mount ekleyin; adlandırılmış volume'ları koruyun:

@@ -77,6 +77,9 @@ const HistoryPage = React.lazy(() =>
 const SettingsPage = React.lazy(() =>
   import('../pages/SettingsPage').then((module) => ({ default: module.SettingsPage })),
 );
+const SetupPage = React.lazy(() =>
+  import('../pages/SetupPage').then((module) => ({ default: module.SetupPage })),
+);
 const WatchPage = React.lazy(() =>
   import('../pages/WatchPage').then((module) => ({ default: module.WatchPage })),
 );
@@ -136,6 +139,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/insights" element={<Navigate to="/settings?tab=storage" replace />} />
           <Route path="/media-health" element={<Navigate to="/settings?tab=storage" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/setup" element={<SetupPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
 
