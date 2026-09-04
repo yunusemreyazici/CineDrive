@@ -16,7 +16,7 @@ Git tags. The root, server, web, and shared package versions move together.
 Every release must have a matching `CHANGELOG.md` section. Keep upcoming work under
 `[Unreleased]`, then move it to the new version and date when preparing the release.
 
-The initial target is `1.0.0`, already shared by all four packages. A preparation
+The current preparation target is `1.1.0`, shared by all four packages. A preparation
 PR, changelog date, or successful dry run is not a published release. Check the
 [GitHub Releases page](https://github.com/yunusemreyazici/CineDrive/releases) for
 availability; the example image references must not be assumed to exist.
@@ -46,7 +46,7 @@ availability; the example image references must not be assumed to exist.
 4. Preview the exact curated notes without creating a tag or publishing anything:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.0.0 --notes
+   node scripts/validate-release.mjs --tag v1.1.0 --notes
    ```
 
    Validation requires matching package versions, one exact version heading, a
@@ -68,9 +68,9 @@ availability; the example image references must not be assumed to exist.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # must equal the approved, tested release commit
-   pnpm release:check -- --tag v1.0.0
-   git tag -s v1.0.0 -m "CineDrive v1.0.0"
-   git push origin v1.0.0
+   pnpm release:check -- --tag v1.1.0
+   git tag -s v1.1.0 -m "CineDrive v1.1.0"
+   git push origin v1.1.0
    ```
 
 Pushing a valid tag is the only event that can publish. Manual workflow dispatches
@@ -130,7 +130,7 @@ cosign verify \
 
 Repeat both checks for the web image.
 
-Before declaring the first release usable, verify that both image manifests name
+Before declaring a release usable, verify that both image manifests name
 the approved version and commit, both SBOMs are attached, and both platforms are
 present. For a public release, a maintainer must confirm GHCR package visibility
 and anonymous pulls. A public Git repository alone does not guarantee public
@@ -156,6 +156,32 @@ The standard `.env` continues to hold runtime configuration and secrets;
 `release.env` contains only image references and is ignored by Git.
 
 ## Upgrade and rollback
+
+### 1.0.0 to 1.1.0 checklist
+
+This is preparation guidance, not a claim that 1.1.0 images have been published or
+that a live upgrade has passed. Verify release availability before pulling images.
+
+- There are no database schema/migration, dependency, required environment-variable,
+  or supported Node runtime changes from 1.0.0. Do not reset the database, reconnect
+  existing sources, or rerun setup just to upgrade. The new wizard is optional.
+- Before publication, manually verify the wizard with a real Google account:
+  connect in a new tab, refresh accounts, validate a folder, save it, start a scan,
+  and reload to resume. Automated Drive mocks do not prove live OAuth works.
+- After publishing and verifying the image signatures/manifests, rehearse the
+  upgrade on an isolated copy of a 1.0.0 installation before changing production.
+  Preserve the original database backup, configuration, encryption key and both
+  image digests. Keep any copied credentials private; do not run parallel scans
+  against production media during the drill.
+- Update both image digests together using the commands below. Check `/api/ready`,
+  sign-in, an existing video/music library, playback and the optional `/setup` page.
+  Exercise a local-folder scan with a dedicated test directory.
+- Rehearse rollback with the recorded 1.0.0 images and pre-upgrade snapshot using
+  the recovery procedure below. Record the results before calling the upgrade
+  production-verified. Schema regression tests and no-push builds alone are not
+  evidence of a successful two-image-version upgrade or rollback.
+
+### Backup and recovery procedure
 
 Before an upgrade, create a verified database backup outside the Docker volume and
 save the currently deployed server and web digest references. Update both values in
@@ -207,9 +233,8 @@ Restoring a snapshot discards application changes made since that snapshot.
 Regression tests exercise populated historical video and music databases through
 backup, upgrade, dry-run restore, applied restore, and re-upgrade. They verify the
 complete restored snapshot, preserved post-upgrade safety copy, and schema/data
-integrity after re-upgrade. Since there is no earlier official release before
-`1.0.0`, this is a schema recovery drill, not proof of rollback between two
-published image versions. For the first upgrade from a source installation,
+integrity after re-upgrade. This is a schema recovery drill, not proof of rollback
+between two published image versions. For the first upgrade from a source installation,
 retain its exact commit/image and configuration as the fallback.
 
 The GitHub Release is considered complete only when both image manifests, both

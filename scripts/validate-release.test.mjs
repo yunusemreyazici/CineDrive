@@ -51,6 +51,18 @@ test('accepts a valid prerelease', (t) => {
   assert.equal(fixture(t, { version: '1.1.0-rc.1' })('--tag', 'v1.1.0-rc.1').status, 0);
 });
 
+test('selects a new minor release without including the previous stable release', (t) => {
+  const changelog = changelogFor('1.1.0').replace(
+    '[Unreleased]:',
+    '## [1.0.0] - 2026-09-03\n\n- Previous stable release.\n\n[Unreleased]:',
+  );
+  const run = fixture(t, { version: '1.1.0', changelog });
+  const result = run('--tag', 'v1.1.0', '--notes');
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '### Security\n\n- Patched production dependencies.\n');
+  assert.equal(run('--tag', 'v1.0.0').status, 1);
+});
+
 for (const file of packageFiles.slice(1)) {
   test(`rejects version drift in ${file}`, (t) => {
     const result = fixture(t, { versions: { [file]: '1.0.1' } })();
