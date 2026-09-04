@@ -98,7 +98,7 @@ Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir
 - Türkçe ve İngilizce arayüz, yedi renk teması, sinema modu ve masaüstü/mobil uyumlu gezinti.
 - Kullanıcıya göre ayrılmış kütüphaneler, favoriler, geçmiş, çalma listeleri ve API anahtarları; şifrelenmiş Google yenileme belirteçleri.
 - Otomatik Google erişim belirteci yenileme ve geçici Drive hataları için sınırlı yeniden deneme.
-- Depolama, codec, FFmpeg işi, tarama ve veritabanı bakım ekranları.
+- Yalnızca yöneticilere açık CPU, bellek, disk I/O, ağ, sıcaklık ve yedi günlük bant genişliği takibi; codec, FFmpeg işi, tarama ve veritabanı bakım ekranları.
 - İstek sınırlama, güvenli çerezler, CORS, Helmet başlıkları, yapılandırılmış log ve kontrollü kapanış.
 
 Direct/audio/HLS/full modları, tarayıcı farkları, kalite kontrolleri ve sınırlı akış toparlanması için [oynatma rehberini](docs/PLAYBACK.tr.md) okuyun.

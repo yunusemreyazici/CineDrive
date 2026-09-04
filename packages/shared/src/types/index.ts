@@ -87,6 +87,35 @@ export interface StorageInsightsDto {
   }>;
 }
 
+export interface SystemMetricPointDto {
+  recordedAt: string;
+  cpuPercent: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  diskUsedBytes: number | null;
+  diskTotalBytes: number | null;
+  diskReadBytesPerSecond: number | null;
+  diskWriteBytesPerSecond: number | null;
+  networkReceiveBytesPerSecond: number | null;
+  networkTransmitBytesPerSecond: number | null;
+  networkReceiveBytes: number;
+  networkTransmitBytes: number;
+  temperatureCelsius: number | null;
+}
+
+export interface SystemMetricsDto {
+  scope: 'container' | 'host';
+  sampleIntervalSeconds: number;
+  retentionDays: number;
+  current: SystemMetricPointDto | null;
+  history: SystemMetricPointDto[];
+  sevenDayBandwidth: {
+    receivedBytes: number;
+    transmittedBytes: number;
+    totalBytes: number;
+  };
+}
+
 export interface MediaHealthDto {
   totalVideos: number;
   analyzedVideos: number;

@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import crypto from 'crypto';
 import { env } from './config/env.js';
 import { prismaPlugin } from './plugins/prisma.js';
+import { systemMetricsPlugin } from './plugins/system-metrics.js';
 import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { libraryRoutes } from './routes/library.routes.js';
@@ -21,6 +22,7 @@ import { databaseRoutes } from './routes/database.routes.js';
 import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { musicRoutes } from './routes/music.routes.js';
+import { systemMetricsRoutes } from './routes/system-metrics.routes.js';
 import type {
   HealthResponse,
   ReadinessResponse,
@@ -110,6 +112,7 @@ export const buildApp = async (
 
   // Register Core Database & Auth Plugins
   await app.register(prismaPlugin);
+  await app.register(systemMetricsPlugin);
   await app.register(authPlugin);
 
   // Global Error Handler
@@ -192,6 +195,7 @@ export const buildApp = async (
   await app.register(settingsRoutes, { prefix: '/api/settings' });
   await app.register(databaseRoutes, { prefix: '/api/settings/database' });
   await app.register(insightsRoutes, { prefix: '/api/insights' });
+  await app.register(systemMetricsRoutes, { prefix: '/api/system' });
   await app.register(musicRoutes, { prefix: '/api/music' });
   // Loopback-only FFmpeg source proxy; authenticated by capability, not session.
   await app.register(internalRoutes, { prefix: '/api/internal' });
