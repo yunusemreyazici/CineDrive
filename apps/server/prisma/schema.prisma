@@ -729,3 +729,28 @@ model LibraryScanError {
   errorMessage String
   createdAt    DateTime    @default(now())
 }
+
+model SystemMetricSample {
+  id                            Int      @id @default(autoincrement())
+  recordedAt                    DateTime @default(now())
+  scope                         String   @default("host")
+  cpuPercent                    Float?
+  memoryUsedBytes               BigInt?
+  memoryTotalBytes              BigInt?
+  diskUsedBytes                 BigInt?
+  diskTotalBytes                BigInt?
+  diskReadBytesPerSecond        Float?
+  diskWriteBytesPerSecond       Float?
+  diskReadBytesTotal            BigInt?
+  diskWriteBytesTotal           BigInt?
+  networkReceiveBytesPerSecond  Float?
+  networkTransmitBytesPerSecond Float?
+  networkReceiveBytesDelta      BigInt   @default(0)
+  networkTransmitBytesDelta     BigInt   @default(0)
+  networkReceiveBytesTotal      BigInt?
+  networkTransmitBytesTotal     BigInt?
+  networkInterface              String?
+  temperatureCelsius            Float?
+
+  @@index([recordedAt])
+}

@@ -98,7 +98,7 @@ Screenshots show the Turkish interface; English is also available.
 - Turkish and English interface languages, seven colour themes, cinema mode, and responsive desktop/mobile navigation.
 - User-scoped libraries, favourites, history, playlists, API keys, and encrypted Google refresh tokens.
 - Automatic Google access-token refresh and bounded retries for transient Drive failures.
-- Storage, codec, FFmpeg job, scan, and database maintenance screens.
+- Admin-only CPU, memory, disk I/O, network, temperature and seven-day bandwidth monitoring alongside codec, FFmpeg job, scan, and database maintenance screens.
 - Rate limiting, secure cookies, CORS, Helmet headers, structured logging, and graceful shutdown.
 
 Read the [playback guide](docs/PLAYBACK.md) for direct/audio/HLS/full modes, browser differences, quality controls, and bounded stream recovery.

@@ -32,7 +32,19 @@ systemctl status cinedrive
 journalctl -u cinedrive -f
 ```
 
-The administration interface includes storage, codec, FFmpeg job, scan, and database maintenance views. Playback concurrency is deliberately bounded; raise `HLS_MAX_ACTIVE_JOBS` or `TRANSCODE_MAX_ACTIVE_SESSIONS` only when the host has enough CPU, memory, and disk capacity.
+The administration interface includes storage, system resources, codec, FFmpeg job, scan, and database maintenance views. Playback concurrency is deliberately bounded; raise `HLS_MAX_ACTIVE_JOBS` or `TRANSCODE_MAX_ACTIVE_SESSIONS` only when the host has enough CPU, memory, and disk capacity.
+
+### System resource monitoring
+
+Administrators can open **Settings → Storage & health** to see current CPU, memory, filesystem, disk I/O and network rates plus seven days of bandwidth history. CineDrive records one sample per minute, returns five-minute chart buckets, and automatically removes samples older than seven days. Samples live in SQLite, so they survive an application restart and are included in normal database backups.
+
+Metrics deliberately use only information already visible to the process. CineDrive never requires privileged containers, the Docker socket, or broad host mounts:
+
+- A container reports the resources visible inside its namespace, using cgroup CPU, memory and I/O limits when the runtime provides them, and labels the scope as container usage.
+- A direct VPS/source installation reports host-wide values. Network traffic follows the default route interface to avoid double-counting Docker bridges.
+- Filesystem usage refers to the filesystem containing the CineDrive database.
+- Temperature is best-effort. Most virtual servers do not expose hardware sensors, so **Not supported** is expected there.
+- The first CPU and per-second rate values after startup need two samples; the panel shows **Collecting…** during that short interval.
 
 ## Upgrades
 

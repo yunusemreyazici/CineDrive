@@ -32,7 +32,19 @@ systemctl status cinedrive
 journalctl -u cinedrive -f
 ```
 
-Yönetim arayüzü depolama, codec, FFmpeg işi, tarama ve veritabanı bakım görünümlerini içerir. Oynatma eşzamanlılığı bilinçli olarak sınırlıdır; `HLS_MAX_ACTIVE_JOBS` veya `TRANSCODE_MAX_ACTIVE_SESSIONS` değerlerini yalnızca host'ta yeterli CPU, bellek ve disk kapasitesi varsa artırın.
+Yönetim arayüzü depolama, sistem kaynakları, codec, FFmpeg işi, tarama ve veritabanı bakım görünümlerini içerir. Oynatma eşzamanlılığı bilinçli olarak sınırlıdır; `HLS_MAX_ACTIVE_JOBS` veya `TRANSCODE_MAX_ACTIVE_SESSIONS` değerlerini yalnızca host'ta yeterli CPU, bellek ve disk kapasitesi varsa artırın.
+
+### Sistem kaynağı izleme
+
+Yöneticiler **Ayarlar → Depolama ve Sağlık** altında anlık CPU, bellek, dosya sistemi, disk I/O ve ağ hızlarıyla yedi günlük bant genişliği geçmişini görebilir. CineDrive dakikada bir örnek kaydeder, grafiğe beş dakikalık dilimler döndürür ve yedi günden eski örnekleri otomatik siler. Örnekler SQLite'ta tutulduğu için uygulama yeniden başladığında korunur ve normal veritabanı yedeklerine dahil edilir.
+
+Metrikler bilinçli olarak yalnızca process'in zaten görebildiği bilgileri kullanır. CineDrive ayrıcalıklı container, Docker socket'i veya geniş host mount'ları istemez:
+
+- Container kurulumu kendi namespace'inde görülebilen kaynakları, runtime sunduğunda cgroup CPU, bellek ve I/O sınırlarını kullanarak gösterip kapsamı container kullanımı olarak etiketler.
+- Doğrudan VPS/kaynak kurulumu host genelindeki değerleri gösterir. Ağ trafiği Docker bridge'lerini iki kez saymamak için varsayılan rota arayüzünü izler.
+- Dosya sistemi kullanımı CineDrive veritabanını barındıran dosya sistemine aittir.
+- Sıcaklık best-effort'tur. Çoğu sanal sunucu donanım sensörü sunmadığından **Desteklenmiyor** görülmesi normaldir.
+- Başlangıçtan sonraki ilk CPU ve saniyelik hız değerleri iki örneğe ihtiyaç duyar; panel bu kısa sürede **Ölçülüyor…** gösterir.
 
 ## Güncelleme
 
