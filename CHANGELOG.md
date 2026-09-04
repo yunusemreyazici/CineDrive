@@ -12,11 +12,19 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ### Fixed
 
+- Build release images on native AMD64/ARM64 runners to avoid QEMU illegal-instruction hangs; validate both platform digests before publishing the signed multi-architecture index.
 - Bound HLS transport/media recovery on Chromium and native WebKit, preserving playback position and pause intent with an actionable manual retry after exhaustion.
 
 ### Added
 
 - HLS recovery regression tests and real-browser transport-failure coverage using an isolated HTTP fault proxy; no production test endpoints are introduced.
+- Offline documentation link validation and regression tests in CI.
+- A checksum-pinned OSV-Scanner fallback for recognized npm audit service outages, with full lockfile coverage validation, high/critical and unknown-severity blocking, retained evidence, and fail-closed regression tests. npm findings cannot be overridden by fallback.
+
+### Changed
+
+- Run the production dependency audit independently of application verification so registry outages do not skip Docker/browser tests; keep audit success mandatory through the existing required `e2e` gate, with regression coverage for upstream result combinations.
+- Shortened the English and Turkish READMEs into product overviews and quick starts; moved installation, configuration, Drive setup, playback, operations, and development details into bilingual guides.
 
 ## [1.0.0] - 2026-09-03
 

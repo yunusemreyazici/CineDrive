@@ -20,6 +20,8 @@ on:
       - 'packages/shared/**'
       - 'scripts/validate-release.mjs'
       - 'scripts/validate-release.test.mjs'
+      - 'scripts/release-workflow.test.mjs'
+      - 'scripts/merge-release-images.sh'
       - 'CHANGELOG.md'
       - 'docs/RELEASING.md'
       - 'docs/RELEASING.tr.md'
@@ -98,10 +100,10 @@ jobs:
           NODE_ENV: production
 
   dry-run:
-    name: Dry-run ${{ matrix.name }} multi-arch image
+    name: Dry-run ${{ matrix.name }} (${{ matrix.arch }})
     if: github.event_name != 'push' || github.ref_type != 'tag'
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -109,18 +111,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        name: [server, web]
+        arch: [amd64, arm64]
         include:
-          - name: server
-            dockerfile: Dockerfile.server
-          - name: web
-            dockerfile: Dockerfile.web
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
@@ -128,17 +130,116 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          file: Dockerfile.${{ matrix.name }}
+          platforms: linux/${{ matrix.arch }}
           push: false
-          outputs: type=cacheonly
-          cache-from: type=gha,scope=release-${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}
+          load: true
+          tags: cinedrive-${{ matrix.name }}:release-test
+          cache-from: type=gha,scope=release-${{ matrix.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}-${{ matrix.arch }}
+
+      - name: Verify native image architecture and runtime
+        env:
+          COMPONENT: ${{ matrix.name }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          image="cinedrive-${COMPONENT}:release-test"
+          test "$(docker image inspect --format '{{.Architecture}}' "$image")" = "$ARCH"
+          if [[ "$COMPONENT" == server ]]; then
+            docker run --rm --entrypoint node "$image" -e \
+              'if (process.arch !== process.argv[1]) process.exit(1)' \
+              "$([[ "$ARCH" == amd64 ]] && echo x64 || echo arm64)"
+            docker run --rm --entrypoint sh "$image" -c \
+              'apps/server/node_modules/.bin/prisma migrate deploy --config=apps/server/prisma.config.ts'
+          else
+            docker run --rm --add-host server:127.0.0.1 "$image" nginx -t
+          fi
+
+  # Build each platform on matching hardware. No package-manager or native
+  # dependency installation is executed under QEMU, in dry runs OR tag builds.
+  publish-platform:
+    name: Build release ${{ matrix.name }} (${{ matrix.arch }})
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [server, web]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate platform image labels
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/yunusemreyazici/cinedrive-${{ matrix.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=CineDrive ${{ matrix.name }}
+            org.opencontainers.image.description=CineDrive production ${{ matrix.name }} image
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push platform by digest only
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.name }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/yunusemreyazici/cinedrive-${{ matrix.name }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}-${{ matrix.arch }}
+
+      - name: Record platform digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf '%s\n' "$DIGEST" > "${RUNNER_TEMP}/digest-${ARCH}.txt"
+
+      - name: Upload platform digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-digests-${{ matrix.name }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digest-${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 7
 
   publish:
     name: Publish ${{ matrix.name }} image
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: validate
+    needs: publish-platform
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -153,10 +254,8 @@ jobs:
       matrix:
         include:
           - name: server
-            dockerfile: Dockerfile.server
             image: ghcr.io/yunusemreyazici/cinedrive-server
           - name: web
-            dockerfile: Dockerfile.web
             image: ghcr.io/yunusemreyazici/cinedrive-web
 
     steps:
@@ -164,9 +263,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Download this run's platform digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: image-digests-${{ matrix.name }}-*
+          path: ${{ runner.temp }}/image-digests
+          merge-multiple: true
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -189,19 +293,13 @@ jobs:
             org.opencontainers.image.description=CineDrive production ${{ matrix.name }} image
             org.opencontainers.image.licenses=MIT
 
-      - name: Build and publish multi-architecture image
+      - name: Validate and publish multi-architecture index
         id: push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          provenance: false
-          cache-from: type=gha,scope=release-${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          METADATA: ${{ steps.metadata.outputs.json }}
+          DIGEST_DIR: ${{ runner.temp }}/image-digests
+        run: bash scripts/merge-release-images.sh
 
       - name: Create SLSA provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
