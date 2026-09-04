@@ -54,6 +54,8 @@ pnpm build
 
 Production migration'ları `prisma migrate deploy` kullanır. Production veritabanında `prisma db push` kullanmayın. Başlangıçtan sonra güncellemeyi tamamlanmış saymadan önce `/api/ready` yolunun `200` döndürdüğünü, giriş yapılabildiğini ve mevcut bir kütüphanenin açıldığını doğrulayın.
 
+VPS kaynak kurulumlarında `sudo bash scripts/install-vps.sh` komutunu yeniden çalıştırmak bu adımları ek dal, çalışma ağacı, snapshot ve hazırlık korumalarıyla uygular. Başarısız bir çalıştırmanın gösterdiği kurtarma bilgisini saklayın; iki commit'i ve migration öncesi tam snapshot yolunu belirtir.
+
 Etiketli sürümler provenance attestation'lı ve keyless imzalı `linux/amd64` ile `linux/arm64` GHCR image'larının yanında SBOM ve immutable digest manifestleri yayınlar. Artifact doğrulama ve `docker-compose.release.yml` kullanımı için [CineDrive Sürümleme](RELEASING.tr.md) belgesini izleyin.
 
 ## Geri dönüş
