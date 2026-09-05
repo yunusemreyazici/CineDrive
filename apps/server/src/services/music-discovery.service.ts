@@ -5,7 +5,6 @@ import {
   formatMusicArtist,
   formatMusicTrack,
   findMusicTracksWithRelations,
-  musicTrackInclude,
   parseGenres,
 } from '../utils/music-format.js';
 
@@ -725,9 +724,8 @@ export class MusicDiscoveryService {
 
   public async getArtistRadio(userId: string, artistId: string) {
     const [rawTracks, artist, history] = await Promise.all([
-      this.prisma.musicTrack.findMany({
+      findMusicTracksWithRelations(this.prisma, userId, {
         where: { library: accessibleLibraryFilter(userId) },
-        include: musicTrackInclude(userId),
         orderBy: { createdAt: 'desc' },
         take: 5000,
       }),
@@ -758,9 +756,8 @@ export class MusicDiscoveryService {
 
   public async getTrackRadio(userId: string, trackId: string) {
     const [rawTracks, history] = await Promise.all([
-      this.prisma.musicTrack.findMany({
+      findMusicTracksWithRelations(this.prisma, userId, {
         where: { library: accessibleLibraryFilter(userId) },
-        include: musicTrackInclude(userId),
         orderBy: { createdAt: 'desc' },
         take: 5000,
       }),

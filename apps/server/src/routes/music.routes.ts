@@ -661,9 +661,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/maintenance', async (request) => {
     const userId = request.user!.id;
-    const rawTracks = await fastify.prisma.musicTrack.findMany({
+    const rawTracks = await findMusicTracksWithRelations(fastify.prisma, userId, {
       where: ownedTrackWhere(userId),
-      include: musicTrackInclude(userId),
       orderBy: { updatedAt: 'desc' },
       take: 2000,
     });

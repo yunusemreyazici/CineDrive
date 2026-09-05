@@ -267,6 +267,36 @@ describe('Music library', () => {
     });
     expect(discovery.statusCode).toBe(200);
     expect(JSON.parse(discovery.body).mixes).toEqual(expect.any(Array));
+
+    const artistId = (
+      await app.prisma.musicTrack.findUniqueOrThrow({
+        where: { id: trackId },
+        select: { primaryArtistId: true },
+      })
+    ).primaryArtistId!;
+    const artistRadio = await app.inject({
+      method: 'GET',
+      url: `/api/music/radio/${artistId}`,
+      cookies: { session_id: cookie },
+    });
+    expect(artistRadio.statusCode).toBe(200);
+    expect(JSON.parse(artistRadio.body).mix.tracks).toEqual(expect.any(Array));
+
+    const trackRadio = await app.inject({
+      method: 'GET',
+      url: `/api/music/radio/track/${trackId}`,
+      cookies: { session_id: cookie },
+    });
+    expect(trackRadio.statusCode).toBe(200);
+    expect(JSON.parse(trackRadio.body).mix.tracks).toEqual(expect.any(Array));
+
+    const maintenance = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance',
+      cookies: { session_id: cookie },
+    });
+    expect(maintenance.statusCode).toBe(200);
+    expect(JSON.parse(maintenance.body).artists).toEqual(expect.any(Array));
   });
 
   it('downloads original tracks with HEAD and Range semantics', async () => {

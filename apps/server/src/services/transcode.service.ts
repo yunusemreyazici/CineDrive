@@ -164,6 +164,10 @@ export class TranscodeService {
         'make_zero',
         '-f mp4',
         '-movflags frag_keyframe+empty_moov+default_base_moof',
+        // Audio-only output has no video keyframes to trigger fragmented MP4
+        // emission. Bound fragment duration so browsers receive media before
+        // the live input ends instead of seeing only the initialization box.
+        ...(options.audioOnly ? ['-frag_duration', '1000000'] : []),
       ])
       .on('error', (err: Error) => {
         closeSession();
