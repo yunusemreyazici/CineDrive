@@ -39,6 +39,7 @@ import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
   formatMusicArtist,
   formatMusicTrack,
+  findMusicTracksWithRelations,
   musicTrackInclude,
   parseGenres,
   resolveMusicContentType,
@@ -489,9 +490,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       history,
       deletedTracks,
     ] = await Promise.all([
-      fastify.prisma.musicTrack.findMany({
+      findMusicTracksWithRelations(fastify.prisma, userId, {
         where: changedTrackWhere,
-        include: musicTrackInclude(userId),
         orderBy: { updatedAt: 'asc' },
       }),
       fastify.prisma.musicTrack.findMany({

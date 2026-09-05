@@ -224,6 +224,51 @@ describe('Music library', () => {
     expect(unchanged.statusCode).toBe(304);
   });
 
+  it('syncs and builds discovery for libraries larger than the SQLite parameter limit', async () => {
+    const additionalTrackCount = 1_050;
+    const fileRows = Array.from({ length: additionalTrackCount }, (_, index) => ({
+      id: randomUUID(),
+      libraryId,
+      storageType: 'gdrive',
+      name: `Large Library ${index}.flac`,
+      mimeType: 'audio/flac',
+      size: 4_096n,
+      status: 'active',
+    }));
+    for (let offset = 0; offset < fileRows.length; offset += 100) {
+      await app.prisma.driveFile.createMany({ data: fileRows.slice(offset, offset + 100) });
+    }
+
+    const trackRows = fileRows.map((file, index) => ({
+      id: randomUUID(),
+      libraryId,
+      driveFileId: file.id,
+      title: `Large Library Track ${index}`,
+      normalizedTitle: `large library track ${index}`,
+      duration: 180,
+    }));
+    for (let offset = 0; offset < trackRows.length; offset += 100) {
+      await app.prisma.musicTrack.createMany({ data: trackRows.slice(offset, offset + 100) });
+    }
+
+    const sync = await app.inject({
+      method: 'GET',
+      url: '/api/music/sync?version=2',
+      cookies: { session_id: cookie },
+    });
+    expect(sync.statusCode).toBe(200);
+    expect(JSON.parse(sync.body).tracks).toHaveLength(additionalTrackCount + 1);
+
+    const discovery = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery?compact=1',
+      headers: { 'x-cinemusic-version': '1.0' },
+      cookies: { session_id: cookie },
+    });
+    expect(discovery.statusCode).toBe(200);
+    expect(JSON.parse(discovery.body).mixes).toEqual(expect.any(Array));
+  });
+
   it('downloads original tracks with HEAD and Range semantics', async () => {
     const head = await app.inject({
       method: 'HEAD',

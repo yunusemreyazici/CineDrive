@@ -14,6 +14,10 @@ after its matching GitHub Release and verified container artifacts exist.
 
 - Add admin-only CPU, memory, filesystem, disk I/O, network, best-effort temperature and seven-day bandwidth monitoring with cgroup-aware collection, persistent one-minute samples, five-minute chart buckets and automatic retention.
 
+### Fixed
+
+- Prevent large music sync and discovery queries from exceeding SQLite parameter limits, and preserve Range response headers returned through Gaxios 7 `Headers` objects during original Google Drive playback.
+
 ## [1.1.0] - 2026-09-04
 
 ### Fixed

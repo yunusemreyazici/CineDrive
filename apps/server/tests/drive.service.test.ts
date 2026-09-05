@@ -1,9 +1,30 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Readable } from 'node:stream';
-import { GoogleDriveService } from '../src/services/drive.service';
+import { GoogleDriveService, normalizeDriveResponseHeaders } from '../src/services/drive.service';
 
 describe('GoogleDriveService Unit Tests', () => {
   const driveService = new GoogleDriveService();
+
+  it('forwards media headers from the WHATWG Headers returned by Gaxios 7', () => {
+    const headers = new Headers({
+      'content-type': 'audio/flac',
+      'content-length': '1024',
+      'content-range': 'bytes 0-1023/4096',
+      'accept-ranges': 'bytes',
+      etag: 'fixture-etag',
+      'last-modified': 'Sat, 05 Sep 2026 00:00:00 GMT',
+      'x-google-internal': 'must-not-leak',
+    });
+
+    expect(normalizeDriveResponseHeaders(headers)).toEqual({
+      'content-type': 'audio/flac',
+      'content-length': '1024',
+      'content-range': 'bytes 0-1023/4096',
+      'accept-ranges': 'bytes',
+      etag: 'fixture-etag',
+      'last-modified': 'Sat, 05 Sep 2026 00:00:00 GMT',
+    });
+  });
 
   it('should return result immediately if function succeeds', async () => {
     const fn = vi.fn().mockResolvedValue('success');
@@ -50,9 +71,9 @@ describe('GoogleDriveService Unit Tests', () => {
       },
     });
 
-    await expect(
-      driveService.getMediaRangeBuffer('token', 'file', 0, 5),
-    ).resolves.toEqual(Buffer.from('header'));
+    await expect(driveService.getMediaRangeBuffer('token', 'file', 0, 5)).resolves.toEqual(
+      Buffer.from('header'),
+    );
     expect(createMediaStream).toHaveBeenCalledWith(
       'token',
       'file',
@@ -70,9 +91,9 @@ describe('GoogleDriveService Unit Tests', () => {
       headers: { 'content-length': '1024' },
     });
 
-    await expect(
-      driveService.getMediaRangeBuffer('token', 'file', 0, 5),
-    ).rejects.toThrow('DRIVE_RANGE_NOT_SUPPORTED');
+    await expect(driveService.getMediaRangeBuffer('token', 'file', 0, 5)).rejects.toThrow(
+      'DRIVE_RANGE_NOT_SUPPORTED',
+    );
     expect(destroy).toHaveBeenCalled();
   });
 });

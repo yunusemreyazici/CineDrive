@@ -27,6 +27,29 @@ export interface DriveFolderInspection {
   hasMediaFiles: boolean;
 }
 
+const FORWARDED_MEDIA_HEADERS = [
+  'content-type',
+  'content-length',
+  'content-range',
+  'accept-ranges',
+  'etag',
+  'last-modified',
+] as const;
+
+export const normalizeDriveResponseHeaders = (
+  headers: Headers | Record<string, string | string[] | number | null | undefined>,
+) => {
+  const normalized: Record<string, string> = {};
+  for (const name of FORWARDED_MEDIA_HEADERS) {
+    const value =
+      typeof (headers as Headers).get === 'function'
+        ? (headers as Headers).get(name)
+        : (headers as Record<string, string | string[] | number | null | undefined>)[name];
+    if (value !== null && value !== undefined) normalized[name] = String(value);
+  }
+  return normalized;
+};
+
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const DRIVE_REQUEST_TIMEOUT_MS = 30_000;
 const MEDIA_FILE_PATTERN =
@@ -334,18 +357,7 @@ export class GoogleDriveService {
       },
     );
 
-    const resHeaders: Record<string, string> = {};
-    if (response.headers['content-type'])
-      resHeaders['content-type'] = String(response.headers['content-type']);
-    if (response.headers['content-length'])
-      resHeaders['content-length'] = String(response.headers['content-length']);
-    if (response.headers['content-range'])
-      resHeaders['content-range'] = String(response.headers['content-range']);
-    if (response.headers['accept-ranges'])
-      resHeaders['accept-ranges'] = String(response.headers['accept-ranges']);
-    if (response.headers['etag']) resHeaders['etag'] = String(response.headers['etag']);
-    if (response.headers['last-modified'])
-      resHeaders['last-modified'] = String(response.headers['last-modified']);
+    const resHeaders = normalizeDriveResponseHeaders(response.headers);
 
     return {
       stream: response.data as Readable,
