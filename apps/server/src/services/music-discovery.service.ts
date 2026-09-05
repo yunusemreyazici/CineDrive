@@ -4,6 +4,7 @@ import type { MusicDiscoveryDto, MusicMixDto, MusicTrackDto } from '@cinedrive/s
 import {
   formatMusicArtist,
   formatMusicTrack,
+  findMusicTracksWithRelations,
   musicTrackInclude,
   parseGenres,
 } from '../utils/music-format.js';
@@ -276,9 +277,8 @@ export class MusicDiscoveryService {
   private async computeDiscovery(userId: string): Promise<MusicDiscoveryDto> {
     const owned = { library: accessibleLibraryFilter(userId) };
     const [rawTracks, history, playbackState, albums, artists] = await Promise.all([
-      this.prisma.musicTrack.findMany({
+      findMusicTracksWithRelations(this.prisma, userId, {
         where: owned,
-        include: musicTrackInclude(userId),
         orderBy: { createdAt: 'desc' },
         take: 5000,
       }),

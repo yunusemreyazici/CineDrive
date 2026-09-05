@@ -1,5 +1,10 @@
-import type { Prisma } from '@cinedrive/prisma';
+import type { Prisma, PrismaClient } from '@cinedrive/prisma';
 import path from 'node:path';
+
+// Prisma's SQLite driver expands relation includes into queries containing one
+// bind parameter per parent row. Keep each include query comfortably below
+// SQLite's parameter limit while preserving the order selected by the caller.
+const MUSIC_TRACK_RELATION_BATCH_SIZE = 400;
 
 const MUSIC_CONTENT_TYPES: Record<string, string> = {
   '.mp3': 'audio/mpeg',
@@ -100,6 +105,42 @@ export type MusicTrackWithRelations = Prisma.MusicTrackGetPayload<{
     };
   };
 }>;
+
+export const findMusicTracksWithRelations = async (
+  prisma: PrismaClient,
+  userId: string,
+  options: {
+    where: Prisma.MusicTrackWhereInput;
+    orderBy:
+      Prisma.MusicTrackOrderByWithRelationInput | Prisma.MusicTrackOrderByWithRelationInput[];
+    take?: number;
+  },
+): Promise<MusicTrackWithRelations[]> => {
+  const orderedIds = await prisma.musicTrack.findMany({
+    where: options.where,
+    orderBy: options.orderBy,
+    select: { id: true },
+    ...(options.take === undefined ? {} : { take: options.take }),
+  });
+  if (orderedIds.length === 0) return [];
+
+  const tracksById = new Map<string, MusicTrackWithRelations>();
+  for (let offset = 0; offset < orderedIds.length; offset += MUSIC_TRACK_RELATION_BATCH_SIZE) {
+    const ids = orderedIds
+      .slice(offset, offset + MUSIC_TRACK_RELATION_BATCH_SIZE)
+      .map((track) => track.id);
+    const tracks = await prisma.musicTrack.findMany({
+      where: { AND: [options.where, { id: { in: ids } }] },
+      include: musicTrackInclude(userId),
+    });
+    tracks.forEach((track) => tracksById.set(track.id, track));
+  }
+
+  return orderedIds.flatMap(({ id }) => {
+    const track = tracksById.get(id);
+    return track ? [track] : [];
+  });
+};
 
 export const parseGenres = (raw?: string | null): string[] => {
   if (!raw) return [];
