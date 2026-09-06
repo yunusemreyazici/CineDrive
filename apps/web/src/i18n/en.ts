@@ -361,6 +361,10 @@ export const en: Translations = {
     mixSavedHint: 'Open it from Playlists in the music menu.',
     mixSaveFailed: 'The mix could not be saved as a playlist',
     mixLoadFailed: 'Personal mixes cannot be loaded right now.',
+    refreshDiscovery: 'Create a new selection',
+    refreshingDiscovery: 'Preparing a new selection…',
+    discoverySelectionCount: (selected: number, candidates: number) =>
+      `${selected} tracks selected from ${candidates}`,
     noMixesYet: 'Personal mixes will appear here after the library scan.',
     smartMixesDescription:
       'Listening history, favorites, underplayed tracks, and artist-album diversity are evaluated together.',

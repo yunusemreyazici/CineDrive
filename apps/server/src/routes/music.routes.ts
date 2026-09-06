@@ -590,34 +590,46 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get<{ Querystring: { compact?: string } }>('/discovery', async (request) => {
-    const discovery = await discoveryService.getDiscovery(request.user!.id);
-    const nativeClient = typeof request.headers['x-cinemusic-version'] === 'string';
-    const presentMix = (mix: (typeof discovery.mixes)[number]) => {
-      if (!nativeClient) return mix;
-      return presentMusicMixForNativeClient(mix);
-    };
-    const presented = {
-      ...discovery,
-      mixes: discovery.mixes.map(presentMix),
-      moodCollections: discovery.moodCollections.map(presentMix),
-      genreCollections: discovery.genreCollections.map(presentMix),
-      decadeCollections: discovery.decadeCollections.map(presentMix),
-    };
-    if (request.query.compact !== '1' && request.query.compact !== 'true') return presented;
+  fastify.get<{ Querystring: { compact?: string; generationId?: string } }>(
+    '/discovery',
+    async (request, reply) => {
+      const generationId = request.query.generationId?.trim();
+      if (generationId && !/^[a-zA-Z0-9._:-]{1,80}$/.test(generationId))
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Geçersiz keşif üretim kimliği.',
+            requestId: request.id,
+          },
+        });
+      const discovery = await discoveryService.getDiscovery(request.user!.id, generationId);
+      const nativeClient = typeof request.headers['x-cinemusic-version'] === 'string';
+      const presentMix = (mix: (typeof discovery.mixes)[number]) => {
+        if (!nativeClient) return mix;
+        return presentMusicMixForNativeClient(mix);
+      };
+      const presented = {
+        ...discovery,
+        mixes: discovery.mixes.map(presentMix),
+        moodCollections: discovery.moodCollections.map(presentMix),
+        genreCollections: discovery.genreCollections.map(presentMix),
+        decadeCollections: discovery.decadeCollections.map(presentMix),
+      };
+      if (request.query.compact !== '1' && request.query.compact !== 'true') return presented;
 
-    const compactMix = ({ tracks, ...mix }: (typeof presented.mixes)[number]) => ({
-      ...mix,
-      trackIds: tracks.map((track) => track.id),
-    });
-    return {
-      ...presented,
-      mixes: presented.mixes.map(compactMix),
-      moodCollections: presented.moodCollections.map(compactMix),
-      genreCollections: presented.genreCollections.map(compactMix),
-      decadeCollections: presented.decadeCollections.map(compactMix),
-    };
-  });
+      const compactMix = ({ tracks, ...mix }: (typeof presented.mixes)[number]) => ({
+        ...mix,
+        trackIds: tracks.map((track) => track.id),
+      });
+      return {
+        ...presented,
+        mixes: presented.mixes.map(compactMix),
+        moodCollections: presented.moodCollections.map(compactMix),
+        genreCollections: presented.genreCollections.map(compactMix),
+        decadeCollections: presented.decadeCollections.map(compactMix),
+      };
+    },
+  );
 
   fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
     const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);

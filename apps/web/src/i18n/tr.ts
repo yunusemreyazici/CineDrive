@@ -359,6 +359,10 @@ export const tr = {
     mixSavedHint: 'Müzik menüsündeki Çalma Listeleri bölümünden açabilirsiniz.',
     mixSaveFailed: 'Mix çalma listesine kaydedilemedi',
     mixLoadFailed: 'Kişisel mix’ler şu anda yüklenemiyor.',
+    refreshDiscovery: 'Yeni seçki oluştur',
+    refreshingDiscovery: 'Yeni seçki hazırlanıyor…',
+    discoverySelectionCount: (selected: number, candidates: number) =>
+      `${candidates} parçadan ${selected} şarkılık seçki`,
     noMixesYet: 'Kütüphane taramasından sonra kişisel mix’ler burada oluşturulacak.',
     smartMixesDescription:
       'Dinleme geçmişi, favoriler, az çalınan parçalar ve sanatçı-albüm çeşitliliği birlikte değerlendirilir.',

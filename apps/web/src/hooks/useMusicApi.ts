@@ -48,10 +48,16 @@ export const useMusicOverviewQuery = () =>
     queryFn: async () => (await apiClient.get<MusicOverview>('/music/overview')).data,
   });
 
-export const useMusicDiscoveryQuery = () =>
+export const useMusicDiscoveryQuery = (generationId?: string) =>
   useQuery({
-    queryKey: ['music', 'discovery'],
-    queryFn: async () => (await apiClient.get<MusicDiscoveryDto>('/music/discovery')).data,
+    queryKey: ['music', 'discovery', generationId || 'daily'],
+    queryFn: async () =>
+      (
+        await apiClient.get<MusicDiscoveryDto>('/music/discovery', {
+          params: generationId ? { generationId } : undefined,
+        })
+      ).data,
+    placeholderData: (previous) => previous,
     staleTime: 5 * 60 * 1000,
   });
 

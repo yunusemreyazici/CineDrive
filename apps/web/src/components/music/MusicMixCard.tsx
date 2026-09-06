@@ -117,6 +117,11 @@ export const MusicMixCard: React.FC<{
           ? t.music.moodCollectionHint
           : mix.subtitle;
   const moodVisual = collectionVisual(mix);
+  const selectedTrackCount = mix.trackCount ?? mix.tracks.length;
+  const selectionCount =
+    mix.candidateCount && mix.candidateCount > selectedTrackCount
+      ? t.music.discoverySelectionCount(selectedTrackCount, mix.candidateCount)
+      : t.music.trackCount(selectedTrackCount);
 
   if (compact && landscape) {
     const MoodIcon = moodVisual.icon;
@@ -131,9 +136,7 @@ export const MusicMixCard: React.FC<{
           <MoodIcon className={`h-[19px] w-[19px] shrink-0 ${moodVisual.color}`} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-xs font-semibold text-zinc-200">{title}</span>
-            <span className="mt-0.5 block text-[9px] text-zinc-600">
-              {t.music.trackCount(mix.tracks.length)}
-            </span>
+            <span className="mt-0.5 block text-[9px] text-zinc-600">{selectionCount}</span>
           </span>
         </button>
         {onSave && (
@@ -245,9 +248,7 @@ export const MusicMixCard: React.FC<{
       {!landscape && (
         <>
           <p className="mt-3 truncate text-sm font-bold">{title}</p>
-          <p className="mt-1 truncate text-xs text-white/40">
-            {t.music.trackCount(mix.tracks.length)}
-          </p>
+          <p className="mt-1 truncate text-xs text-white/40">{selectionCount}</p>
         </>
       )}
     </article>

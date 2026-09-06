@@ -38,7 +38,9 @@ const SectionTitle: React.FC<{
 );
 
 export const MusicMixesPage: React.FC = () => {
-  const discovery = useMusicDiscoveryQuery();
+  const generationCounter = React.useRef(0);
+  const [generationId, setGenerationId] = React.useState<string>();
+  const discovery = useMusicDiscoveryQuery(generationId);
   const saveMix = useSaveMusicMixMutation();
   const artistRadio = useArtistRadioMutation();
   const player = useMusicPlayer();
@@ -76,6 +78,11 @@ export const MusicMixesPage: React.FC = () => {
     });
   };
 
+  const refreshDiscovery = () => {
+    generationCounter.current += 1;
+    setGenerationId(`web-${Date.now().toString(36)}-${generationCounter.current}`);
+  };
+
   if (discovery.isLoading) {
     return (
       <div className="space-y-8 pb-32">
@@ -106,6 +113,13 @@ export const MusicMixesPage: React.FC = () => {
       </div>
     );
   }
+
+  const hasDiscoveryContent =
+    data.mixes.length > 0 ||
+    data.moodCollections.length > 0 ||
+    data.genreCollections.length > 0 ||
+    data.decadeCollections.length > 0 ||
+    data.radioArtists.length > 0;
 
   return (
     <div className="space-y-9 pb-32">
@@ -139,6 +153,18 @@ export const MusicMixesPage: React.FC = () => {
                 className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-40"
               >
                 <Shuffle className="h-4 w-4" /> {t.music.shufflePlay}
+              </button>
+              <button
+                type="button"
+                disabled={discovery.isFetching}
+                onClick={refreshDiscovery}
+                aria-label={
+                  discovery.isFetching ? t.music.refreshingDiscovery : t.music.refreshDiscovery
+                }
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${discovery.isFetching ? 'animate-spin' : ''}`} />
+                {discovery.isFetching ? t.music.refreshingDiscovery : t.music.refreshDiscovery}
               </button>
             </div>
           </div>
@@ -185,6 +211,15 @@ export const MusicMixesPage: React.FC = () => {
           </button>
         </div>
       </section>
+
+      {!hasDiscoveryContent && (
+        <section className="rounded-3xl border border-white/[0.08] bg-white/[0.03] px-6 py-14 text-center">
+          <RadioTower className="mx-auto h-10 w-10 text-zinc-700" />
+          <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-zinc-500">
+            {t.music.noMixesYet}
+          </p>
+        </section>
+      )}
 
       {!!data.mixes.length && (
         <section className="space-y-4">
