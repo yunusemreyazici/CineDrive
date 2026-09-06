@@ -414,6 +414,10 @@ export interface MusicMixDto {
   accent: string;
   artworkUrls: string[];
   tracks: MusicTrackDto[];
+  /** Number of tracks eligible before seeded selection and diversity rules. */
+  candidateCount?: number;
+  /** Number of tracks actually included in this generated collection. */
+  trackCount?: number;
 }
 
 export interface ClientBootstrapDto {
@@ -430,6 +434,8 @@ export interface ClientBootstrapDto {
 }
 
 export interface MusicDiscoveryDto {
+  generationId?: string;
+  generatedAt?: string;
   mixes: MusicMixDto[];
   moodCollections: MusicMixDto[];
   genreCollections: MusicMixDto[];

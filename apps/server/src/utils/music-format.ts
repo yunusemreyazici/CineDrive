@@ -142,6 +142,29 @@ export const findMusicTracksWithRelations = async (
   });
 };
 
+/** Hydrate an already selected ID list without creating an oversized SQL IN clause. */
+export const findMusicTracksByIdsWithRelations = async (
+  prisma: PrismaClient,
+  userId: string,
+  ids: string[],
+  where: Prisma.MusicTrackWhereInput,
+): Promise<MusicTrackWithRelations[]> => {
+  const uniqueIds = [...new Set(ids)];
+  const tracksById = new Map<string, MusicTrackWithRelations>();
+  for (let offset = 0; offset < uniqueIds.length; offset += MUSIC_TRACK_RELATION_BATCH_SIZE) {
+    const batchIds = uniqueIds.slice(offset, offset + MUSIC_TRACK_RELATION_BATCH_SIZE);
+    const tracks = await prisma.musicTrack.findMany({
+      where: { AND: [where, { id: { in: batchIds } }] },
+      include: musicTrackInclude(userId),
+    });
+    tracks.forEach((track) => tracksById.set(track.id, track));
+  }
+  return uniqueIds.flatMap((id) => {
+    const track = tracksById.get(id);
+    return track ? [track] : [];
+  });
+};
+
 export const parseGenres = (raw?: string | null): string[] => {
   if (!raw) return [];
   try {

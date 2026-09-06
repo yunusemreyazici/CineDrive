@@ -901,6 +901,8 @@ describe('Music library', () => {
     });
     expect(discovery.statusCode).toBe(200);
     expect(JSON.parse(discovery.body)).toMatchObject({
+      generationId: expect.any(String),
+      generatedAt: expect.any(String),
       continueListening: { track: { id: trackId }, positionSeconds: 38 },
       mixes: expect.arrayContaining([
         expect.objectContaining({
@@ -928,6 +930,31 @@ describe('Music library', () => {
     expect(compactMix).not.toHaveProperty('title');
     expect(compactMix).not.toHaveProperty('subtitle');
     expect(compactMix).not.toHaveProperty('tracks');
+    expect(JSON.parse(compactDiscovery.body)).toMatchObject({
+      generationId: expect.any(String),
+      generatedAt: expect.any(String),
+    });
+
+    const explicitGeneration = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery?generationId=integration-generation',
+      cookies: { session_id: cookie },
+    });
+    expect(explicitGeneration.statusCode).toBe(200);
+    expect(JSON.parse(explicitGeneration.body).generationId).toBe('integration-generation');
+    const repeatedGeneration = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery?generationId=integration-generation',
+      cookies: { session_id: cookie },
+    });
+    expect(repeatedGeneration.body).toBe(explicitGeneration.body);
+
+    const invalidGeneration = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery?generationId=invalid%2Fgeneration',
+      cookies: { session_id: cookie },
+    });
+    expect(invalidGeneration.statusCode).toBe(400);
     const artistId = (
       await app.prisma.musicTrack.findUniqueOrThrow({
         where: { id: trackId },

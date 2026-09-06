@@ -41,4 +41,16 @@ describe('MusicMixCard', () => {
     render(<MusicMixCard mix={mix} onPlay={vi.fn()} onSave={vi.fn()} saved landscape />);
     expect(screen.getByRole('button', { name: /kaydedildi/i })).toBeDisabled();
   });
+
+  it('distinguishes the selected track count from the candidate pool', () => {
+    render(
+      <MusicMixCard
+        mix={{ ...mix, candidateCount: 243, trackCount: 1 }}
+        onPlay={vi.fn()}
+        compact
+        landscape
+      />,
+    );
+    expect(screen.getByText(/243 parçadan 1 şarkılık seçki/i)).toBeInTheDocument();
+  });
 });

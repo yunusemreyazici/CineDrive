@@ -1,30 +1,43 @@
 import type { PrismaClient } from '@cinedrive/prisma';
+import type {
+  MusicArtistDto,
+  MusicDiscoveryDto,
+  MusicMixDto,
+  MusicTrackDto,
+} from '@cinedrive/shared';
 import { accessibleLibraryFilter } from '../utils/library-access.js';
-import type { MusicDiscoveryDto, MusicMixDto, MusicTrackDto } from '@cinedrive/shared';
 import {
-  formatMusicArtist,
+  findMusicTracksByIdsWithRelations,
   formatMusicTrack,
-  findMusicTracksWithRelations,
   parseGenres,
 } from '../utils/music-format.js';
+import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
+import {
+  DISCOVERY_LIMITS,
+  createDiscoverySelectionContext,
+  selectDiscoveryCandidates,
+  stableNumber,
+} from './music-discovery-selection.js';
 
+const DISCOVERY_CACHE_TTL_MS = 90_000;
+const RECENT_TRACK_PENALTY_COUNT = 120;
+const RECENT_HISTORY_LIMIT = 1_000;
+const MAX_ARTIST_MIXES = 6;
+const MAX_GENRE_COLLECTIONS = 10;
+const MAX_DECADE_COLLECTIONS = 8;
+const MIN_COLLECTION_TRACKS = 4;
+const MIN_MOOD_TRACKS = 8;
 const accents = ['violet', 'cyan', 'amber', 'rose', 'emerald', 'indigo'];
-
-const stableNumber = (value: string) => {
-  let hash = 2166136261;
-  for (const character of value) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  return hash >>> 0;
-};
 
 const dateKey = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-const uniqueTracks = (tracks: MusicTrackDto[], limit = 30) => {
+const uniqueTracks = (tracks: MusicTrackDto[], limit = tracks.length) => {
   const seen = new Set<string>();
   return tracks.filter((track) => !seen.has(track.id) && seen.add(track.id)).slice(0, limit);
 };
 
-const normalizeGenre = (value: string) =>
+export const normalizeGenre = (value: string) =>
   value
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -59,12 +72,27 @@ const trackGenres = (track: MusicTrackDto) => {
   return genres;
 };
 
+const normalizedCandidateGenres = new WeakMap<DiscoveryCandidate, string[]>();
+const candidateGenres = (candidate: DiscoveryCandidate) => {
+  const cached = normalizedCandidateGenres.get(candidate);
+  if (cached) return cached;
+  const genres = [
+    ...new Set([...candidate.genres, ...candidate.albumGenres].map(normalizeGenre).filter(Boolean)),
+  ];
+  normalizedCandidateGenres.set(candidate, genres);
+  return genres;
+};
+
 const trackArtistKey = (track: MusicTrackDto) =>
   track.primaryArtist?.id || track.artists[0]?.id || `unknown:${track.id}`;
-
 const trackAlbumKey = (track: MusicTrackDto) => track.album?.id || `single:${track.id}`;
+const candidateArtistKey = (candidate: DiscoveryCandidate) =>
+  candidate.artistId || `unknown:${candidate.id}`;
+const candidateAlbumKey = (candidate: DiscoveryCandidate) =>
+  candidate.albumId || `single:${candidate.id}`;
 
-const artistDiversity = (tracks: MusicTrackDto[]) => new Set(tracks.map(trackArtistKey)).size;
+const artistDiversity = <T>(tracks: T[], key: (track: T) => string) =>
+  new Set(tracks.map(key)).size;
 
 const cappedDiversityCapacity = (
   tracks: MusicTrackDto[],
@@ -76,6 +104,7 @@ const cappedDiversityCapacity = (
   return [...counts.values()].reduce((total, count) => total + Math.min(cap, count), 0);
 };
 
+/** Backwards-compatible pure helper used by radio and focused unit tests. */
 export const diversifyTracks = (
   tracks: MusicTrackDto[],
   score: (track: MusicTrackDto) => number,
@@ -85,10 +114,10 @@ export const diversifyTracks = (
   albumLimit = 2,
   relaxCaps = true,
 ) => {
-  const ranked = uniqueTracks(tracks, tracks.length)
+  const ranked = uniqueTracks(tracks)
     .map((track) => ({
       track,
-      score: score(track) + (stableNumber(`${seed}:${track.id}`) % 1000) / 1000,
+      score: score(track) + (stableNumber(`${seed}:${track.id}`) % 1_000) / 1_000,
     }))
     .sort((left, right) => right.score - left.score);
   const selected: MusicTrackDto[] = [];
@@ -127,6 +156,7 @@ const mix = (
   subtitle: string,
   tracks: MusicTrackDto[],
   accentIndex: number,
+  candidateCount = tracks.length,
   description?: string,
   presentation?: Partial<
     Pick<
@@ -139,17 +169,22 @@ const mix = (
       | 'descriptionArguments'
     >
   >,
-): MusicMixDto => ({
-  id,
-  type,
-  title,
-  subtitle,
-  description,
-  accent: accents[accentIndex % accents.length]!,
-  artworkUrls: artworkUrls(tracks),
-  tracks: uniqueTracks(tracks, type === 'artist-radio' ? 60 : 30),
-  ...presentation,
-});
+): MusicMixDto => {
+  const unique = uniqueTracks(tracks);
+  return {
+    id,
+    type,
+    title,
+    subtitle,
+    description,
+    accent: accents[accentIndex % accents.length]!,
+    artworkUrls: artworkUrls(unique),
+    tracks: unique,
+    candidateCount,
+    trackCount: unique.length,
+    ...presentation,
+  };
+};
 
 const moodRules = [
   { id: 'relax', title: 'Rahatla', genres: ['chill', 'ambient', 'acoustic', 'folk', 'new age'] },
@@ -171,6 +206,14 @@ const moodRules = [
 ];
 
 const decadeTitle = (year: number) => `${Math.floor(year / 10) * 10}'lar`;
+
+export const isMeaningfulDiscoveryListen = (entry: {
+  listenedSeconds: number;
+  track: { duration: number | null };
+}) => {
+  const threshold = entry.track.duration ? Math.min(30, entry.track.duration * 0.45) : 15;
+  return entry.listenedSeconds >= threshold;
+};
 
 interface RadioSeed {
   id: string;
@@ -201,7 +244,7 @@ export const buildRadioMix = (
   });
   const candidates = related.length >= Math.min(30, tracks.length) ? related : tracks;
   const radioLimit = Math.min(
-    60,
+    DISCOVERY_LIMITS.radio,
     candidates.length,
     cappedDiversityCapacity(candidates, trackArtistKey, 4),
     cappedDiversityCapacity(candidates, trackAlbumKey, 2),
@@ -238,6 +281,7 @@ export const buildRadioMix = (
     'Benzer türler, dönemler ve farklı sanatçılardan aralıksız akış',
     selected,
     4,
+    candidates.length,
     undefined,
     {
       titleKey: 'music.discovery.radio.title',
@@ -246,6 +290,33 @@ export const buildRadioMix = (
     },
   );
 };
+
+interface MixPlan {
+  id: string;
+  type: MusicMixDto['type'];
+  title: string;
+  subtitle: string;
+  accentIndex: number;
+  selected: DiscoveryCandidate[];
+  candidateCount: number;
+  presentation?: Parameters<typeof mix>[8];
+}
+
+const materializeMix = (plan: MixPlan, tracksById: Map<string, MusicTrackDto>) =>
+  mix(
+    plan.id,
+    plan.type,
+    plan.title,
+    plan.subtitle,
+    plan.selected.flatMap((candidate) => {
+      const track = tracksById.get(candidate.id);
+      return track ? [track] : [];
+    }),
+    plan.accentIndex,
+    plan.candidateCount,
+    undefined,
+    plan.presentation,
+  );
 
 export class MusicDiscoveryService {
   private readonly discoveryCache = new Map<
@@ -256,31 +327,38 @@ export class MusicDiscoveryService {
 
   constructor(private readonly prisma: PrismaClient) {}
 
-  public async getDiscovery(userId: string): Promise<MusicDiscoveryDto> {
-    const cached = this.discoveryCache.get(userId);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-    const inflight = this.discoveryInflight.get(userId);
+  public async getDiscovery(
+    userId: string,
+    requestedGenerationId?: string,
+  ): Promise<MusicDiscoveryDto> {
+    const generationId = requestedGenerationId || `daily-${dateKey()}`;
+    const cacheKey = `${userId}:${generationId}`;
+    const now = Date.now();
+    for (const [key, entry] of this.discoveryCache) {
+      if (entry.expiresAt <= now) this.discoveryCache.delete(key);
+    }
+    const cached = this.discoveryCache.get(cacheKey);
+    if (cached) return cached.value;
+    const inflight = this.discoveryInflight.get(cacheKey);
     if (inflight) return inflight;
 
-    const task = this.computeDiscovery(userId);
-    this.discoveryInflight.set(userId, task);
+    const task = this.computeDiscovery(userId, generationId);
+    this.discoveryInflight.set(cacheKey, task);
     try {
       const value = await task;
-      this.discoveryCache.set(userId, { expiresAt: Date.now() + 90_000, value });
+      this.discoveryCache.set(cacheKey, {
+        expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+        value,
+      });
       return value;
     } finally {
-      this.discoveryInflight.delete(userId);
+      this.discoveryInflight.delete(cacheKey);
     }
   }
 
-  private async computeDiscovery(userId: string): Promise<MusicDiscoveryDto> {
-    const owned = { library: accessibleLibraryFilter(userId) };
-    const [rawTracks, history, playbackState, albums, artists] = await Promise.all([
-      findMusicTracksWithRelations(this.prisma, userId, {
-        where: owned,
-        orderBy: { createdAt: 'desc' },
-        take: 5000,
-      }),
+  private async computeDiscovery(userId: string, generationId: string): Promise<MusicDiscoveryDto> {
+    const [candidates, history, playbackState] = await Promise.all([
+      loadDiscoveryCandidates(this.prisma, userId),
       this.prisma.musicHistory.findMany({
         where: { userId },
         select: {
@@ -298,53 +376,29 @@ export class MusicDiscoveryService {
           },
         },
         orderBy: { playedAt: 'desc' },
-        take: 1000,
+        take: RECENT_HISTORY_LIMIT,
       }),
       this.prisma.musicPlaybackState.findFirst({
         where: { userId },
         orderBy: { updatedAt: 'desc' },
       }),
-      this.prisma.musicAlbum.findMany({
-        where: { tracks: { some: owned } },
-        include: {
-          artwork: { select: { id: true } },
-          artist: true,
-          _count: { select: { tracks: { where: owned } } },
-        },
-        take: 1000,
-      }),
-      this.prisma.musicArtist.findMany({
-        where: { trackCredits: { some: { track: owned } } },
-        include: {
-          _count: {
-            select: {
-              albums: { where: { tracks: { some: owned } } },
-              trackCredits: { where: { track: owned } },
-            },
-          },
-          artwork: { select: { id: true } },
-        },
-        take: 1000,
-      }),
     ]);
-    const tracks = rawTracks.map(formatMusicTrack);
-    const trackById = new Map(tracks.map((track) => [track.id, track]));
-    const isMeaningfulListen = (entry: (typeof history)[number]) => {
-      const threshold = entry.track.duration ? Math.min(30, entry.track.duration * 0.45) : 15;
-      return entry.listenedSeconds >= threshold;
-    };
-    // A quick skip is not a completed listen: keep that track eligible for
-    // rediscovery instead of teaching the recommendation model to hide it.
-    const listenedIds = new Set(history.filter(isMeaningfulListen).map((entry) => entry.trackId));
-    const recentlyListenedIds = new Set(
-      history
-        .filter(isMeaningfulListen)
-        .slice(0, 80)
-        .map((entry) => entry.trackId),
+
+    const meaningfulHistory = history.filter(isMeaningfulDiscoveryListen);
+    const listenedIds = new Set(meaningfulHistory.map((entry) => entry.trackId));
+    const recentIndex = new Map(
+      meaningfulHistory
+        .slice(0, RECENT_TRACK_PENALTY_COUNT)
+        .map((entry, index) => [entry.trackId, index]),
     );
+    const lastPlayedAt = new Map<string, Date>();
+    for (const entry of meaningfulHistory) {
+      if (!lastPlayedAt.has(entry.trackId)) lastPlayedAt.set(entry.trackId, entry.playedAt);
+    }
+
     const artistWeights = new Map<string, number>();
     const genreWeights = new Map<string, number>();
-    history.forEach((entry, index) => {
+    meaningfulHistory.forEach((entry, index) => {
       const completion = entry.track.duration
         ? Math.min(1, entry.listenedSeconds / entry.track.duration)
         : 0.6;
@@ -362,264 +416,369 @@ export class MusicDiscoveryService {
       );
     });
 
-    const preferenceScore = (track: MusicTrackDto) => {
-      const artistAffinity = track.primaryArtist?.id
-        ? Math.log1p(artistWeights.get(track.primaryArtist.id) || 0) * 5
+    const preferenceScore = (candidate: DiscoveryCandidate) => {
+      const artistAffinity = candidate.artistId
+        ? Math.log1p(artistWeights.get(candidate.artistId) || 0) * 5
         : 0;
-      const genreAffinity = trackGenres(track).reduce(
+      const genreAffinity = candidateGenres(candidate).reduce(
         (total, genre) => total + Math.log1p(genreWeights.get(genre) || 0) * 2.5,
         0,
       );
-      return artistAffinity + genreAffinity + (track.isFavorite ? 12 : 0);
+      return artistAffinity + genreAffinity + (candidate.isFavorite ? 8 : 0);
     };
 
-    const dayKey = dateKey();
-    const unheard = tracks.filter((track) => !listenedIds.has(track.id));
-    const dailyPool = unheard.length >= Math.min(12, tracks.length) ? unheard : tracks;
-    const daily = diversifyTracks(
-      dailyPool,
-      (track) =>
-        preferenceScore(track) +
-        (listenedIds.has(track.id) ? -18 : 24) -
-        Math.log1p(track.playCount || 0) * 3,
-      `daily:${dayKey}:${userId}`,
-      30,
-    );
+    // Tie time-decay to the newest catalogue/listen input. Recomputing an
+    // unchanged generation later therefore yields the same weighted ordering.
+    let currentTime = 0;
+    for (const candidate of candidates)
+      currentTime = Math.max(currentTime, candidate.createdAt.getTime());
+    for (const entry of meaningfulHistory)
+      currentTime = Math.max(currentTime, entry.playedAt.getTime());
+    const explorationScore = (candidate: DiscoveryCandidate) => {
+      const lastPlayed = lastPlayedAt.get(candidate.id);
+      const daysSincePlayed = lastPlayed
+        ? Math.max(0, (currentTime - lastPlayed.getTime()) / 86_400_000)
+        : 3_650;
+      const daysInLibrary = Math.max(0, (currentTime - candidate.createdAt.getTime()) / 86_400_000);
+      const recency = recentIndex.get(candidate.id);
+      return (
+        (!listenedIds.has(candidate.id) ? 32 : 0) +
+        Math.log1p(daysSincePlayed) * 4 +
+        Math.log1p(daysInLibrary) * 1.5 -
+        Math.log1p(candidate.playCount) * 5 -
+        (recency === undefined ? 0 : Math.max(18, 58 - recency * 0.45)) +
+        (candidate.isFavorite ? 3 : 0)
+      );
+    };
+
+    const selectionContext = createDiscoverySelectionContext();
+    const select = (
+      pool: DiscoveryCandidate[],
+      seed: string,
+      limit: number,
+      relevance: (candidate: DiscoveryCandidate) => number = preferenceScore,
+    ) =>
+      selectDiscoveryCandidates(
+        pool.map((candidate) => ({
+          value: candidate,
+          id: candidate.id,
+          artistKey: candidateArtistKey(candidate),
+          albumKey: candidateAlbumKey(candidate),
+          relevance:
+            relevance(candidate) -
+            (recentIndex.has(candidate.id) ? 42 : 0) -
+            Math.log1p(candidate.playCount) * 1.5,
+          exploration: explorationScore(candidate),
+        })),
+        `${generationId}:${seed}`,
+        Math.min(limit, pool.length),
+        selectionContext,
+      );
+
+    const unheard = candidates.filter((candidate) => !listenedIds.has(candidate.id));
+    const dailyPool = unheard.length >= Math.min(12, candidates.length) ? unheard : candidates;
+    const dailyPlan: MixPlan = {
+      id: `daily-${dateKey()}`,
+      type: 'daily',
+      title: 'Günlük Keşif',
+      subtitle: 'Dinleme alışkanlıkların ve kütüphanenin uzun kuyruğundan hazırlandı',
+      selected: select(
+        dailyPool,
+        'daily',
+        DISCOVERY_LIMITS.personalized,
+        (candidate) => preferenceScore(candidate) + (listenedIds.has(candidate.id) ? -18 : 24),
+      ),
+      candidateCount: dailyPool.length,
+      accentIndex: 0,
+      presentation: {
+        titleKey: 'music.discovery.daily.title',
+        subtitleKey: 'music.discovery.daily.subtitle',
+      },
+    };
+
+    const rediscoveryPool = candidates.filter((candidate) => !recentIndex.has(candidate.id));
+    const rediscoveryPlan: MixPlan | null = rediscoveryPool.length
+      ? {
+          id: `rediscovery-${dateKey()}`,
+          type: 'rediscovery',
+          title: 'Yeniden Keşfet',
+          subtitle: 'Bir süredir dinlemediğin güçlü seçimler',
+          selected: select(
+            rediscoveryPool,
+            'rediscovery',
+            DISCOVERY_LIMITS.personalized,
+            (candidate) => preferenceScore(candidate) + explorationScore(candidate) * 0.45,
+          ),
+          candidateCount: rediscoveryPool.length,
+          accentIndex: 4,
+          presentation: {
+            titleKey: 'music.discovery.rediscovery.title',
+            subtitleKey: 'music.discovery.rediscovery.subtitle',
+          },
+        }
+      : null;
+
+    const favoritePool = candidates.filter((candidate) => candidate.isFavorite);
+    const favoritesPlan: MixPlan | null = favoritePool.length
+      ? {
+          id: `favorites-${dateKey()}`,
+          type: 'favorites',
+          title: 'Favori Akışı',
+          subtitle: 'Favorilerinden çeşitlendirilmiş bir akış',
+          selected: select(
+            favoritePool,
+            'favorites',
+            DISCOVERY_LIMITS.personalized,
+            preferenceScore,
+          ),
+          candidateCount: favoritePool.length,
+          accentIndex: 3,
+          presentation: {
+            titleKey: 'music.discovery.favorites.title',
+            subtitleKey: 'music.discovery.favorites.subtitle',
+          },
+        }
+      : null;
 
     const libraryArtistWeights = new Map(artistWeights);
-    for (const track of tracks) {
-      if (!track.primaryArtist?.id) continue;
+    for (const candidate of candidates) {
+      if (!candidate.artistId) continue;
       libraryArtistWeights.set(
-        track.primaryArtist.id,
-        (libraryArtistWeights.get(track.primaryArtist.id) || 0) +
-          (track.isFavorite ? 8 : 0) +
-          Math.log1p(track.playCount || 0),
+        candidate.artistId,
+        (libraryArtistWeights.get(candidate.artistId) || 0) +
+          (candidate.isFavorite ? 8 : 0) +
+          Math.log1p(candidate.playCount),
       );
     }
     const topArtists = [...libraryArtistWeights.entries()]
       .filter(([, weight]) => weight > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-    const recentMixes = topArtists
-      .map(([artistId], index) => {
-        const artist = artists.find((item) => item.id === artistId);
-        if (!artist) return null;
-        const seedGenres = new Set(
-          tracks.filter((track) => track.primaryArtist?.id === artistId).flatMap(trackGenres),
-        );
-        const candidates = tracks.filter(
-          (track) =>
-            track.primaryArtist?.id === artistId ||
-            trackGenres(track).some((genre) => seedGenres.has(genre)),
-        );
-        const selected = diversifyTracks(
-          candidates,
-          (track) =>
-            preferenceScore(track) +
-            (track.primaryArtist?.id === artistId ? 24 : 0) +
-            trackGenres(track).filter((genre) => seedGenres.has(genre)).length * 5 -
-            Math.log1p(track.playCount || 0),
-          `artist:${dayKey}:${artistId}`,
-          30,
-          4,
-          2,
-        );
-        return mix(
-          `recent-${artistId}`,
-          'recent',
-          `${artist.name} Mix`,
-          'Son dinlediklerinden hazırlandı',
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, MAX_ARTIST_MIXES);
+    const candidateByArtist = new Map<string, DiscoveryCandidate>();
+    for (const candidate of candidates) {
+      if (candidate.artistId && !candidateByArtist.has(candidate.artistId))
+        candidateByArtist.set(candidate.artistId, candidate);
+    }
+    const recentPlans = topArtists.flatMap(([artistId], index): MixPlan[] => {
+      const artist = candidateByArtist.get(artistId);
+      if (!artist?.artistName) return [];
+      const seedGenres = new Set(
+        candidates.filter((candidate) => candidate.artistId === artistId).flatMap(candidateGenres),
+      );
+      const pool = candidates.filter(
+        (candidate) =>
+          candidate.artistId === artistId ||
+          candidateGenres(candidate).some((genre) => seedGenres.has(genre)),
+      );
+      if (!pool.length) return [];
+      const selected = select(
+        pool,
+        `artist:${artistId}`,
+        DISCOVERY_LIMITS.personalized,
+        (candidate) =>
+          preferenceScore(candidate) +
+          (candidate.artistId === artistId ? 20 : 0) +
+          candidateGenres(candidate).filter((genre) => seedGenres.has(genre)).length * 5,
+      );
+      return [
+        {
+          id: `recent-${artistId}`,
+          type: 'recent',
+          title: `${artist.artistName} Mix`,
+          subtitle: 'Son dinlediklerinden hazırlandı',
           selected,
-          index + 1,
-          undefined,
-          {
+          candidateCount: pool.length,
+          accentIndex: index + 1,
+          presentation: {
             titleKey: 'music.discovery.artistMix.title',
-            titleArguments: [artist.name],
+            titleArguments: [artist.artistName],
             subtitleKey: 'music.discovery.artistMix.subtitle',
           },
-        );
-      })
-      .filter((item): item is MusicMixDto => !!item && item.tracks.length > 0);
+        },
+      ];
+    });
 
-    const moodCollections = moodRules
-      .map((rule, index) => {
-        const candidates = tracks.filter((track) =>
-          trackGenres(track).some((genre) =>
-            rule.genres.some((candidate) => genre.includes(normalizeGenre(candidate))),
-          ),
-        );
-        const diversity = artistDiversity(candidates);
-        const selected = diversifyTracks(
-          candidates,
-          (track) => preferenceScore(track) - Math.log1p(track.playCount || 0),
-          `mood:${dayKey}:${rule.id}`,
-          Math.min(24, diversity * 4),
-        );
-        return mix(
-          `mood-${rule.id}`,
-          'mood',
-          rule.title,
-          `${selected.length} parçalık ruh hali seçkisi`,
+    const moodPlans = moodRules.flatMap((rule, index): MixPlan[] => {
+      const pool = candidates.filter((candidate) =>
+        candidateGenres(candidate).some((genre) =>
+          rule.genres.some((ruleGenre) => genre.includes(normalizeGenre(ruleGenre))),
+        ),
+      );
+      if (pool.length < MIN_MOOD_TRACKS || artistDiversity(pool, candidateArtistKey) < 3) return [];
+      const selected = select(pool, `mood:${rule.id}`, DISCOVERY_LIMITS.collection);
+      return [
+        {
+          id: `mood-${rule.id}`,
+          type: 'mood',
+          title: rule.title,
+          subtitle: `${pool.length} parçadan ${selected.length} şarkılık ruh hali seçkisi`,
           selected,
-          index + 2,
-          undefined,
-          {
+          candidateCount: pool.length,
+          accentIndex: index + 2,
+          presentation: {
             titleKey: `music.discovery.mood.${rule.id}.title`,
             subtitleKey: 'music.discovery.selection.mood.subtitle',
             subtitleArguments: [selected.length],
           },
-        );
-      })
-      .filter((item) => item.tracks.length >= 8 && artistDiversity(item.tracks) >= 3);
+        },
+      ];
+    });
 
-    const genreCounts = new Map<string, { label: string; count: number }>();
-    const genreArtists = new Map<string, Set<string>>();
-    for (const track of tracks) {
-      const labels = [...track.genres, ...(track.album?.genres || [])];
-      const countedGenres = new Set<string>();
-      for (const label of labels) {
+    const genreCounts = new Map<string, { label: string; candidates: DiscoveryCandidate[] }>();
+    for (const candidate of candidates) {
+      const rawLabels = [...candidate.genres, ...candidate.albumGenres];
+      const counted = new Set<string>();
+      for (const label of rawLabels) {
         const key = normalizeGenre(label);
-        if (!key || !countedGenres.add(key)) continue;
-        const current = genreCounts.get(key);
-        genreCounts.set(key, {
-          label: current?.label || label.trim(),
-          count: (current?.count || 0) + 1,
-        });
-        const artistKey = trackArtistKey(track);
-        const artistIDs = genreArtists.get(key) || new Set<string>();
-        artistIDs.add(artistKey);
-        genreArtists.set(key, artistIDs);
+        if (!key || !counted.add(key)) continue;
+        const current = genreCounts.get(key) || { label: label.trim(), candidates: [] };
+        current.candidates.push(candidate);
+        genreCounts.set(key, current);
       }
     }
     const rankedGenres = [...genreCounts.entries()]
-      .filter(([, value]) => value.count >= 4)
-      .filter(([genre]) => isUsefulGenre(genre))
-      .filter(([genre]) => (genreArtists.get(genre)?.size || 0) >= 3)
-      .sort((left, right) => right[1].count - left[1].count);
+      .filter(
+        ([genre, value]) =>
+          isUsefulGenre(genre) &&
+          value.candidates.length >= MIN_COLLECTION_TRACKS &&
+          artistDiversity(value.candidates, candidateArtistKey) >= 3,
+      )
+      .sort(
+        (left, right) =>
+          right[1].candidates.length - left[1].candidates.length || left[0].localeCompare(right[0]),
+      );
     const selectedGenres: typeof rankedGenres = [];
     for (const entry of rankedGenres) {
       const [genre] = entry;
       if (selectedGenres.some(([selected]) => selected.includes(genre) || genre.includes(selected)))
         continue;
       selectedGenres.push(entry);
-      if (selectedGenres.length >= 10) break;
+      if (selectedGenres.length >= MAX_GENRE_COLLECTIONS) break;
     }
-    const genreCollections = selectedGenres.map(([genre, value], index) => {
-      const candidates = tracks.filter((track) => trackGenres(track).includes(genre));
-      const selected = diversifyTracks(
-        candidates,
-        (track) => preferenceScore(track) - Math.log1p(track.playCount || 0),
-        `genre:${dayKey}:${genre}`,
-        Math.min(24, artistDiversity(candidates) * 4),
-      );
-      return mix(
-        `genre-${genre.replace(/\s+/g, '-')}`,
-        'genre',
-        value.label,
-        `${value.count} parçalık tür seçkisi`,
+    const genrePlans = selectedGenres.map(([genre, value], index): MixPlan => {
+      const selected = select(value.candidates, `genre:${genre}`, DISCOVERY_LIMITS.collection);
+      return {
+        id: `genre-${genre.replace(/\s+/g, '-')}`,
+        type: 'genre',
+        title: value.label,
+        subtitle: `${value.candidates.length} parçadan ${selected.length} şarkılık seçki`,
         selected,
-        index + 1,
-        undefined,
-        {
+        candidateCount: value.candidates.length,
+        accentIndex: index + 1,
+        presentation: {
           subtitleKey: 'music.discovery.selection.genre.subtitle',
-          subtitleArguments: [value.count],
+          subtitleArguments: [selected.length],
         },
-      );
+      };
     });
 
-    const decadeGroups = new Map<number, MusicTrackDto[]>();
-    for (const track of tracks) {
-      const year = track.year || track.album?.year;
+    const decadeGroups = new Map<number, DiscoveryCandidate[]>();
+    for (const candidate of candidates) {
+      const year = candidate.year || candidate.albumYear;
       if (!year || year < 1900) continue;
       const decade = Math.floor(year / 10) * 10;
-      decadeGroups.set(decade, [...(decadeGroups.get(decade) || []), track]);
+      const group = decadeGroups.get(decade) || [];
+      group.push(candidate);
+      decadeGroups.set(decade, group);
     }
-    const decadeCollections = [...decadeGroups.entries()]
-      .filter(([, items]) => items.length >= 4)
+    const decadePlans = [...decadeGroups.entries()]
+      .filter(([, pool]) => pool.length >= MIN_COLLECTION_TRACKS)
       .sort((left, right) => right[0] - left[0])
-      .slice(0, 8)
-      .map(([decade, items], index) =>
-        mix(
-          `decade-${decade}`,
-          'decade',
-          decadeTitle(decade),
-          `${items.length} parçalık dönem seçkisi`,
-          diversifyTracks(
-            items,
-            (track) => preferenceScore(track) - Math.log1p(track.playCount || 0),
-            `decade:${dayKey}:${decade}`,
-            24,
-          ),
-          index + 3,
-          undefined,
-          {
+      .slice(0, MAX_DECADE_COLLECTIONS)
+      .map(([decade, pool], index): MixPlan => {
+        const selected = select(pool, `decade:${decade}`, DISCOVERY_LIMITS.collection);
+        return {
+          id: `decade-${decade}`,
+          type: 'decade',
+          title: decadeTitle(decade),
+          subtitle: `${pool.length} parçadan ${selected.length} şarkılık dönem seçkisi`,
+          selected,
+          candidateCount: pool.length,
+          accentIndex: index + 3,
+          presentation: {
             titleKey: 'music.discovery.decade.title',
             titleArguments: [decade],
             subtitleKey: 'music.discovery.selection.decade.subtitle',
-            subtitleArguments: [items.length],
+            subtitleArguments: [selected.length],
           },
-        ),
-      );
-
-    const favoriteTracks = tracks.filter((track) => track.isFavorite);
-    const rediscovery = diversifyTracks(
-      tracks.filter((track) => !recentlyListenedIds.has(track.id)),
-      (track) =>
-        (track.isFavorite ? 10 : 0) +
-        Math.log1p(track.playCount || 0) * 5 -
-        (recentlyListenedIds.has(track.id) ? 30 : 0),
-      `rediscovery:${dayKey}:${userId}`,
-      30,
-    );
-    const favoritesMix = diversifyTracks(
-      favoriteTracks,
-      (track) => preferenceScore(track) - Math.log1p(track.playCount || 0),
-      `favorites:${dayKey}:${userId}`,
-      30,
-    );
-
-    const albumHistory = new Map<string, Set<string>>();
-    history.forEach((entry) => {
-      if (!entry.track.albumId) return;
-      const set = albumHistory.get(entry.track.albumId) || new Set<string>();
-      set.add(entry.trackId);
-      albumHistory.set(entry.track.albumId, set);
-    });
-    const tracksByAlbum = new Map<string, MusicTrackDto[]>();
-    for (const track of tracks) {
-      const albumId = track.album?.id;
-      if (!albumId) continue;
-      const albumTracks = tracksByAlbum.get(albumId) || [];
-      albumTracks.push(track);
-      tracksByAlbum.set(albumId, albumTracks);
-    }
-    const unfinishedAlbums = albums
-      .map((album) => {
-        const played = albumHistory.get(album.id)?.size || 0;
-        const progress = album._count.tracks ? played / album._count.tracks : 0;
-        const albumTracks = (tracksByAlbum.get(album.id) || []).sort(
-          (a, b) => a.discNumber - b.discNumber || a.trackNumber - b.trackNumber,
-        );
-        return {
-          id: album.id,
-          title: album.title,
-          year: album.year,
-          genres: parseGenres(album.genres),
-          artist: album.artist,
-          artworkUrl: album.artwork ? `/api/music/artwork/${album.artwork.id}` : null,
-          trackCount: album._count.tracks,
-          releaseType: album.releaseType,
-          secondaryTypes: parseGenres(album.secondaryTypes),
-          progress,
-          tracks: albumTracks,
         };
-      })
+      });
+
+    const primaryPlans = [dailyPlan, rediscoveryPlan, favoritesPlan, ...recentPlans].filter(
+      (plan): plan is MixPlan => !!plan && plan.selected.length > 0,
+    );
+    const collectionPlans = [...moodPlans, ...genrePlans, ...decadePlans];
+    if (!collectionPlans.length && candidates.length) {
+      const selected = select(candidates, 'library', DISCOVERY_LIMITS.fallback);
+      moodPlans.push({
+        id: `collection-library-${dateKey()}`,
+        type: 'collection',
+        title: 'Kütüphaneden Seçmeler',
+        subtitle: `${candidates.length} parçadan ${selected.length} şarkılık seçki`,
+        selected,
+        candidateCount: candidates.length,
+        accentIndex: 5,
+        presentation: {
+          titleKey: 'music.discovery.collection.title',
+          subtitleKey: 'music.discovery.collection.subtitle',
+        },
+      });
+    }
+
+    const meaningfulAlbumHistory = new Map<string, Set<string>>();
+    for (const entry of meaningfulHistory) {
+      if (!entry.track.albumId) continue;
+      const tracks = meaningfulAlbumHistory.get(entry.track.albumId) || new Set<string>();
+      tracks.add(entry.trackId);
+      meaningfulAlbumHistory.set(entry.track.albumId, tracks);
+    }
+    const candidatesByAlbum = new Map<string, DiscoveryCandidate[]>();
+    for (const candidate of candidates) {
+      if (!candidate.albumId) continue;
+      const albumTracks = candidatesByAlbum.get(candidate.albumId) || [];
+      albumTracks.push(candidate);
+      candidatesByAlbum.set(candidate.albumId, albumTracks);
+    }
+    const unfinishedAlbumCandidates = [...candidatesByAlbum.entries()]
+      .map(([albumId, albumTracks]) => ({
+        albumId,
+        albumTracks,
+        progress: (meaningfulAlbumHistory.get(albumId)?.size || 0) / albumTracks.length,
+      }))
       .filter((album) => album.progress > 0 && album.progress < 0.9)
-      .sort((a, b) => b.progress - a.progress)
+      .sort((left, right) => right.progress - left.progress)
       .slice(0, 6);
 
+    const allPlans = [...primaryPlans, ...moodPlans, ...genrePlans, ...decadePlans];
+    const selectedIds = allPlans.flatMap((plan) => plan.selected.map((candidate) => candidate.id));
+    selectedIds.push(
+      ...unfinishedAlbumCandidates.flatMap((album) =>
+        album.albumTracks.map((candidate) => candidate.id),
+      ),
+    );
+    if (playbackState?.currentTrackId) selectedIds.push(playbackState.currentTrackId);
+
+    const hydrated = await findMusicTracksByIdsWithRelations(this.prisma, userId, selectedIds, {
+      library: accessibleLibraryFilter(userId),
+    });
+    const tracksById = new Map(hydrated.map(formatMusicTrack).map((track) => [track.id, track]));
+
+    const unfinishedAlbums = unfinishedAlbumCandidates.flatMap((album) => {
+      const tracks = album.albumTracks
+        .sort(
+          (left, right) =>
+            left.discNumber - right.discNumber || left.trackNumber - right.trackNumber,
+        )
+        .flatMap((candidate) => {
+          const track = tracksById.get(candidate.id);
+          return track ? [track] : [];
+        });
+      const details = tracks[0]?.album;
+      return details ? [{ ...details, progress: album.progress, tracks }] : [];
+    });
+
     const currentTrack = playbackState?.currentTrackId
-      ? trackById.get(playbackState.currentTrackId)
+      ? tracksById.get(playbackState.currentTrackId)
       : undefined;
     const continueListening =
       currentTrack &&
@@ -628,107 +787,124 @@ export class MusicDiscoveryService {
         ? { track: currentTrack, positionSeconds: playbackState!.positionSeconds }
         : null;
 
-    const radioArtists = artists
-      .sort((a, b) => (libraryArtistWeights.get(b.id) || 0) - (libraryArtistWeights.get(a.id) || 0))
+    const artistTrackCounts = new Map<string, number>();
+    for (const candidate of candidates) {
+      if (candidate.artistId)
+        artistTrackCounts.set(
+          candidate.artistId,
+          (artistTrackCounts.get(candidate.artistId) || 0) + 1,
+        );
+    }
+    const radioArtists: MusicArtistDto[] = [...candidateByArtist.entries()]
+      .sort(
+        ([leftId], [rightId]) =>
+          (libraryArtistWeights.get(rightId) || 0) - (libraryArtistWeights.get(leftId) || 0) ||
+          leftId.localeCompare(rightId),
+      )
       .slice(0, 18)
-      .map(formatMusicArtist);
-
-    const mixes = [
-      mix(
-        `daily-${dayKey}`,
-        'daily',
-        'Günlük Keşif',
-        'Dinleme alışkanlıkların, az çalınanlar ve kütüphane çeşitliliğiyle hazırlandı',
-        daily,
-        0,
-        undefined,
-        {
-          titleKey: 'music.discovery.daily.title',
-          subtitleKey: 'music.discovery.daily.subtitle',
-        },
-      ),
-      ...(rediscovery.length
-        ? [
-            mix(
-              `rediscovery-${dayKey}`,
-              'rediscovery',
-              'Yeniden Keşfet',
-              'Bir süredir dinlemediğin güçlü seçimler',
-              rediscovery,
-              4,
-              undefined,
-              {
-                titleKey: 'music.discovery.rediscovery.title',
-                subtitleKey: 'music.discovery.rediscovery.subtitle',
-              },
-            ),
-          ]
-        : []),
-      ...(favoritesMix.length
-        ? [
-            mix(
-              `favorites-${dayKey}`,
-              'favorites',
-              'Favori Akışı',
-              'Favorilerinden çeşitlendirilmiş günlük akış',
-              favoritesMix,
-              3,
-              undefined,
-              {
-                titleKey: 'music.discovery.favorites.title',
-                subtitleKey: 'music.discovery.favorites.subtitle',
-              },
-            ),
-          ]
-        : []),
-      ...recentMixes,
-    ].filter((item) => item.tracks.length > 0);
-
-    if (
-      !moodCollections.length &&
-      !genreCollections.length &&
-      !decadeCollections.length &&
-      tracks.length
-    )
-      moodCollections.push(
-        mix(
-          `collection-library-${dayKey}`,
-          'collection',
-          'Kütüphaneden Seçmeler',
-          'Az çalınan sanatçı ve albümlerden dengeli bir seçki',
-          diversifyTracks(
-            tracks,
-            (track) => -Math.log1p(track.playCount || 0),
-            `library:${dayKey}:${userId}`,
-            24,
-          ),
-          5,
-          undefined,
-          {
-            titleKey: 'music.discovery.collection.title',
-            subtitleKey: 'music.discovery.collection.subtitle',
-          },
-        ),
-      );
+      .map(([artistId, candidate]) => ({
+        id: artistId,
+        name: candidate.artistName || 'Sanatçı',
+        artworkUrl: candidate.artistArtworkUrl,
+        trackCount: artistTrackCounts.get(artistId),
+      }));
 
     return {
-      mixes,
-      moodCollections,
-      genreCollections,
-      decadeCollections,
+      generationId,
+      generatedAt: new Date().toISOString(),
+      mixes: primaryPlans.map((plan) => materializeMix(plan, tracksById)),
+      moodCollections: moodPlans.map((plan) => materializeMix(plan, tracksById)),
+      genreCollections: genrePlans.map((plan) => materializeMix(plan, tracksById)),
+      decadeCollections: decadePlans.map((plan) => materializeMix(plan, tracksById)),
       continueListening,
       unfinishedAlbums,
       radioArtists,
     };
   }
 
-  public async getArtistRadio(userId: string, artistId: string) {
-    const [rawTracks, artist, history] = await Promise.all([
-      findMusicTracksWithRelations(this.prisma, userId, {
-        where: { library: accessibleLibraryFilter(userId) },
-        orderBy: { createdAt: 'desc' },
-        take: 5000,
+  private async buildCandidateRadio(
+    userId: string,
+    candidates: DiscoveryCandidate[],
+    seedId: string,
+    seedTitle: string,
+    seedCandidates: DiscoveryCandidate[],
+    artistId?: string,
+  ): Promise<MusicMixDto> {
+    const history = await this.prisma.musicHistory.findMany({
+      where: { userId },
+      select: { trackId: true },
+      orderBy: { playedAt: 'desc' },
+      take: 600,
+    });
+    const seedGenres = new Set(seedCandidates.flatMap(candidateGenres));
+    const seedYears = seedCandidates
+      .map((candidate) => candidate.year || candidate.albumYear)
+      .filter((year): year is number => !!year);
+    const centerYear = seedYears.length
+      ? seedYears.reduce((total, year) => total + year, 0) / seedYears.length
+      : null;
+    const seedIds = new Set(seedCandidates.map((candidate) => candidate.id));
+    const related = candidates.filter((candidate) => {
+      if (seedIds.has(candidate.id) || (artistId && candidate.artistId === artistId)) return true;
+      if (candidateGenres(candidate).some((genre) => seedGenres.has(genre))) return true;
+      const year = candidate.year || candidate.albumYear;
+      return centerYear !== null && !!year && Math.abs(year - centerYear) <= 6;
+    });
+    const pool = related.length >= Math.min(30, candidates.length) ? related : candidates;
+    const recentIndex = new Map(history.map((entry, index) => [entry.trackId, index]));
+    const selected = selectDiscoveryCandidates(
+      pool.map((candidate) => {
+        const overlap = candidateGenres(candidate).filter((genre) => seedGenres.has(genre)).length;
+        const year = candidate.year || candidate.albumYear;
+        const yearAffinity =
+          centerYear !== null && year ? Math.max(0, 8 - Math.abs(year - centerYear) * 0.7) : 0;
+        const historyIndex = recentIndex.get(candidate.id);
+        const recentPenalty =
+          historyIndex === undefined ? 0 : Math.max(0, 24 - Math.log1p(historyIndex) * 3.5);
+        const relevance =
+          (artistId && candidate.artistId === artistId ? 22 : 0) +
+          overlap * 9 +
+          yearAffinity +
+          (candidate.isFavorite ? 5 : 0) -
+          recentPenalty;
+        return {
+          value: candidate,
+          id: candidate.id,
+          artistKey: candidateArtistKey(candidate),
+          albumKey: candidateAlbumKey(candidate),
+          relevance,
+          exploration: relevance - Math.log1p(candidate.playCount) * 3,
+        };
       }),
+      `radio:${dateKey()}:${seedId}`,
+      Math.min(DISCOVERY_LIMITS.radio, pool.length),
+    );
+    const rawTracks = await findMusicTracksByIdsWithRelations(
+      this.prisma,
+      userId,
+      selected.map((candidate) => candidate.id),
+      { library: accessibleLibraryFilter(userId) },
+    );
+    return mix(
+      `radio-${seedId}`,
+      'artist-radio',
+      `${seedTitle} Radyosu`,
+      'Benzer türler, dönemler ve farklı sanatçılardan aralıksız akış',
+      rawTracks.map(formatMusicTrack),
+      4,
+      pool.length,
+      undefined,
+      {
+        titleKey: 'music.discovery.radio.title',
+        titleArguments: [seedTitle],
+        subtitleKey: 'music.discovery.radio.subtitle',
+      },
+    );
+  }
+
+  public async getArtistRadio(userId: string, artistId: string) {
+    const [candidates, artist] = await Promise.all([
+      loadDiscoveryCandidates(this.prisma, userId),
       this.prisma.musicArtist.findFirst({
         where: {
           id: artistId,
@@ -737,49 +913,31 @@ export class MusicDiscoveryService {
             { albumTracks: { some: { library: accessibleLibraryFilter(userId) } } },
           ],
         },
-      }),
-      this.prisma.musicHistory.findMany({
-        where: { userId },
-        select: { trackId: true },
-        orderBy: { playedAt: 'desc' },
-        take: 600,
+        select: { name: true },
       }),
     ]);
-    const tracks = rawTracks.map(formatMusicTrack);
-    const seed = tracks.filter((track) => track.primaryArtist?.id === artistId);
-    return buildRadioMix(
-      tracks,
-      history.map((entry) => entry.trackId),
-      { id: `artist-${artistId}`, title: artist?.name || 'Sanatçı', tracks: seed, artistId },
+    const seed = candidates.filter((candidate) => candidate.artistId === artistId);
+    return this.buildCandidateRadio(
+      userId,
+      candidates,
+      `artist-${artistId}`,
+      artist?.name || seed[0]?.artistName || 'Sanatçı',
+      seed,
+      artistId,
     );
   }
 
   public async getTrackRadio(userId: string, trackId: string) {
-    const [rawTracks, history] = await Promise.all([
-      findMusicTracksWithRelations(this.prisma, userId, {
-        where: { library: accessibleLibraryFilter(userId) },
-        orderBy: { createdAt: 'desc' },
-        take: 5000,
-      }),
-      this.prisma.musicHistory.findMany({
-        where: { userId },
-        select: { trackId: true },
-        orderBy: { playedAt: 'desc' },
-        take: 600,
-      }),
-    ]);
-    const tracks = rawTracks.map(formatMusicTrack);
-    const seedTrack = tracks.find((track) => track.id === trackId);
-    if (!seedTrack) return null;
-    return buildRadioMix(
-      tracks,
-      history.map((entry) => entry.trackId),
-      {
-        id: `track-${trackId}`,
-        title: seedTrack.title,
-        tracks: [seedTrack],
-        artistId: seedTrack.primaryArtist?.id,
-      },
+    const candidates = await loadDiscoveryCandidates(this.prisma, userId);
+    const seed = candidates.find((candidate) => candidate.id === trackId);
+    if (!seed) return null;
+    return this.buildCandidateRadio(
+      userId,
+      candidates,
+      `track-${trackId}`,
+      seed.title,
+      [seed],
+      seed.artistId || undefined,
     );
   }
 }
