@@ -28,6 +28,8 @@ import {
   musicPlaybackClientQuerySchema,
   reorderMusicPlaylistSchema,
   patchMusicPlaybackStateSchema,
+  musicAiPlaylistRequestSchema,
+  musicLanguageEnrichmentRequestSchema,
   saveMusicMixSchema,
   updateMusicLyricsSchema,
   updateMusicTrackMetadataSchema,
@@ -52,6 +54,8 @@ import {
 } from '../services/music-lyrics.service.js';
 import { MusicBrainzService } from '../services/musicbrainz.service.js';
 import { MusicDiscoveryService } from '../services/music-discovery.service.js';
+import { MusicAiPlaylistService } from '../services/music-ai-playlist.service.js';
+import { createMusicAiProvider, MusicAiProviderError } from '../services/music-ai-provider.js';
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
 import {
@@ -60,6 +64,8 @@ import {
   hasMeaningfulSuggestionChange,
 } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
+import { MusicLanguageEnrichmentService } from '../services/music-language-enrichment.service.js';
+import { normalizeMusicLanguageCode } from '../services/music-language-evidence.js';
 import { env } from '../config/env.js';
 import {
   isMusicArtworkVariant,
@@ -349,9 +355,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const lyricsService = new MusicLyricsService(fastify.prisma);
   const musicbrainz = new MusicBrainzService();
   const discoveryService = new MusicDiscoveryService(fastify.prisma);
+  const aiPlaylistService = new MusicAiPlaylistService(fastify.prisma, createMusicAiProvider(env));
   const replayGainService = new MusicReplayGainService(fastify.prisma);
   const replayService = new MusicReplayService(fastify.prisma);
   const maintenanceService = new MusicMaintenanceService(fastify.prisma);
+  const languageEnrichmentService = new MusicLanguageEnrichmentService(
+    fastify.prisma,
+    env.NODE_ENV === 'test' ? undefined : lyricsService,
+  );
   const fingerprintService = new MusicFingerprintService(fastify.prisma);
   fastify.addHook('preHandler', async (request, reply) => {
     if (!request.user && (request.method === 'GET' || request.method === 'HEAD')) {
@@ -631,6 +642,43 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  fastify.get('/discovery/ai/status', async () => ({ enabled: aiPlaylistService.isEnabled() }));
+
+  fastify.post('/discovery/ai', async (request, reply) => {
+    const parsed = musicAiPlaylistRequestSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçerli bir müzik isteği ve üretim kimliği girin.',
+          requestId: request.id,
+        },
+      });
+    try {
+      return await aiPlaylistService.generate(
+        request.user!.id,
+        parsed.data.prompt,
+        parsed.data.generationId,
+      );
+    } catch (error) {
+      if (error instanceof MusicAiProviderError) {
+        if (error.failure === 'rate-limited') reply.header('Retry-After', '5');
+        request.log.warn(
+          { event: 'music_ai_unavailable', failure: error.failure, userId: request.user!.id },
+          'Music AI playlist planning unavailable',
+        );
+        return reply.status(503).send({
+          error: {
+            code: 'MUSIC_AI_UNAVAILABLE',
+            message: 'AI ile liste oluşturma şu anda kullanılamıyor.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
+    }
+  });
+
   fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
     const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);
     if (!mix)
@@ -670,6 +718,24 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     if (typeof request.headers['x-cinemusic-version'] !== 'string') return { mix };
     return { mix: presentMusicMixForNativeClient(mix) };
   });
+
+  fastify.post('/maintenance/languages/enrich', async (request, reply) => {
+    const parsed = musicLanguageEnrichmentRequestSchema.safeParse(request.body ?? {});
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz language enrichment limiti.',
+          requestId: request.id,
+        },
+      });
+    const job = languageEnrichmentService.startUser(request.user!.id, parsed.data);
+    return reply.status(job.status === 'started' ? 202 : 200).send(job);
+  });
+
+  fastify.get('/maintenance/languages/stats', async (request) =>
+    languageEnrichmentService.stats(request.user!.id),
+  );
 
   fastify.get('/maintenance', async (request) => {
     const userId = request.user!.id;
@@ -1233,6 +1299,18 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     const input = parsed.data;
+    const manualLanguage =
+      input.languageCode === undefined || input.languageCode === null
+        ? input.languageCode
+        : normalizeMusicLanguageCode(input.languageCode);
+    if (input.languageCode && !manualLanguage)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz parça dili.',
+          requestId: request.id,
+        },
+      });
     const catalogOwnerId = existing.library.userId;
     await fastify.prisma.$transaction(async (transaction) => {
       const primaryArtist = await transaction.musicArtist.upsert({
@@ -1303,6 +1381,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           discNumber: input.discNumber,
           trackNumber: input.trackNumber,
           metadataLocked: input.metadataLocked,
+          ...(manualLanguage === undefined
+            ? {}
+            : manualLanguage
+              ? {
+                  languageCode: manualLanguage,
+                  languageSource: 'manual',
+                  languageConfidence: 1,
+                  languageDetectionVersion: null,
+                  languageUpdatedAt: new Date(),
+                }
+              : {
+                  languageCode: null,
+                  languageSource: null,
+                  languageConfidence: null,
+                  languageDetectionVersion: null,
+                  languageUpdatedAt: null,
+                }),
         },
       });
       await transaction.musicTrackArtist.deleteMany({ where: { trackId: existing.id } });
@@ -2900,6 +2995,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     await fastify.prisma.musicLyrics.deleteMany({ where: { trackId: track.id } });
+    await languageEnrichmentService.invalidateLyricsEvidence(track.id);
     return reply.status(204).send();
   });
 

@@ -7,6 +7,7 @@ import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isVideoFilename } from './media-file-types.js';
 
 export class LocalScanService {
@@ -543,6 +544,9 @@ export class LocalScanService {
         where: { id: libraryId },
         data: { lastScannedAt: new Date() },
       });
+      void new MusicLanguageEnrichmentService(this.prisma)
+        .enrichLibrary(libraryId)
+        .catch(() => undefined);
 
       return { success: true, filesScanned: filesScannedCount };
     } catch (err: unknown) {

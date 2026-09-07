@@ -56,6 +56,30 @@ OAuth izin ekranı, kapsamlar ve callback yapılandırması için [Google Drive 
 
 Oynatma sınırları host'u sınırsız FFmpeg işinden korur. Bu değerleri yalnızca kullanılabilir CPU, bellek ve disk kapasitesini gözlemledikten sonra artırın. Mod ve toparlanma modeli için [Oynatma](PLAYBACK.tr.md) belgesine bakın.
 
+## İsteğe bağlı AI çalma listesi planlama
+
+Doğal dille çalma listesi planlama yalnızca `MUSIC_AI_API_KEY` tanımlandığında etkinleşir. Çağrı yalnız sunucudan yapılır ve normal Music Discovery V2 endpoint'lerini etkilemez.
+
+| Değişken              | Amaç                                                                           |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `MUSIC_AI_PROVIDER`   | Provider adapter'ı; varsayılan `groq`.                                         |
+| `MUSIC_AI_API_KEY`    | Yalnız sunucuda tutulan provider anahtarı. Boş bırakıldığında özellik kapanır. |
+| `MUSIC_AI_MODEL`      | OpenAI-compatible model kimliği; varsayılan `qwen/qwen3.8-27b`.                |
+| `MUSIC_AI_BASE_URL`   | OpenAI-compatible API kökü; varsayılan `https://api.groq.com/openai/v1`.       |
+| `MUSIC_AI_TIMEOUT_MS` | 8000–12000 ms aralığında doğrulanan provider zaman aşımı.                      |
+
+Provider'a yalnız dinleyici prompt'u ile sınırlı canonical tür listesi, tür sayıları, toplam parça sayısı, yıl aralığı ve on yıllık dağılım gönderilir. Parça adları, albümler, katalog sanatçıları, favoriler, dinleme geçmişi, dosya yolları ve gizli bilgiler gönderilmez. Model yalnız deklaratif intent üretir; filtreleme, puanlama, seeded seçim ve track hydration CineDrive içinde yerel olarak yapılır.
+
+Dil constraint'leri tamamen yerelde, parça üzerinde kalıcı olarak saklanan evidence üzerinden değerlendirilir. Mevcut lyrics language metadata'sı önceliklidir; bu yoksa cache'teki lyrics metni `franc-min` ile yerelde tespit edilir, son deterministik fallback olarak `turkish rock` veya `anatolian rock` gibi açık dil taşıyan türler kullanılır. Generic tür, sanatçı adı ve başlık karakterleri dil kanıtı değildir. Hard dil constraint'i yalnız manual, lyrics metadata, yüksek güvenli lyrics detection veya açık genre evidence kabul eder; unknown parçalar elenir ve hedef sayıyı doldurmak için dil constraint'i gevşetilmez.
+
+Mevcut katalog için authenticated `POST /api/music/maintenance/languages/enrich` endpoint'i idempotent background işi başlatır. İş önce SQLite'ta cache'lenmiş lyrics'i 200 parçalık local batch'lerle işler; dili hâlâ bilinmeyen ve lyrics'i eksik parçaları ardından mevcut LRCLIB lookup/cache katmanına 25 parçalık batch ve en fazla iki worker ile verir. Provider katmanı istekleri global olarak rate-limit eder; 429/5xx/network hatalarında sınırlı retry uygular. Kalıcı queue durumu, 15 dakikalık processing lease'i, artan error backoff'u ve `not_found` kayıtları için yedi günlük tekrar süresi aynı parçaların her çalıştırmada yeniden istenmesini önler. Yeni library scan yalnızca hızlı local/cache aşamasını tetikler; provider fetch kullanıcı maintenance işinde arka planda çalışır.
+
+Pilot çalışma için POST body'de isteğe bağlı `maxTracks` verilebilir: `{ "maxTracks": 200 }`. Bu limit yalnız external provider lookup sayısını sınırlar; mevcut cached lyrics önce ve limit tüketmeden işlenir. Sınırlı pilot, DB'nin ilk kayıtlarını almak yerine uygun kuyruğun tamamından eşit aralıklı ve deterministic örnekler seçer. Alan verilmezse mevcut sıra ve batch/concurrency kontrollü tam background davranışı korunur. Değer 1–5000 arasında olmalıdır.
+
+`GET /api/music/maintenance/languages/stats`, bilinen/bilinmeyen sayılarına ek olarak `lyricsAvailable`, `lyricsMissing`, `pendingEnrichment`, `queued`, `processing`, `completed`, `notFound`, `retryWaiting`, `failed`, `lyricsDetected`, `languagesResolvedThisRun`, `providerLookups`, `providerHttp429`, `providerHttp5xx`, `lastJobStartedAt` ve `lastJobCompletedAt` alanlarını döndürür. Provider sayaçları process içindeki son tamamlanan job'a aittir. Provider'a lookup için yalnız parça adı, sanatçı, albüm ve süre gönderilir. Bulunan lyrics SQLite'a cache'lenir ve dil tespiti `franc-min` ile sunucuda yapılır; lyrics içeriği AI provider'a gönderilmez.
+
+Yıl filtresi şu anda saklanan track yılını, yoksa albüm edition yılını kullanır. CineDrive henüz MusicBrainz'den doğrulanmış özgün kayıt/yayın yılını ayrı bir alanda saklamadığı için 1998 remaster gibi bir yeniden basım 1990'lar constraint'ine girebilir. Başlıktan yıl tahmini yapılmaz. Özgün yayın yılı enrichment'ı ileride metadata maintenance aşamasında ele alınmalıdır.
+
 ## Çok kullanıcılı mod
 
 `ADMIN_EMAIL` ve `ADMIN_PASSWORD` ile oluşturulan yönetici iki kimlik doğrulama modunda da bulunur. Yönetici tarafından oluşturulan hesapları etkinleştirmek için:

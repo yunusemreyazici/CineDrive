@@ -354,6 +354,29 @@ export const en: Translations = {
     qualitySummary: 'Audio quality',
     smartMixes: 'Made For You',
     madeForYou: 'Based on your listening',
+    aiPlaylistTitle: 'Create a playlist with AI',
+    aiPlaylistDescription:
+      'Describe what you want to hear; CineDrive makes the actual selection only inside your library.',
+    aiPlaylistPromptLabel: 'What would you like to listen to?',
+    aiPlaylistPlaceholder: 'For example, alternative rock for a night drive',
+    aiPlaylistCreate: 'Create',
+    aiPlaylistCreating: 'Creating…',
+    aiPlaylistRegenerate: 'Create another',
+    aiPlaylistUnavailable: 'AI playlist creation is currently unavailable.',
+    aiGeneratedMix: 'AI planned · CineDrive selected',
+    aiPlaylistMatchedCount: (matched: number, requested: number) =>
+      matched < requested
+        ? `${matched} matching tracks found; the ${requested}-track target was not filled by breaking constraints.`
+        : `${matched} matching tracks found.`,
+    aiSuggestedPromptsLabel: 'Suggested music requests',
+    aiSuggestedPrompts: [
+      'Surprise me',
+      'Night drive',
+      'My least-played tracks',
+      'Old favorites',
+      '2000s nostalgia',
+      'Something calm',
+    ],
     playMix: (name: string) => `Play ${name} mix`,
     saveMix: (name: string) => `Save ${name} to playlists`,
     mixSaved: (name: string) => `${name} has been saved`,

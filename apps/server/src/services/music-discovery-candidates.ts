@@ -21,7 +21,12 @@ export interface DiscoveryCandidate {
   duration: number | null;
   playCount: number;
   isFavorite: boolean;
+  /** Cached, locally resolved track-language evidence used by hard playlist constraints. */
+  languageCode: string | null;
+  languageSource: string | null;
+  languageConfidence: number | null;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 /**
@@ -52,7 +57,11 @@ export const loadDiscoveryCandidates = async (
         year: true,
         genres: true,
         duration: true,
+        languageCode: true,
+        languageSource: true,
+        languageConfidence: true,
         createdAt: true,
+        updatedAt: true,
         album: { select: { title: true, year: true, genres: true } },
         primaryArtist: {
           select: { name: true, artwork: { select: { id: true } } },
@@ -82,7 +91,11 @@ export const loadDiscoveryCandidates = async (
         duration: row.duration,
         playCount: row._count.history,
         isFavorite: row.favorites.length > 0,
+        languageCode: row.languageCode,
+        languageSource: row.languageSource,
+        languageConfidence: row.languageConfidence,
         createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
       });
     }
 

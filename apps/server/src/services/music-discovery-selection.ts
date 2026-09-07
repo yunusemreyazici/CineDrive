@@ -26,6 +26,13 @@ export interface DiscoverySelectionContext {
   artistCounts: Map<string, number>;
 }
 
+export interface DiscoverySelectionPolicyOverride {
+  relevanceRatio?: number;
+  artistLimit?: number;
+  albumLimit?: number;
+  globalArtistLimit?: number;
+}
+
 export const createDiscoverySelectionContext = (): DiscoverySelectionContext => ({
   usedTrackIds: new Set(),
   artistCounts: new Map(),
@@ -88,6 +95,7 @@ export const selectDiscoveryCandidates = <T>(
   seed: string,
   limit: number,
   context: DiscoverySelectionContext = createDiscoverySelectionContext(),
+  policy: DiscoverySelectionPolicyOverride = {},
 ): T[] => {
   const unique = [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()];
   const relevanceOrder = weightedOrder(
@@ -106,7 +114,17 @@ export const selectDiscoveryCandidates = <T>(
   const selectedIds = new Set<string>();
   const artistCounts = new Map<string, number>();
   const albumCounts = new Map<string, number>();
-  const relevanceTarget = Math.round(limit * DISCOVERY_SELECTION_POLICY.relevanceRatio);
+  const relevanceRatio = Math.min(
+    1,
+    Math.max(0, policy.relevanceRatio ?? DISCOVERY_SELECTION_POLICY.relevanceRatio),
+  );
+  const artistLimit = Math.max(1, policy.artistLimit ?? DISCOVERY_SELECTION_POLICY.artistLimit);
+  const albumLimit = Math.max(1, policy.albumLimit ?? DISCOVERY_SELECTION_POLICY.albumLimit);
+  const globalArtistLimit = Math.max(
+    1,
+    policy.globalArtistLimit ?? DISCOVERY_SELECTION_POLICY.globalArtistLimit,
+  );
+  const relevanceTarget = Math.round(limit * relevanceRatio);
   const explorationTarget = Math.max(0, limit - relevanceTarget);
 
   const addFrom = (
@@ -122,9 +140,9 @@ export const selectDiscoveryCandidates = <T>(
       const localAlbumCount = albumCounts.get(candidate.albumKey) || 0;
       const globalArtistCount = context.artistCounts.get(candidate.artistKey) || 0;
       if (
-        localArtistCount >= DISCOVERY_SELECTION_POLICY.artistLimit * pass.capMultiplier ||
-        localAlbumCount >= DISCOVERY_SELECTION_POLICY.albumLimit * pass.capMultiplier ||
-        globalArtistCount >= DISCOVERY_SELECTION_POLICY.globalArtistLimit * pass.capMultiplier
+        localArtistCount >= artistLimit * pass.capMultiplier ||
+        localAlbumCount >= albumLimit * pass.capMultiplier ||
+        globalArtistCount >= globalArtistLimit * pass.capMultiplier
       )
         continue;
       selected.push(candidate);

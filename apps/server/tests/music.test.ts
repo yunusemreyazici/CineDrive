@@ -125,6 +125,48 @@ describe('Music library', () => {
     });
   });
 
+  it('keeps AI discovery authenticated and gracefully disabled without an API key', async () => {
+    const unauthorized = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery/ai/status',
+    });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const status = await app.inject({
+      method: 'GET',
+      url: '/api/music/discovery/ai/status',
+      cookies: { session_id: cookie },
+    });
+    expect(status.statusCode).toBe(200);
+    expect(JSON.parse(status.body)).toEqual({ enabled: Boolean(env.MUSIC_AI_API_KEY) });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/music/discovery/ai',
+      cookies: { session_id: cookie },
+      payload: { prompt: ' ', generationId: 'test-generation' },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    if (!env.MUSIC_AI_API_KEY) {
+      const disabled = await app.inject({
+        method: 'POST',
+        url: '/api/music/discovery/ai',
+        cookies: { session_id: cookie },
+        payload: { prompt: 'Gece sürüşü', generationId: 'test-generation' },
+      });
+      expect(disabled.statusCode).toBe(503);
+      expect(JSON.parse(disabled.body).error.code).toBe('MUSIC_AI_UNAVAILABLE');
+
+      const discovery = await app.inject({
+        method: 'GET',
+        url: '/api/music/discovery',
+        cookies: { session_id: cookie },
+      });
+      expect(discovery.statusCode).toBe(200);
+    }
+  });
+
   it('cleans numbered music filenames', () => {
     expect(cleanMusicFilenameTitle('CD2 01 - Hello.World.mp3')).toBe('Hello World');
     for (const extension of AUDIO_EXTENSIONS)
@@ -323,6 +365,69 @@ describe('Music library', () => {
     );
   });
 
+  it('protects and starts local language enrichment maintenance', async () => {
+    const anonymous = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance/languages/stats',
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const before = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance/languages/stats',
+      cookies: { session_id: cookie },
+    });
+    expect(before.statusCode).toBe(200);
+    expect(JSON.parse(before.body)).toMatchObject({
+      total: 1,
+      known: 0,
+      unknown: 1,
+      lyricsAvailable: 0,
+      lyricsMissing: 1,
+      pendingEnrichment: 1,
+      queued: 1,
+      processing: 0,
+      completed: 0,
+      notFound: 0,
+      retryWaiting: 0,
+      failed: 0,
+      lyricsDetected: 0,
+      languagesResolvedThisRun: 0,
+      providerLookups: 0,
+      providerHttp429: 0,
+      providerHttp5xx: 0,
+      lastJobStartedAt: null,
+      lastJobCompletedAt: null,
+      version: 1,
+    });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/music/maintenance/languages/enrich',
+      cookies: { session_id: cookie },
+      payload: { maxTracks: 0 },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const started = await app.inject({
+      method: 'POST',
+      url: '/api/music/maintenance/languages/enrich',
+      cookies: { session_id: cookie },
+      payload: { maxTracks: 200 },
+    });
+    expect([200, 202]).toContain(started.statusCode);
+    expect(JSON.parse(started.body).status).toMatch(/started|running/);
+    expect(JSON.parse(started.body)).toMatchObject({ maxTracks: 200 });
+
+    const defaultRequest = await app.inject({
+      method: 'POST',
+      url: '/api/music/maintenance/languages/enrich',
+      cookies: { session_id: cookie },
+    });
+    expect([200, 202]).toContain(defaultRequest.statusCode);
+    expect(JSON.parse(defaultRequest.body).status).toMatch(/started|running/);
+  });
+
   it('builds a batch download manifest with size, checksum, and resume metadata', async () => {
     await app.prisma.driveFile.updateMany({
       where: { musicTrack: { is: { id: trackId } } },
@@ -402,6 +507,7 @@ describe('Music library', () => {
         discNumber: 2,
         trackNumber: 4,
         releaseType: 'ep',
+        languageCode: 'tr-TR',
         metadataLocked: true,
         credits: [
           { name: 'Manual Writer', role: 'lyricist' },
@@ -416,6 +522,7 @@ describe('Music library', () => {
       discNumber: 2,
       trackNumber: 4,
       metadataLocked: true,
+      language: { code: 'tr', source: 'manual', confidence: 1 },
       primaryArtist: { name: 'Edited Artist' },
       album: { title: 'Edited EP', releaseType: 'ep' },
       credits: [
@@ -1170,6 +1277,77 @@ describe('Music library', () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       headers: { 'User-Agent': expect.stringContaining('CineDrive') },
     });
+  });
+
+  it('persists locally detected language from provider-fetched lyrics', async () => {
+    const title = `Turkish Lyrics ${randomUUID()}`;
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { title } });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 143,
+          trackName: title,
+          artistName: 'Test Artist',
+          albumName: 'Test Album',
+          duration: 120,
+          instrumental: false,
+          plainLyrics:
+            'Bu gece yine seni düşündüm kalbimde bir umut var. Benimle kal sevgilim yollar uzun olsa da. Seni sevmekten vazgeçmem çünkü hayat seninle güzel. Bütün dünya bizim olsun şimdi ellerimi bırakma. Bir gün yeniden güneş doğacak ve biz yine güleceğiz. Ne olursa olsun seni bekleyeceğim bunu unutma.',
+          syncedLyrics: null,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/lookup`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(response.body).lookupStatus).toBe('found');
+    await expect(
+      app.prisma.musicTrack.findUniqueOrThrow({
+        where: { id: trackId },
+        select: { languageCode: true, languageSource: true, languageConfidence: true },
+      }),
+    ).resolves.toMatchObject({
+      languageCode: 'tr',
+      languageSource: 'lyrics_detected',
+      languageConfidence: expect.any(Number),
+    });
+  });
+
+  it('retries mocked lyrics provider 429 and 5xx responses with a bounded attempt count', async () => {
+    const title = `Rate Limited Lyrics ${randomUUID()}`;
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { title } });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'retry-after': '0' } }))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 144,
+            trackName: title,
+            artistName: 'Test Artist',
+            albumName: 'Test Album',
+            duration: 120,
+            instrumental: false,
+            plainLyrics: 'Provider recovered after bounded retries.',
+            syncedLyrics: null,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/music/tracks/${trackId}/lyrics/lookup`,
+      cookies: { session_id: cookie },
+    });
+
+    expect(JSON.parse(response.body).lookupStatus).toBe('found');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('uses a unique duration-matched LRCLIB search fallback', async () => {

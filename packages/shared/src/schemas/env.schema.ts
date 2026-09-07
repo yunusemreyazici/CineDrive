@@ -9,7 +9,9 @@ export const envSchema = z.object({
   PUBLIC_URL: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
-  TOKEN_ENCRYPTION_KEY: z.string().length(64, 'TOKEN_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)'),
+  TOKEN_ENCRYPTION_KEY: z
+    .string()
+    .length(64, 'TOKEN_ENCRYPTION_KEY must be a 64-char hex string (32 bytes)'),
   GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
   GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
   GOOGLE_REDIRECT_URI: z.string().url(),
@@ -33,6 +35,14 @@ export const envSchema = z.object({
   LIBRETRANSLATE_API_KEY: z.string().optional(),
   FPCALC_PATH: z.string().optional(),
   ACOUSTID_API_KEY: z.string().optional(),
+  MUSIC_AI_PROVIDER: z.enum(['groq', 'openai-compatible']).default('groq'),
+  MUSIC_AI_API_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  MUSIC_AI_MODEL: z.string().trim().min(1).default('qwen/qwen3.8-27b'),
+  MUSIC_AI_BASE_URL: z.string().url().default('https://api.groq.com/openai/v1'),
+  MUSIC_AI_TIMEOUT_MS: z.coerce.number().int().min(8_000).max(12_000).default(10_000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

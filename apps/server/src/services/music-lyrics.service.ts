@@ -2,6 +2,8 @@ import path from 'node:path';
 import type { PrismaClient } from '@cinedrive/prisma';
 import type { MusicLyricsLineDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
+import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
+import { normalizeMusicLanguageCode } from './music-language-evidence.js';
 
 const MAX_LYRICS_BYTES = 1024 * 1024;
 const TIMESTAMP_PATTERN = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
@@ -30,10 +32,18 @@ export interface OnlineLyricsLookupInput {
   artist: string;
   album: string;
   duration: number;
+  onProviderResponse?: (status: number) => void;
 }
 
 export type OnlineLyricsLookupResult =
-  | { status: 'found'; lyrics: Awaited<ReturnType<MusicLyricsService['syncTrackLyrics']>> }
+  | {
+      status: 'found';
+      lyrics: Omit<
+        Awaited<ReturnType<MusicLyricsService['syncTrackLyrics']>>,
+        'languageEvidence'
+      >;
+      languageResolved: boolean;
+    }
   | { status: 'not_found' };
 
 const onlineLookupCache = new Map<string, { expiresAt: number; result: LrclibLyrics | null }>();
@@ -96,24 +106,43 @@ const parseRetryAfter = (value: string | null) => {
   return Number.isNaN(date) ? 1000 : Math.max(0, Math.min(date - Date.now(), 15_000));
 };
 
-const fetchLrclib = async (url: string, attempt = 0): Promise<Response> => {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': LRCLIB_USER_AGENT },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if ((response.status === 429 || response.status === 503) && attempt === 0) {
-    await wait(
-      response.status === 429 ? parseRetryAfter(response.headers.get('retry-after')) : 1000,
-    );
-    return fetchLrclib(url, attempt + 1);
+const MAX_PROVIDER_ATTEMPTS = 3;
+
+const fetchLrclib = async (
+  url: string,
+  onProviderResponse?: (status: number) => void,
+  attempt = 0,
+): Promise<Response> => {
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': LRCLIB_USER_AGENT },
+      signal: AbortSignal.timeout(12_000),
+    });
+    onProviderResponse?.(response.status);
+    if ((response.status === 429 || response.status >= 500) && attempt < MAX_PROVIDER_ATTEMPTS - 1) {
+      const backoff = Math.min(8_000, 500 * 2 ** attempt);
+      await wait(
+        response.status === 429
+          ? Math.max(backoff, parseRetryAfter(response.headers.get('retry-after')))
+          : backoff,
+      );
+      return fetchLrclib(url, onProviderResponse, attempt + 1);
+    }
+    return response;
+  } catch (error) {
+    if (attempt >= MAX_PROVIDER_ATTEMPTS - 1) throw error;
+    await wait(Math.min(8_000, 500 * 2 ** attempt));
+    return fetchLrclib(url, onProviderResponse, attempt + 1);
   }
-  return response;
 };
 
 const searchLrclib = async (input: OnlineLyricsLookupInput) => {
   await wait(MIN_REQUEST_INTERVAL_MS);
   const query = new URLSearchParams({ track_name: input.title, artist_name: input.artist });
-  const response = await fetchLrclib(`${LRCLIB_API_BASE_URL}/search?${query}`);
+  const response = await fetchLrclib(
+    `${LRCLIB_API_BASE_URL}/search?${query}`,
+    input.onProviderResponse,
+  );
   if (!response.ok) throw new Error(`LRCLIB_SEARCH_HTTP_${response.status}`);
   const result: unknown = await response.json();
   if (!Array.isArray(result)) return null;
@@ -137,7 +166,10 @@ const requestLrclib = async (input: OnlineLyricsLookupInput) => {
     album_name: input.album,
     duration: String(Math.round(input.duration)),
   });
-  const response = await fetchLrclib(`${LRCLIB_API_BASE_URL}/get?${query}`);
+  const response = await fetchLrclib(
+    `${LRCLIB_API_BASE_URL}/get?${query}`,
+    input.onProviderResponse,
+  );
   if (response.status === 404) return searchLrclib(input);
   if (!response.ok) throw new Error(`LRCLIB_HTTP_${response.status}`);
   const result: unknown = await response.json();
@@ -276,7 +308,11 @@ export const inferLyricsLanguage = (sourceName: string, metadataLanguage?: strin
 };
 
 export class MusicLyricsService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly languageEnrichment: MusicLanguageEnrichmentService;
+
+  constructor(private readonly prisma: PrismaClient) {
+    this.languageEnrichment = new MusicLanguageEnrichmentService(prisma);
+  }
 
   public async syncTrackLyrics(options: {
     trackId: string;
@@ -303,9 +339,10 @@ export class MusicLyricsService {
     ) {
       throw new Error('LYRICS_FILE_TOO_LARGE');
     }
-    const language =
-      options.language || inferLyricsLanguage(options.sourceName, parsed.metadata.la);
-    return this.prisma.musicLyrics.upsert({
+    const language = normalizeMusicLanguageCode(
+      options.language || inferLyricsLanguage(options.sourceName, parsed.metadata.la),
+    );
+    const lyrics = await this.prisma.musicLyrics.upsert({
       where: { trackId: options.trackId },
       create: {
         trackId: options.trackId,
@@ -331,10 +368,20 @@ export class MusicLyricsService {
         offsetMs: parsed.offsetMs,
       },
     });
+    const languageEvidence = await this.languageEnrichment.enrichTrackFromLyrics(lyrics.trackId, {
+      language: lyrics.language,
+      content: lyrics.content,
+      sourceType: lyrics.sourceType,
+    });
+    return { ...lyrics, languageEvidence };
   }
 
-  public removeSidecarLyrics(trackId: string) {
-    return this.prisma.musicLyrics.deleteMany({ where: { trackId, sourceType: 'sidecar' } });
+  public async removeSidecarLyrics(trackId: string) {
+    const result = await this.prisma.musicLyrics.deleteMany({
+      where: { trackId, sourceType: 'sidecar' },
+    });
+    if (result.count) await this.languageEnrichment.invalidateLyricsEvidence(trackId);
+    return result;
   }
 
   public async lookupOnlineLyrics(
@@ -343,7 +390,8 @@ export class MusicLyricsService {
     const existing = await this.prisma.musicLyrics.findUnique({
       where: { trackId: input.trackId },
     });
-    if (existing) return { status: 'found', lyrics: existing };
+    if (existing)
+      return { status: 'found', lyrics: existing, languageResolved: Boolean(existing.language) };
     const match = await findOnlineLyrics(input);
     const content = match?.syncedLyrics?.trim() || match?.plainLyrics?.trim();
     if (!match || match.instrumental || !content) return { status: 'not_found' };
@@ -353,7 +401,7 @@ export class MusicLyricsService {
       sourceName: `LRCLIB #${match.id}`,
       sourceType: 'lrclib',
     });
-    return { status: 'found', lyrics };
+    return { status: 'found', lyrics, languageResolved: lyrics.languageEvidence.language !== null };
   }
 
   public async translate(trackId: string, targetLanguage: string) {

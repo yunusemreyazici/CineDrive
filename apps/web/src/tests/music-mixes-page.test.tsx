@@ -5,6 +5,7 @@ import { MusicMixesPage } from '../pages/MusicMixesPage';
 
 const mocks = vi.hoisted(() => ({
   generationIds: vi.fn(),
+  generateAiPlaylist: vi.fn(),
   playTracks: vi.fn(),
   playShuffledTracks: vi.fn(),
 }));
@@ -44,11 +45,18 @@ vi.mock('../hooks/useMusicApi', () => ({
   },
   useSaveMusicMixMutation: () => ({ mutate: vi.fn() }),
   useArtistRadioMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useMusicAiStatusQuery: () => ({ data: { enabled: true } }),
+  useMusicAiPlaylistMutation: () => ({
+    mutate: mocks.generateAiPlaylist,
+    isPending: false,
+    data: undefined,
+  }),
 }));
 
 describe('MusicMixesPage', () => {
   beforeEach(() => {
     mocks.generationIds.mockReset();
+    mocks.generateAiPlaylist.mockReset();
   });
 
   it('requests a new explicit generation when the user refreshes discovery', () => {
@@ -60,5 +68,19 @@ describe('MusicMixesPage', () => {
 
     const nextGeneration = mocks.generationIds.mock.calls.at(-1)?.[0];
     expect(nextGeneration).toMatch(/^web-[a-z0-9]+-1$/);
+  });
+
+  it('submits a trimmed prompt with a fresh generation id', () => {
+    render(<MusicMixesPage />);
+    fireEvent.change(screen.getByLabelText(t.music.aiPlaylistPromptLabel), {
+      target: { value: '  Gece sürüşü için rock  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t.music.aiPlaylistCreate }));
+
+    expect(mocks.generateAiPlaylist).toHaveBeenCalledOnce();
+    expect(mocks.generateAiPlaylist.mock.calls[0]?.[0]).toMatchObject({
+      prompt: 'Gece sürüşü için rock',
+      generationId: expect.stringMatching(/^web-ai-[a-z0-9]+-1$/),
+    });
   });
 });

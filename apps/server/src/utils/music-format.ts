@@ -234,6 +234,15 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
     isFavorite: track.favorites.length > 0,
     playCount: track._count.history,
     metadataLocked: track.metadataLocked,
+    language:
+      track.languageCode && track.languageSource
+        ? {
+            code: track.languageCode,
+            source: track.languageSource,
+            confidence: track.languageConfidence || 0,
+            updatedAt: track.languageUpdatedAt?.toISOString() || null,
+          }
+        : null,
     musicbrainzRecordingId: track.musicbrainzRecordingId,
     credits: track.credits.map((credit) => ({
       id: credit.id,
