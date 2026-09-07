@@ -13,6 +13,10 @@ import {
 } from '../utils/music-format.js';
 import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
 import {
+  buildLibraryDepthPlanDefinitions,
+  type DiscoveryHistorySignal,
+} from './music-discovery-library-depth.js';
+import {
   DISCOVERY_LIMITS,
   createDiscoverySelectionContext,
   selectDiscoveryCandidates,
@@ -188,21 +192,16 @@ const mix = (
 
 const moodRules = [
   { id: 'relax', title: 'Rahatla', genres: ['chill', 'ambient', 'acoustic', 'folk', 'new age'] },
+  { id: 'energy', title: 'Enerji', genres: ['rock', 'metal', 'dance', 'electronic', 'hip hop'] },
   {
     id: 'focus',
     title: 'Odaklan',
     genres: ['ambient', 'classical', 'instrumental', 'lo-fi', 'jazz'],
   },
-  { id: 'energy', title: 'Enerji', genres: ['rock', 'metal', 'dance', 'electronic', 'hip hop'] },
+  { id: 'party', title: 'Parti', genres: ['party', 'dance', 'pop', 'house', 'disco'] },
   { id: 'sad', title: 'Hüzünlü', genres: ['sad', 'blues', 'emo', 'melancholy', 'slowcore'] },
   { id: 'romantic', title: 'Romantik', genres: ['romance', 'love', 'r&b', 'soul'] },
-  { id: 'party', title: 'Parti', genres: ['party', 'dance', 'pop', 'house', 'disco'] },
   { id: 'memories', title: 'Anıların', genres: ['nostalgia', 'oldies', 'retro', 'classic'] },
-  {
-    id: 'discover',
-    title: 'Keşfet',
-    genres: ['alternative', 'indie', 'world', 'experimental'],
-  },
 ];
 
 const decadeTitle = (year: number) => `${Math.floor(year / 10) * 10}'lar`;
@@ -392,8 +391,18 @@ export class MusicDiscoveryService {
         .map((entry, index) => [entry.trackId, index]),
     );
     const lastPlayedAt = new Map<string, Date>();
+    const historySignals = new Map<string, DiscoveryHistorySignal>();
     for (const entry of meaningfulHistory) {
       if (!lastPlayedAt.has(entry.trackId)) lastPlayedAt.set(entry.trackId, entry.playedAt);
+      const completion = entry.track.duration
+        ? Math.min(1, entry.listenedSeconds / entry.track.duration)
+        : 0.6;
+      const signal = historySignals.get(entry.trackId);
+      historySignals.set(entry.trackId, {
+        meaningfulPlayCount: (signal?.meaningfulPlayCount || 0) + 1,
+        completionTotal: (signal?.completionTotal || 0) + completion,
+        lastMeaningfulPlayAt: signal?.lastMeaningfulPlayAt || entry.playedAt,
+      });
     }
 
     const artistWeights = new Map<string, number>();
@@ -539,6 +548,35 @@ export class MusicDiscoveryService {
           },
         }
       : null;
+
+    // These selection calls intentionally precede artist/mood/genre/decade plans:
+    // the shared context reserves scarce long-tail candidates for front-page
+    // personalized sections before broad collections can consume them.
+    const libraryDepthPlans = buildLibraryDepthPlanDefinitions({
+      candidates,
+      historySignals,
+      currentTime,
+      preferenceScore,
+      explorationScore,
+      isRecentlyPlayed: (candidate) => recentIndex.has(candidate.id),
+    }).map((definition, index): MixPlan => ({
+      id: definition.id,
+      type: 'collection',
+      title: definition.title,
+      subtitle: definition.subtitle,
+      selected: select(
+        definition.candidates,
+        definition.id,
+        DISCOVERY_LIMITS.personalized,
+        definition.relevance,
+      ),
+      candidateCount: definition.candidates.length,
+      accentIndex: index + 2,
+      presentation: {
+        titleKey: definition.titleKey,
+        subtitleKey: definition.subtitleKey,
+      },
+    }));
 
     const libraryArtistWeights = new Map(artistWeights);
     for (const candidate of candidates) {
@@ -749,7 +787,13 @@ export class MusicDiscoveryService {
       .sort((left, right) => right.progress - left.progress)
       .slice(0, 6);
 
-    const allPlans = [...primaryPlans, ...moodPlans, ...genrePlans, ...decadePlans];
+    const allPlans = [
+      ...primaryPlans,
+      ...libraryDepthPlans,
+      ...moodPlans,
+      ...genrePlans,
+      ...decadePlans,
+    ];
     const selectedIds = allPlans.flatMap((plan) => plan.selected.map((candidate) => candidate.id));
     selectedIds.push(
       ...unfinishedAlbumCandidates.flatMap((album) =>
@@ -813,6 +857,9 @@ export class MusicDiscoveryService {
       generationId,
       generatedAt: new Date().toISOString(),
       mixes: primaryPlans.map((plan) => materializeMix(plan, tracksById)),
+      libraryDepthCollections: libraryDepthPlans
+        .filter((plan) => plan.selected.length > 0)
+        .map((plan) => materializeMix(plan, tracksById)),
       moodCollections: moodPlans.map((plan) => materializeMix(plan, tracksById)),
       genreCollections: genrePlans.map((plan) => materializeMix(plan, tracksById)),
       decadeCollections: decadePlans.map((plan) => materializeMix(plan, tracksById)),

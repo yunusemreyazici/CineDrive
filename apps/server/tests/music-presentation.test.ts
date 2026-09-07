@@ -51,4 +51,21 @@ describe('native music mix presentation', () => {
       description: 'Dynamic description',
     });
   });
+
+  it('presents library depth collections through native localization keys', () => {
+    const presented = presentMusicMixForNativeClient(
+      mix({
+        id: 'library-depth-long-unplayed',
+        type: 'collection',
+        title: 'Uzun Süredir Dinlemediklerin',
+        subtitle: 'Unutulmuş hazineler',
+        titleKey: 'music.discovery.libraryDepth.longUnplayed.title',
+        subtitleKey: 'music.discovery.libraryDepth.longUnplayed.subtitle',
+      }),
+    );
+
+    expect(presented).not.toHaveProperty('title');
+    expect(presented).not.toHaveProperty('subtitle');
+    expect(presented.titleKey).toBe('music.discovery.libraryDepth.longUnplayed.title');
+  });
 });

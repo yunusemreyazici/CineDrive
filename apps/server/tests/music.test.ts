@@ -1019,6 +1019,7 @@ describe('Music library', () => {
           tracks: expect.any(Array),
         }),
       ]),
+      libraryDepthCollections: expect.any(Array),
     });
     const compactDiscovery = await app.inject({
       method: 'GET',
@@ -1029,6 +1030,9 @@ describe('Music library', () => {
     const compactMix = JSON.parse(compactDiscovery.body).mixes.find(
       (mix: { type: string }) => mix.type === 'daily',
     );
+    const compactLibraryDepth = JSON.parse(compactDiscovery.body).libraryDepthCollections.find(
+      (mix: { id: string }) => mix.id === 'library-depth-least-played',
+    );
     expect(compactDiscovery.statusCode).toBe(200);
     expect(compactMix).toMatchObject({
       titleKey: 'music.discovery.daily.title',
@@ -1037,9 +1041,18 @@ describe('Music library', () => {
     expect(compactMix).not.toHaveProperty('title');
     expect(compactMix).not.toHaveProperty('subtitle');
     expect(compactMix).not.toHaveProperty('tracks');
+    expect(compactLibraryDepth).toMatchObject({
+      type: 'collection',
+      titleKey: 'music.discovery.libraryDepth.leastPlayed.title',
+      trackIds: expect.any(Array),
+    });
+    expect(compactLibraryDepth).not.toHaveProperty('title');
+    expect(compactLibraryDepth).not.toHaveProperty('subtitle');
+    expect(compactLibraryDepth).not.toHaveProperty('tracks');
     expect(JSON.parse(compactDiscovery.body)).toMatchObject({
       generationId: expect.any(String),
       generatedAt: expect.any(String),
+      libraryDepthCollections: expect.any(Array),
     });
 
     const explicitGeneration = await app.inject({
