@@ -1,5 +1,118 @@
 import { z } from 'zod';
 
+export const PLAYLIST_INTENT_TARGET_DEFAULT = 50;
+export const PLAYLIST_INTENT_TARGET_MIN = 10;
+export const PLAYLIST_INTENT_TARGET_MAX = 100;
+
+const intentPreferenceModeSchema = z.enum(['soft', 'hard']);
+const intentLanguageProviderSchema = z
+  .object({
+    languages: z.array(z.string().trim().min(2).max(35)).max(8),
+    excludedLanguages: z.array(z.string().trim().min(2).max(35)).max(8),
+    weight: z.number().finite(),
+    mode: intentPreferenceModeSchema,
+  })
+  .strict();
+const intentLocaleProviderSchema = z
+  .object({
+    countries: z.array(z.string().trim().min(2).max(35)).max(8),
+    scenes: z.array(z.string().trim().min(2).max(80)).max(8),
+    weight: z.number().finite(),
+    mode: intentPreferenceModeSchema,
+  })
+  .strict();
+const intentWeightedNameProviderSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    weight: z.number().finite(),
+    mode: intentPreferenceModeSchema,
+  })
+  .strict();
+
+/**
+ * Provider-facing shape. Numeric bounds are applied after parsing so a model
+ * that returns 1.2 instead of 1 cannot bypass validation or fail the request
+ * unnecessarily; all strings, arrays and enums are still tightly bounded.
+ */
+export const playlistIntentProviderSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    subtitle: z.string().trim().min(1).max(240),
+    targetCount: z.number().finite(),
+    genres: z.array(intentWeightedNameProviderSchema).max(12),
+    excludedGenres: z.array(z.string().trim().min(1).max(80)).max(12),
+    artists: z.array(intentWeightedNameProviderSchema).max(12),
+    excludedArtistNames: z.array(z.string().trim().min(1).max(200)).max(12),
+    year: z
+      .object({
+        min: z.number().finite().nullable(),
+        max: z.number().finite().nullable(),
+        weight: z.number().finite(),
+        mode: intentPreferenceModeSchema,
+      })
+      .strict(),
+    language: intentLanguageProviderSchema,
+    locale: intentLocaleProviderSchema,
+    exploration: z.number().finite(),
+    familiarity: z.number().finite(),
+    favoriteBias: z.number().finite(),
+    unheardBias: z.number().finite(),
+    lowPlayCountBias: z.number().finite(),
+    oldLibraryBias: z.number().finite(),
+    recentPlayPenalty: z.number().finite(),
+    artistDiversity: z.number().finite(),
+    albumDiversity: z.number().finite(),
+    seedMode: z.enum(['balanced', 'discovery', 'familiar']),
+  })
+  .strict();
+
+const intentWeightedNameSchema = intentWeightedNameProviderSchema.extend({
+  weight: z.number().min(0).max(1),
+});
+
+export const playlistIntentSchema = playlistIntentProviderSchema.extend({
+  targetCount: z.number().int().min(PLAYLIST_INTENT_TARGET_MIN).max(PLAYLIST_INTENT_TARGET_MAX),
+  genres: z.array(intentWeightedNameSchema).max(12),
+  artists: z.array(intentWeightedNameSchema).max(12),
+  year: z
+    .object({
+      min: z.number().int().min(1800).max(3000).nullable(),
+      max: z.number().int().min(1800).max(3000).nullable(),
+      weight: z.number().min(0).max(1),
+      mode: intentPreferenceModeSchema,
+    })
+    .strict(),
+  language: intentLanguageProviderSchema.extend({
+    weight: z.number().min(0).max(1),
+  }),
+  locale: intentLocaleProviderSchema.extend({
+    weight: z.number().min(0).max(1),
+  }),
+  exploration: z.number().min(0).max(1),
+  familiarity: z.number().min(0).max(1),
+  favoriteBias: z.number().min(0).max(1),
+  unheardBias: z.number().min(0).max(1),
+  lowPlayCountBias: z.number().min(0).max(1),
+  oldLibraryBias: z.number().min(0).max(1),
+  recentPlayPenalty: z.number().min(0).max(1),
+  artistDiversity: z.number().min(0).max(1),
+  albumDiversity: z.number().min(0).max(1),
+});
+
+export const musicAiPlaylistRequestSchema = z
+  .object({
+    prompt: z.string().trim().min(3).max(1000),
+    generationId: z
+      .string()
+      .trim()
+      .regex(/^[a-zA-Z0-9._:-]{1,80}$/),
+  })
+  .strict();
+
+export type PlaylistIntentProviderOutput = z.infer<typeof playlistIntentProviderSchema>;
+export type PlaylistIntent = z.infer<typeof playlistIntentSchema>;
+export type MusicAiPlaylistRequest = z.infer<typeof musicAiPlaylistRequestSchema>;
+
 export const musicListQuerySchema = z.object({
   search: z.string().trim().optional(),
   artistId: z.string().uuid().optional(),
@@ -219,8 +332,15 @@ export const updateMusicTrackMetadataSchema = z.object({
   trackNumber: z.number().int().min(0).max(10000).default(0),
   releaseType: z.string().trim().min(1).max(50).default('album'),
   credits: z.array(musicTrackCreditInputSchema).max(100).optional(),
+  languageCode: z.string().trim().min(2).max(35).nullable().optional(),
   metadataLocked: z.boolean().default(true),
 });
+
+export const musicLanguageEnrichmentRequestSchema = z
+  .object({
+    maxTracks: z.number().int().min(1).max(5000).optional(),
+  })
+  .strict();
 
 export type MusicListQueryInput = z.infer<typeof musicListQuerySchema>;
 export type CreateMusicPlaylistInput = z.infer<typeof createMusicPlaylistSchema>;
@@ -231,3 +351,6 @@ export type SaveMusicMixInput = z.infer<typeof saveMusicMixSchema>;
 export type UpdateMusicPlaylistInput = z.infer<typeof updateMusicPlaylistSchema>;
 export type UpdateMusicPlaybackStateInput = z.infer<typeof updateMusicPlaybackStateSchema>;
 export type UpdateMusicTrackMetadataInput = z.infer<typeof updateMusicTrackMetadataSchema>;
+export type MusicLanguageEnrichmentRequestInput = z.infer<
+  typeof musicLanguageEnrichmentRequestSchema
+>;

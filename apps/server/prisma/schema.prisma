@@ -6,11 +6,11 @@ datasource db {
 }
 
 generator client {
-  provider                    = "prisma-client"
-  output                      = "../src/generated/prisma"
-  moduleFormat                = "esm"
-  generatedFileExtension      = "ts"
-  importFileExtension         = "ts"
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "ts"
 }
 
 model User {
@@ -79,22 +79,22 @@ model GoogleConnection {
 }
 
 model Library {
-  id                 String            @id @default(uuid())
+  id                 String              @id @default(uuid())
   name               String
   // Ownership used to be derived through googleConnection, which left every
   // local-folder library (no connection) belonging to nobody and therefore
   // readable by any signed-in account.
   userId             String
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  storageType        String            @default("gdrive")
-  rootFolderId       String            @default("")
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storageType        String              @default("gdrive")
+  rootFolderId       String              @default("")
   localFolderPath    String?
   googleConnectionId String?
-  googleConnection   GoogleConnection? @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
+  googleConnection   GoogleConnection?   @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
   driveId            String?
   lastScannedAt      DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   files              DriveFile[]
   scans              LibraryScan[]
   mediaItems         MediaItem[]
@@ -435,46 +435,58 @@ model MusicAlbum {
 }
 
 model MusicTrack {
-  id                     String               @id @default(uuid())
-  libraryId              String
-  library                Library              @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  driveFileId            String               @unique
-  driveFile              DriveFile            @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
-  albumId                String?
-  album                  MusicAlbum?          @relation(fields: [albumId], references: [id], onDelete: SetNull)
-  primaryArtistId        String?
-  primaryArtist          MusicArtist?         @relation("PrimaryTrackArtist", fields: [primaryArtistId], references: [id], onDelete: SetNull)
-  artworkId              String?
-  artwork                MusicArtwork?        @relation(fields: [artworkId], references: [id], onDelete: SetNull)
-  title                  String
-  normalizedTitle        String
-  discNumber             Int                  @default(1)
-  trackNumber            Int                  @default(0)
-  year                   Int?
-  genres                 String?
-  duration               Float?
-  musicbrainzRecordingId String?
-  replayGainTrackDb      Float?
-  replayGainTrackPeak    Float?
-  replayGainAlbumDb      Float?
-  replayGainAlbumPeak    Float?
-  metadataLocked         Boolean              @default(false)
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
-  artists                MusicTrackArtist[]
-  favorites              MusicFavorite[]
-  history                MusicHistory[]
-  playlistItems          MusicPlaylistItem[]
-  queueItems             MusicQueueItem[]
-  currentInStates        MusicPlaybackState[] @relation("CurrentMusicTrack")
-  lyrics                 MusicLyrics?
-  credits                MusicTrackCredit[]
-  fingerprint            MusicFingerprint?
+  id                        String               @id @default(uuid())
+  libraryId                 String
+  library                   Library              @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  driveFileId               String               @unique
+  driveFile                 DriveFile            @relation(fields: [driveFileId], references: [id], onDelete: Cascade)
+  albumId                   String?
+  album                     MusicAlbum?          @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  primaryArtistId           String?
+  primaryArtist             MusicArtist?         @relation("PrimaryTrackArtist", fields: [primaryArtistId], references: [id], onDelete: SetNull)
+  artworkId                 String?
+  artwork                   MusicArtwork?        @relation(fields: [artworkId], references: [id], onDelete: SetNull)
+  title                     String
+  normalizedTitle           String
+  discNumber                Int                  @default(1)
+  trackNumber               Int                  @default(0)
+  year                      Int?
+  genres                    String?
+  duration                  Float?
+  musicbrainzRecordingId    String?
+  replayGainTrackDb         Float?
+  replayGainTrackPeak       Float?
+  replayGainAlbumDb         Float?
+  replayGainAlbumPeak       Float?
+  metadataLocked            Boolean              @default(false)
+  languageCode              String?
+  languageSource            String?
+  languageConfidence        Float?
+  languageDetectionVersion  Int?
+  languageUpdatedAt         DateTime?
+  lyricsEnrichmentStatus    String?
+  lyricsEnrichmentAttempts  Int                  @default(0)
+  lyricsEnrichmentRetryAt   DateTime?
+  lyricsEnrichmentUpdatedAt DateTime?
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+  artists                   MusicTrackArtist[]
+  favorites                 MusicFavorite[]
+  history                   MusicHistory[]
+  playlistItems             MusicPlaylistItem[]
+  queueItems                MusicQueueItem[]
+  currentInStates           MusicPlaybackState[] @relation("CurrentMusicTrack")
+  lyrics                    MusicLyrics?
+  credits                   MusicTrackCredit[]
+  fingerprint               MusicFingerprint?
 
   @@index([libraryId])
   @@index([albumId, discNumber, trackNumber])
   @@index([primaryArtistId])
   @@index([normalizedTitle])
+  @@index([languageCode])
+  @@index([languageDetectionVersion])
+  @@index([lyricsEnrichmentStatus, lyricsEnrichmentRetryAt])
 }
 
 model MusicFingerprint {

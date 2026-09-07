@@ -15,6 +15,8 @@ import { MusicMixCard } from '../components/music/MusicMixCard';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import {
   useArtistRadioMutation,
+  useMusicAiPlaylistMutation,
+  useMusicAiStatusQuery,
   useMusicDiscoveryQuery,
   useSaveMusicMixMutation,
 } from '../hooks/useMusicApi';
@@ -43,10 +45,15 @@ export const MusicMixesPage: React.FC = () => {
   const discovery = useMusicDiscoveryQuery(generationId);
   const saveMix = useSaveMusicMixMutation();
   const artistRadio = useArtistRadioMutation();
+  const aiStatus = useMusicAiStatusQuery();
+  const aiPlaylist = useMusicAiPlaylistMutation();
   const player = useMusicPlayer();
   const [savingId, setSavingId] = React.useState<string | null>(null);
   const [savedIds, setSavedIds] = React.useState<Set<string>>(new Set());
   const [radioArtistId, setRadioArtistId] = React.useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = React.useState('');
+  const [lastAiPrompt, setLastAiPrompt] = React.useState('');
+  const aiGenerationCounter = React.useRef(0);
   const data = discovery.data;
   const featured = data?.mixes[0];
 
@@ -81,6 +88,22 @@ export const MusicMixesPage: React.FC = () => {
   const refreshDiscovery = () => {
     generationCounter.current += 1;
     setGenerationId(`web-${Date.now().toString(36)}-${generationCounter.current}`);
+  };
+
+  const generateAiPlaylist = (prompt: string) => {
+    const normalized = prompt.trim();
+    if (normalized.length < 3 || aiPlaylist.isPending) return;
+    aiGenerationCounter.current += 1;
+    setLastAiPrompt(normalized);
+    aiPlaylist.mutate(
+      {
+        prompt: normalized,
+        generationId: `web-ai-${Date.now().toString(36)}-${aiGenerationCounter.current}`,
+      },
+      {
+        onError: (error) => toast.fromError(error, t.music.aiPlaylistUnavailable),
+      },
+    );
   };
 
   if (discovery.isLoading) {
@@ -211,6 +234,133 @@ export const MusicMixesPage: React.FC = () => {
           </button>
         </div>
       </section>
+
+      {aiStatus.data?.enabled && (
+        <section className="overflow-hidden rounded-3xl border border-fuchsia-300/15 bg-gradient-to-br from-fuchsia-950/35 via-[#101116] to-cyan-950/25 p-5 sm:p-7">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-fuchsia-300/10 text-fuchsia-200">
+              <Sparkles className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-display text-lg font-extrabold text-white">
+                {t.music.aiPlaylistTitle}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-white/45 sm:text-sm">
+                {t.music.aiPlaylistDescription}
+              </p>
+            </div>
+          </div>
+
+          <form
+            className="mt-5 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              generateAiPlaylist(aiPrompt);
+            }}
+          >
+            <label className="sr-only" htmlFor="music-ai-prompt">
+              {t.music.aiPlaylistPromptLabel}
+            </label>
+            <input
+              id="music-ai-prompt"
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              minLength={3}
+              maxLength={1000}
+              disabled={aiPlaylist.isPending}
+              placeholder={t.music.aiPlaylistPlaceholder}
+              className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-fuchsia-300/40 focus:ring-2 focus:ring-fuchsia-300/10 disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={aiPlaylist.isPending || aiPrompt.trim().length < 3}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-black transition hover:scale-[1.01] disabled:opacity-45"
+            >
+              {aiPlaylist.isPending ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {aiPlaylist.isPending ? t.music.aiPlaylistCreating : t.music.aiPlaylistCreate}
+            </button>
+          </form>
+
+          <div className="mt-3 flex flex-wrap gap-2" aria-label={t.music.aiSuggestedPromptsLabel}>
+            {t.music.aiSuggestedPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                disabled={aiPlaylist.isPending}
+                onClick={() => setAiPrompt(prompt)}
+                className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[11px] font-medium text-white/55 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          {aiPlaylist.data && (
+            <div className="mt-6 grid gap-4 border-t border-white/[0.07] pt-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)] lg:items-end">
+              <div>
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-fuchsia-200/70">
+                  <Sparkles className="h-3.5 w-3.5" /> {t.music.aiGeneratedMix}
+                </span>
+                <h3 className="mt-2 font-display text-xl font-extrabold text-white">
+                  {aiPlaylist.data.mix.title}
+                </h3>
+                <p className="mt-1 text-sm text-white/45">{aiPlaylist.data.mix.subtitle}</p>
+                <p className="mt-2 text-xs font-medium text-white/60">
+                  {t.music.aiPlaylistMatchedCount(
+                    aiPlaylist.data.matchedCount,
+                    aiPlaylist.data.requestedCount,
+                  )}
+                </p>
+                {aiPlaylist.data.constraints.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {aiPlaylist.data.constraints.map((constraint) => (
+                      <span
+                        key={constraint}
+                        className="rounded-full border border-fuchsia-300/15 bg-fuchsia-300/[0.06] px-2.5 py-1 text-[10px] font-semibold text-fuchsia-100/70"
+                      >
+                        {constraint}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!aiPlaylist.data.mix.tracks.length}
+                    onClick={() => player.playShuffledTracks(aiPlaylist.data!.mix.tracks)}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-40"
+                  >
+                    <Shuffle className="h-3.5 w-3.5" /> {t.music.shufflePlay}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={aiPlaylist.isPending}
+                    onClick={() => generateAiPlaylist(lastAiPrompt)}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.05] px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10 disabled:opacity-40"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${aiPlaylist.isPending ? 'animate-spin' : ''}`}
+                    />
+                    {t.music.aiPlaylistRegenerate}
+                  </button>
+                </div>
+              </div>
+              <MusicMixCard
+                mix={aiPlaylist.data.mix}
+                landscape
+                onPlay={() => player.playTracks(aiPlaylist.data!.mix.tracks)}
+                onSave={() => save(aiPlaylist.data!.mix)}
+                saving={savingId === aiPlaylist.data.mix.id}
+                saved={savedIds.has(aiPlaylist.data.mix.id)}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {!hasDiscoveryContent && (
         <section className="rounded-3xl border border-white/[0.08] bg-white/[0.03] px-6 py-14 text-center">

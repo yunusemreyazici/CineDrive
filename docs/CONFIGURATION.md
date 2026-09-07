@@ -56,6 +56,30 @@ See [Google Drive setup](GOOGLE_DRIVE.md) for the OAuth consent screen, scopes, 
 
 Playback limits protect the host from unbounded FFmpeg work. Raise them only after observing available CPU, memory, and disk capacity. See [Playback](PLAYBACK.md) for the mode and recovery model.
 
+## Optional AI playlist planning
+
+Natural-language playlist planning is disabled unless `MUSIC_AI_API_KEY` is set. It is server-side only and does not affect the regular Music Discovery V2 endpoints.
+
+| Variable              | Purpose                                                               |
+| --------------------- | --------------------------------------------------------------------- |
+| `MUSIC_AI_PROVIDER`   | Provider adapter; `groq` is the default.                              |
+| `MUSIC_AI_API_KEY`    | Server-only provider credential. Leave empty to disable the feature.  |
+| `MUSIC_AI_MODEL`      | OpenAI-compatible model ID; default `qwen/qwen3.8-27b`.               |
+| `MUSIC_AI_BASE_URL`   | OpenAI-compatible API root; default `https://api.groq.com/openai/v1`. |
+| `MUSIC_AI_TIMEOUT_MS` | Provider deadline, validated between 8000 and 12000 ms.               |
+
+The provider receives only the listener prompt plus a bounded aggregate of canonical genres, genre counts, total track count, year range, and decade counts. Track titles, albums, catalogue artists, favourites, listening history, file paths, and credentials are never included. The model returns a declarative intent; filtering, scoring, seeded selection, and track hydration remain local to CineDrive.
+
+Language constraints are evaluated entirely locally from persisted track evidence. Existing lyrics metadata wins, otherwise cached lyrics text is detected locally with `franc-min`; explicit language-bearing genres such as `turkish rock` or `anatolian rock` are the final deterministic fallback. Generic genres, artist names, and title characters are not language evidence. Hard language constraints accept only manual, lyrics-metadata, high-confidence lyrics-detection, or explicit-genre evidence; unknown tracks are excluded and the target count is never filled by relaxing the language constraint.
+
+Existing catalogues can be enriched in the background with authenticated maintenance endpoints. `POST /api/music/maintenance/languages/enrich` first processes lyrics already cached in SQLite in local batches of 200, then submits still-unknown tracks with missing lyrics to the existing LRCLIB lookup/cache layer in batches of 25 with at most two workers. Provider requests remain globally rate-limited and use bounded retries for 429, 5xx, and network failures. Persisted queue state, a 15-minute processing lease, increasing error backoff, and a seven-day retry delay for `not_found` results prevent every run from restarting the full catalogue. New library scans trigger only the fast local/cache pass; provider fetching runs only in the user-started background maintenance job.
+
+An optional `maxTracks` POST body can cap a pilot run, for example `{ "maxTracks": 200 }`. The limit applies only to external provider lookups; cached lyrics are always processed first without consuming it. A bounded pilot deterministically samples evenly across the full eligible queue instead of taking its first rows. Omitting the field preserves the existing full background order and behavior with the same batch and concurrency controls. Valid values are 1–5000.
+
+`GET /api/music/maintenance/languages/stats` reports `lyricsAvailable`, `lyricsMissing`, `pendingEnrichment`, `queued`, `processing`, `completed`, `notFound`, `retryWaiting`, `failed`, `lyricsDetected`, `languagesResolvedThisRun`, `providerLookups`, `providerHttp429`, `providerHttp5xx`, `lastJobStartedAt`, and `lastJobCompletedAt` in addition to known/unknown counts, languages, sources, and job status. Provider counters describe the last completed in-process job. Only title, artist, album, and duration are sent for a provider lookup. Returned lyrics are cached in SQLite and detected locally with `franc-min`; lyrics content is never sent to the AI provider.
+
+Year filtering currently uses the persisted track year, falling back to the album edition year. CineDrive does not yet persist a verified original recording/release year from MusicBrainz, so a reissue such as a 1998 remaster can still match a 1990s constraint. No year is guessed from the title. Original-release-year enrichment remains a future metadata-maintenance task.
+
 ## Multi-user mode
 
 The administrator from `ADMIN_EMAIL` and `ADMIN_PASSWORD` exists in both authentication modes. To enable administrator-managed accounts:

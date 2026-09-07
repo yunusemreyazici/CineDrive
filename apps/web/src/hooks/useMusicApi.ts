@@ -6,6 +6,8 @@ import type {
   MusicLyricsDto,
   MusicMaintenanceDto,
   MusicMixDto,
+  MusicAiStatusDto,
+  PlaylistIntent,
   MusicPlaybackStateDto,
   MusicReplayDto,
   MusicPlaylistDto,
@@ -59,6 +61,32 @@ export const useMusicDiscoveryQuery = (generationId?: string) =>
       ).data,
     placeholderData: (previous) => previous,
     staleTime: 5 * 60 * 1000,
+  });
+
+export const useMusicAiStatusQuery = () =>
+  useQuery({
+    queryKey: ['music', 'discovery', 'ai', 'status'],
+    queryFn: async () => (await apiClient.get<MusicAiStatusDto>('/music/discovery/ai/status')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+
+export interface MusicAiPlaylistResponse {
+  intent: PlaylistIntent;
+  mix: MusicMixDto;
+  generatedAt: string;
+  requestedCount: number;
+  matchedCount: number;
+  constraints: string[];
+}
+
+export const useMusicAiPlaylistMutation = () =>
+  useMutation({
+    mutationFn: async (input: { prompt: string; generationId: string }) =>
+      (
+        await apiClient.post<MusicAiPlaylistResponse>('/music/discovery/ai', input, {
+          timeoutMs: 15_000,
+        })
+      ).data,
   });
 
 export const useMusicReplayQuery = (period: 'day' | 'week' | 'month' | 'year', year?: number) =>
@@ -352,10 +380,14 @@ export const useScanArtistArtworkMutation = () => {
   return useMutation({
     mutationFn: async (input: { artistIds?: string[]; limit?: number } = {}) =>
       (
-        await apiClient.post<ArtistArtworkScanResult>('/music/maintenance/artists/artwork/scan', {
-          limit: 12,
-          ...input,
-        }, { timeoutMs: 120_000 })
+        await apiClient.post<ArtistArtworkScanResult>(
+          '/music/maintenance/artists/artwork/scan',
+          {
+            limit: 12,
+            ...input,
+          },
+          { timeoutMs: 120_000 },
+        )
       ).data,
     onSuccess: () => void client.invalidateQueries({ queryKey: ['music'] }),
   });
@@ -641,7 +673,11 @@ export interface MusicPlaybackClientIdentity {
 export const fetchMusicPlaybackState = async (client: MusicPlaybackClientIdentity) =>
   (
     await apiClient.get<{ state: MusicPlaybackStateDto }>('/music/playback-state', {
-      params: { clientId: client.clientId, clientName: client.clientName, platform: client.platform },
+      params: {
+        clientId: client.clientId,
+        clientName: client.clientName,
+        platform: client.platform,
+      },
     })
   ).data.state;
 
@@ -653,6 +689,10 @@ export const saveMusicPlaybackState = async (
 ) =>
   (
     await apiClient.put<{ revision: number }>('/music/playback-state', state, {
-      params: { clientId: client.clientId, clientName: client.clientName, platform: client.platform },
+      params: {
+        clientId: client.clientId,
+        clientName: client.clientName,
+        platform: client.platform,
+      },
     })
   ).data;

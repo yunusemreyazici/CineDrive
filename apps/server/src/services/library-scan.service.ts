@@ -8,6 +8,7 @@ import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isDriveVideoFile } from './media-file-types.js';
 
 // Each probe issues a handful of ranged Drive reads. Enough of them run at once
@@ -325,6 +326,9 @@ export class LibraryScanService {
         where: { id: libraryId },
         data: { lastScannedAt: new Date() },
       });
+      void new MusicLanguageEnrichmentService(this.prisma)
+        .enrichLibrary(libraryId)
+        .catch(() => undefined);
     } catch (err: unknown) {
       if (signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : String(err);

@@ -352,6 +352,29 @@ export const tr = {
     qualitySummary: 'Ses kalitesi',
     smartMixes: 'Sana Özel Mix’ler',
     madeForYou: 'Dinleme alışkanlıklarına göre',
+    aiPlaylistTitle: 'AI ile liste oluştur',
+    aiPlaylistDescription:
+      'Nasıl bir şey dinlemek istediğini anlat; CineDrive seçimi yalnızca kendi kütüphanende yapar.',
+    aiPlaylistPromptLabel: 'Nasıl bir şey dinlemek istiyorsun?',
+    aiPlaylistPlaceholder: 'Örn. Gece sürüşü için alternatif rock',
+    aiPlaylistCreate: 'Oluştur',
+    aiPlaylistCreating: 'Hazırlanıyor…',
+    aiPlaylistRegenerate: 'Tekrar oluştur',
+    aiPlaylistUnavailable: 'AI ile liste oluşturma şu anda kullanılamıyor.',
+    aiGeneratedMix: 'AI planlı · CineDrive seçimi',
+    aiPlaylistMatchedCount: (matched: number, requested: number) =>
+      matched < requested
+        ? `${matched} uygun parça bulundu; ${requested} hedefi kriterler korunarak doldurulmadı.`
+        : `${matched} uygun parça bulundu.`,
+    aiSuggestedPromptsLabel: 'Önerilen müzik istekleri',
+    aiSuggestedPrompts: [
+      'Beni şaşırt',
+      'Gece sürüşü',
+      'Az dinlediklerim',
+      'Eski favoriler',
+      '2000’ler nostaljisi',
+      'Sakin bir şeyler',
+    ],
     playMix: (name: string) => `${name} mix’ini oynat`,
     saveMix: (name: string) => `${name} mix’ini çalma listelerine kaydet`,
     mixSaved: (name: string) => `${name} mix’i kaydedildi`,

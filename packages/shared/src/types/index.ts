@@ -334,6 +334,12 @@ export interface MusicTrackDto {
   isFavorite: boolean;
   playCount?: number;
   metadataLocked?: boolean;
+  language?: {
+    code: string;
+    source: string;
+    confidence: number;
+    updatedAt?: string | null;
+  } | null;
   musicbrainzRecordingId?: string | null;
   credits?: MusicTrackCreditDto[];
   audio?: {
@@ -401,7 +407,8 @@ export interface MusicMixDto {
     | 'decade'
     | 'rediscovery'
     | 'favorites'
-    | 'collection';
+    | 'collection'
+    | 'ai';
   title: string;
   subtitle: string;
   description?: string;
@@ -443,6 +450,10 @@ export interface MusicDiscoveryDto {
   continueListening?: { track: MusicTrackDto; positionSeconds: number } | null;
   unfinishedAlbums: Array<MusicAlbumDto & { progress: number; tracks: MusicTrackDto[] }>;
   radioArtists: MusicArtistDto[];
+}
+
+export interface MusicAiStatusDto {
+  enabled: boolean;
 }
 
 export interface MusicDuplicateGroupDto {
