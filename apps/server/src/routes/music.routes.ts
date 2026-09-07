@@ -622,6 +622,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       const presented = {
         ...discovery,
         mixes: discovery.mixes.map(presentMix),
+        libraryDepthCollections: discovery.libraryDepthCollections.map(presentMix),
         moodCollections: discovery.moodCollections.map(presentMix),
         genreCollections: discovery.genreCollections.map(presentMix),
         decadeCollections: discovery.decadeCollections.map(presentMix),
@@ -635,6 +636,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         ...presented,
         mixes: presented.mixes.map(compactMix),
+        libraryDepthCollections: presented.libraryDepthCollections.map(compactMix),
         moodCollections: presented.moodCollections.map(compactMix),
         genreCollections: presented.genreCollections.map(compactMix),
         decadeCollections: presented.decadeCollections.map(compactMix),

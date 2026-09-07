@@ -444,6 +444,8 @@ export interface MusicDiscoveryDto {
   generationId?: string;
   generatedAt?: string;
   mixes: MusicMixDto[];
+  /** Behavior-based long-tail collections computed from local library and listening signals. */
+  libraryDepthCollections: MusicMixDto[];
   moodCollections: MusicMixDto[];
   genreCollections: MusicMixDto[];
   decadeCollections: MusicMixDto[];

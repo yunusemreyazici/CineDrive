@@ -6,6 +6,11 @@ import {
   isMeaningfulDiscoveryListen,
 } from '../src/services/music-discovery.service';
 import { loadDiscoveryCandidates } from '../src/services/music-discovery-candidates';
+import type { DiscoveryCandidate } from '../src/services/music-discovery-candidates';
+import {
+  buildLibraryDepthPlanDefinitions,
+  type DiscoveryHistorySignal,
+} from '../src/services/music-discovery-library-depth';
 import {
   DISCOVERY_LIMITS,
   createDiscoverySelectionContext,
@@ -177,5 +182,141 @@ describe('music discovery diversification', () => {
     expect(isMeaningfulDiscoveryListen({ listenedSeconds: 14, track: { duration: null } })).toBe(
       false,
     );
+  });
+});
+
+const depthCandidate = (
+  id: string,
+  options: Partial<DiscoveryCandidate> = {},
+): DiscoveryCandidate => ({
+  id,
+  title: id,
+  discNumber: 1,
+  trackNumber: 1,
+  artistId: options.artistId ?? `artist-${id}`,
+  artistName: options.artistName ?? `Artist ${id}`,
+  artistArtworkUrl: null,
+  albumId: options.albumId ?? `album-${id}`,
+  albumTitle: options.albumTitle ?? `Album ${id}`,
+  albumYear: options.albumYear ?? 2000,
+  genres: options.genres ?? ['Rock'],
+  albumGenres: options.albumGenres ?? [],
+  year: options.year ?? 2000,
+  duration: options.duration ?? 200,
+  playCount: options.playCount ?? 0,
+  isFavorite: options.isFavorite ?? false,
+  languageCode: null,
+  languageSource: null,
+  languageConfidence: null,
+  createdAt: options.createdAt ?? new Date('2020-01-01T00:00:00.000Z'),
+  updatedAt: options.updatedAt ?? new Date('2020-01-01T00:00:00.000Z'),
+});
+
+const historySignal = (
+  date: string,
+  meaningfulPlayCount = 1,
+  averageCompletion = 0.8,
+): DiscoveryHistorySignal => ({
+  meaningfulPlayCount,
+  completionTotal: meaningfulPlayCount * averageCompletion,
+  lastMeaningfulPlayAt: new Date(date),
+});
+
+const buildDepthPlans = (
+  candidates: DiscoveryCandidate[],
+  historySignals = new Map<string, DiscoveryHistorySignal>(),
+  recentIds = new Set<string>(),
+) =>
+  buildLibraryDepthPlanDefinitions({
+    candidates,
+    historySignals,
+    currentTime: new Date('2026-09-01T00:00:00.000Z').getTime(),
+    preferenceScore: (candidate) => (candidate.isFavorite ? 10 : 0),
+    explorationScore: (candidate) => 20 - candidate.playCount,
+    isRecentlyPlayed: (candidate) => recentIds.has(candidate.id),
+  });
+
+describe('music discovery library depth semantics', () => {
+  it('uses adaptive inactivity and meaningful listening for long-unplayed candidates', () => {
+    const candidates = ['oldest', 'older', 'recent', 'unheard'].map((id) => depthCandidate(id));
+    const history = new Map([
+      ['oldest', historySignal('2022-01-01')],
+      ['older', historySignal('2023-01-01')],
+      ['recent', historySignal('2026-08-30')],
+    ]);
+    const plan = buildDepthPlans(candidates, history, new Set(['recent'])).find(
+      (item) => item.id === 'library-depth-long-unplayed',
+    );
+
+    expect(plan?.candidates.map((candidate) => candidate.id)).toEqual(['oldest']);
+  });
+
+  it('keeps a newly imported zero-play batch from dominating least-played candidates', () => {
+    const candidates = [
+      depthCandidate('old-zero', { createdAt: new Date('2020-01-01'), playCount: 0 }),
+      depthCandidate('old-one', { createdAt: new Date('2021-01-01'), playCount: 1 }),
+      depthCandidate('mid', { createdAt: new Date('2022-01-01'), playCount: 2 }),
+      depthCandidate('new-zero', { createdAt: new Date('2026-08-31'), playCount: 0 }),
+    ];
+    const plan = buildDepthPlans(candidates).find(
+      (item) => item.id === 'library-depth-least-played',
+    );
+
+    expect(plan?.candidates.map((candidate) => candidate.id)).not.toContain('new-zero');
+    expect(plan!.relevance(candidates[0]!)).toBeGreaterThan(plan!.relevance(candidates[2]!));
+  });
+
+  it('builds hidden favorites from direct behavior instead of cloning explicit favorites', () => {
+    const candidates = [
+      depthCandidate('behavioral', { isFavorite: false }),
+      depthCandidate('explicit-only', { isFavorite: true }),
+      depthCandidate('weak', { isFavorite: false }),
+      depthCandidate('recent-strong', { isFavorite: true }),
+    ];
+    const history = new Map([
+      ['behavioral', historySignal('2023-01-01', 4, 0.85)],
+      ['weak', historySignal('2023-06-01', 1, 0.65)],
+      ['recent-strong', historySignal('2026-08-30', 5, 0.95)],
+    ]);
+    const plan = buildDepthPlans(candidates, history, new Set(['recent-strong'])).find(
+      (item) => item.id === 'library-depth-hidden-favorites',
+    );
+
+    expect(plan?.candidates.map((candidate) => candidate.id)).toEqual(['behavioral']);
+  });
+
+  it('omits history-dependent collections instead of inventing fallback content', () => {
+    const plans = buildDepthPlans([depthCandidate('one'), depthCandidate('two')]);
+
+    expect(plans.map((plan) => plan.id)).toEqual(['library-depth-least-played']);
+  });
+
+  it('stays deterministic and participates in shared duplicate suppression', () => {
+    const candidates = Array.from({ length: 120 }, (_, index) =>
+      depthCandidate(`depth-${index}`, {
+        artistId: `artist-${Math.floor(index / 4)}`,
+        albumId: `album-${Math.floor(index / 2)}`,
+        playCount: index % 5,
+      }),
+    );
+    const leastPlayed = buildDepthPlans(candidates).find(
+      (plan) => plan.id === 'library-depth-least-played',
+    )!;
+    const mapped = leastPlayed.candidates.map((candidate) => ({
+      value: candidate.id,
+      id: candidate.id,
+      artistKey: candidate.artistId!,
+      albumKey: candidate.albumId!,
+      relevance: leastPlayed.relevance(candidate),
+      exploration: leastPlayed.relevance(candidate),
+    }));
+    const context = createDiscoverySelectionContext();
+    const daily = selectDiscoveryCandidates(mapped, 'daily', 30, context);
+    const depth = selectDiscoveryCandidates(mapped, 'depth', 30, context);
+    const repeated = selectDiscoveryCandidates(mapped, 'depth', 30);
+    const repeatedAgain = selectDiscoveryCandidates(mapped, 'depth', 30);
+
+    expect(new Set([...daily, ...depth]).size).toBe(60);
+    expect(repeatedAgain).toEqual(repeated);
   });
 });
