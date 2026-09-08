@@ -89,16 +89,19 @@ export const useMusicAiPlaylistMutation = () =>
       ).data,
   });
 
-export const useMusicReplayQuery = (period: 'day' | 'week' | 'month' | 'year', year?: number) =>
-  useQuery({
-    queryKey: ['music', 'replay', period, year],
+export const useMusicReplayQuery = (period: 'day' | 'week' | 'month' | 'year', year?: number) => {
+  const timezoneOffsetMinutes = -new Date().getTimezoneOffset();
+  return useQuery({
+    queryKey: ['music', 'replay', period, year, timezoneOffsetMinutes],
     queryFn: async () =>
       (
         await apiClient.get<MusicReplayDto>('/music/replay', {
-          params: { period, ...(year ? { year } : {}) },
+          params: { period, timezoneOffsetMinutes, ...(year ? { year } : {}) },
         })
       ).data,
+    placeholderData: (previous) => previous,
   });
+};
 
 export const useArtistRadioMutation = () =>
   useMutation({

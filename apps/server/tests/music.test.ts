@@ -14,6 +14,7 @@ import {
   isPlaylistFilename,
 } from '../src/services/music-metadata.service';
 import { alignPlainLyrics, parseLrc } from '../src/services/music-lyrics.service';
+import { replayLocalClock, replayPeriodRange } from '../src/services/music-replay.service';
 import { resolveMusicContentType } from '../src/utils/music-format';
 
 describe('Music library', () => {
@@ -877,6 +878,49 @@ describe('Music library', () => {
       uniqueTracks: 1,
       topTracks: [{ track: { id: trackId }, seconds: 75, plays: 1 }],
     });
+  });
+
+  it('uses the client UTC offset for Replay day boundaries and local activity buckets', async () => {
+    const now = new Date('2026-09-07T21:30:00.000Z');
+    const range = replayPeriodRange('day', undefined, 180, now);
+    expect(range).toEqual({
+      start: new Date('2026-09-07T21:00:00.000Z'),
+      end: now,
+      year: null,
+    });
+    expect(replayLocalClock(now, 180)).toEqual({ hour: 0, weekday: 2 });
+
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.create({
+      data: {
+        userId: user.id,
+        trackId,
+        listenedSeconds: 45,
+        playedAt: new Date('2026-01-01T21:30:00.000Z'),
+      },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/replay?period=year&year=2026&timezoneOffsetMinutes=180',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const replay = JSON.parse(response.body);
+    expect(replay.range).toEqual({
+      start: '2025-12-31T21:00:00.000Z',
+      end: '2026-12-31T21:00:00.000Z',
+    });
+    expect(replay.hours[0]).toMatchObject({ hour: 0, seconds: 45, plays: 1 });
+    expect(replay.weekdays[5]).toMatchObject({ day: 5, seconds: 45, plays: 1 });
+  });
+
+  it('rejects unsafe Replay timezone offsets', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/replay?period=day&timezoneOffsetMinutes=900',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it('accepts small browser and scanner duration drift in listening history', async () => {
