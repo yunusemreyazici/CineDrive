@@ -456,6 +456,15 @@ export interface MusicDiscoveryDto {
 
 export interface MusicAiStatusDto {
   enabled: boolean;
+  editorialEnabled?: boolean;
+}
+
+export interface MusicEditorialEditionDto {
+  editionId: string;
+  generatedAt: string;
+  expiresAt: string;
+  source: 'ai' | 'local';
+  mixes: MusicMixDto[];
 }
 
 export interface MusicDuplicateGroupDto {

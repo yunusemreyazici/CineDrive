@@ -55,6 +55,7 @@ import {
 import { MusicBrainzService } from '../services/musicbrainz.service.js';
 import { MusicDiscoveryService } from '../services/music-discovery.service.js';
 import { MusicAiPlaylistService } from '../services/music-ai-playlist.service.js';
+import { MusicAiEditorialService } from '../services/music-ai-editorial.service.js';
 import { createMusicAiProvider, MusicAiProviderError } from '../services/music-ai-provider.js';
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
@@ -355,7 +356,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const lyricsService = new MusicLyricsService(fastify.prisma);
   const musicbrainz = new MusicBrainzService();
   const discoveryService = new MusicDiscoveryService(fastify.prisma);
-  const aiPlaylistService = new MusicAiPlaylistService(fastify.prisma, createMusicAiProvider(env));
+  const musicAiProvider = createMusicAiProvider(env);
+  const aiPlaylistService = new MusicAiPlaylistService(fastify.prisma, musicAiProvider);
+  const aiEditorialService = new MusicAiEditorialService(fastify.prisma, musicAiProvider);
   const replayGainService = new MusicReplayGainService(fastify.prisma);
   const replayService = new MusicReplayService(fastify.prisma);
   const maintenanceService = new MusicMaintenanceService(fastify.prisma);
@@ -645,6 +648,26 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   fastify.get('/discovery/ai/status', async () => ({ enabled: aiPlaylistService.isEnabled() }));
+
+  fastify.get<{ Querystring: { compact?: string } }>('/discovery/editorial', async (request) => {
+    const acceptedLanguage = String(request.headers['accept-language'] || '').toLowerCase();
+    const locale = acceptedLanguage.startsWith('tr') ? 'tr' : 'en';
+    const edition = await aiEditorialService.getEdition(request.user!.id, locale);
+    const nativeClient = typeof request.headers['x-cinemusic-version'] === 'string';
+    const mixes = nativeClient
+      ? edition.mixes.map((mix) => presentMusicMixForNativeClient(mix))
+      : edition.mixes;
+    if (request.query.compact !== '1' && request.query.compact !== 'true') {
+      return { ...edition, mixes };
+    }
+    return {
+      ...edition,
+      mixes: mixes.map(({ tracks, ...mix }) => ({
+        ...mix,
+        trackIds: tracks.map((track) => track.id),
+      })),
+    };
+  });
 
   fastify.post('/discovery/ai', async (request, reply) => {
     const parsed = musicAiPlaylistRequestSchema.safeParse(request.body);
