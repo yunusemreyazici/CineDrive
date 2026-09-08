@@ -257,8 +257,9 @@ export const MusicReplayPage: React.FC = () => {
               <button
                 type="button"
                 aria-label={t.music.replayPreviousYear}
-                onClick={() => setYear((value) => value - 1)}
-                className="rounded p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                disabled={year <= 2000}
+                onClick={() => setYear((value) => Math.max(2000, value - 1))}
+                className="rounded p-1.5 text-zinc-500 hover:bg-white/[0.06] hover:text-white disabled:opacity-25"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>

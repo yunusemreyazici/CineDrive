@@ -724,7 +724,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    return replayService.get(request.user!.id, parsed.data.period, parsed.data.year);
+    return replayService.get(
+      request.user!.id,
+      parsed.data.period,
+      parsed.data.year,
+      parsed.data.timezoneOffsetMinutes,
+    );
   });
 
   fastify.get<{ Params: { artistId: string } }>('/radio/:artistId', async (request, reply) => {

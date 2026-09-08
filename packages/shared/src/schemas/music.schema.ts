@@ -301,6 +301,7 @@ export const musicDuplicateArchiveSchema = z.object({
 export const musicReplayQuerySchema = z.object({
   period: z.enum(['day', 'week', 'month', 'year']).default('week'),
   year: z.coerce.number().int().min(2000).max(3000).optional(),
+  timezoneOffsetMinutes: z.coerce.number().int().min(-840).max(840).default(0),
 });
 
 export const musicLyricsTranslationSchema = z.object({
