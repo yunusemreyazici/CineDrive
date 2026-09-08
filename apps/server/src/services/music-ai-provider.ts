@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { playlistIntentProviderSchema } from '@cinedrive/shared';
+import { musicEditorialPlansProviderSchema, playlistIntentProviderSchema } from '@cinedrive/shared';
 import type { EnvConfig } from '@cinedrive/shared';
 
 export interface MusicCatalogueSummary {
@@ -9,10 +9,28 @@ export interface MusicCatalogueSummary {
   decades: Array<{ decade: number; count: number }>;
 }
 
+export interface MusicEditorialListenerProfile {
+  totalTrackCount: number;
+  favoriteTrackCount: number;
+  playedTrackCount: number;
+  unheardTrackCount: number;
+  underplayedTrackCount: number;
+  meaningfulHistoryCount: number;
+  genres: Array<{ name: string; count: number; affinity: number }>;
+  decades: Array<{ decade: number; count: number; affinity: number }>;
+  languages: Array<{ code: string; count: number }>;
+}
+
 export interface MusicAiProvider {
   generatePlaylistIntent(input: {
     prompt: string;
     catalogue: MusicCatalogueSummary;
+  }): Promise<unknown>;
+  generateEditorialPlans?(input: {
+    catalogue: MusicCatalogueSummary;
+    profile: MusicEditorialListenerProfile;
+    locale: 'tr' | 'en';
+    editionDate: string;
   }): Promise<unknown>;
 }
 
@@ -58,6 +76,27 @@ ${JSON.stringify(input.prompt)}
 Bounded catalogue summary (contains no track, album, history, favorite, or artist lists):
 ${JSON.stringify(input.catalogue)}`;
 
+export const buildMusicAiEditorialPrompt = (input: {
+  catalogue: MusicCatalogueSummary;
+  profile: MusicEditorialListenerProfile;
+  locale: 'tr' | 'en';
+  editionDate: string;
+}) => `You are the editorial planner for a private, self-hosted music library.
+
+Create exactly five distinct playlist plans for these slots: daily, rediscovery, comfort, crossover, time-capsule. Return only the requested JSON. Write concise titles and subtitles in ${input.locale === 'tr' ? 'Turkish' : 'English'}.
+
+You plan themes only. Never name or select songs, albums, or artists. artists and excludedArtistNames must always be empty. You have no tools and cannot access databases, files, secrets, or environment variables. All positive genre, year, language and locale facets must be SOFT because the listener did not explicitly request a hard constraint. Keep exclusions empty. Do not claim knowledge of BPM, tempo, key, valence, acousticness, danceability, or energy.
+
+Use the aggregate profile to make the five plans complementary: daily should balance familiarity and discovery; rediscovery should favor unheard, underplayed, or long-unplayed library items; comfort should lean toward favorites and familiarity while preserving diversity; crossover should blend two established genre affinities; time-capsule should softly favor one meaningful decade. targetCount should be 40-50. All weights and biases must be between 0 and 1.
+
+Edition date: ${input.editionDate}
+
+Bounded catalogue vocabulary (no track, album, artist, favorite-name, or history list):
+${JSON.stringify(input.catalogue)}
+
+Aggregate listener profile (counts and affinities only; no media identities):
+${JSON.stringify(input.profile)}`;
+
 export interface OpenAiCompatibleMusicProviderOptions {
   apiKey: string;
   model: string;
@@ -77,6 +116,34 @@ export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
     prompt: string;
     catalogue: MusicCatalogueSummary;
   }): Promise<unknown> {
+    return this.generateStructured(
+      buildMusicAiPlannerPrompt(input),
+      playlistIntentProviderSchema,
+      'playlist_intent',
+      1_200,
+    );
+  }
+
+  public async generateEditorialPlans(input: {
+    catalogue: MusicCatalogueSummary;
+    profile: MusicEditorialListenerProfile;
+    locale: 'tr' | 'en';
+    editionDate: string;
+  }): Promise<unknown> {
+    return this.generateStructured(
+      buildMusicAiEditorialPrompt(input),
+      musicEditorialPlansProviderSchema,
+      'music_editorial_plans',
+      4_000,
+    );
+  }
+
+  private async generateStructured(
+    prompt: string,
+    schema: z.ZodType,
+    schemaName: string,
+    maxCompletionTokens: number,
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs);
     timer.unref?.();
@@ -92,19 +159,19 @@ export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
           signal: controller.signal,
           body: JSON.stringify({
             model: this.options.model,
-            messages: [{ role: 'user', content: buildMusicAiPlannerPrompt(input) }],
+            messages: [{ role: 'user', content: prompt }],
             response_format: {
               type: 'json_schema',
               json_schema: {
-                name: 'playlist_intent',
+                name: schemaName,
                 strict: true,
-                schema: z.toJSONSchema(playlistIntentProviderSchema, { target: 'draft-07' }),
+                schema: z.toJSONSchema(schema, { target: 'draft-07' }),
               },
             },
             reasoning_effort: 'none',
             include_reasoning: false,
             temperature: 0.2,
-            max_completion_tokens: 1_200,
+            max_completion_tokens: maxCompletionTokens,
           }),
         },
       );

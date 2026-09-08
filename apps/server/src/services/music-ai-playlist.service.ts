@@ -4,7 +4,11 @@ import type { MusicMixDto, MusicTrackDto, PlaylistIntent } from '@cinedrive/shar
 import { accessibleLibraryFilter } from '../utils/library-access.js';
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../utils/music-format.js';
 import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
-import { selectDiscoveryCandidates, stableNumber } from './music-discovery-selection.js';
+import {
+  selectDiscoveryCandidates,
+  stableNumber,
+  type DiscoverySelectionContext,
+} from './music-discovery-selection.js';
 import { buildMusicCatalogueSummary, MusicAiIntentPlanner } from './music-ai-intent.js';
 import type { MusicAiProvider } from './music-ai-provider.js';
 import { MusicAiProviderError } from './music-ai-provider.js';
@@ -145,15 +149,39 @@ const evaluateCandidateLocale = (
   scenes: string[],
 ): ConstraintEvidence => {
   if (!countries.length && !scenes.length)
-    return { status: 'unknown', confidence: 0, source: 'unknown', actual: null, requested: [], hardAccepted: false, hardMatch: false };
+    return {
+      status: 'unknown',
+      confidence: 0,
+      source: 'unknown',
+      actual: null,
+      requested: [],
+      hardAccepted: false,
+      hardMatch: false,
+    };
   const genres = normalizedCandidateGenres(candidate);
   if (
     scenes.some((scene) => genreMatches(genres, scene)) ||
     countries.some((country) => genresContainSignal(genres, COUNTRY_GENRE_SIGNALS[country] || []))
   ) {
-    return { status: 'match', confidence: 0.75, source: 'genre', actual: null, requested: [], hardAccepted: false, hardMatch: false };
+    return {
+      status: 'match',
+      confidence: 0.75,
+      source: 'genre',
+      actual: null,
+      requested: [],
+      hardAccepted: false,
+      hardMatch: false,
+    };
   }
-  return { status: 'unknown', confidence: 0, source: 'unknown', actual: null, requested: [], hardAccepted: false, hardMatch: false };
+  return {
+    status: 'unknown',
+    confidence: 0,
+    source: 'unknown',
+    actual: null,
+    requested: [],
+    hardAccepted: false,
+    hardMatch: false,
+  };
 };
 
 const isMeaningfulListen = (entry: AiPlaylistHistoryEntry) => {
@@ -272,6 +300,7 @@ export const selectAiPlaylistCandidates = (
   history: AiPlaylistHistoryEntry[],
   intent: PlaylistIntent,
   generationId: string,
+  selectionContext?: DiscoverySelectionContext,
 ) => {
   const meaningful = history.filter(isMeaningfulListen);
   const listened = new Set(meaningful.map((entry) => entry.trackId));
@@ -344,7 +373,7 @@ export const selectAiPlaylistCandidates = (
     scored,
     `ai:${generationId}`,
     Math.min(intent.targetCount, scored.length),
-    undefined,
+    selectionContext,
     {
       relevanceRatio: Math.min(0.9, Math.max(0.35, 0.8 - requestedExploration * 0.4)),
       artistLimit,
@@ -353,7 +382,7 @@ export const selectAiPlaylistCandidates = (
   );
 };
 
-const catalogueFingerprint = (candidates: DiscoveryCandidate[]) => {
+export const catalogueFingerprint = (candidates: DiscoveryCandidate[]) => {
   const hash = createHash('sha256');
   for (const candidate of candidates) {
     hash.update(candidate.id);

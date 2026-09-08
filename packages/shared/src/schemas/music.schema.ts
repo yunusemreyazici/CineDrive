@@ -109,9 +109,33 @@ export const musicAiPlaylistRequestSchema = z
   })
   .strict();
 
+export const musicEditorialSlotSchema = z.enum([
+  'daily',
+  'rediscovery',
+  'comfort',
+  'crossover',
+  'time-capsule',
+]);
+
+export const musicEditorialPlanProviderSchema = z
+  .object({
+    slot: musicEditorialSlotSchema,
+    intent: playlistIntentProviderSchema,
+  })
+  .strict();
+
+export const musicEditorialPlansProviderSchema = z
+  .object({
+    plans: z.array(musicEditorialPlanProviderSchema).min(3).max(5),
+  })
+  .strict();
+
 export type PlaylistIntentProviderOutput = z.infer<typeof playlistIntentProviderSchema>;
 export type PlaylistIntent = z.infer<typeof playlistIntentSchema>;
 export type MusicAiPlaylistRequest = z.infer<typeof musicAiPlaylistRequestSchema>;
+export type MusicEditorialSlot = z.infer<typeof musicEditorialSlotSchema>;
+export type MusicEditorialPlanProviderOutput = z.infer<typeof musicEditorialPlanProviderSchema>;
+export type MusicEditorialPlansProviderOutput = z.infer<typeof musicEditorialPlansProviderSchema>;
 
 export const musicListQuerySchema = z.object({
   search: z.string().trim().optional(),
