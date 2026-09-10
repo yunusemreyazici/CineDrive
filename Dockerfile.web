@@ -21,7 +21,7 @@ RUN pnpm --filter "@cinedrive/shared" build
 RUN pnpm --filter "@cinedrive/web" build
 
 # Stage 2: Serve static assets with Nginx
-FROM nginx:alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913 AS runner
+FROM nginx:alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 AS runner
 
 # Keep the reproducible base-image identity while applying security fixes that
 # Alpine has published since that image digest was built.
