@@ -88,7 +88,7 @@ Screenshots show the Turkish interface; English is also available.
 - **Discovery** — daily and library-aware mixes, artist/track radio, mood and decade collections, continuous play, and reusable playlists.
 - **Replay** — listening statistics by period and year, top artists/albums/tracks, and historical listening summaries.
 - **Personal playback** — favourites, history, editable playlists, shuffle/repeat, and an account-synchronised queue and playback position.
-- **CineMusic Connect** — opt-in device discovery, remote playback controls, queue copying, and confirmed handoff between compatible iOS and Mac Catalyst clients. Each device remains independent unless the listener explicitly transfers playback.
+- **CineMusic Connect** — opt-in device discovery and a live remote controller for compatible iOS and Mac Catalyst clients, including play/pause, seek, volume, shuffle/repeat, queue selection, queue copying, and confirmed handoff. Each device remains independent unless the listener explicitly transfers playback.
 - **Lyrics** — sidecar `.lrc` import, LRCLIB lookup, synchronised or plain lyrics, timing alignment, revisions, manual translations, and optional LibreTranslate integration.
 - **Audio controls** — ReplayGain loudness normalisation, gapless playback, crossfade, and a five-band equaliser with presets.
 - **Library care** — metadata suggestions, bulk editing, duplicate archiving, ReplayGain analysis, Chromaprint/AcoustID matching, and automatic artist artwork discovery.

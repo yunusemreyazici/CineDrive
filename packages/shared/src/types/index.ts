@@ -447,7 +447,13 @@ export interface MusicPlaybackClientDto {
   platform: string;
   currentTrackId: string | null;
   positionSeconds: number;
+  volume: number;
   isPlaying: boolean;
+  shuffleEnabled: boolean;
+  repeatMode: 'off' | 'all' | 'one';
+  revision: number;
+  playbackUpdatedAt: string | null;
+  currentTrack: MusicTrackDto | null;
   remoteControlAllowed: boolean;
   online: boolean;
   lastSeenAt: string | null;
@@ -457,9 +463,24 @@ export interface MusicPlaybackCommandDto {
   id: string;
   sourceClientId: string;
   targetClientId: string;
-  type: 'play' | 'pause' | 'next' | 'previous' | 'transfer';
+  type:
+    | 'play'
+    | 'pause'
+    | 'next'
+    | 'previous'
+    | 'seek'
+    | 'setVolume'
+    | 'setShuffle'
+    | 'setRepeat'
+    | 'playQueueItem'
+    | 'transfer';
   sourceClientIdForTransfer?: string;
   mode?: 'handoff' | 'copy';
+  positionSeconds?: number;
+  volume?: number;
+  enabled?: boolean;
+  repeatMode?: 'off' | 'all' | 'one';
+  queueItemId?: string;
   createdAt: string;
   expiresAt: string;
 }

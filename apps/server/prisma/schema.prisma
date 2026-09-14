@@ -688,12 +688,14 @@ model MusicPlaybackState {
   currentTrack         MusicTrack?      @relation("CurrentMusicTrack", fields: [currentTrackId], references: [id], onDelete: SetNull)
   currentQueueItemId   String?
   positionSeconds      Float            @default(0)
+  volume               Float            @default(1)
   shuffleEnabled       Boolean          @default(false)
   repeatMode           String           @default("off")
   connectEnabled       Boolean          @default(false)
   remoteControlAllowed Boolean          @default(false)
   isPlaying            Boolean          @default(false)
   lastSeenAt           DateTime?
+  playbackUpdatedAt    DateTime?
   revision             Int              @default(0)
   updatedAt            DateTime         @updatedAt
   queue                MusicQueueItem[]

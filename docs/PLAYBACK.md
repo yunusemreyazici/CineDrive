@@ -49,7 +49,7 @@ Music playback has its own persistent queue and position, shuffle/repeat, gaples
 
 The authenticated client sync API supports ETag-aware library synchronisation, download manifests, track downloads, batched listening history, and playback-state synchronisation for mobile and offline clients.
 
-Compatible CineMusic clients can enable **CineMusic Connect** per device. Device visibility and permission to receive remote play, pause, previous, and next commands are separate opt-ins. **Copy Queue** starts the same server-backed queue on the target without stopping the source. An explicit handoff waits for the target to confirm that playback is ready before the source pauses; if confirmation times out, the source keeps playing. On-device imports are not transferable because the receiving device cannot access those files.
+Compatible CineMusic clients can enable **CineMusic Connect** per device. Device visibility and permission to receive remote commands are separate opt-ins. Selecting a device turns the ordinary mini player, Now Playing screen, keyboard shortcuts, lyrics, queue, and Mac menu-bar player into a remote controller for play/pause, previous/next, seeking, volume, shuffle/repeat, and queue-item selection. **Copy Queue** starts the same server-backed queue on the target without stopping the source. An explicit handoff waits for the target to confirm that playback is ready before the source pauses; if confirmation times out, the source keeps playing. On-device imports are not transferable because the receiving device cannot access those files.
 
 Connect presence and command polling use an isolated rate-limit bucket, so background device discovery does not consume the normal library API allowance.
 

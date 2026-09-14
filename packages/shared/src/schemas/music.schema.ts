@@ -177,6 +177,8 @@ export const updateMusicPlaybackStateSchema = z.object({
   currentTrackId: z.string().uuid().nullable(),
   currentQueueItemId: z.string().uuid().nullable().optional(),
   positionSeconds: z.number().finite().nonnegative(),
+  isPlaying: z.boolean().optional(),
+  volume: z.number().finite().min(0).max(1).optional(),
   shuffleEnabled: z.boolean(),
   repeatMode: z.enum(['off', 'all', 'one']),
   queue: z
@@ -212,17 +214,48 @@ export const musicConnectHeartbeatSchema = z.object({
 export const musicPlaybackCommandSchema = z
   .object({
     id: z.string().uuid(),
-    type: z.enum(['play', 'pause', 'next', 'previous', 'transfer']),
+    type: z.enum([
+      'play',
+      'pause',
+      'next',
+      'previous',
+      'seek',
+      'setVolume',
+      'setShuffle',
+      'setRepeat',
+      'playQueueItem',
+      'transfer',
+    ]),
     sourceClientId: z
       .string()
       .trim()
       .regex(/^[a-zA-Z0-9_-]{6,128}$/)
       .optional(),
     mode: z.enum(['handoff', 'copy']).optional(),
+    positionSeconds: z.number().finite().nonnegative().optional(),
+    volume: z.number().finite().min(0).max(1).optional(),
+    enabled: z.boolean().optional(),
+    repeatMode: z.enum(['off', 'all', 'one']).optional(),
+    queueItemId: z.string().uuid().optional(),
   })
   .superRefine((value, context) => {
     if (value.type === 'transfer' && (!value.sourceClientId || !value.mode)) {
       context.addIssue({ code: 'custom', message: 'Transfer commands require a source and mode.' });
+    }
+    if (value.type === 'seek' && value.positionSeconds === undefined) {
+      context.addIssue({ code: 'custom', message: 'Seek commands require a position.' });
+    }
+    if (value.type === 'setVolume' && value.volume === undefined) {
+      context.addIssue({ code: 'custom', message: 'Volume commands require a value.' });
+    }
+    if (value.type === 'setShuffle' && value.enabled === undefined) {
+      context.addIssue({ code: 'custom', message: 'Shuffle commands require an enabled value.' });
+    }
+    if (value.type === 'setRepeat' && value.repeatMode === undefined) {
+      context.addIssue({ code: 'custom', message: 'Repeat commands require a mode.' });
+    }
+    if (value.type === 'playQueueItem' && value.queueItemId === undefined) {
+      context.addIssue({ code: 'custom', message: 'Queue item commands require an item id.' });
     }
   });
 
