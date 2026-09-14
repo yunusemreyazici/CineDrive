@@ -31,6 +31,10 @@ after its matching GitHub Release and verified container artifacts exist.
 - Preserve Range response headers returned through Gaxios 7 `Headers` objects during original Google Drive playback.
 - Emit bounded-duration fragments for audio-only fMP4 transcoding so playback can begin before a live input closes.
 
+### Security
+
+- Update the transitive development-tooling dependency `js-yaml` to 4.3.2 to address excessive CPU use from empty YAML merge sources.
+
 ### Upgrade notes
 
 - This release adds automatic database migrations for system metrics, music-language enrichment queues and CineMusic Connect clients/commands. Back up the database before upgrading and update the server and web images together.
