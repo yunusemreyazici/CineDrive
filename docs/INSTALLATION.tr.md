@@ -101,6 +101,8 @@ Google Drive kurulum sırasında isteğe bağlıdır. Yalnızca yerel klasör ku
 
 Mevcut kaynak kurulumunu güncellemek için aynı komutu yeniden çalıştırın. Güncelleyici `.env` dosyasını korur, izlenen yerel değişikliklerde durur, yapılandırılmış dalın yalnızca fast-forward ilerlemesini kabul eder, migration öncesinde tam yolu kaydedilen doğrulanmış bir SQLite snapshot'ı alır ve yeniden başlatma sonrasında `/api/ready` kontrolü yapar. Build, migration veya hazırlık kontrolü başarısız olursa önceki/hedef commit'leri ve snapshot yolunu gösterir. Migration'lar açık ve koordineli bir geri dönüş gerektirebileceği için veritabanını otomatik olarak geri yüklemez; [Operasyon](OPERATIONS.tr.md#geri-dönüş) adımlarını izleyin.
 
+Mevcut kaynak kurulumunu CineMusic Connect destekleyen bir sürüme yükseltirken ayrıca veritabanı komutu çalıştırmanız gerekmez: güncelleyici `prisma:deploy` adımında cihaz durumu ve oynatma komutu migration'ını uygular, ardından servisi yeniden başlatır. CineMusic istemcisini de güncelleyin; eski istemciler sunucunun duyurduğu bu özelliği kullanmaz.
+
 Mevcut uygulamaları barındıran bir sunucuda çalıştırmadan önce kurucuyu inceleyin: systemd ve Nginx yapılandırmasına yazar.
 
 ## Yerel geliştirme
