@@ -436,8 +436,32 @@ export interface ClientBootstrapDto {
     seekableAAC: boolean;
     localizedDiscovery: boolean;
     scopedDownloadGrants: boolean;
+    cineMusicConnect: boolean;
   };
   serverTime: string;
+}
+
+export interface MusicPlaybackClientDto {
+  clientId: string;
+  clientName: string | null;
+  platform: string;
+  currentTrackId: string | null;
+  positionSeconds: number;
+  isPlaying: boolean;
+  remoteControlAllowed: boolean;
+  online: boolean;
+  lastSeenAt: string | null;
+}
+
+export interface MusicPlaybackCommandDto {
+  id: string;
+  sourceClientId: string;
+  targetClientId: string;
+  type: 'play' | 'pause' | 'next' | 'previous' | 'transfer';
+  sourceClientIdForTransfer?: string;
+  mode?: 'handoff' | 'copy';
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface MusicDiscoveryDto {

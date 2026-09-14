@@ -1788,4 +1788,147 @@ describe('Music library', () => {
       currentQueueItemId: secondQueueId,
     });
   });
+
+  it('keeps Connect opt-in and delivers idempotent commands only to allowed online devices', async () => {
+    const sourceClient = `ios_${randomUUID()}`;
+    const targetClient = `desktop_${randomUUID()}`;
+    const queueId = randomUUID();
+    const state = {
+      revision: 0,
+      currentTrackId: trackId,
+      currentQueueItemId: queueId,
+      positionSeconds: 18,
+      shuffleEnabled: false,
+      repeatMode: 'off',
+      queue: [{ id: queueId, trackId, sourceOrder: 0, playOrder: 0 }],
+    };
+    const sourceState = await app.inject({
+      method: 'PUT',
+      url: `/api/music/playback-state?clientId=${sourceClient}&clientName=iPhone&platform=ios`,
+      cookies: { session_id: cookie },
+      payload: state,
+    });
+    expect(sourceState.statusCode).toBe(200);
+
+    for (const [clientId, name, platform] of [
+      [sourceClient, 'iPhone', 'ios'],
+      [targetClient, 'Mac', 'desktop'],
+    ] as const) {
+      const heartbeat = await app.inject({
+        method: 'POST',
+        url: `/api/music/playback-clients/heartbeat?clientId=${clientId}&clientName=${name}&platform=${platform}`,
+        cookies: { session_id: cookie },
+        payload: {
+          connectEnabled: true,
+          remoteControlAllowed: true,
+          isPlaying: clientId === sourceClient,
+        },
+      });
+      expect(heartbeat.statusCode).toBe(200);
+    }
+
+    const clients = await app.inject({
+      method: 'GET',
+      url: '/api/music/playback-clients',
+      cookies: { session_id: cookie },
+    });
+    expect(clients.statusCode).toBe(200);
+    expect(JSON.parse(clients.body).clients).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ clientId: sourceClient, online: true, isPlaying: true }),
+        expect.objectContaining({
+          clientId: targetClient,
+          online: true,
+          remoteControlAllowed: true,
+        }),
+      ]),
+    );
+
+    const spoofedTransfer = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/${targetClient}/commands`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+      payload: {
+        id: randomUUID(),
+        type: 'transfer',
+        sourceClientId: targetClient,
+        mode: 'copy',
+      },
+    });
+    expect(spoofedTransfer.statusCode).toBe(403);
+    expect(JSON.parse(spoofedTransfer.body).error.code).toBe('INVALID_TRANSFER_SOURCE');
+
+    const commandId = randomUUID();
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: `/api/music/playback-clients/${targetClient}/commands`,
+        headers: { 'x-cinemusic-client-id': sourceClient },
+        cookies: { session_id: cookie },
+        payload: { id: commandId, type: 'transfer', sourceClientId: sourceClient, mode: 'copy' },
+      });
+    expect((await send()).statusCode).toBe(201);
+    expect((await send()).statusCode).toBe(200);
+
+    const pending = await app.inject({
+      method: 'GET',
+      url: `/api/music/playback-commands?clientId=${targetClient}`,
+      cookies: { session_id: cookie },
+    });
+    expect(pending.statusCode).toBe(200);
+    expect(JSON.parse(pending.body).commands).toEqual([
+      expect.objectContaining({
+        id: commandId,
+        type: 'transfer',
+        sourceClientIdForTransfer: sourceClient,
+        mode: 'copy',
+      }),
+    ]);
+
+    const ack = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-commands/${commandId}/ack`,
+      cookies: { session_id: cookie },
+      payload: { clientId: targetClient, status: 'completed' },
+    });
+    expect(ack.statusCode).toBe(200);
+    const completed = await app.inject({
+      method: 'GET',
+      url: `/api/music/playback-commands/${commandId}`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+    });
+    expect(completed.statusCode).toBe(200);
+    expect(JSON.parse(completed.body).command).toEqual(
+      expect.objectContaining({
+        id: commandId,
+        status: 'completed',
+        errorMessage: null,
+      }),
+    );
+    const empty = await app.inject({
+      method: 'GET',
+      url: `/api/music/playback-commands?clientId=${targetClient}`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(empty.body).commands).toEqual([]);
+
+    const disable = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/heartbeat?clientId=${targetClient}&clientName=Mac&platform=desktop`,
+      cookies: { session_id: cookie },
+      payload: { connectEnabled: false, remoteControlAllowed: false, isPlaying: false },
+    });
+    expect(disable.statusCode).toBe(200);
+    const rejected = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/${targetClient}/commands`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+      payload: { id: randomUUID(), type: 'play' },
+    });
+    expect(rejected.statusCode).toBe(409);
+    expect(JSON.parse(rejected.body).error.code).toBe('DEVICE_CONTROL_DISABLED');
+  });
 });

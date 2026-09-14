@@ -203,6 +203,38 @@ export const musicPlaybackClientQuerySchema = z.object({
   platform: z.enum(['web', 'ios', 'android', 'desktop', 'unknown']).default('unknown'),
 });
 
+export const musicConnectHeartbeatSchema = z.object({
+  connectEnabled: z.boolean(),
+  remoteControlAllowed: z.boolean(),
+  isPlaying: z.boolean(),
+});
+
+export const musicPlaybackCommandSchema = z
+  .object({
+    id: z.string().uuid(),
+    type: z.enum(['play', 'pause', 'next', 'previous', 'transfer']),
+    sourceClientId: z
+      .string()
+      .trim()
+      .regex(/^[a-zA-Z0-9_-]{6,128}$/)
+      .optional(),
+    mode: z.enum(['handoff', 'copy']).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.type === 'transfer' && (!value.sourceClientId || !value.mode)) {
+      context.addIssue({ code: 'custom', message: 'Transfer commands require a source and mode.' });
+    }
+  });
+
+export const musicPlaybackCommandAckSchema = z.object({
+  clientId: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9_-]{6,128}$/),
+  status: z.enum(['completed', 'failed']),
+  errorMessage: z.string().trim().max(500).optional(),
+});
+
 export const createMusicHistorySchema = z.object({
   trackId: z.string().uuid(),
   listenedSeconds: z.number().finite().nonnegative(),
