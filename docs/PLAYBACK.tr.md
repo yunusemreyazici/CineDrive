@@ -49,6 +49,10 @@ Müzik oynatmanın kendine ait kalıcı sırası ve konumu, karıştırma/tekrar
 
 Kimliği doğrulanmış istemci senkronizasyon API'si; ETag uyumlu kütüphane senkronizasyonunu, indirme manifestlerini, parça indirmeyi, toplu dinleme geçmişini ve mobil/offline istemciler için oynatma durumu senkronizasyonunu destekler.
 
+Uyumlu CineMusic istemcilerinde **CineMusic Connect** her cihaz için ayrı ayrı açılabilir. Cihazın görünmesi ile uzaktan oynat, duraklat, önceki ve sonraki komutlarını kabul etmesi ayrı izinlerdir. **Kuyruğu Kopyala**, sunucudaki aynı kuyruğu hedefte başlatırken kaynak cihazı durdurmaz. Açıkça başlatılan aktarımda kaynak, hedef oynatmanın hazır olduğunu onayladıktan sonra durur; onay zaman aşımına uğrarsa kaynak çalmayı sürdürür. Yalnızca cihazda bulunan aktarımlar, hedef cihaz bu dosyalara erişemediği için gönderilemez.
+
+Connect cihaz durumu ve komut sorguları ayrı bir istek kotası kullanır; arka plandaki cihaz keşfi normal kütüphane API kotasını tüketmez.
+
 ## Tarayıcı kapsamı
 
 Playwright, Chromium ve WebKit'i çalıştırır. Paket gerçek oynatma ilerlemesini, seek'i, yenileme sonrası devam etmeyi, HLS pencere değişimini, kesilen akıştan toparlanmayı ve FFmpeg temizliğini doğrular. Playwright WebKit yararlı Safari kapsamı sağlar; ancak branded Safari veya fiziksel iOS cihazı testi değildir.
