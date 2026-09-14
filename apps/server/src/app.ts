@@ -35,12 +35,18 @@ import type {
 // throttles normal playback. Media transport gets its own, much larger budget.
 const PLAYBACK_PATH_PATTERN =
   /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|music\/(?:tracks\/[^/]+\/(?:stream|download)|artwork\/[^/]+)|internal\/drive-source\/)/;
+const CONNECT_PATH_PATTERN = /^\/api\/music\/playback-(?:state|clients|commands)(?:\/|$)/;
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
+const CONNECT_RATE_LIMIT_MAX = 300;
 const DATABASE_READINESS_TIMEOUT_MS = 2_000;
 
-export const rateLimitBucket = (url: string): 'playback' | 'api' =>
-  PLAYBACK_PATH_PATTERN.test(url.split('?')[0] || '') ? 'playback' : 'api';
+export const rateLimitBucket = (url: string): 'playback' | 'connect' | 'api' => {
+  const path = url.split('?')[0] || '';
+  if (PLAYBACK_PATH_PATTERN.test(path)) return 'playback';
+  if (CONNECT_PATH_PATTERN.test(path)) return 'connect';
+  return 'api';
+};
 
 export const rateLimitKey = (ip: string, url: string): string => `${ip}:${rateLimitBucket(url)}`;
 
@@ -104,8 +110,12 @@ export const buildApp = async (
   });
 
   await app.register(rateLimit, {
-    max: (request) =>
-      rateLimitBucket(request.url) === 'playback' ? PLAYBACK_RATE_LIMIT_MAX : API_RATE_LIMIT_MAX,
+    max: (request) => {
+      const bucket = rateLimitBucket(request.url);
+      if (bucket === 'playback') return PLAYBACK_RATE_LIMIT_MAX;
+      if (bucket === 'connect') return CONNECT_RATE_LIMIT_MAX;
+      return API_RATE_LIMIT_MAX;
+    },
     keyGenerator: (request) => rateLimitKey(request.ip, request.url),
     timeWindow: '1 minute',
   });

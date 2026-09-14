@@ -10,4 +10,14 @@ describe('rate-limit buckets', () => {
       rateLimitKey('192.0.2.10', '/api/music/tracks'),
     );
   });
+
+  it('keeps playback synchronization and Connect polling in an isolated budget', () => {
+    expect(rateLimitBucket('/api/music/playback-state?clientId=ios-1')).toBe('connect');
+    expect(rateLimitBucket('/api/music/playback-clients')).toBe('connect');
+    expect(rateLimitBucket('/api/music/playback-clients/ios-1/commands')).toBe('connect');
+    expect(rateLimitBucket('/api/music/playback-commands?clientId=ios-1')).toBe('connect');
+    expect(rateLimitKey('192.0.2.10', '/api/music/playback-commands')).not.toBe(
+      rateLimitKey('192.0.2.10', '/api/music/tracks'),
+    );
+  });
 });
