@@ -10,13 +10,13 @@ etiketlerinden yayınlar. Kök, sunucu, web ve ortak paket sürümleri birlikte 
 - `PATCH`, public API veya saklanan veri sözleşmesini bilerek değiştirmeyen hata düzeltmeleridir.
 - `MINOR`, geriye uyumlu yeni davranışlar ekler.
 - `MAJOR`, uyumsuz API, yapılandırma veya migration değişiklikleri içerebilir.
-- Ön sürümler `1.1.0-rc.1` gibi geçerli SemVer ekleri kullanır.
+- Ön sürümler `1.2.0-rc.1` gibi geçerli SemVer ekleri kullanır.
 - Yayınlanan etiketler taşınmaz ve yeniden kullanılmaz. Hatalı sürüm yeni bir sürümle düzeltilir.
 
 Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelecek değişiklikleri
 `[Unreleased]` altında tutun; sürüm hazırlanırken yeni sürüme ve tarihe taşıyın.
 
-Güncel hazırlık hedefi, dört pakette de ortak olan `1.1.0` sürümüdür. Hazırlık PR'ı, changelog
+Güncel hazırlık hedefi, dört pakette de ortak olan `1.2.0` sürümüdür. Hazırlık PR'ı, changelog
 tarihi veya başarılı dry-run, sürümün yayımlandığı anlamına gelmez. Kullanılabilirliği
 [GitHub Releases sayfasından](https://github.com/yunusemreyazici/CineDrive/releases)
 kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
@@ -46,7 +46,7 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
 4. Tag oluşturmadan veya yayın yapmadan sürüme ait notları önizleyin:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.1.0 --notes
+   node scripts/validate-release.mjs --tag v1.2.0 --notes
    ```
 
    Kontrol; eşleşen paket sürümleri, tek ve tam eşleşen sürüm başlığı, geçerli takvim
@@ -68,9 +68,9 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # onaylanan ve test edilen release commit'i ile eşleşmeli
-   pnpm release:check -- --tag v1.1.0
-   git tag -s v1.1.0 -m "CineDrive v1.1.0"
-   git push origin v1.1.0
+   pnpm release:check -- --tag v1.2.0
+   git tag -s v1.2.0 -m "CineDrive v1.2.0"
+   git push origin v1.2.0
    ```
 
 Yalnızca geçerli bir tag push'u yayın yapabilir. Manuel workflow çalıştırmaları
@@ -158,6 +158,14 @@ Standart `.env` çalışma zamanı yapılandırmasını ve gizlileri tutmaya dev
 `release.env` yalnızca image referanslarını içerir ve Git tarafından yok sayılır.
 
 ## Güncelleme ve geri dönüş
+
+### 1.1.0'dan 1.2.0'a geçiş kontrol listesi
+
+- Image'ları değiştirmeden önce veritabanını yedekleyin. Bu sürüm sistem metrikleri, müzik dili zenginleştirmesi ve CineMusic Connect için migration'lar ekler; standart VPS kurucusu ve sunucu başlangıcı bunları otomatik uygular.
+- Sunucu ve web image'larını birlikte güncelleyin. Güncelleme kabul edilene kadar önceki değiştirilemez image digest'lerini, yapılandırmayı, şifreleme anahtarını ve doğrulanmış veritabanı anlık görüntüsünü saklayın.
+- AI çalma listesi planlama isteğe bağlıdır. API anahtarı olmadan mevcut keşif çalışmaya devam eder; yalnızca sağlayıcı destekli planlar istendiğinde belgelenen `MUSIC_AI_*` değişkenlerini ayarlayın.
+- CineMusic Connect, kullanıcı etkinleştirene kadar kapalıdır. Güncellemeden sonra önce normal iOS kütüphane işlemlerini doğrulayın; ardından bir test hesabında Connect'i açıp cihaz bulma, kuyruk kopyalama ve devretmeyi kontrol edin.
+- Migration sonrasında `/api/ready`, oturum açma, mevcut bir kütüphane, keşif, Replay ve sistem metriklerini kontrol edin. Geri dönüş gerekirse şema değiştiği için 1.1.0 image'larını başlatmadan önce güncelleme öncesi anlık görüntüyü geri yükleyin.
 
 ### 1.0.0'dan 1.1.0'a geçiş kontrol listesi
 

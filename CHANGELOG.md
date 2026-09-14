@@ -10,15 +10,32 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-14
+
 ### Added
 
+- Add opt-in CineMusic Connect device discovery and remote playback commands, including queue copy and acknowledged handoff while keeping independent per-device playback available.
+- Add natural-language AI playlist planning, local language enrichment and five personalized editorial mixes; track and lyrics catalog content stays local and deterministic fallbacks remain available without an AI provider.
+- Add behavior-based discovery collections for long-unplayed, least-played and hidden-favorite tracks, plus a broader seeded discovery engine with stronger artist, album and cross-section diversity.
 - Add admin-only CPU, memory, filesystem, disk I/O, network, best-effort temperature and seven-day bandwidth monitoring with cgroup-aware collection, persistent one-minute samples, five-minute chart buckets and automatic retention.
+- Add consumer-facing shared track pages with artwork, artist and album links, quality information and explicit playback.
+
+### Changed
+
+- Calculate Replay calendar boundaries using the client timezone and reduce large-history loading to bounded metadata batches.
+- Isolate CineMusic Connect synchronization and command polling in its own rate-limit bucket so device presence does not consume normal API capacity.
 
 ### Fixed
 
-- Prevent large music sync and discovery queries from exceeding SQLite parameter limits, and preserve Range response headers returned through Gaxios 7 `Headers` objects during original Google Drive playback.
-- Prevent artist radio, track radio and maintenance queries from exceeding SQLite parameter limits in large libraries.
+- Prevent large music sync, discovery, radio and maintenance queries from exceeding SQLite parameter limits.
+- Preserve Range response headers returned through Gaxios 7 `Headers` objects during original Google Drive playback.
 - Emit bounded-duration fragments for audio-only fMP4 transcoding so playback can begin before a live input closes.
+
+### Upgrade notes
+
+- This release adds automatic database migrations for system metrics, music-language enrichment queues and CineMusic Connect clients/commands. Back up the database before upgrading and update the server and web images together.
+- AI playlist planning is optional. Existing discovery remains available when `MUSIC_AI_API_KEY` is unset; configure the documented provider variables only when the feature is wanted.
+- CineMusic Connect is opt-in per user and keeps remote-control permission separate from device visibility. The VPS installer applies the required migrations automatically.
 
 ## [1.1.0] - 2026-09-04
 
@@ -82,6 +99,7 @@ after its matching GitHub Release and verified container artifacts exist.
 - Historical video/music database upgrade tests, schema-drift checks, repeatable migrations, and restore/re-upgrade drills using isolated test databases.
 - Release metadata and curated-note regression tests; pull-request multi-architecture builds do not publish artifacts to GHCR.
 
-[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/yunusemreyazici/CineDrive/releases/tag/v1.0.0
