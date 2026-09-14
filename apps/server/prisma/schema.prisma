@@ -44,6 +44,7 @@ model User {
   musicHistory                MusicHistory[]
   musicPlaylists              MusicPlaylist[]
   musicPlaybackStates         MusicPlaybackState[]
+  musicPlaybackCommands       MusicPlaybackCommand[]
   musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
   musicMaintenanceActions     MusicMaintenanceAction[]
 }
@@ -677,24 +678,46 @@ model MusicPlaylistItem {
 }
 
 model MusicPlaybackState {
-  id                 String           @id @default(uuid())
-  userId             String
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId           String           @default("legacy")
-  clientName         String?
-  platform           String           @default("unknown")
-  currentTrackId     String?
-  currentTrack       MusicTrack?      @relation("CurrentMusicTrack", fields: [currentTrackId], references: [id], onDelete: SetNull)
-  currentQueueItemId String?
-  positionSeconds    Float            @default(0)
-  shuffleEnabled     Boolean          @default(false)
-  repeatMode         String           @default("off")
-  revision           Int              @default(0)
-  updatedAt          DateTime         @updatedAt
-  queue              MusicQueueItem[]
+  id                   String           @id @default(uuid())
+  userId               String
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId             String           @default("legacy")
+  clientName           String?
+  platform             String           @default("unknown")
+  currentTrackId       String?
+  currentTrack         MusicTrack?      @relation("CurrentMusicTrack", fields: [currentTrackId], references: [id], onDelete: SetNull)
+  currentQueueItemId   String?
+  positionSeconds      Float            @default(0)
+  shuffleEnabled       Boolean          @default(false)
+  repeatMode           String           @default("off")
+  connectEnabled       Boolean          @default(false)
+  remoteControlAllowed Boolean          @default(false)
+  isPlaying            Boolean          @default(false)
+  lastSeenAt           DateTime?
+  revision             Int              @default(0)
+  updatedAt            DateTime         @updatedAt
+  queue                MusicQueueItem[]
 
   @@unique([userId, clientId])
   @@index([userId, updatedAt])
+}
+
+model MusicPlaybackCommand {
+  id             String    @id
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceClientId String
+  targetClientId String
+  type           String
+  payload        String?
+  status         String    @default("pending")
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  completedAt    DateTime?
+
+  @@index([userId, targetClientId, status, createdAt])
+  @@index([expiresAt])
 }
 
 model MusicQueueItem {

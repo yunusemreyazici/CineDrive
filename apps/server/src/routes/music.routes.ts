@@ -26,6 +26,9 @@ import {
   musicLyricsAlignSchema,
   musicLyricsRevisionSchema,
   musicPlaybackClientQuerySchema,
+  musicConnectHeartbeatSchema,
+  musicPlaybackCommandSchema,
+  musicPlaybackCommandAckSchema,
   reorderMusicPlaylistSchema,
   patchMusicPlaybackStateSchema,
   musicAiPlaylistRequestSchema,
@@ -2342,7 +2345,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           clientName: client.data.clientName,
           platform: client.data.platform,
         },
-        update: { clientName: client.data.clientName, platform: client.data.platform },
+        update: {
+          ...(request.query.clientName ? { clientName: client.data.clientName } : {}),
+          ...(request.query.platform ? { platform: client.data.platform } : {}),
+        },
         include: {
           queue: {
             include: { track: { include: musicTrackInclude(userId) } },
@@ -2578,19 +2584,288 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   fastify.get('/playback-clients', async (request) => ({
-    clients: await fastify.prisma.musicPlaybackState.findMany({
-      where: { userId: request.user!.id },
-      orderBy: { updatedAt: 'desc' },
-      select: {
-        clientId: true,
-        clientName: true,
-        platform: true,
-        currentTrackId: true,
-        positionSeconds: true,
-        updatedAt: true,
-      },
-    }),
+    clients: (
+      await fastify.prisma.musicPlaybackState.findMany({
+        where: { userId: request.user!.id, connectEnabled: true },
+        orderBy: { lastSeenAt: 'desc' },
+        select: {
+          clientId: true,
+          clientName: true,
+          platform: true,
+          currentTrackId: true,
+          positionSeconds: true,
+          isPlaying: true,
+          remoteControlAllowed: true,
+          lastSeenAt: true,
+        },
+      })
+    ).map((client) => ({
+      ...client,
+      online: !!client.lastSeenAt && client.lastSeenAt.getTime() >= Date.now() - 30_000,
+    })),
   }));
+
+  fastify.post<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
+    '/playback-clients/heartbeat',
+    async (request, reply) => {
+      const client = musicPlaybackClientQuerySchema.safeParse(request.query);
+      const heartbeat = musicConnectHeartbeatSchema.safeParse(request.body);
+      if (!client.success || !heartbeat.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_CONNECT_HEARTBEAT',
+              message: 'Geçersiz cihaz durumu.',
+              requestId: request.id,
+            },
+          });
+      const userId = request.user!.id;
+      const connectEnabled = heartbeat.data.connectEnabled;
+      const state = await fastify.prisma.musicPlaybackState.upsert({
+        where: { userId_clientId: { userId, clientId: client.data.clientId } },
+        create: {
+          userId,
+          clientId: client.data.clientId,
+          clientName: client.data.clientName,
+          platform: client.data.platform,
+          connectEnabled,
+          remoteControlAllowed: connectEnabled && heartbeat.data.remoteControlAllowed,
+          isPlaying: heartbeat.data.isPlaying,
+          lastSeenAt: new Date(),
+        },
+        update: {
+          clientName: client.data.clientName,
+          platform: client.data.platform,
+          connectEnabled,
+          remoteControlAllowed: connectEnabled && heartbeat.data.remoteControlAllowed,
+          isPlaying: heartbeat.data.isPlaying,
+          lastSeenAt: new Date(),
+        },
+      });
+      if (!connectEnabled) {
+        await fastify.prisma.musicPlaybackCommand.updateMany({
+          where: { userId, targetClientId: client.data.clientId, status: 'pending' },
+          data: { status: 'failed', errorMessage: 'CONNECT_DISABLED', completedAt: new Date() },
+        });
+      }
+      return { clientId: state.clientId, connectEnabled: state.connectEnabled };
+    },
+  );
+
+  fastify.post<{ Params: { clientId: string } }>(
+    '/playback-clients/:clientId/commands',
+    async (request, reply) => {
+      const parsed = musicPlaybackCommandSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_COMMAND',
+              message: 'Geçersiz oynatma komutu.',
+              requestId: request.id,
+            },
+          });
+      const sourceClientId = request.headers['x-cinemusic-client-id']?.toString() || '';
+      if (!/^[a-zA-Z0-9_-]{6,128}$/.test(sourceClientId))
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_CLIENT',
+              message: 'Geçersiz kaynak cihaz.',
+              requestId: request.id,
+            },
+          });
+      const userId = request.user!.id;
+      const target = await fastify.prisma.musicPlaybackState.findUnique({
+        where: { userId_clientId: { userId, clientId: request.params.clientId } },
+      });
+      if (!target || !target.connectEnabled || !target.remoteControlAllowed)
+        return reply
+          .status(409)
+          .send({
+            error: {
+              code: 'DEVICE_CONTROL_DISABLED',
+              message: 'Hedef cihaz uzaktan kontrole izin vermiyor.',
+              requestId: request.id,
+            },
+          });
+      if (!target.lastSeenAt || target.lastSeenAt.getTime() < Date.now() - 30_000)
+        return reply
+          .status(409)
+          .send({
+            error: {
+              code: 'DEVICE_OFFLINE',
+              message: 'Hedef cihaz çevrimdışı.',
+              requestId: request.id,
+            },
+          });
+      if (parsed.data.type === 'transfer') {
+        if (parsed.data.sourceClientId !== sourceClientId)
+          return reply
+            .status(403)
+            .send({
+              error: {
+                code: 'INVALID_TRANSFER_SOURCE',
+                message: 'Aktarım yalnızca bu cihazdan başlatılabilir.',
+                requestId: request.id,
+              },
+            });
+        const source = await fastify.prisma.musicPlaybackState.findUnique({
+          where: { userId_clientId: { userId, clientId: parsed.data.sourceClientId! } },
+        });
+        if (!source || !source.currentTrackId)
+          return reply
+            .status(409)
+            .send({
+              error: {
+                code: 'SOURCE_NOT_PLAYING',
+                message: 'Kaynak cihazda aktarılacak bir kuyruk yok.',
+                requestId: request.id,
+              },
+            });
+      }
+      const duplicate = await fastify.prisma.musicPlaybackCommand.findUnique({
+        where: { id: parsed.data.id },
+      });
+      if (duplicate) {
+        if (duplicate.userId !== userId)
+          return reply
+            .status(409)
+            .send({
+              error: {
+                code: 'COMMAND_ID_CONFLICT',
+                message: 'Komut kimliği kullanılıyor.',
+                requestId: request.id,
+              },
+            });
+        return { command: { id: duplicate.id, status: duplicate.status } };
+      }
+      const payload =
+        parsed.data.type === 'transfer'
+          ? JSON.stringify({ sourceClientId: parsed.data.sourceClientId, mode: parsed.data.mode })
+          : null;
+      const command = await fastify.prisma.musicPlaybackCommand.create({
+        data: {
+          id: parsed.data.id,
+          userId,
+          sourceClientId,
+          targetClientId: request.params.clientId,
+          type: parsed.data.type,
+          payload,
+          expiresAt: new Date(Date.now() + 20_000),
+        },
+      });
+      return reply.status(201).send({ command: { id: command.id, status: command.status } });
+    },
+  );
+
+  fastify.get<{ Params: { id: string } }>('/playback-commands/:id', async (request, reply) => {
+    const clientId = request.headers['x-cinemusic-client-id']?.toString();
+    const command = await fastify.prisma.musicPlaybackCommand.findFirst({
+      where: { id: request.params.id, userId: request.user!.id, sourceClientId: clientId || '' },
+      select: { id: true, status: true, errorMessage: true, completedAt: true, expiresAt: true },
+    });
+    if (!command)
+      return reply
+        .status(404)
+        .send({
+          error: { code: 'COMMAND_NOT_FOUND', message: 'Komut bulunamadı.', requestId: request.id },
+        });
+    return { command };
+  });
+
+  fastify.get<{ Querystring: { clientId?: string } }>(
+    '/playback-commands',
+    async (request, reply) => {
+      const parsed = musicPlaybackClientQuerySchema
+        .pick({ clientId: true })
+        .safeParse(request.query);
+      if (!parsed.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'INVALID_PLAYBACK_CLIENT',
+              message: 'Geçersiz cihaz.',
+              requestId: request.id,
+            },
+          });
+      const now = new Date();
+      await fastify.prisma.musicPlaybackCommand.updateMany({
+        where: {
+          userId: request.user!.id,
+          targetClientId: parsed.data.clientId,
+          status: 'pending',
+          expiresAt: { lte: now },
+        },
+        data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
+      });
+      const commands = await fastify.prisma.musicPlaybackCommand.findMany({
+        where: {
+          userId: request.user!.id,
+          targetClientId: parsed.data.clientId,
+          status: 'pending',
+          expiresAt: { gt: now },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+      });
+      return {
+        commands: commands.map((command) => {
+          const payload = command.payload
+            ? (JSON.parse(command.payload) as { sourceClientId?: string; mode?: string })
+            : {};
+          return {
+            id: command.id,
+            sourceClientId: command.sourceClientId,
+            targetClientId: command.targetClientId,
+            type: command.type,
+            sourceClientIdForTransfer: payload.sourceClientId,
+            mode: payload.mode,
+            createdAt: command.createdAt,
+            expiresAt: command.expiresAt,
+          };
+        }),
+      };
+    },
+  );
+
+  fastify.post<{ Params: { id: string } }>('/playback-commands/:id/ack', async (request, reply) => {
+    const parsed = musicPlaybackCommandAckSchema.safeParse(request.body);
+    if (!parsed.success)
+      return reply
+        .status(400)
+        .send({
+          error: {
+            code: 'INVALID_COMMAND_ACK',
+            message: 'Geçersiz komut sonucu.',
+            requestId: request.id,
+          },
+        });
+    const updated = await fastify.prisma.musicPlaybackCommand.updateMany({
+      where: {
+        id: request.params.id,
+        userId: request.user!.id,
+        targetClientId: parsed.data.clientId,
+        status: 'pending',
+      },
+      data: {
+        status: parsed.data.status,
+        errorMessage: parsed.data.errorMessage,
+        completedAt: new Date(),
+      },
+    });
+    if (!updated.count)
+      return reply
+        .status(404)
+        .send({
+          error: { code: 'COMMAND_NOT_FOUND', message: 'Komut bulunamadı.', requestId: request.id },
+        });
+    return { acknowledged: true };
+  });
 
   fastify.delete<{ Params: { clientId: string } }>(
     '/playback-clients/:clientId',
