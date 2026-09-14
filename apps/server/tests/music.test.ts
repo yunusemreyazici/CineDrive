@@ -1798,6 +1798,8 @@ describe('Music library', () => {
       currentTrackId: trackId,
       currentQueueItemId: queueId,
       positionSeconds: 18,
+      isPlaying: true,
+      volume: 0.64,
       shuffleEnabled: false,
       repeatMode: 'off',
       queue: [{ id: queueId, trackId, sourceOrder: 0, playOrder: 0 }],
@@ -1835,7 +1837,14 @@ describe('Music library', () => {
     expect(clients.statusCode).toBe(200);
     expect(JSON.parse(clients.body).clients).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ clientId: sourceClient, online: true, isPlaying: true }),
+        expect.objectContaining({
+          clientId: sourceClient,
+          online: true,
+          isPlaying: true,
+          volume: 0.64,
+          playbackUpdatedAt: expect.any(String),
+          currentTrack: expect.objectContaining({ id: trackId, title: 'Test Song' }),
+        }),
         expect.objectContaining({
           clientId: targetClient,
           online: true,
@@ -1913,6 +1922,72 @@ describe('Music library', () => {
       cookies: { session_id: cookie },
     });
     expect(JSON.parse(empty.body).commands).toEqual([]);
+
+    const invalidSeek = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/${targetClient}/commands`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+      payload: { id: randomUUID(), type: 'seek' },
+    });
+    expect(invalidSeek.statusCode).toBe(400);
+
+    const seekId = randomUUID();
+    const seek = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/${targetClient}/commands`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+      payload: { id: seekId, type: 'seek', positionSeconds: 73.5 },
+    });
+    expect(seek.statusCode).toBe(201);
+    const pendingSeek = await app.inject({
+      method: 'GET',
+      url: `/api/music/playback-commands?clientId=${targetClient}`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(pendingSeek.body).commands).toEqual([
+      expect.objectContaining({ id: seekId, type: 'seek', positionSeconds: 73.5 }),
+    ]);
+    await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-commands/${seekId}/ack`,
+      cookies: { session_id: cookie },
+      payload: { clientId: targetClient, status: 'completed' },
+    });
+
+    const controllerCommands = [
+      { type: 'setVolume', volume: 0.42 },
+      { type: 'setShuffle', enabled: true },
+      { type: 'setRepeat', repeatMode: 'one' },
+      { type: 'playQueueItem', queueItemId: queueId },
+    ] as const;
+    for (const controllerCommand of controllerCommands) {
+      const id = randomUUID();
+      const created = await app.inject({
+        method: 'POST',
+        url: `/api/music/playback-clients/${targetClient}/commands`,
+        headers: { 'x-cinemusic-client-id': sourceClient },
+        cookies: { session_id: cookie },
+        payload: { id, ...controllerCommand },
+      });
+      expect(created.statusCode).toBe(201);
+      const pending = await app.inject({
+        method: 'GET',
+        url: `/api/music/playback-commands?clientId=${targetClient}`,
+        cookies: { session_id: cookie },
+      });
+      expect(JSON.parse(pending.body).commands).toEqual([
+        expect.objectContaining({ id, ...controllerCommand }),
+      ]);
+      const acknowledged = await app.inject({
+        method: 'POST',
+        url: `/api/music/playback-commands/${id}/ack`,
+        cookies: { session_id: cookie },
+        payload: { clientId: targetClient, status: 'completed' },
+      });
+      expect(acknowledged.statusCode).toBe(200);
+    }
 
     const disable = await app.inject({
       method: 'POST',

@@ -38,7 +38,7 @@ const PLAYBACK_PATH_PATTERN =
 const CONNECT_PATH_PATTERN = /^\/api\/music\/playback-(?:state|clients|commands)(?:\/|$)/;
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
-const CONNECT_RATE_LIMIT_MAX = 300;
+const CONNECT_RATE_LIMIT_MAX = 600;
 const DATABASE_READINESS_TIMEOUT_MS = 2_000;
 
 export const rateLimitBucket = (url: string): 'playback' | 'connect' | 'api' => {

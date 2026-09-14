@@ -49,7 +49,7 @@ Müzik oynatmanın kendine ait kalıcı sırası ve konumu, karıştırma/tekrar
 
 Kimliği doğrulanmış istemci senkronizasyon API'si; ETag uyumlu kütüphane senkronizasyonunu, indirme manifestlerini, parça indirmeyi, toplu dinleme geçmişini ve mobil/offline istemciler için oynatma durumu senkronizasyonunu destekler.
 
-Uyumlu CineMusic istemcilerinde **CineMusic Connect** her cihaz için ayrı ayrı açılabilir. Cihazın görünmesi ile uzaktan oynat, duraklat, önceki ve sonraki komutlarını kabul etmesi ayrı izinlerdir. **Kuyruğu Kopyala**, sunucudaki aynı kuyruğu hedefte başlatırken kaynak cihazı durdurmaz. Açıkça başlatılan aktarımda kaynak, hedef oynatmanın hazır olduğunu onayladıktan sonra durur; onay zaman aşımına uğrarsa kaynak çalmayı sürdürür. Yalnızca cihazda bulunan aktarımlar, hedef cihaz bu dosyalara erişemediği için gönderilemez.
+Uyumlu CineMusic istemcilerinde **CineMusic Connect** her cihaz için ayrı ayrı açılabilir. Cihazın görünmesi ile uzaktan komut kabul etmesi ayrı izinlerdir. Bir cihaz seçildiğinde normal mini oynatıcı, Now Playing ekranı, klavye kısayolları, sözler, kuyruk ve Mac menü çubuğu oynatıcısı; oynat/duraklat, önceki/sonraki, ileri sarma, ses, karıştırma/tekrar ve kuyruktan parça seçimi için o cihazın kumandasına dönüşür. **Kuyruğu Kopyala**, sunucudaki aynı kuyruğu hedefte başlatırken kaynak cihazı durdurmaz. Açıkça başlatılan aktarımda kaynak, hedef oynatmanın hazır olduğunu onayladıktan sonra durur; onay zaman aşımına uğrarsa kaynak çalmayı sürdürür. Yalnızca cihazda bulunan aktarımlar, hedef cihaz bu dosyalara erişemediği için gönderilemez.
 
 Connect cihaz durumu ve komut sorguları ayrı bir istek kotası kullanır; arka plandaki cihaz keşfi normal kütüphane API kotasını tüketmez.
 

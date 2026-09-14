@@ -88,7 +88,7 @@ Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir
 - **Keşif** — günlük ve kütüphaneye özel mix'ler, sanatçı/parça radyosu, ruh hâli ve dönem koleksiyonları, kesintisiz oynatma ve kaydedilebilir çalma listeleri.
 - **Replay** — dönem ve yıla göre dinleme istatistikleri, en çok dinlenen sanatçı/albüm/parçalar ve geçmiş dinleme özetleri.
 - **Kişisel oynatma** — beğeniler, geçmiş, düzenlenebilir çalma listeleri, karıştırma/tekrarlama ve hesapta eşzamanlanan kuyruk ile oynatma konumu.
-- **CineMusic Connect** — uyumlu iOS ve Mac Catalyst istemcileri arasında isteğe bağlı cihaz keşfi, uzaktan oynatma kontrolü, kuyruk kopyalama ve onaylı aktarım. Kullanıcı açıkça aktarım başlatmadıkça her cihaz bağımsız çalmayı sürdürür.
+- **CineMusic Connect** — uyumlu iOS ve Mac Catalyst istemcileri arasında isteğe bağlı cihaz keşfi ve canlı uzaktan kumanda; oynat/duraklat, ileri sarma, ses, karıştırma/tekrar, kuyruktan seçim, kuyruk kopyalama ve onaylı aktarım desteği sunar. Kullanıcı açıkça aktarım başlatmadıkça her cihaz bağımsız çalmayı sürdürür.
 - **Şarkı sözleri** — yan dosya `.lrc` içe aktarma, LRCLIB araması, senkronize veya düz sözler, zaman hizalama, revizyonlar, elle çeviri ve isteğe bağlı LibreTranslate entegrasyonu.
 - **Ses ayarları** — ReplayGain ses yüksekliği normalizasyonu, boşluksuz oynatma, crossfade ve hazır ayarlı beş bant ekolayzır.
 - **Kütüphane bakımı** — metadata önerileri, toplu düzenleme, mükerrerleri arşivleme, ReplayGain analizi, Chromaprint/AcoustID eşleştirmesi ve otomatik sanatçı görseli bulma.
