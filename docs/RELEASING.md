@@ -10,13 +10,13 @@ Git tags. The root, server, web, and shared package versions move together.
 - `PATCH` fixes defects without intentionally changing the public API or stored-data contract.
 - `MINOR` adds backward-compatible behavior.
 - `MAJOR` may include incompatible API, configuration, or migration changes.
-- Prereleases use valid SemVer suffixes such as `1.1.0-rc.1`.
+- Prereleases use valid SemVer suffixes such as `1.2.0-rc.1`.
 - Published tags must never be moved or reused. If a release is wrong, publish a new version.
 
 Every release must have a matching `CHANGELOG.md` section. Keep upcoming work under
 `[Unreleased]`, then move it to the new version and date when preparing the release.
 
-The current preparation target is `1.1.0`, shared by all four packages. A preparation
+The current preparation target is `1.2.0`, shared by all four packages. A preparation
 PR, changelog date, or successful dry run is not a published release. Check the
 [GitHub Releases page](https://github.com/yunusemreyazici/CineDrive/releases) for
 availability; the example image references must not be assumed to exist.
@@ -46,7 +46,7 @@ availability; the example image references must not be assumed to exist.
 4. Preview the exact curated notes without creating a tag or publishing anything:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.1.0 --notes
+   node scripts/validate-release.mjs --tag v1.2.0 --notes
    ```
 
    Validation requires matching package versions, one exact version heading, a
@@ -68,9 +68,9 @@ availability; the example image references must not be assumed to exist.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # must equal the approved, tested release commit
-   pnpm release:check -- --tag v1.1.0
-   git tag -s v1.1.0 -m "CineDrive v1.1.0"
-   git push origin v1.1.0
+   pnpm release:check -- --tag v1.2.0
+   git tag -s v1.2.0 -m "CineDrive v1.2.0"
+   git push origin v1.2.0
    ```
 
 Pushing a valid tag is the only event that can publish. Manual workflow dispatches
@@ -156,6 +156,14 @@ The standard `.env` continues to hold runtime configuration and secrets;
 `release.env` contains only image references and is ignored by Git.
 
 ## Upgrade and rollback
+
+### 1.1.0 to 1.2.0 checklist
+
+- Back up the database before replacing images. This release adds migrations for system metrics, music-language enrichment and CineMusic Connect; the normal VPS installer and server startup run the migrations automatically.
+- Update the server and web images together. Keep the previous immutable image digests, configuration, encryption key and verified database snapshot until the upgrade is accepted.
+- AI playlist planning is optional. Existing discovery continues to work without an API key; set the documented `MUSIC_AI_*` variables only when the provider-backed plans are wanted.
+- CineMusic Connect is disabled until a user opts in. After upgrading, verify ordinary iOS library actions, then enable Connect for a test account and check device discovery, queue copy and handoff.
+- Check `/api/ready`, sign-in, an existing library, discovery, Replay and system metrics after the migration. If rollback is required, restore the pre-upgrade snapshot before starting 1.1.0 images because the schema has changed.
 
 ### 1.0.0 to 1.1.0 checklist
 

@@ -9,7 +9,7 @@ overrides:
   mysql2: 3.23.1
   # Transitive tooling fixes; remove after ESLint's dependency ranges advance.
   brace-expansion@1.1.16: 1.1.18
-  js-yaml@4.3.0: 4.3.1
+  js-yaml@4.3.0: 4.3.2
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
