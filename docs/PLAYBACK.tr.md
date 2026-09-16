@@ -51,6 +51,8 @@ Kimliği doğrulanmış istemci senkronizasyon API'si; ETag uyumlu kütüphane s
 
 Uyumlu CineMusic istemcilerinde **CineMusic Connect** her cihaz için ayrı ayrı açılabilir. Cihazın görünmesi ile uzaktan komut kabul etmesi ayrı izinlerdir. Bir cihaz seçildiğinde normal mini oynatıcı, Now Playing ekranı, klavye kısayolları, sözler, kuyruk ve Mac menü çubuğu oynatıcısı; oynat/duraklat, önceki/sonraki, ileri sarma, ses, karıştırma/tekrar ve kuyruktan parça seçimi için o cihazın kumandasına dönüşür. **Kuyruğu Kopyala**, sunucudaki aynı kuyruğu hedefte başlatırken kaynak cihazı durdurmaz. Açıkça başlatılan aktarımda kaynak, hedef oynatmanın hazır olduğunu onayladıktan sonra durur; onay zaman aşımına uğrarsa kaynak çalmayı sürdürür. Yalnızca cihazda bulunan aktarımlar, hedef cihaz bu dosyalara erişemediği için gönderilemez.
 
+Güncel istemciler seçili cihazın kuyruğuna sonraki/sona parça ekleme, kuyruk öğesi kaldırma, sıralama ve sıradakileri temizleme işlemlerini de destekler. Bunun için `client-bootstrap.features.cineMusicQueueControl` desteği ve alıcı cihazda güncel CineMusic gerekir. Kuyruk düzenlemeleri kalıcı kuyruk öğesi kimlikleriyle, onaylanan `editQueue` komutunu kullanır. Eklenen parçaların hesaba ait bilgileri, tekrarlar ayıklanarak komut sorgusu yanıtındaki `queueTracks` alanında taşınır; her parça için ayrı kütüphane isteği yapılmaz. Eksik parça bilgisi varsa alıcı eklemenin tamamını reddeder. Yalnızca sunucuyu güncellemek eski uygulamalara bu kontrolleri eklemez.
+
 Connect cihaz durumu ve komut sorguları ayrı bir istek kotası kullanır; arka plandaki cihaz keşfi normal kütüphane API kotasını tüketmez.
 
 ## Tarayıcı kapsamı

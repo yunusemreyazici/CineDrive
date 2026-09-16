@@ -437,6 +437,7 @@ export interface ClientBootstrapDto {
     localizedDiscovery: boolean;
     scopedDownloadGrants: boolean;
     cineMusicConnect: boolean;
+    cineMusicQueueControl?: boolean;
   };
   serverTime: string;
 }

@@ -189,6 +189,7 @@ export const buildApp = async (
       localizedDiscovery: true,
       scopedDownloadGrants: true,
       cineMusicConnect: true,
+      cineMusicQueueControl: true,
     },
     serverTime: new Date().toISOString(),
   }));

@@ -51,6 +51,8 @@ The authenticated client sync API supports ETag-aware library synchronisation, d
 
 Compatible CineMusic clients can enable **CineMusic Connect** per device. Device visibility and permission to receive remote commands are separate opt-ins. Selecting a device turns the ordinary mini player, Now Playing screen, keyboard shortcuts, lyrics, queue, and Mac menu-bar player into a remote controller for play/pause, previous/next, seeking, volume, shuffle/repeat, and queue-item selection. **Copy Queue** starts the same server-backed queue on the target without stopping the source. An explicit handoff waits for the target to confirm that playback is ready before the source pauses; if confirmation times out, the source keeps playing. On-device imports are not transferable because the receiving device cannot access those files.
 
+Updated clients also support adding tracks next or last, removing queue entries, reordering entries, and clearing upcoming tracks on the selected device. This requires `client-bootstrap.features.cineMusicQueueControl` and an updated receiving CineMusic app. Queue edits use the acknowledged `editQueue` command with stable queue-entry IDs; additions include deduplicated, account-scoped `queueTracks` metadata in the command polling response, avoiding one library request per track. Missing metadata rejects the entire addition on the receiver. Updating the server alone does not add these controls to older apps.
+
 Connect presence and command polling use an isolated rate-limit bucket, so background device discovery does not consume the normal library API allowance.
 
 ## Browser coverage
