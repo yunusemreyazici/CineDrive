@@ -2748,6 +2748,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         enabled: parsed.data.enabled,
         repeatMode: parsed.data.repeatMode,
         queueItemId: parsed.data.queueItemId,
+        queueEdit: parsed.data.queueEdit,
       };
       const payload = Object.values(commandPayload).some((value) => value !== undefined)
         ? JSON.stringify(commandPayload)
@@ -2814,35 +2815,64 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { createdAt: 'asc' },
         take: 20,
       });
+      const pendingCommands = commands.map((command) => {
+        const payload = command.payload
+          ? (JSON.parse(command.payload) as {
+              sourceClientId?: string;
+              mode?: string;
+              positionSeconds?: number;
+              volume?: number;
+              enabled?: boolean;
+              repeatMode?: string;
+              queueItemId?: string;
+              queueEdit?: { action: string; trackIds?: string[] };
+            })
+          : {};
+        return {
+          id: command.id,
+          sourceClientId: command.sourceClientId,
+          targetClientId: command.targetClientId,
+          type: command.type,
+          sourceClientIdForTransfer: payload.sourceClientId,
+          mode: payload.mode,
+          positionSeconds: payload.positionSeconds,
+          volume: payload.volume,
+          enabled: payload.enabled,
+          repeatMode: payload.repeatMode,
+          queueItemId: payload.queueItemId,
+          queueEdit: payload.queueEdit,
+          createdAt: command.createdAt,
+          expiresAt: command.expiresAt,
+        };
+      });
+      // Resolve metadata once per poll instead of one client request per added track.
+      const trackIds = [
+        ...new Set(
+          pendingCommands.flatMap((command) =>
+            command.type === 'editQueue' && command.queueEdit?.action === 'add'
+              ? (command.queueEdit.trackIds ?? [])
+              : [],
+          ),
+        ),
+      ];
+      const tracks = trackIds.length
+        ? await fastify.prisma.musicTrack.findMany({
+            where: { id: { in: trackIds }, ...ownedTrackWhere(request.user!.id) },
+            include: musicTrackInclude(request.user!.id),
+          })
+        : [];
+      const tracksById = new Map(tracks.map((track) => [track.id, formatMusicTrack(track)]));
       return {
-        commands: commands.map((command) => {
-          const payload = command.payload
-            ? (JSON.parse(command.payload) as {
-                sourceClientId?: string;
-                mode?: string;
-                positionSeconds?: number;
-                volume?: number;
-                enabled?: boolean;
-                repeatMode?: string;
-                queueItemId?: string;
-              })
-            : {};
-          return {
-            id: command.id,
-            sourceClientId: command.sourceClientId,
-            targetClientId: command.targetClientId,
-            type: command.type,
-            sourceClientIdForTransfer: payload.sourceClientId,
-            mode: payload.mode,
-            positionSeconds: payload.positionSeconds,
-            volume: payload.volume,
-            enabled: payload.enabled,
-            repeatMode: payload.repeatMode,
-            queueItemId: payload.queueItemId,
-            createdAt: command.createdAt,
-            expiresAt: command.expiresAt,
-          };
-        }),
+        commands: pendingCommands.map((command) => ({
+          ...command,
+          ...(command.type === 'editQueue' && command.queueEdit?.action === 'add'
+            ? {
+                queueTracks: [...new Set(command.queueEdit.trackIds ?? [])].flatMap((id) =>
+                  tracksById.has(id) ? [tracksById.get(id)!] : [],
+                ),
+              }
+            : {}),
+        })),
       };
     },
   );

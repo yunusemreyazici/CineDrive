@@ -211,6 +211,21 @@ export const musicConnectHeartbeatSchema = z.object({
   isPlaying: z.boolean(),
 });
 
+export const musicQueueEditSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('add'),
+    trackIds: z.array(z.string().uuid()).min(1).max(500),
+    playNext: z.boolean(),
+  }),
+  z.object({ action: z.literal('remove'), itemIds: z.array(z.string().uuid()).min(1).max(1000) }),
+  z.object({
+    action: z.literal('move'),
+    itemIds: z.array(z.string().uuid()).min(1).max(1000),
+    beforeItemId: z.string().uuid().nullable(),
+  }),
+  z.object({ action: z.literal('clearUpcoming') }),
+]);
+
 export const musicPlaybackCommandSchema = z
   .object({
     id: z.string().uuid(),
@@ -224,6 +239,7 @@ export const musicPlaybackCommandSchema = z
       'setShuffle',
       'setRepeat',
       'playQueueItem',
+      'editQueue',
       'transfer',
     ]),
     sourceClientId: z
@@ -237,8 +253,12 @@ export const musicPlaybackCommandSchema = z
     enabled: z.boolean().optional(),
     repeatMode: z.enum(['off', 'all', 'one']).optional(),
     queueItemId: z.string().uuid().optional(),
+    queueEdit: musicQueueEditSchema.optional(),
   })
   .superRefine((value, context) => {
+    if (value.type === 'editQueue' && !value.queueEdit) {
+      context.addIssue({ code: 'custom', message: 'Queue edits require an operation.' });
+    }
     if (value.type === 'transfer' && (!value.sourceClientId || !value.mode)) {
       context.addIssue({ code: 'custom', message: 'Transfer commands require a source and mode.' });
     }

@@ -1932,6 +1932,20 @@ describe('Music library', () => {
     });
     expect(invalidSeek.statusCode).toBe(400);
 
+    for (const queueEdit of [
+      undefined,
+      { action: 'add', trackIds: [], playNext: true },
+      { action: 'move', itemIds: ['bad'], beforeItemId: null },
+    ]) {
+      const invalid = await app.inject({
+        method: 'POST',
+        url: `/api/music/playback-clients/${targetClient}/commands`,
+        headers: { 'x-cinemusic-client-id': sourceClient },
+        cookies: { session_id: cookie },
+        payload: { id: randomUUID(), type: 'editQueue', queueEdit },
+      });
+      expect(invalid.statusCode).toBe(400);
+    }
     const seekId = randomUUID();
     const seek = await app.inject({
       method: 'POST',
@@ -1961,6 +1975,13 @@ describe('Music library', () => {
       { type: 'setShuffle', enabled: true },
       { type: 'setRepeat', repeatMode: 'one' },
       { type: 'playQueueItem', queueItemId: queueId },
+      {
+        type: 'editQueue',
+        queueEdit: { action: 'add', trackIds: [trackId, trackId, randomUUID()], playNext: true },
+      },
+      { type: 'editQueue', queueEdit: { action: 'remove', itemIds: [queueId] } },
+      { type: 'editQueue', queueEdit: { action: 'move', itemIds: [queueId], beforeItemId: null } },
+      { type: 'editQueue', queueEdit: { action: 'clearUpcoming' } },
     ] as const;
     for (const controllerCommand of controllerCommands) {
       const id = randomUUID();
@@ -1980,6 +2001,11 @@ describe('Music library', () => {
       expect(JSON.parse(pending.body).commands).toEqual([
         expect.objectContaining({ id, ...controllerCommand }),
       ]);
+      if ('queueEdit' in controllerCommand && controllerCommand.queueEdit.action === 'add') {
+        const metadata = JSON.parse(pending.body).commands[0].queueTracks;
+        expect(metadata).toHaveLength(1);
+        expect(metadata[0]).toEqual(expect.objectContaining({ id: trackId, title: 'Test Song' }));
+      }
       const acknowledged = await app.inject({
         method: 'POST',
         url: `/api/music/playback-commands/${id}/ack`,
