@@ -89,6 +89,7 @@ Screenshots show the Turkish interface; English is also available.
 - **Replay** — listening statistics by period and year, top artists/albums/tracks, and historical listening summaries.
 - **Personal playback** — favourites, history, editable playlists, shuffle/repeat, and an account-synchronised queue and playback position.
 - **CineMusic Connect** — opt-in device discovery and a live remote controller for compatible iOS and Mac Catalyst clients, including play/pause, seek, volume, shuffle/repeat, queue selection, queue copying, and confirmed handoff. Each device remains independent unless the listener explicitly transfers playback.
+- **Listen Together** — optional two-person listening rooms for compatible CineMusic clients on the same server: invitation codes, a shared queue, host-controlled transport, independent device volume and synchronized starts. Both accounts need library access. See [protocol and deployment notes](docs/listen-together.md).
 - **Lyrics** — sidecar `.lrc` import, LRCLIB lookup, synchronised or plain lyrics, timing alignment, revisions, manual translations, and optional LibreTranslate integration.
 - **Audio controls** — ReplayGain loudness normalisation, gapless playback, crossfade, and a five-band equaliser with presets.
 - **Library care** — metadata suggestions, bulk editing, duplicate archiving, ReplayGain analysis, Chromaprint/AcoustID matching, and automatic artist artwork discovery.
