@@ -1,5 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import compress from '@fastify/compress';
+import websocket from '@fastify/websocket';
+import { listeningSessionRoutes } from './routes/listening-session.routes.js';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
@@ -35,7 +37,8 @@ import type {
 // throttles normal playback. Media transport gets its own, much larger budget.
 const PLAYBACK_PATH_PATTERN =
   /^\/api\/(?:media\/[^/]+\/(?:stream|preview|hls(?:\/|$))|music\/(?:tracks\/[^/]+\/(?:stream|download)|artwork\/[^/]+)|internal\/drive-source\/)/;
-const CONNECT_PATH_PATTERN = /^\/api\/music\/playback-(?:state|clients|commands)(?:\/|$)/;
+const CONNECT_PATH_PATTERN =
+  /^\/api\/music\/(?:playback-(?:state|clients|commands)|listening-sessions)(?:\/|$)/;
 const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
 const CONNECT_RATE_LIMIT_MAX = 600;
@@ -82,6 +85,8 @@ export const buildApp = async (
     },
     trustProxy: env.TRUST_PROXY,
   });
+
+  await app.register(websocket, { options: { maxPayload: 1024 } });
 
   // Register Security Plugins
   await app.register(helmet, {
@@ -190,6 +195,7 @@ export const buildApp = async (
       scopedDownloadGrants: true,
       cineMusicConnect: true,
       cineMusicQueueControl: true,
+      listeningTogether: true,
     },
     serverTime: new Date().toISOString(),
   }));
@@ -209,6 +215,7 @@ export const buildApp = async (
   await app.register(insightsRoutes, { prefix: '/api/insights' });
   await app.register(systemMetricsRoutes, { prefix: '/api/system' });
   await app.register(musicRoutes, { prefix: '/api/music' });
+  await app.register(listeningSessionRoutes, { prefix: '/api/music/listening-sessions' });
   // Loopback-only FFmpeg source proxy; authenticated by capability, not session.
   await app.register(internalRoutes, { prefix: '/api/internal' });
 

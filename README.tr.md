@@ -89,6 +89,7 @@ Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir
 - **Replay** — dönem ve yıla göre dinleme istatistikleri, en çok dinlenen sanatçı/albüm/parçalar ve geçmiş dinleme özetleri.
 - **Kişisel oynatma** — beğeniler, geçmiş, düzenlenebilir çalma listeleri, karıştırma/tekrarlama ve hesapta eşzamanlanan kuyruk ile oynatma konumu.
 - **CineMusic Connect** — uyumlu iOS ve Mac Catalyst istemcileri arasında isteğe bağlı cihaz keşfi ve canlı uzaktan kumanda; oynat/duraklat, ileri sarma, ses, karıştırma/tekrar, kuyruktan seçim, kuyruk kopyalama ve onaylı aktarım desteği sunar. Kullanıcı açıkça aktarım başlatmadıkça her cihaz bağımsız çalmayı sürdürür.
+- **Birlikte Dinle** — aynı sunucudaki uyumlu CineMusic istemcileri için isteğe bağlı iki kişilik ortak dinleme: davet kodu, ortak kuyruk, oturum sahibinin oynatma kontrolü, bağımsız ses seviyesi ve eşzamanlı başlangıç. İki hesabın da kütüphane erişimi olmalı. [Protokol ve kurulum notları](docs/listen-together.md).
 - **Şarkı sözleri** — yan dosya `.lrc` içe aktarma, LRCLIB araması, senkronize veya düz sözler, zaman hizalama, revizyonlar, elle çeviri ve isteğe bağlı LibreTranslate entegrasyonu.
 - **Ses ayarları** — ReplayGain ses yüksekliği normalizasyonu, boşluksuz oynatma, crossfade ve hazır ayarlı beş bant ekolayzır.
 - **Kütüphane bakımı** — metadata önerileri, toplu düzenleme, mükerrerleri arşivleme, ReplayGain analizi, Chromaprint/AcoustID eşleştirmesi ve otomatik sanatçı görseli bulma.

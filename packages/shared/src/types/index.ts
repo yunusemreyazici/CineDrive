@@ -438,6 +438,7 @@ export interface ClientBootstrapDto {
     scopedDownloadGrants: boolean;
     cineMusicConnect: boolean;
     cineMusicQueueControl?: boolean;
+    listeningTogether?: boolean;
   };
   serverTime: string;
 }
