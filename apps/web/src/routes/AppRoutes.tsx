@@ -6,6 +6,11 @@ import { t } from '../i18n';
 
 // Pages are fetched on demand so the app shell and login route do not download
 // dashboard, player, or settings code before it is needed.
+const ListenInvitationPage = React.lazy(() =>
+  import('../pages/ListenInvitationPage').then((module) => ({
+    default: module.ListenInvitationPage,
+  })),
+);
 const HomePage = React.lazy(() =>
   import('../pages/HomePage').then((module) => ({ default: module.HomePage })),
 );
@@ -103,6 +108,14 @@ const FullScreenFallback: React.FC = () => (
 export const AppRoutes: React.FC = () => {
   return (
     <Routes>
+      <Route
+        path="/music/listen/:code"
+        element={
+          <Suspense fallback={<FullScreenFallback />}>
+            <ListenInvitationPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/login"
         element={

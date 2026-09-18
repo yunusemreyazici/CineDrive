@@ -80,3 +80,24 @@ room/event store. No production deployment is performed by adding this code.
 The app persists only an owner/server/client-scoped room ID for reconnect. A
 revoked session or removed library permission is not a way to continue streaming:
 normal authenticated music endpoints continue enforcing access independently.
+
+## Invitation links (companion CineMusic client)
+
+The public web route `/music/listen/:code` displays the invitation code without
+requiring a web login. It does not fetch participant or library data. The user can
+copy the code or choose Open in CineMusic, which wraps the same HTTPS URL in
+`cinemusic://listen?url=...`. The app validates the URL, displays the target server
+and requires an explicit Join action using the signed-in account's existing
+permissions. An invalid or expired room is reported by the authenticated join API.
+
+Deploy the web build and updated `public/.well-known/apple-app-site-association`
+together. The latter adds `/music/listen/*` to the existing CineMusic association.
+The signed app currently declares `cine.yunusemreyazici.com`; other server domains
+need a matching signed associated-domain entitlement for direct Universal Links.
+The web app button and manual-code entry remain alternatives. Do not rewrite the
+AASA request to the SPA, and keep its JSON content type. Physical-device Universal
+Link routing must be checked after deployment because Apple caches associations.
+
+No API or database change is required for invitation links. Codes are invitation
+secrets; recipients still need access to all queued music. QR invitations are not
+included in this change.
