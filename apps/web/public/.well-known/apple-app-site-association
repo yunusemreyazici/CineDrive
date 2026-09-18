@@ -17,6 +17,10 @@
           {
             "/": "/music/playlists/*",
             "comment": "Open shared playlists in CineMusic"
+          },
+          {
+            "/": "/music/listen/*",
+            "comment": "Open Listen Together invitations in CineMusic"
           }
         ]
       }
