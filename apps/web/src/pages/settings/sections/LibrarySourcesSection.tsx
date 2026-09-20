@@ -27,9 +27,14 @@ const SourceSummary: React.FC<SourceSummaryProps> = ({ icon: Icon, label, value 
 /** One workflow for every location CineDrive can scan. */
 export const LibrarySourcesSection: React.FC = () => {
   const { data: libraries = [] } = useLibrariesQuery();
-  const driveLibrary = libraries.find((library) => library.storageType === 'gdrive');
+  // Source credentials, paths and destructive controls are owner-only on the
+  // API. Shared editors/listeners still see their media elsewhere, but this
+  // settings pane must not probe a foreign library and turn a 404 into a UI
+  // error state.
+  const ownedLibraries = libraries.filter((library) => library.accessRole === 'owner');
+  const driveLibrary = ownedLibraries.find((library) => library.storageType === 'gdrive');
   const { data: driveSources = [] } = useDriveScanSourcesQuery(driveLibrary?.id);
-  const localLibraries = libraries.filter((library) => library.storageType === 'local');
+  const localLibraries = ownedLibraries.filter((library) => library.storageType === 'local');
   const allScanSummaries = [
     ...driveSources.map((source) => source.lastScan),
     ...localLibraries.map((library) => library.lastScan),

@@ -194,6 +194,7 @@ model DriveFile {
   musicTrack         MusicTrack?
 
   @@index([libraryId])
+  @@index([libraryId, status])
   @@index([googleConnectionId])
   @@index([driveScanSourceId])
   @@index([parentDriveFileId])
@@ -240,6 +241,7 @@ model MediaItem {
   @@index([normalizedTitle])
   @@index([type])
   @@index([libraryId])
+  @@index([libraryId, type, createdAt])
 }
 
 model Movie {
@@ -288,6 +290,7 @@ model Episode {
   watchHistories     WatchHistory[]
 
   @@unique([seasonId, episodeNumber])
+  @@index([mediaItemId])
 }
 
 model SubtitleTrack {
@@ -308,6 +311,8 @@ model SubtitleTrack {
   updatedAt         DateTime   @updatedAt
 
   @@unique([driveFileId])
+  @@index([mediaItemId])
+  @@index([episodeId])
 }
 
 model PlaybackProgress {
@@ -755,6 +760,7 @@ model LibraryScan {
   errors             LibraryScanError[]
 
   @@index([driveScanSourceId])
+  @@index([libraryId, startedAt])
   @@index([status, heartbeatAt])
 }
 

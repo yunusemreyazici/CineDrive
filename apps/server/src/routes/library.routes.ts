@@ -291,7 +291,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.get<{ Params: { id: string } }>('/:id/members', async (request, reply) => {
-    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    const library = await findOwnerLibrary(request.params.id, request.user!.id);
     if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
     const memberships = await fastify.prisma.libraryMembership.findMany({
       where: { libraryId: library.id },
@@ -422,7 +422,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   // Saved Google Drive folders are additive scan sources. Changing one no
   // longer invalidates or silently replaces the files indexed from another.
   fastify.get<{ Params: { id: string } }>('/:id/drive-sources', async (request, reply) => {
-    const library = await findOwnedLibrary(request.params.id, request.user!.id);
+    const library = await findOwnerLibrary(request.params.id, request.user!.id);
     if (!library)
       return reply.status(404).send({
         error: {
@@ -518,7 +518,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string }; Body: CreateDriveScanSourceInput }>(
     '/:id/drive-sources/validate',
     async (request, reply) => {
-      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      const library = await findOwnerLibrary(request.params.id, request.user!.id);
       if (!library) {
         return reply.status(404).send({
           error: {
@@ -579,7 +579,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string }; Body: CreateDriveScanSourceInput }>(
     '/:id/drive-sources',
     async (request, reply) => {
-      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      const library = await findOwnerLibrary(request.params.id, request.user!.id);
       if (!library)
         return reply.status(404).send({
           error: {
@@ -732,7 +732,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string; sourceId: string } }>(
     '/:id/drive-sources/:sourceId',
     async (request, reply) => {
-      const library = await findOwnedLibrary(request.params.id, request.user!.id);
+      const library = await findOwnerLibrary(request.params.id, request.user!.id);
       if (!library)
         return reply.status(404).send({
           error: {
@@ -1068,7 +1068,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { id: string } }>('/:id/clear', async (request, reply) => {
     const { id } = request.params;
 
-    const library = await findOwnedLibrary(id, request.user!.id);
+    const library = await findOwnerLibrary(id, request.user!.id);
     if (!library) {
       return reply.status(404).send({
         error: {

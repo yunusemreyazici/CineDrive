@@ -1050,4 +1050,83 @@ describe('Library API Integration Tests', () => {
     await app.prisma.user.delete({ where: { id: listener.id } });
     await app.prisma.library.delete({ where: { id: libraryId } });
   });
+
+  it('keeps library sources, members and destructive cleanup owner-only for editors', async () => {
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const adminCookie = adminLogin.cookies.find((cookie) => cookie.name === 'session_id')!.value;
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/libraries',
+      cookies: { session_id: adminCookie },
+      payload: { name: 'Editor Guarded Library', rootFolderId: 'editor_guarded_folder' },
+    });
+    const libraryId = JSON.parse(created.body).library.id as string;
+    const media = await app.prisma.mediaItem.create({
+      data: {
+        libraryId,
+        type: 'movie',
+        title: 'Editor cleanup guard',
+        normalizedTitle: 'editor cleanup guard',
+      },
+    });
+
+    const password = 'EditorLibraryPassword123!';
+    const editor = await app.prisma.user.create({
+      data: {
+        email: `editor-${Date.now()}@cinedrive.test`,
+        name: 'Library editor',
+        passwordHash: await app.authService.hashPassword(password),
+      },
+    });
+    const granted = await app.inject({
+      method: 'PUT',
+      url: `/api/libraries/${libraryId}/members`,
+      cookies: { session_id: adminCookie },
+      payload: { userId: editor.id, role: 'editor' },
+    });
+    expect(granted.statusCode).toBe(200);
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: editor.email, password },
+    });
+    const editorCookie = login.cookies.find((cookie) => cookie.name === 'session_id')!.value;
+
+    const members = await app.inject({
+      method: 'GET',
+      url: `/api/libraries/${libraryId}/members`,
+      cookies: { session_id: editorCookie },
+    });
+    const sources = await app.inject({
+      method: 'GET',
+      url: `/api/libraries/${libraryId}/drive-sources`,
+      cookies: { session_id: editorCookie },
+    });
+    const cleared = await app.inject({
+      method: 'DELETE',
+      url: `/api/libraries/${libraryId}/clear`,
+      cookies: { session_id: editorCookie },
+    });
+
+    expect(members.statusCode).toBe(404);
+    expect(sources.statusCode).toBe(404);
+    expect(cleared.statusCode).toBe(404);
+    expect(await app.prisma.mediaItem.findUnique({ where: { id: media.id } })).not.toBeNull();
+
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/api/libraries/${libraryId}`,
+      cookies: { session_id: editorCookie },
+      payload: { name: 'Editor can rename metadata' },
+    });
+    expect(renamed.statusCode).toBe(200);
+
+    await app.prisma.user.delete({ where: { id: editor.id } });
+    await app.prisma.library.delete({ where: { id: libraryId } });
+  });
 });
