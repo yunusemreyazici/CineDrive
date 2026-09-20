@@ -1,5 +1,6 @@
 import type { PrismaClient, Prisma } from '@cinedrive/prisma';
 import type { UpdateProgressInput } from '@cinedrive/shared';
+import { ownedMediaFilter } from '../utils/library-access.js';
 
 const DEFAULT_COMPLETION_THRESHOLD_PERCENT = 92;
 const MINIMUM_PROGRESS_SECONDS = 15;
@@ -36,8 +37,8 @@ export class PlaybackService {
     positionSeconds = Math.min(positionSeconds, durationSeconds);
 
     // 2. Validate MediaItem exists
-    const mediaItem = await this.prisma.mediaItem.findUnique({
-      where: { id: mediaItemId },
+    const mediaItem = await this.prisma.mediaItem.findFirst({
+      where: { id: mediaItemId, ...ownedMediaFilter(userId) },
     });
 
     if (!mediaItem) {

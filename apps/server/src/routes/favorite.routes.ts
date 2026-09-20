@@ -9,7 +9,7 @@ export const favoriteRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = request.user!.id;
 
     const favorites = await fastify.prisma.favorite.findMany({
-      where: { userId },
+      where: { userId, mediaItem: ownedMediaFilter(userId) },
       orderBy: { createdAt: 'desc' },
       include: {
         mediaItem: {

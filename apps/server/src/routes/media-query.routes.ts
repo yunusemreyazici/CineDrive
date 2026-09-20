@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@cinedrive/prisma';
 import { buildPlaybackPlan } from '../services/playback-plan.service.js';
-import { ownedMediaFilter } from '../utils/library-access.js';
+import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -363,7 +363,10 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/series/:id/seasons', async (request, reply) => {
     const { id } = request.params;
     const seasons = await fastify.prisma.season.findMany({
-      where: { seriesId: id },
+      where: {
+        seriesId: id,
+        series: { mediaItem: ownedMediaFilter(request.user!.id) },
+      },
       orderBy: { seasonNumber: 'asc' },
       include: {
         episodes: {
@@ -384,7 +387,10 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/seasons/:id/episodes', async (request, reply) => {
     const { id } = request.params;
     const episodes = await fastify.prisma.episode.findMany({
-      where: { seasonId: id },
+      where: {
+        seasonId: id,
+        season: { series: { mediaItem: ownedMediaFilter(request.user!.id) } },
+      },
       orderBy: { episodeNumber: 'asc' },
       include: {
         subtitles: {
@@ -420,9 +426,13 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     // references as artwork are servable.
     const isKnownAsset = await fastify.prisma.mediaItem.findFirst({
       where: {
+        ...ownedMediaFilter(userId),
         OR: [{ posterDriveFileId: driveFileId }, { backdropDriveFileId: driveFileId }],
       },
-      select: { id: true },
+      select: {
+        id: true,
+        library: { select: { userId: true, googleConnectionId: true } },
+      },
     });
 
     if (!isKnownAsset) {
@@ -436,14 +446,37 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId);
-      const driveStreamRes = await fastify.driveService.createMediaStream(accessToken, driveFileId);
+      // Artwork metadata historically stored the Google id directly, while
+      // newer scan rows also have a DriveFile record. Prefer the record so a
+      // shared library uses its owner's connection rather than the viewer's
+      // default account; fall back to the library owner for legacy artwork.
+      const assetDriveFile = await fastify.prisma.driveFile.findFirst({
+        where: {
+          OR: [{ id: driveFileId }, { googleDriveFileId: driveFileId }],
+          status: 'active',
+          library: ownedLibraryFilter(userId),
+        },
+        include: { library: true },
+      });
+      const accessToken = assetDriveFile
+        ? (await fastify.driveAccessService.getAccess(userId, assetDriveFile)).accessToken
+        : await fastify.googleOAuthService.getValidAccessToken(
+            isKnownAsset.library?.userId || userId,
+            isKnownAsset.library?.googleConnectionId || undefined,
+          );
+      const driveStreamRes = await fastify.driveService.createMediaStream(
+        accessToken,
+        assetDriveFile?.googleDriveFileId || driveFileId,
+      );
 
       reply.status(200);
       if (driveStreamRes.headers['content-type']) {
         reply.header('Content-Type', driveStreamRes.headers['content-type']);
       }
-      reply.header('Cache-Control', 'public, max-age=86400'); // Cache image for 24h
+      // The URL is protected by the session cookie and the underlying asset
+      // belongs to a user-scoped library. A shared/public cache would let one
+      // viewer reuse another viewer's authenticated response.
+      reply.header('Cache-Control', 'private, max-age=86400');
 
       return reply.send(driveStreamRes.stream);
     } catch {

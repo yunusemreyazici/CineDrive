@@ -1,29 +1,36 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
 
 describe('Playback & History API Integration Tests', () => {
   let app: FastifyInstance;
+  const playbackLibraryId = 'library_test_pb_1';
 
   beforeEach(async () => {
     app = await buildApp();
     await app.ready();
 
-    // Clean up test data
-    await app.prisma.playbackProgress.deleteMany({
-      where: { mediaItemId: 'media_test_pb_1' },
-    });
-    await app.prisma.watchHistory.deleteMany({
-      where: { mediaItemId: 'media_test_pb_1' },
-    });
-    await app.prisma.mediaItem.deleteMany({
-      where: { id: 'media_test_pb_1' },
+    // Playback writes are now scoped through MediaItem.library, so the fixture
+    // must model the same ownership relation as production media.
+    await app.prisma.library.deleteMany({ where: { id: playbackLibraryId } });
+    const admin = await app.prisma.user.findUnique({ where: { email: env.ADMIN_EMAIL } });
+    if (!admin) throw new Error('Admin fixture user was not created');
+
+    await app.prisma.library.create({
+      data: {
+        id: playbackLibraryId,
+        userId: admin.id,
+        name: 'Playback test library',
+        rootFolderId: 'playback-test-root',
+      },
     });
 
     await app.prisma.mediaItem.create({
       data: {
         id: 'media_test_pb_1',
+        libraryId: playbackLibraryId,
         type: 'movie',
         title: 'Matrix',
         normalizedTitle: 'matrix',
@@ -34,6 +41,7 @@ describe('Playback & History API Integration Tests', () => {
   });
 
   afterEach(async () => {
+    await app.prisma.library.deleteMany({ where: { id: playbackLibraryId } });
     await app.close();
   });
 
@@ -49,6 +57,42 @@ describe('Playback & History API Integration Tests', () => {
     });
 
     expect(res.statusCode).toBe(401);
+  });
+
+  it('PUT /api/playback/progress cannot write progress for another library', async () => {
+    const password = 'PlaybackIntruderPassword123!';
+    const intruder = await app.prisma.user.create({
+      data: {
+        email: `playback-intruder-${randomUUID()}@cinedrive.test`,
+        name: 'Playback intruder',
+        passwordHash: await app.authService.hashPassword(password),
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: intruder.email, password },
+    });
+    const sessionCookie = login.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        mediaItemId: 'media_test_pb_1',
+        positionSeconds: 120,
+        durationSeconds: 8100,
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(
+      await app.prisma.playbackProgress.count({
+        where: { userId: intruder.id, mediaItemId: 'media_test_pb_1' },
+      }),
+    ).toBe(0);
+    await app.prisma.user.delete({ where: { id: intruder.id } });
   });
 
   it('PUT /api/playback/progress keeps validation issue details in the 400 response', async () => {

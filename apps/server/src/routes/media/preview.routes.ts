@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { resolveActiveDriveFile } from './shared.js';
+import { driveSourceInput, resolveActiveDriveFile } from './shared.js';
 
 /** Scrub-bar thumbnails. */
 export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
@@ -32,13 +32,14 @@ export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    let googleAccessToken: string | undefined;
+    let remoteInput: ReturnType<typeof driveSourceInput> | undefined;
     if (driveFile.storageType !== 'local') {
       try {
-        ({ accessToken: googleAccessToken } = await fastify.driveAccessService.getAccess(
-          request.user!.id,
-          driveFile,
-        ));
+        // Resolve the credential eagerly, but keep the token out of FFmpeg
+        // arguments. The loopback capability endpoint refreshes it per request
+        // and prevents secrets from appearing in process listings.
+        await fastify.driveAccessService.getAccess(request.user!.id, driveFile);
+        remoteInput = driveSourceInput(fastify, driveFile, request.user!.id);
       } catch {
         return reply.status(401).send({
           error: {
@@ -58,7 +59,7 @@ export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
         modifiedTime: driveFile.modifiedTime,
         md5Checksum: driveFile.md5Checksum,
         timeSeconds: requestedTime,
-        googleAccessToken,
+        remoteInput,
       });
 
       reply.header('Content-Type', 'image/webp');

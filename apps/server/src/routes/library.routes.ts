@@ -12,7 +12,7 @@ import {
 import { env } from '../config/env.js';
 import type { DriveFolderInspection } from '../services/drive.service.js';
 import { accessibleLibraryFilter, manageableLibraryFilter } from '../utils/library-access.js';
-import { validateLocalFolder } from '../services/local-folder-validation.js';
+import { resolveLocalFolder, validateLocalFolder } from '../services/local-folder-validation.js';
 
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -163,7 +163,13 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.status(200).send({
       libraries: libraries.map(({ _count, scans, memberships, ...library }) => ({
-        ...library,
+        ...(request.user!.role === 'admin' || library.userId === userId
+          ? library
+          : (() => {
+              const { localFolderPath, ...safeLibrary } = library;
+              void localFolderPath;
+              return safeLibrary;
+            })()),
         accessRole: library.userId === userId ? 'owner' : memberships[0]?.role || 'listener',
         fileCount: _count.files,
         lastScan: scans[0] ? serializeScanSummary(scans[0]) : null,
@@ -212,8 +218,51 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { name, storageType, rootFolderId, localFolderPath, googleConnectionId } =
-      parseResult.data;
+    const { name, storageType, rootFolderId, googleConnectionId } = parseResult.data;
+    let localFolderPath: string | null | undefined = parseResult.data.localFolderPath;
+
+    if (storageType === 'local') {
+      if (request.user!.role !== 'admin') {
+        return reply.status(403).send({
+          error: {
+            code: 'ADMIN_REQUIRED',
+            message: 'Yerel klasör kütüphanesi oluşturmak için yönetici yetkisi gerekir.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      try {
+        localFolderPath = await resolveLocalFolder(localFolderPath || '');
+      } catch (error) {
+        request.log.warn({ err: error, requestId: request.id }, 'Local library path rejected');
+        return reply.status(400).send({
+          error: {
+            code: 'LOCAL_FOLDER_UNAVAILABLE',
+            message: 'Klasör sunucuda bulunamadı veya okunamıyor.',
+            requestId: request.id,
+          },
+        });
+      }
+    } else {
+      localFolderPath = null;
+    }
+
+    if (googleConnectionId) {
+      const connection = await fastify.prisma.googleConnection.findFirst({
+        where: { id: googleConnectionId, userId: request.user!.id },
+        select: { id: true },
+      });
+      if (!connection) {
+        return reply.status(400).send({
+          error: {
+            code: 'GOOGLE_CONNECTION_NOT_FOUND',
+            message: 'Seçilen Google Drive bağlantısı bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
 
     try {
       const library = await fastify.prisma.library.create({
@@ -234,7 +283,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(500).send({
         error: {
           code: 'LIBRARY_CREATE_FAILED',
-          message: err instanceof Error ? err.message : 'Kütüphane oluşturulurken bir hata oluştu.',
+          message: 'Kütüphane oluşturulurken bir hata oluştu.',
           requestId: request.id,
         },
       });
@@ -316,9 +365,54 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      const sourceFieldsChanged =
+        Object.prototype.hasOwnProperty.call(parseResult.data, 'rootFolderId') ||
+        Object.prototype.hasOwnProperty.call(parseResult.data, 'localFolderPath') ||
+        Object.prototype.hasOwnProperty.call(parseResult.data, 'googleConnectionId');
+      if (sourceFieldsChanged && request.user!.role !== 'admin' && existing.userId !== request.user!.id) {
+        return reply.status(403).send({
+          error: {
+            code: 'LIBRARY_OWNER_REQUIRED',
+            message: 'Kütüphane kaynağını değiştirmek için sahiplik gerekir.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const updateData = { ...parseResult.data };
+      if (updateData.localFolderPath !== undefined) {
+        try {
+          updateData.localFolderPath = await resolveLocalFolder(updateData.localFolderPath);
+        } catch (error) {
+          request.log.warn({ err: error, requestId: request.id }, 'Local library path rejected');
+          return reply.status(400).send({
+            error: {
+              code: 'LOCAL_FOLDER_UNAVAILABLE',
+              message: 'Klasör sunucuda bulunamadı veya okunamıyor.',
+              requestId: request.id,
+            },
+          });
+        }
+      }
+      if (updateData.googleConnectionId) {
+        const connection = await fastify.prisma.googleConnection.findFirst({
+          where: { id: updateData.googleConnectionId, userId: request.user!.id },
+          select: { id: true },
+        });
+        if (!connection) {
+          return reply.status(400).send({
+            error: {
+              code: 'GOOGLE_CONNECTION_NOT_FOUND',
+              message: 'Seçilen Google Drive bağlantısı bulunamadı.',
+              requestId: request.id,
+            },
+          });
+        }
+      }
+
       const updated = await fastify.prisma.library.update({
         where: { id },
-        data: parseResult.data,
+        data: updateData,
       });
 
       return reply.status(200).send({ library: updated });

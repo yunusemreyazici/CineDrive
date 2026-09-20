@@ -44,6 +44,15 @@ const PLAYBACK_RATE_LIMIT_MAX = 1200;
 const CONNECT_RATE_LIMIT_MAX = 600;
 const DATABASE_READINESS_TIMEOUT_MS = 2_000;
 
+/** Capability tokens travel in the internal source URL and must not enter logs. */
+export const redactRequestUrl = (url: string): string =>
+  url
+    .replace(/(\/api\/internal\/drive-source\/)[^/?]+/g, '$1[redacted]')
+    .replace(
+      /([?&](?:token|access_token|refresh_token|id_token|downloadGrant|session|state|code)=)[^&]*/gi,
+      '$1[redacted]',
+    );
+
 export const rateLimitBucket = (url: string): 'playback' | 'connect' | 'api' => {
   const path = url.split('?')[0] || '';
   if (PLAYBACK_PATH_PATTERN.test(path)) return 'playback';
@@ -82,6 +91,14 @@ export const buildApp = async (
     logger: {
       level: env.LOG_LEVEL,
       transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+      serializers: {
+        req: (request) => ({
+          method: request.method,
+          url: redactRequestUrl(request.url),
+          host: request.headers.host,
+          remoteAddress: request.ip,
+        }),
+      },
     },
     trustProxy: env.TRUST_PROXY,
   });

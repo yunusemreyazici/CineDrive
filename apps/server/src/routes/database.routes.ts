@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { ownedLibraryFilter } from '../utils/library-access.js';
+import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
 
 /**
  * Maintenance for the library database.
@@ -19,7 +19,17 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/settings/database/stats
   fastify.get('/stats', async (request, reply) => {
     const userId = request.user!.id;
-    const ownedFiles = { library: ownedLibraryFilter(userId) };
+    const isAdmin = request.user!.role === 'admin';
+    const libraryWhere = isAdmin ? undefined : ownedLibraryFilter(userId);
+    const driveFileWhere = isAdmin ? undefined : { library: ownedLibraryFilter(userId) };
+    const mediaWhere = isAdmin ? undefined : ownedMediaFilter(userId);
+    const episodeWhere = isAdmin ? undefined : { mediaItem: ownedMediaFilter(userId) };
+    const subtitleWhere = isAdmin
+      ? undefined
+      : { driveFile: { library: ownedLibraryFilter(userId) } };
+    const orphanWhere = isAdmin
+      ? orphanMediaFilter
+      : { AND: [orphanMediaFilter, ownedMediaFilter(userId)] };
 
     const [
       libraries,
@@ -34,16 +44,16 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       orphanMedia,
       pageStats,
     ] = await Promise.all([
-      fastify.prisma.library.count({ where: { userId } }),
-      fastify.prisma.driveFile.count({ where: ownedFiles }),
-      fastify.prisma.mediaItem.count({ where: { type: 'movie' } }),
-      fastify.prisma.mediaItem.count({ where: { type: 'series' } }),
-      fastify.prisma.episode.count(),
-      fastify.prisma.subtitleTrack.count(),
+      fastify.prisma.library.count({ where: libraryWhere }),
+      fastify.prisma.driveFile.count({ where: driveFileWhere }),
+      fastify.prisma.mediaItem.count({ where: { type: 'movie', ...(mediaWhere || {}) } }),
+      fastify.prisma.mediaItem.count({ where: { type: 'series', ...(mediaWhere || {}) } }),
+      fastify.prisma.episode.count({ where: episodeWhere }),
+      fastify.prisma.subtitleTrack.count({ where: subtitleWhere }),
       fastify.prisma.watchHistory.count({ where: { userId } }),
       fastify.prisma.favorite.count({ where: { userId } }),
-      fastify.prisma.libraryScan.count({ where: { library: { userId } } }),
-      fastify.prisma.mediaItem.count({ where: orphanMediaFilter }),
+      fastify.prisma.libraryScan.count({ where: libraryWhere ? { library: libraryWhere } : undefined }),
+      fastify.prisma.mediaItem.count({ where: orphanWhere }),
       // Asking SQLite for its own page accounting avoids guessing where the
       // database file ended up: a relative `file:` URL resolves against the
       // schema directory, not the working directory.
@@ -75,14 +85,20 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/settings/database/cleanup
   fastify.post('/cleanup', async (request, reply) => {
     const userId = request.user!.id;
+    const isAdmin = request.user!.role === 'admin';
     // Media rows whose file was removed from Drive — or from a library that was
-    // deleted — survive as records with nothing to play.
+    // deleted — survive as records with nothing to play. A regular user may
+    // only collect leftovers from libraries they own; otherwise a shared
+    // listener/editor could delete another user's catalogue rows.
+    const cleanupOrphanWhere = isAdmin
+      ? orphanMediaFilter
+      : { AND: [orphanMediaFilter, { library: { userId } }] };
     const { count: removedMedia } = await fastify.prisma.mediaItem.deleteMany({
-      where: orphanMediaFilter,
+      where: cleanupOrphanWhere,
     });
 
     const interruptedScans = await fastify.scanLifecycleService.reconcileAbandonedScans({
-      userId,
+      ...(isAdmin ? {} : { userId }),
       reason: 'server_restarted',
     });
 

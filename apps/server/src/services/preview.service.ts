@@ -19,7 +19,10 @@ interface PreviewSource {
   modifiedTime?: Date | null;
   md5Checksum?: string | null;
   timeSeconds: number;
-  googleAccessToken?: string;
+  remoteInput?: {
+    url: string;
+    inputOptions?: string[];
+  };
 }
 
 export class PreviewService {
@@ -77,21 +80,16 @@ export class PreviewService {
   ): Promise<Buffer> {
     if (!ffmpegPath) throw new Error('FFMPEG_NOT_AVAILABLE');
     const binaryPath = ffmpegPath;
-    const remoteUrl = source.googleDriveFileId
-      ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(source.googleDriveFileId)}?alt=media&supportsAllDrives=true`
-      : null;
-    const input = source.localFilePath || remoteUrl;
+    const input = source.localFilePath || source.remoteInput?.url;
     if (!input) throw new Error('PREVIEW_SOURCE_NOT_FOUND');
-    if (remoteUrl && !source.googleAccessToken) throw new Error('GOOGLE_AUTH_REQUIRED');
+    if (!source.localFilePath && !source.remoteInput) throw new Error('GOOGLE_AUTH_REQUIRED');
 
     await fs.mkdir(CACHE_DIR, { recursive: true });
     const args = [
       '-hide_banner',
       '-loglevel',
       'error',
-      ...(remoteUrl
-        ? ['-headers', `Authorization: Bearer ${source.googleAccessToken}\r\n`]
-        : []),
+      ...(source.localFilePath ? [] : source.remoteInput?.inputOptions || []),
       '-ss',
       String(timeSeconds),
       '-i',

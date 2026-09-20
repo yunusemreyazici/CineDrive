@@ -31,7 +31,10 @@ const QUALITY_PROFILES: Record<
 
 export class TranscodeService {
   private readonly activeSessions = new Set<string>();
-  private readonly ownerSessions = new Map<string, { id: string; kill: () => void }>();
+  private readonly ownerSessions = new Map<
+    string,
+    { id: string; kill: () => void; userId?: string }
+  >();
   private readonly maxActiveSessions: number;
 
   constructor() {
@@ -60,6 +63,7 @@ export class TranscodeService {
       quality?: TranscodeQuality;
       startSeconds?: number;
       ownerSessionId?: string;
+      ownerUserId?: string;
       inputOptions?: string[];
       audioOnly?: boolean;
       realtime?: boolean;
@@ -67,6 +71,7 @@ export class TranscodeService {
     onAbort?: (killFn: () => void) => void,
   ): { stream: Readable; kill: () => void } {
     const ownerSessionId = options.ownerSessionId;
+    const ownerUserId = options.ownerUserId;
     if (ownerSessionId && !/^[a-zA-Z0-9_-]{8,128}$/.test(ownerSessionId)) {
       throw new Error('INVALID_TRANSCODE_SESSION');
     }
@@ -215,19 +220,20 @@ export class TranscodeService {
     }
 
     if (ownerSessionId) {
-      this.ownerSessions.set(ownerSessionId, { id: sessionId, kill });
+      this.ownerSessions.set(ownerSessionId, { id: sessionId, kill, userId: ownerUserId });
     }
     command.pipe(outputStream, { end: true });
 
     return { stream: outputStream, kill };
   }
 
-  public releaseOwner(ownerSessionId: string) {
+  public releaseOwner(ownerSessionId: string, userId?: string) {
     if (!/^[a-zA-Z0-9_-]{8,128}$/.test(ownerSessionId)) {
       throw new Error('INVALID_TRANSCODE_SESSION');
     }
     const owned = this.ownerSessions.get(ownerSessionId);
     if (!owned) return false;
+    if (owned.userId && owned.userId !== userId) return false;
     owned.kill();
     return true;
   }

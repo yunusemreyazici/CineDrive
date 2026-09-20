@@ -319,7 +319,7 @@ describe('Video Media Streaming API Integration Tests', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ stopped: true });
-    expect(releaseSpy).toHaveBeenCalledWith('player_session_2028');
+    expect(releaseSpy).toHaveBeenCalledWith('player_session_2028', expect.any(String));
   });
 
   it('rejects an unknown transcode quality profile', async () => {

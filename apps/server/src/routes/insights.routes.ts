@@ -254,6 +254,19 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         .map(([name, count]) => ({ name, count }))
         .sort((left, right) => right.count - left.count);
 
+    const hlsStats = fastify.hlsService.getStats();
+    const runtimeHls =
+      request.user!.role === 'admin'
+        ? hlsStats
+        : {
+            ...hlsStats,
+            // HLS jobs are currently process-global. Do not expose media names,
+            // cache keys or queue entries from another library to a regular
+            // account until the scheduler carries per-user ownership.
+            jobs: [],
+            queue: [],
+          };
+
     const response: MediaHealthDto = {
       totalVideos: files.length,
       analyzedVideos,
@@ -266,7 +279,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         containers: sortedDistribution(containers),
       },
       runtime: {
-        hls: fastify.hlsService.getStats(),
+        hls: runtimeHls,
         transcode: fastify.transcodeService.getStats(),
         playerTelemetry: fastify.playerTelemetryService.getStats(),
       },
@@ -313,6 +326,15 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { jobId: string } }>(
     '/media-health/hls/:jobId/stop',
     async (request, reply) => {
+      if (request.user!.role !== 'admin') {
+        return reply.code(403).send({
+          error: {
+            code: 'ADMIN_REQUIRED',
+            message: 'HLS işlerini durdurmak için yönetici yetkisi gerekir.',
+            requestId: request.id,
+          },
+        });
+      }
       const stopped = fastify.hlsService.stopJob(request.params.jobId);
       if (!stopped) {
         return reply.status(404).send({

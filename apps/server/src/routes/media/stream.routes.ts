@@ -238,6 +238,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
             startSeconds,
+            ownerUserId: userId,
             ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
@@ -338,6 +339,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
             quality: transcodeQuality,
             startSeconds,
             inputOptions: source.inputOptions,
+            ownerUserId: userId,
             ...(ownerSessionId ? { ownerSessionId } : {}),
           },
         );
@@ -461,7 +463,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
   }>('/transcode/release', async (request, reply) => {
     const sessionId = parseHlsSession(request.query.session);
     if (!sessionId) return reply.status(400).send();
-    const stopped = fastify.transcodeService.releaseOwner(sessionId);
+    const stopped = fastify.transcodeService.releaseOwner(sessionId, request.user!.id);
     return reply.status(200).send({ stopped });
   });
 

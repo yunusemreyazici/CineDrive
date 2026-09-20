@@ -1,5 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { manageableMediaFilter, ownedMediaFilter } from '../utils/library-access.js';
+import {
+  manageableMediaFilter,
+  ownedLibraryFilter,
+  ownedMediaFilter,
+} from '../utils/library-access.js';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -22,7 +26,9 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
         reply.status(200);
         reply.header('Content-Type', 'text/vtt; charset=utf-8');
-        reply.header('Cache-Control', 'public, max-age=86400');
+        // Subtitle content is served only after a session-scoped ownership
+        // check; never place it in a shared/public cache.
+        reply.header('Cache-Control', 'private, max-age=86400');
 
         return reply.send(vttContent);
       } catch (err: unknown) {
@@ -203,7 +209,9 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
 
       const sourceDriveFileId = targetEpisode?.driveFileId || mediaItem.movie?.driveFileId;
       const sourceDriveFile = sourceDriveFileId
-        ? await fastify.prisma.driveFile.findUnique({ where: { id: sourceDriveFileId } })
+        ? await fastify.prisma.driveFile.findFirst({
+            where: { id: sourceDriveFileId, library: ownedLibraryFilter(userId) },
+          })
         : null;
       if (!sourceDriveFile) {
         return reply.status(404).send({
@@ -338,7 +346,9 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
         : undefined;
     const sourceDriveFileId = targetEpisode?.driveFileId || mediaItem?.movie?.driveFileId;
     const sourceDriveFile = sourceDriveFileId
-      ? await fastify.prisma.driveFile.findUnique({ where: { id: sourceDriveFileId } })
+      ? await fastify.prisma.driveFile.findFirst({
+          where: { id: sourceDriveFileId, library: ownedLibraryFilter(userId) },
+        })
       : null;
 
     if (!mediaItem || !sourceDriveFile) {
@@ -410,7 +420,10 @@ export const subtitleRoutes: FastifyPluginAsync = async (fastify) => {
     const syntheticDriveFileId = `opensub_${topSub.fileId}_${subtitleOwnerId}`;
 
     let driveFile = await fastify.prisma.driveFile.findFirst({
-      where: { googleDriveFileId: syntheticDriveFileId },
+      where: {
+        googleDriveFileId: syntheticDriveFileId,
+        library: ownedLibraryFilter(userId),
+      },
     });
 
     if (!driveFile) {
