@@ -113,7 +113,7 @@ describe('local folder access validation', () => {
     try {
       for (const value of [
         applicationRoot,
-        path.join(applicationRoot, 'apps'),
+        path.join(applicationRoot, 'src'),
         applicationParent,
         path.dirname(applicationParent),
       ]) {
