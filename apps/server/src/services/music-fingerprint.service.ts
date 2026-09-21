@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import type { PrismaClient } from '@cinedrive/prisma';
 import { env } from '../config/env.js';
+import { resolveSafeLocalFile } from './local-folder-validation.js';
 
 type FingerprintOutput = { duration: number; fingerprint: string };
 type AcoustIdMatch = {
@@ -77,7 +78,7 @@ export class MusicFingerprintService {
     remoteSource?: (file: {
       googleDriveFileId: string | null;
       googleConnectionId: string | null;
-      library: { googleConnectionId: string | null } | null;
+      library: { googleConnectionId: string | null; localFolderPath: string | null } | null;
     }) => string | null,
   ) {
     const [available, acoustIdApiKey] = await Promise.all([
@@ -102,7 +103,11 @@ export class MusicFingerprintService {
       include: {
         primaryArtist: true,
         fingerprint: true,
-        driveFile: { include: { library: { select: { googleConnectionId: true } } } },
+        driveFile: {
+          include: {
+            library: { select: { googleConnectionId: true, localFolderPath: true } },
+          },
+        },
       },
     });
     const analyzed: string[] = [];
@@ -110,7 +115,20 @@ export class MusicFingerprintService {
     const skipped: Array<{ trackId: string; reason: string }> = [];
 
     for (const track of tracks) {
-      const sourcePath = track.driveFile.localFilePath || remoteSource?.(track.driveFile);
+      let sourcePath: string | null = null;
+      if (track.driveFile.localFilePath) {
+        try {
+          sourcePath = await resolveSafeLocalFile(
+            track.driveFile.library.localFolderPath,
+            track.driveFile.localFilePath,
+          );
+        } catch {
+          skipped.push({ trackId: track.id, reason: 'LOCAL_FILE_UNAVAILABLE' });
+          continue;
+        }
+      } else {
+        sourcePath = remoteSource?.(track.driveFile) || null;
+      }
       if (!sourcePath) {
         skipped.push({ trackId: track.id, reason: 'REMOTE_SOURCE' });
         continue;

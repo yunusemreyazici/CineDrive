@@ -17,6 +17,21 @@ import { resolveLocalFolder, validateLocalFolder } from '../services/local-folde
 export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
   const driveService = fastify.driveService;
+  const publicScanErrorMessage = 'Tarama sırasında bir veya daha fazla dosya işlenemedi.';
+
+  const serializeScanError = (error: {
+    id: string;
+    driveFileId?: string | null;
+    errorMessage: string;
+    createdAt: Date;
+  }) => ({
+    id: error.id,
+    driveFileId: error.driveFileId || null,
+    // Scan rows retain internal diagnostics for operators, but paths, SDK
+    // messages and stack-adjacent details must not cross the API boundary.
+    errorMessage: publicScanErrorMessage,
+    createdAt: error.createdAt.toISOString(),
+  });
 
   /**
    * Every route addressing a single library goes through this. A library owned
@@ -51,7 +66,33 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     updatedCount: scan.updatedCount,
     deletedCount: scan.deletedCount,
     errorCount: scan.errorCount,
-    lastError: scan.errors?.[0]?.errorMessage || null,
+    lastError: scan.errors?.length ? publicScanErrorMessage : null,
+  });
+
+  const serializeScanRecord = (scan: {
+    id: string;
+    libraryId: string;
+    driveScanSourceId: string | null;
+    status: string;
+    startedAt: Date;
+    heartbeatAt?: Date | null;
+    completedAt: Date | null;
+    interruptionReason?: string | null;
+    durationMs: number | null;
+    addedCount: number;
+    updatedCount: number;
+    deletedCount: number;
+    errorCount: number;
+    errors: Array<{
+      id: string;
+      driveFileId: string | null;
+      errorMessage: string;
+      createdAt: Date;
+    }>;
+  }) => ({
+    ...scan,
+    ...serializeScanSummary(scan),
+    errors: scan.errors.map(serializeScanError),
   });
 
   const inspectDriveSource = async (
@@ -506,7 +547,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
               updatedCount: source.lastScanUpdatedCount,
               deletedCount: source.lastScanDeletedCount,
               errorCount: source.lastScanErrorCount,
-              lastError: source.lastScanError,
+              lastError: source.lastScanError ? publicScanErrorMessage : null,
               interruptionReason: source.lastScanInterruptionReason,
             }
           : null,
@@ -690,7 +731,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         });
         return reply.status(202).send({
           message: 'Drive klasörü yeniden taranmaya başlandı.',
-          scan,
+          scan: scan ? serializeScanRecord(scan) : null,
         });
       } catch (err: unknown) {
         const code = err instanceof Error ? err.message : 'SCAN_FAILED';
@@ -913,7 +954,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
         return reply.status(202).send({
           message: 'Yerel kütüphane taraması başlatıldı.',
-          scan,
+          scan: scan ? serializeScanRecord(scan) : null,
         });
       } catch (err: unknown) {
         if (err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS') {
@@ -926,11 +967,20 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
+        if (err instanceof Error && err.message === 'LOCAL_FOLDER_UNAVAILABLE') {
+          return reply.status(400).send({
+            error: {
+              code: 'LOCAL_FOLDER_UNAVAILABLE',
+              message: 'Klasör sunucuda bulunamadı veya artık okunamıyor.',
+              requestId: request.id,
+            },
+          });
+        }
+
         return reply.status(500).send({
           error: {
             code: 'LOCAL_SCAN_FAILED',
-            message:
-              err instanceof Error ? err.message : 'Yerel kütüphane taraması başarısız oldu.',
+            message: 'Yerel kütüphane taraması başlatılamadı.',
             requestId: request.id,
           },
         });
@@ -946,7 +996,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
       return reply.status(202).send({
         message: 'Kütüphane taraması başlatıldı.',
-        scan: scanResult,
+        scan: scanResult ? serializeScanRecord(scanResult) : null,
       });
     } catch (err: unknown) {
       fastify.log.error({ err, requestId: request.id }, 'Library scan failed');
@@ -972,9 +1022,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           code: isNotConnected ? 'GOOGLE_ACCOUNT_NOT_CONNECTED' : 'SCAN_FAILED',
           message: isNotConnected
             ? 'Lütfen önce Google Drive hesabınızı bağlayın.'
-            : err instanceof Error
-              ? err.message
-              : 'Kütüphane taraması başarısız oldu.',
+            : 'Kütüphane taraması başlatılamadı.',
           requestId: request.id,
         },
       });
@@ -992,7 +1040,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { startedAt: 'desc' },
       take: 50,
       include: {
-        library: { select: { id: true, name: true, storageType: true, localFolderPath: true } },
+        library: { select: { id: true, name: true, storageType: true } },
         driveScanSource: {
           select: {
             id: true,
@@ -1019,17 +1067,12 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
             : scan.driveScanSource?.folderName || 'Tüm Drive kaynakları',
         sourceLocation:
           scan.library.storageType === 'local'
-            ? scan.library.localFolderPath
+            ? 'Yerel kütüphane'
             : scan.driveScanSource
               ? `${scan.driveScanSource.googleConnection.email} · ${scan.driveScanSource.folderPath || scan.driveScanSource.rootFolderId}`
               : scan.library.name,
         ...serializeScanSummary(scan),
-        errors: scan.errors.map((error) => ({
-          id: error.id,
-          driveFileId: error.driveFileId,
-          errorMessage: error.errorMessage,
-          createdAt: error.createdAt.toISOString(),
-        })),
+        errors: scan.errors.map(serializeScanError),
       })),
     });
   });
@@ -1061,7 +1104,13 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       include: { errors: true },
     });
 
-    return reply.status(200).send({ scans });
+    return reply.status(200).send({
+      scans: scans.map((scan) => ({
+        ...scan,
+        ...serializeScanSummary(scan),
+        errors: scan.errors.map(serializeScanError),
+      })),
+    });
   });
 
   // DELETE /api/libraries/:id/clear: Wipe all scanned media & files from the database

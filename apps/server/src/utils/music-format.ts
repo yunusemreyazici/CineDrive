@@ -271,7 +271,7 @@ export const formatMusicTrack = (track: MusicTrackWithRelations) => {
       sizeBytes: track.driveFile.size?.toString() || null,
       modifiedAt: track.driveFile.modifiedTime?.toISOString() || null,
       storageType: track.driveFile.storageType,
-      localPath: track.driveFile.localFilePath,
+      localPath: null,
       googleDriveFileId: track.driveFile.googleDriveFileId,
       library: track.driveFile.library,
     },

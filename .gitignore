@@ -32,3 +32,4 @@ apps/server/prisma/data/
 .codex-ios-youtube-fix
 .codex-cine-drive-ios-staging
 apps/server/data/music_artwork_cache
+AGENTS.md

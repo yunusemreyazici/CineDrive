@@ -6,6 +6,7 @@ import { convertSrtToVtt } from '@cinedrive/shared';
 import { GoogleDriveService } from './drive.service.js';
 import { DriveAccessService } from './drive-access.service.js';
 import { decodeSubtitleBytes } from '../utils/subtitle-encoding.js';
+import { resolveSafeLocalFile, resolveSafePathWithinRoot } from './local-folder-validation.js';
 
 const CACHE_DIR = path.resolve(process.cwd(), 'data', 'subtitle_cache');
 const MAX_SUBTITLE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB Max limit
@@ -92,7 +93,26 @@ export class SubtitleService {
 
     let rawContent: string;
     if (track.driveFile.storageType === 'local' && track.driveFile.localFilePath) {
-      rawContent = decodeSubtitleBytes(await fs.readFile(track.driveFile.localFilePath));
+      let localFilePath: string;
+      try {
+        localFilePath = await resolveSafeLocalFile(
+          track.driveFile.library.localFolderPath,
+          track.driveFile.localFilePath,
+        );
+      } catch {
+        // OpenSubtitles downloads are deliberately kept in the application
+        // cache rather than beside a user library. They still need a fixed
+        // root check because their path is persisted in the database.
+        try {
+          localFilePath = await resolveSafePathWithinRoot(
+            CACHE_DIR,
+            track.driveFile.localFilePath,
+          );
+        } catch {
+          throw new Error('SUBTITLE_NOT_FOUND');
+        }
+      }
+      rawContent = decodeSubtitleBytes(await fs.readFile(localFilePath));
     } else {
       const { accessToken } = await this.driveAccessService.getAccess(userId, track.driveFile);
       rawContent = await this.driveService.getFileTextContent(

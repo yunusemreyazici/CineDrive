@@ -10,6 +10,13 @@ import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isDriveVideoFile } from './media-file-types.js';
+import { resolveMediaItemId } from './media-item-id.service.js';
+import {
+  MAX_SCAN_FILE_COUNT,
+  MAX_SCAN_FOLDER_COUNT,
+  SCAN_FILE_LIMIT_EXCEEDED,
+  SCAN_FOLDER_LIMIT_EXCEEDED,
+} from './scan-limits.js';
 
 // Each probe issues a handful of ranged Drive reads. Enough of them run at once
 // to hide the latency, few enough to stay well inside Google's per-user quota.
@@ -35,14 +42,6 @@ export class LibraryScanService {
     private scanLifecycle: ScanLifecycleService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
-  }
-
-  private generateMediaItemId(type: string, normalizedTitle: string): string {
-    const safeTitle = normalizedTitle
-      .replace(/[^a-z0-9]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    return `media_${type}_${safeTitle}`;
   }
 
   public isScanning(libraryId: string): boolean {
@@ -228,6 +227,7 @@ export class LibraryScanService {
     const startTime = Date.now();
     let addedCount = 0;
     let updatedCount = 0;
+    let deletedCount = 0;
     let errorCount = 0;
 
     try {
@@ -279,6 +279,7 @@ export class LibraryScanService {
         addedCount += result.added;
         updatedCount += result.updated;
         errorCount += result.errors;
+        deletedCount += result.deleted;
 
         if (target.sourceId) {
           const latestError = result.errors
@@ -296,7 +297,7 @@ export class LibraryScanService {
               lastScanDurationMs: Date.now() - targetStartedAt,
               lastScanAddedCount: result.added,
               lastScanUpdatedCount: result.updated,
-              lastScanDeletedCount: 0,
+              lastScanDeletedCount: result.deleted,
               lastScanErrorCount: result.errors,
               lastScanError: latestError?.errorMessage || null,
               lastScanInterruptionReason: null,
@@ -316,6 +317,7 @@ export class LibraryScanService {
           durationMs,
           addedCount,
           updatedCount,
+          deletedCount,
           errorCount,
           heartbeatAt: new Date(),
           interruptionReason: null,
@@ -377,14 +379,21 @@ export class LibraryScanService {
     scanId: string,
     rootFolderId: string,
     signal: AbortSignal,
-  ): Promise<{ added: number; updated: number; errors: number }> {
+  ): Promise<{ added: number; updated: number; deleted: number; errors: number }> {
     let added = 0;
     let updated = 0;
     let errors = 0;
+    let deleted = 0;
 
     // An empty root folder scans the whole account. Otherwise only the selected
     // folder and its descendants are included.
     const allFiles: DriveFileMetadata[] = [];
+    const appendFiles = (files: DriveFileMetadata[]) => {
+      if (allFiles.length + files.length > MAX_SCAN_FILE_COUNT) {
+        throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+      }
+      allFiles.push(...files);
+    };
     const tmdbApiKey = (
       await this.prisma.user.findUnique({
         where: { id: userId },
@@ -394,14 +403,14 @@ export class LibraryScanService {
 
     try {
       if (rootFolderId.trim()) {
-        allFiles.push(
-          ...(await this.listFolderTree(
+        appendFiles(
+          await this.listFolderTree(
             userId,
             googleConnectionId,
             rootFolderId.trim(),
             scanId,
             signal,
-          )),
+          ),
         );
       } else {
         let pageToken: string | undefined;
@@ -412,7 +421,7 @@ export class LibraryScanService {
             googleConnectionId,
             (accessToken) => this.driveService.listAccountFiles(accessToken, pageToken, signal),
           );
-          allFiles.push(...page.files);
+          appendFiles(page.files);
           pageToken = page.nextPageToken;
           await this.scanLifecycle.heartbeat(scanId);
         } while (pageToken);
@@ -438,7 +447,7 @@ export class LibraryScanService {
           errorMessage: `Google Drive account file listing failed: ${err instanceof Error ? err.message : String(err)}`,
         },
       });
-      return { added, updated, errors };
+      return { added, updated, deleted, errors };
     }
 
     // 2. Separate into videos, images, subtitles, metadata
@@ -513,7 +522,12 @@ export class LibraryScanService {
         const normalizedTitle = title.toLowerCase();
         const year = parsedName.year;
         const type = parsedName.type;
-        const mediaItemId = this.generateMediaItemId(type, normalizedTitle);
+        const mediaItemId = await resolveMediaItemId(
+          this.prisma,
+          type,
+          normalizedTitle,
+          libraryId,
+        );
         const existingMediaItem = await this.prisma.mediaItem.findUnique({
           where: { id: mediaItemId },
         });
@@ -883,7 +897,33 @@ export class LibraryScanService {
     });
     signal.throwIfAborted();
 
-    return { added, updated, errors };
+    const seenGoogleFileIds = new Set(allFiles.map((file) => file.id));
+    const existingFiles = await this.prisma.driveFile.findMany({
+      where: {
+        libraryId,
+        storageType: 'gdrive',
+        googleConnectionId,
+        driveScanSourceId,
+        status: 'active',
+        googleDriveFileId: { not: null },
+      },
+      select: { id: true, googleDriveFileId: true },
+    });
+    const missingFileIds = existingFiles
+      .filter(
+        (file) =>
+          !!file.googleDriveFileId && !seenGoogleFileIds.has(file.googleDriveFileId),
+      )
+      .map((file) => file.id);
+    if (missingFileIds.length > 0) {
+      const result = await this.prisma.driveFile.updateMany({
+        where: { id: { in: missingFileIds }, status: 'active' },
+        data: { status: 'missing' },
+      });
+      deleted = result.count;
+    }
+
+    return { added, updated, deleted, errors };
   }
 
   private async listFolderTree(
@@ -896,6 +936,7 @@ export class LibraryScanService {
     const files: DriveFileMetadata[] = [];
     const pendingFolderIds = [rootFolderId];
     const visitedFolderIds = new Set<string>();
+    const discoveredFolderIds = new Set<string>([rootFolderId]);
 
     while (pendingFolderIds.length > 0) {
       signal.throwIfAborted();
@@ -914,8 +955,17 @@ export class LibraryScanService {
 
         for (const file of page.files) {
           if (file.mimeType === 'application/vnd.google-apps.folder') {
-            pendingFolderIds.push(file.id);
+            if (!discoveredFolderIds.has(file.id)) {
+              if (discoveredFolderIds.size >= MAX_SCAN_FOLDER_COUNT) {
+                throw new Error(SCAN_FOLDER_LIMIT_EXCEEDED);
+              }
+              discoveredFolderIds.add(file.id);
+              pendingFolderIds.push(file.id);
+            }
           } else {
+            if (files.length >= MAX_SCAN_FILE_COUNT) {
+              throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+            }
             files.push(file);
           }
         }

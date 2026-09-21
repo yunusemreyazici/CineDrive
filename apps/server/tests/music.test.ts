@@ -203,7 +203,7 @@ describe('Music library', () => {
       credits: [{ name: 'Fixture Composer', role: 'composer', source: 'tag' }],
       source: {
         fileName: '01 - Test Song.mp3',
-        localPath: fixturePath,
+        localPath: null,
       },
     });
   });
@@ -488,7 +488,7 @@ describe('Music library', () => {
     expect(response.headers['accept-ranges']).toBe('none');
     expect(response.body).toBe('aac');
     expect(transcode).toHaveBeenCalledWith(
-      fixturePath,
+      fs.realpathSync(fixturePath),
       expect.objectContaining({ audioOnly: true, realtime: false }),
     );
     expect(kill).toHaveBeenCalled();
@@ -1645,7 +1645,7 @@ describe('Music library', () => {
     expect(response.headers['content-range']).toBeUndefined();
     expect(response.body).toBe('fragmented-aac');
     expect(transcode).toHaveBeenCalledWith(
-      fixturePath,
+      fs.realpathSync(fixturePath),
       expect.objectContaining({ audioOnly: true, startSeconds: 0 }),
     );
     expect(kill).toHaveBeenCalled();

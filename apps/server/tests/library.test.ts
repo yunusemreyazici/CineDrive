@@ -823,6 +823,27 @@ describe('Library API Integration Tests', () => {
       ]),
     );
 
+    await app.prisma.driveScanSource.update({
+      where: { id: secondSourceId },
+      data: {
+        lastScanStatus: 'failed',
+        lastScanError: '/private/secret/library-token: upstream SDK detail',
+      },
+    });
+    const listedWithError = await app.inject({
+      method: 'GET',
+      url: `/api/libraries/${library.id}/drive-sources`,
+      cookies,
+    });
+    expect(listedWithError.statusCode).toBe(200);
+    const erroredSource = JSON.parse(listedWithError.body).sources.find(
+      (source: { id: string }) => source.id === secondSourceId,
+    );
+    expect(erroredSource.lastScan.lastError).toBe(
+      'Tarama sırasında bir veya daha fazla dosya işlenemedi.',
+    );
+    expect(listedWithError.body).not.toContain('/private/secret/library-token');
+
     const scan = await app.prisma.libraryScan.create({
       data: {
         libraryId: library.id,
@@ -842,7 +863,11 @@ describe('Library API Integration Tests', () => {
           id: scan.id,
           sourceName: 'Folder Two',
           sourceType: 'drive',
-          errors: [expect.objectContaining({ errorMessage: 'Test scan warning' })],
+          errors: [
+            expect.objectContaining({
+              errorMessage: 'Tarama sırasında bir veya daha fazla dosya işlenemedi.',
+            }),
+          ],
         }),
       ]),
     );

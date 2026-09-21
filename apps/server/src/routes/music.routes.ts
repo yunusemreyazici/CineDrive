@@ -40,6 +40,7 @@ import {
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
+import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
   formatMusicArtist,
@@ -3306,7 +3307,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/sidecar', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
       where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
-      include: { lyrics: true, driveFile: { select: { localFilePath: true } } },
+      include: {
+        lyrics: true,
+        driveFile: { select: { localFilePath: true, library: { select: { localFolderPath: true } } } },
+      },
     });
     if (!track?.lyrics)
       return reply.status(404).send({
@@ -3324,10 +3328,27 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const parsedPath = path.parse(track.driveFile.localFilePath);
+    let safeLocalFilePath: string;
+    try {
+      safeLocalFilePath = await resolveSafeLocalFile(
+        track.driveFile.library.localFolderPath,
+        track.driveFile.localFilePath,
+      );
+    } catch {
+      return reply.status(404).send({
+        error: {
+          code: 'LOCAL_FILE_NOT_FOUND',
+          message: 'Yerel dosya diskte bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+    const parsedPath = path.parse(safeLocalFilePath);
     const lrcPath = path.join(parsedPath.dir, `${parsedPath.name}.lrc`);
     await fs.promises.writeFile(lrcPath, track.lyrics.content, 'utf8');
-    return { path: lrcPath };
+    // Keep the response field for existing clients, but never disclose the
+    // server's absolute filesystem layout.
+    return { path: path.basename(lrcPath) };
   });
 
   fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
@@ -3427,6 +3448,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
     const file = track.driveFile;
+    let safeLocalFilePath: string | undefined;
+    if (file.storageType === 'local' && file.localFilePath) {
+      try {
+        safeLocalFilePath = await resolveSafeLocalFile(
+          file.library.localFolderPath,
+          file.localFilePath,
+        );
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Ses dosyası diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
     const extension = path.extname(file.name);
     const downloadName =
       format === 'aac'
@@ -3451,8 +3489,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('Content-Type', 'audio/mp4').header('Accept-Ranges', 'none');
       if (head) return reply.send();
       const source =
-        file.storageType === 'local' && file.localFilePath
-          ? { input: file.localFilePath, inputOptions: [] as string[] }
+        safeLocalFilePath
+          ? { input: safeLocalFilePath, inputOptions: [] as string[] }
           : (() => {
               const remote = driveSourceInput(fastify, file, userId);
               return { input: remote.url, inputOptions: remote.inputOptions };
@@ -3500,16 +3538,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    if (file.storageType === 'local' && file.localFilePath) {
-      if (!fs.existsSync(file.localFilePath))
-        return reply.status(404).send({
-          error: {
-            code: 'LOCAL_FILE_NOT_FOUND',
-            message: 'Ses dosyası diskte bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      const stat = fs.statSync(file.localFilePath);
+    if (safeLocalFilePath) {
+      const stat = fs.statSync(safeLocalFilePath);
       const localResolution = resolveRangeRequest(range, stat.size);
       if (
         localResolution.kind === 'invalid' ||
@@ -3529,7 +3559,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       return head
         ? reply.send()
-        : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
+        : reply.send(fs.createReadStream(safeLocalFilePath, { start, end }));
     }
 
     if (head) {
@@ -3633,6 +3663,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     const file = track.driveFile;
+    let safeLocalFilePath: string | undefined;
+    if (file.storageType === 'local' && file.localFilePath) {
+      try {
+        safeLocalFilePath = await resolveSafeLocalFile(
+          file.library.localFolderPath,
+          file.localFilePath,
+        );
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Ses dosyası diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
     const range = request.headers.range;
     const size = file.size === null ? null : Number(file.size);
     const resolution = resolveRangeRequest(range, size);
@@ -3668,8 +3715,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           .header('Cache-Control', 'no-store')
           .send();
       const source =
-        file.storageType === 'local' && file.localFilePath
-          ? { input: file.localFilePath, inputOptions: [] as string[] }
+        safeLocalFilePath
+          ? { input: safeLocalFilePath, inputOptions: [] as string[] }
           : (() => {
               const remote = driveSourceInput(fastify, file, userId);
               return { input: remote.url, inputOptions: remote.inputOptions };
@@ -3706,16 +3753,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         throw error;
       }
     }
-    if (file.storageType === 'local' && file.localFilePath) {
-      if (!fs.existsSync(file.localFilePath))
-        return reply.status(404).send({
-          error: {
-            code: 'LOCAL_FILE_NOT_FOUND',
-            message: 'Ses dosyası diskte bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      const stat = fs.statSync(file.localFilePath);
+    if (safeLocalFilePath) {
+      const stat = fs.statSync(safeLocalFilePath);
       const localResolution = resolveRangeRequest(range, stat.size);
       if (
         localResolution.kind === 'invalid' ||
@@ -3735,7 +3774,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       return head
         ? reply.send()
-        : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
+        : reply.send(fs.createReadStream(safeLocalFilePath, { start, end }));
     }
     if (head) {
       reply

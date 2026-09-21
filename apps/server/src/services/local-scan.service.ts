@@ -9,6 +9,14 @@ import { isAudioFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isVideoFilename } from './media-file-types.js';
+import { isPathWithinRoot, resolveLocalFolder } from './local-folder-validation.js';
+import { resolveMediaItemId } from './media-item-id.service.js';
+import {
+  MAX_SCAN_FILE_COUNT,
+  MAX_SCAN_FOLDER_COUNT,
+  SCAN_FILE_LIMIT_EXCEEDED,
+  SCAN_FOLDER_LIMIT_EXCEEDED,
+} from './scan-limits.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
@@ -45,6 +53,15 @@ export class LocalScanService {
       throw new Error('Yerel kütüphane bulunamadı veya geçerli bir yerel klasör yolu yok.');
     }
 
+    let resolvedFolder: string;
+    try {
+      // Re-resolve on every scan. A directory can be replaced with a symlink
+      // after creation, so trusting the stored path would re-open traversal.
+      resolvedFolder = await resolveLocalFolder(library.localFolderPath);
+    } catch {
+      throw new Error('LOCAL_FOLDER_UNAVAILABLE');
+    }
+
     this.activeScans.add(libraryId);
 
     const scan = await this.prisma.libraryScan.create({
@@ -59,7 +76,7 @@ export class LocalScanService {
       this.activeScans.delete(libraryId);
     });
 
-    void this.executeLocalScan(libraryId, library.userId, library.localFolderPath, scan.id, signal)
+    void this.executeLocalScan(libraryId, library.userId, resolvedFolder, scan.id, signal)
       .catch(() => {
         // Failures are already recorded on the scan row for the UI to read.
       })
@@ -98,7 +115,12 @@ export class LocalScanService {
           select: { tmdbApiKey: true },
         })
       )?.tmdbApiKey;
-      const allFiles = await this.readdirRecursive(library.localFolderPath, scanId, signal);
+      const allFiles = await this.readdirRecursive(
+        library.localFolderPath,
+        library.localFolderPath,
+        scanId,
+        signal,
+      );
 
       const subtitleExtensions = ['.srt', '.vtt'];
 
@@ -152,6 +174,7 @@ export class LocalScanService {
           const driveFile = await this.prisma.driveFile.upsert({
             where: { localFilePath: file.fullPath },
             update: {
+              libraryId,
               name: file.name,
               size: BigInt(stat.size),
               modifiedTime: stat.mtime,
@@ -180,11 +203,7 @@ export class LocalScanService {
           const type = parsedName.type; // 'movie' | 'series'
           const seasonNumber = parsedName.seasonNumber || 1;
           const episodeNumber = parsedName.episodeNumber || 1;
-          const safeTitle = normalizedTitle
-            .replace(/[^a-z0-9]/g, '_')
-            .replace(/_+/g, '_')
-            .replace(/^_+|_+$/g, '');
-          const mediaItemId = `media_${type}_${safeTitle}`;
+          const mediaItemId = await resolveMediaItemId(this.prisma, type, normalizedTitle, libraryId);
           const existingMediaItem = await this.prisma.mediaItem.findUnique({
             where: { id: mediaItemId },
           });
@@ -492,7 +511,13 @@ export class LocalScanService {
             // Upsert subtitle file as its own DriveFile
             const subDriveFile = await this.prisma.driveFile.upsert({
               where: { localFilePath: subFile.fullPath },
-              update: { name: subFile.name },
+              update: {
+                libraryId,
+                storageType: 'local',
+                name: subFile.name,
+                mimeType: subFile.name.endsWith('.vtt') ? 'text/vtt' : 'application/x-subrip',
+                status: 'active',
+              },
               create: {
                 libraryId,
                 storageType: 'local',
@@ -523,7 +548,56 @@ export class LocalScanService {
         }
       }
 
-      // Mark scan completed
+      const seenPaths = new Set(allFiles.map((file) => file.fullPath));
+      const existingLocalFiles = await this.prisma.driveFile.findMany({
+        where: {
+          libraryId,
+          storageType: 'local',
+          status: 'active',
+          localFilePath: { not: null },
+        },
+        select: { id: true, localFilePath: true },
+      });
+      const missingFileIds: string[] = [];
+      for (const file of existingLocalFiles) {
+        if (!file.localFilePath) continue;
+
+        // Older rows may contain a symlink spelling such as /var/... while
+        // the current scan root is /private/var/... on macOS. Resolve the
+        // existing path when possible, and resolve its parent when the file
+        // itself has disappeared, so reconciliation remains compatible with
+        // those historical rows without trusting a symlink target outside the
+        // configured root.
+        let comparablePath = file.localFilePath;
+        try {
+          comparablePath = await fs.realpath(file.localFilePath);
+        } catch {
+          try {
+            comparablePath = path.join(
+              await fs.realpath(path.dirname(file.localFilePath)),
+              path.basename(file.localFilePath),
+            );
+          } catch {
+            comparablePath = path.resolve(file.localFilePath);
+          }
+        }
+
+        if (
+          isPathWithinRoot(library.localFolderPath, comparablePath) &&
+          !seenPaths.has(comparablePath)
+        ) {
+          missingFileIds.push(file.id);
+        }
+      }
+      if (missingFileIds.length > 0) {
+        await this.prisma.driveFile.updateMany({
+          where: { id: { in: missingFileIds }, status: 'active' },
+          data: { status: 'missing' },
+        });
+      }
+
+      // Mark scan completed only after reconciliation succeeds. An interrupted
+      // or failed walk must never make unseen files look deleted.
       const errorCount = await this.prisma.libraryScanError.count({ where: { scanId: scan.id } });
       signal.throwIfAborted();
       await this.prisma.libraryScan.updateMany({
@@ -532,6 +606,7 @@ export class LocalScanService {
           status: 'completed',
           addedCount,
           updatedCount,
+          deletedCount: missingFileIds.length,
           errorCount,
           durationMs: Date.now() - startedAt,
           completedAt: new Date(),
@@ -590,10 +665,18 @@ export class LocalScanService {
 
   private async readdirRecursive(
     dir: string,
+    root: string,
     scanId: string,
     signal: AbortSignal,
+    visitedDirectories = new Set<string>(),
   ): Promise<Array<{ name: string; fullPath: string }>> {
     const results: Array<{ name: string; fullPath: string }> = [];
+
+    if (visitedDirectories.has(dir)) return results;
+    visitedDirectories.add(dir);
+    if (visitedDirectories.size > MAX_SCAN_FOLDER_COUNT) {
+      throw new Error(SCAN_FOLDER_LIMIT_EXCEEDED);
+    }
 
     try {
       signal.throwIfAborted();
@@ -610,18 +693,38 @@ export class LocalScanService {
             entry.name !== 'node_modules' &&
             entry.name !== '__pycache__'
           ) {
-            const subDirFiles = await this.readdirRecursive(fullPath, scanId, signal);
-            results.push(...subDirFiles);
+            const canonicalDirectory = await fs.realpath(fullPath);
+            if (isPathWithinRoot(root, canonicalDirectory)) {
+              const subDirFiles = await this.readdirRecursive(
+                canonicalDirectory,
+                root,
+                scanId,
+                signal,
+                visitedDirectories,
+              );
+              if (results.length + subDirFiles.length > MAX_SCAN_FILE_COUNT) {
+                throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+              }
+              results.push(...subDirFiles);
+            }
           }
         } else if (entry.isFile()) {
           if (!entry.name.startsWith('.')) {
-            results.push({ name: entry.name, fullPath });
+            const canonicalFile = await fs.realpath(fullPath);
+            if (isPathWithinRoot(root, canonicalFile)) {
+              if (results.length >= MAX_SCAN_FILE_COUNT) {
+                throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+              }
+              results.push({ name: entry.name, fullPath: canonicalFile });
+            }
           }
         }
       }
     } catch (error) {
-      if (signal.aborted) throw error;
-      // Ignore unreadable subdirectories
+      // A partial walk cannot distinguish an unreadable directory from a
+      // directory whose files were removed concurrently. Fail the scan so
+      // reconciliation never marks unseen rows as missing on incomplete input.
+      throw error;
     }
 
     return results;

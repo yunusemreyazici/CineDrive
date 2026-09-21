@@ -10,6 +10,7 @@ interface CachedAccessToken {
 }
 
 const STATE_EXPIRATION_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_CLOCK_SKEW_MS = 60 * 1000;
 const REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 minutes before expiration
 
 export const GOOGLE_DRIVE_SCOPES = [
@@ -59,11 +60,12 @@ export class GoogleOAuthService {
         flow?: 'web' | 'native';
       };
 
-      if (!parsed.userId || !parsed.timestamp) {
+      if (!parsed.userId || !Number.isFinite(parsed.timestamp)) {
         throw new Error('INVALID_STATE');
       }
 
-      if (Date.now() - parsed.timestamp > STATE_EXPIRATION_MS) {
+      const stateAge = Date.now() - parsed.timestamp;
+      if (stateAge > STATE_EXPIRATION_MS || stateAge < -STATE_CLOCK_SKEW_MS) {
         throw new Error('STATE_EXPIRED');
       }
 
@@ -263,13 +265,9 @@ export class GoogleOAuthService {
   }
 
   private async performTokenRefresh(userId: string, connectionId?: string): Promise<string> {
-    let connection = connectionId
+    const connection = connectionId
       ? await this.prisma.googleConnection.findFirst({ where: { id: connectionId, userId } })
-      : null;
-
-    if (!connection) {
-      connection = await this.prisma.googleConnection.findFirst({ where: { userId } });
-    }
+      : await this.prisma.googleConnection.findFirst({ where: { userId } });
 
     if (!connection) {
       throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');

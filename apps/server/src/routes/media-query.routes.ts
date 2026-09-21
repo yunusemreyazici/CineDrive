@@ -57,6 +57,46 @@ const technicalMetadataSelect = {
   mediaAnalysisError: true,
 } satisfies Prisma.DriveFileSelect;
 
+const safeSubtitleDriveFileSelect = {
+  id: true,
+  googleDriveFileId: true,
+} satisfies Prisma.DriveFileSelect;
+
+const safeSubtitleSelect = {
+  id: true,
+  language: true,
+  label: true,
+  isForced: true,
+  isHearingImpaired: true,
+  isDefault: true,
+  sourceFormat: true,
+  mediaItemId: true,
+  episodeId: true,
+  driveFileId: true,
+  driveFile: { select: safeSubtitleDriveFileSelect },
+} satisfies Prisma.SubtitleTrackSelect;
+
+const subtitleUrl = (driveFile: { id: string; googleDriveFileId: string | null }) =>
+  `/api/media/${driveFile.googleDriveFileId || driveFile.id}/subtitle`;
+
+const safeSubtitleWithUrl = (subtitle: {
+  id: string;
+  language: string;
+  label: string | null;
+  isForced: boolean;
+  isHearingImpaired: boolean;
+  isDefault: boolean;
+  driveFile: { id: string; googleDriveFileId: string | null };
+}) => ({
+  id: subtitle.id,
+  languageCode: subtitle.language,
+  languageLabel: subtitle.label || subtitle.language.toUpperCase(),
+  forced: subtitle.isForced,
+  hearingImpaired: subtitle.isHearingImpaired,
+  isDefault: subtitle.isDefault,
+  url: subtitleUrl(subtitle.driveFile),
+});
+
 export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
@@ -265,7 +305,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                   include: {
                     driveFile: { select: technicalMetadataSelect },
                     subtitles: {
-                      include: { driveFile: true },
+                      select: safeSubtitleSelect,
                     },
                     playbackProgresses: {
                       where: { userId },
@@ -277,7 +317,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         subtitles: {
-          include: { driveFile: true },
+          select: safeSubtitleSelect,
         },
         playbackProgresses: {
           where: { userId },
@@ -298,15 +338,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const formattedSubtitles = item.subtitles.map((sub) => ({
-      id: sub.id,
-      languageCode: sub.language,
-      languageLabel: sub.label || sub.language.toUpperCase(),
-      forced: sub.isForced,
-      hearingImpaired: sub.isHearingImpaired,
-      isDefault: sub.isDefault,
-      url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-    }));
+    const formattedSubtitles = item.subtitles.map(safeSubtitleWithUrl);
 
     const formattedSeries = item.series
       ? {
@@ -319,15 +351,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                 ...episode,
                 technicalMetadata: driveFile,
                 playbackPlan: buildPlaybackPlan(driveFile),
-                subtitles: ep.subtitles.map((sub) => ({
-                  id: sub.id,
-                  languageCode: sub.language,
-                  languageLabel: sub.label || sub.language.toUpperCase(),
-                  forced: sub.isForced,
-                  hearingImpaired: sub.isHearingImpaired,
-                  isDefault: sub.isDefault,
-                  url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-                })),
+                subtitles: ep.subtitles.map(safeSubtitleWithUrl),
               };
             }),
           })),
@@ -373,7 +397,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           orderBy: { episodeNumber: 'asc' },
           include: {
             subtitles: {
-              include: { driveFile: true },
+              select: safeSubtitleSelect,
             },
           },
         },
@@ -394,22 +418,14 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { episodeNumber: 'asc' },
       include: {
         subtitles: {
-          include: { driveFile: true },
+          select: safeSubtitleSelect,
         },
       },
     });
 
     const formattedEpisodes = episodes.map((ep) => ({
       ...ep,
-      subtitles: ep.subtitles.map((sub) => ({
-        id: sub.id,
-        languageCode: sub.language,
-        languageLabel: sub.label || sub.language.toUpperCase(),
-        forced: sub.isForced,
-        hearingImpaired: sub.isHearingImpaired,
-        isDefault: sub.isDefault,
-        url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-      })),
+      subtitles: ep.subtitles.map(safeSubtitleWithUrl),
     }));
 
     return reply.status(200).send({ episodes: formattedEpisodes });

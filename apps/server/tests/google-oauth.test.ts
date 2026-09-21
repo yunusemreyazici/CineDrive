@@ -99,6 +99,20 @@ describe('GoogleOAuthService Unit Tests', () => {
     });
   });
 
+  it('rejects OAuth state tokens issued too far in the future', () => {
+    const current = new Date('2026-09-21T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(current.getTime() + 2 * 60 * 1000));
+    const stateToken = googleService.generateStateToken('future-user');
+    vi.setSystemTime(current);
+
+    try {
+      expect(() => googleService.verifyStateToken(stateToken)).toThrow('INVALID_STATE_TOKEN');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('should throw error for invalid state token', () => {
     expect(() => googleService.verifyStateToken('invalid-token-format')).toThrow(
       'INVALID_STATE_TOKEN',
@@ -189,6 +203,18 @@ describe('GoogleOAuthService Unit Tests', () => {
     );
     expect(operation).toHaveBeenNthCalledWith(1, 'expired-during-scan');
     expect(operation).toHaveBeenNthCalledWith(2, 'new-refreshed-access-token');
+    expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not silently use another Google connection for a requested connection id', async () => {
+    mockPrisma.googleConnection.findFirst.mockResolvedValue(null);
+
+    await expect(googleService.getValidAccessToken('user-uuid-123', 'missing-connection')).rejects.toThrow(
+      'GOOGLE_ACCOUNT_NOT_CONNECTED',
+    );
+    expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledWith({
+      where: { id: 'missing-connection', userId: 'user-uuid-123' },
+    });
     expect(mockPrisma.googleConnection.findFirst).toHaveBeenCalledTimes(1);
   });
 

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { driveSourceInput, resolveActiveDriveFile } from './shared.js';
+import { resolveSafeLocalFile } from '../../services/local-folder-validation.js';
 
 /** Scrub-bar thumbnails. */
 export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
@@ -32,6 +33,24 @@ export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    let localFilePath: string | null = null;
+    if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+      try {
+        localFilePath = await resolveSafeLocalFile(
+          driveFile.library.localFolderPath,
+          driveFile.localFilePath,
+        );
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Yerel dosya diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
+
     let remoteInput: ReturnType<typeof driveSourceInput> | undefined;
     if (driveFile.storageType !== 'local') {
       try {
@@ -54,7 +73,7 @@ export const mediaPreviewRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const frame = await fastify.previewService.getFrame({
         driveFileId: driveFile.id,
-        localFilePath: driveFile.localFilePath,
+        localFilePath,
         googleDriveFileId: driveFile.googleDriveFileId,
         modifiedTime: driveFile.modifiedTime,
         md5Checksum: driveFile.md5Checksum,

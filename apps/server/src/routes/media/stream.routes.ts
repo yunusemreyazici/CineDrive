@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { TranscodeQuality } from '../../services/transcode.service.js';
+import { resolveSafeLocalFile } from '../../services/local-folder-validation.js';
 import { resolveRangeRequest } from '../../utils/http-range.js';
 import { ownedLibraryFilter } from '../../utils/library-access.js';
 import { driveSourceInput, parseHlsSession } from './shared.js';
@@ -141,6 +142,25 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    let safeLocalFilePath: string | undefined;
+    if (driveFile.storageType === 'local' && driveFile.localFilePath) {
+      try {
+        safeLocalFilePath = await resolveSafeLocalFile(
+          driveFile.library.localFolderPath,
+          driveFile.localFilePath,
+        );
+      } catch {
+        cleanupListeners();
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Yerel dosya diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
+
     const transcodeMode = (request.query as Record<string, string>)?.transcode;
     const requestedQuality = (request.query as Record<string, string>)?.quality;
     const requestedStart = (request.query as Record<string, string>)?.start;
@@ -203,18 +223,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
     const shouldTranscodeVideo = transcodeMode === 'full' || startSeconds > 0;
 
     // 5. Handle Local File Streaming (Direct Disk Stream)
-    if (driveFile.storageType === 'local' && driveFile.localFilePath) {
-      if (!fs.existsSync(driveFile.localFilePath)) {
-        cleanupListeners();
-        return reply.status(404).send({
-          error: {
-            code: 'LOCAL_FILE_NOT_FOUND',
-            message: 'Yerel dosya diskte bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      }
-
+    if (safeLocalFilePath) {
       if (isTranscode) {
         reply.header('Content-Type', 'video/mp4');
         reply.header('X-Transcode-Quality', transcodeQuality);
@@ -233,7 +242,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
         const { stream: transcodedStream, kill } = fastify.transcodeService.createTranscodedStream(
           // A local MP4 must remain seekable. Feeding it through a ReadStream
           // turns it into a pipe, and FFmpeg cannot revisit MP4 sample offsets.
-          driveFile.localFilePath,
+          safeLocalFilePath,
           {
             transcodeVideo: shouldTranscodeVideo,
             quality: transcodeQuality,
@@ -247,7 +256,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.send(transcodedStream);
       }
 
-      const stat = fs.statSync(driveFile.localFilePath);
+      const stat = fs.statSync(safeLocalFilePath);
       const fileSize = stat.size;
       const resolution = resolveRangeRequest(rangeHeader, fileSize);
 
@@ -289,7 +298,7 @@ export const mediaStreamRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.send();
       }
 
-      const fileStream = fs.createReadStream(driveFile.localFilePath, { start, end });
+      const fileStream = fs.createReadStream(safeLocalFilePath, { start, end });
       return reply.send(fileStream);
     }
 

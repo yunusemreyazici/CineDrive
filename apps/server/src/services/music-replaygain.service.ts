@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { PrismaClient } from '@cinedrive/prisma';
 import ffmpegPath from 'ffmpeg-static';
+import { resolveSafeLocalFile } from './local-folder-validation.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -16,7 +17,15 @@ export class MusicReplayGainService {
     const binaryPath = ffmpegPath;
     const tracks = await this.prisma.musicTrack.findMany({
       where: { id: { in: trackIds }, library: { userId } },
-      select: { id: true, driveFile: { select: { localFilePath: true } } },
+      select: {
+        id: true,
+        driveFile: {
+          select: {
+            localFilePath: true,
+            library: { select: { localFolderPath: true } },
+          },
+        },
+      },
     });
     const updated: string[] = [];
     const skipped: string[] = [];
@@ -27,13 +36,17 @@ export class MusicReplayGainService {
           return;
         }
         try {
+          const localFilePath = await resolveSafeLocalFile(
+            track.driveFile.library.localFolderPath,
+            track.driveFile.localFilePath,
+          );
           const { stderr } = await execFileAsync(
           binaryPath,
             [
               '-hide_banner',
               '-nostdin',
               '-i',
-              track.driveFile.localFilePath,
+              localFilePath,
               '-af',
               'volumedetect',
               '-f',
