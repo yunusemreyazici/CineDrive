@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD } from './env.js';
@@ -10,6 +10,7 @@ test('optional setup validates a folder, saves once, scans and resumes after rel
   page,
 }) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'cinedrive-e2e-setup-'));
+  const canonicalDirectory = await realpath(directory);
   let libraryId: string | null = null;
   try {
     await page.goto('/login');
@@ -50,7 +51,7 @@ test('optional setup validates a folder, saves once, scans and resumes after rel
     const { libraries } = await response.json();
     expect(
       libraries.filter(
-        (library: { localFolderPath: string }) => library.localFolderPath === directory,
+        (library: { localFolderPath: string }) => library.localFolderPath === canonicalDirectory,
       ),
     ).toHaveLength(1);
   } finally {
