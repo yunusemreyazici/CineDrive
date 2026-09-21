@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import type { PrismaClient } from '@cinedrive/prisma';
 
 export type ScanInterruptionReason =
@@ -25,6 +26,7 @@ interface ActiveScan {
   onHeartbeat?: () => Promise<boolean>;
   lastHeartbeatAt: number;
   lastPersistedHeartbeatAt: number;
+  heartbeatRefresh?: Promise<boolean>;
 }
 
 const HEARTBEAT_PERSIST_INTERVAL_MS = 5_000;
@@ -57,7 +59,9 @@ export class ScanLifecycleService {
       onInterrupted,
       onHeartbeat,
       lastHeartbeatAt: now,
-      lastPersistedHeartbeatAt: now,
+      // Make the first non-forced heartbeat perform a real lease check while
+      // keeping subsequent item-level calls cheap.
+      lastPersistedHeartbeatAt: performance.now() - HEARTBEAT_PERSIST_INTERVAL_MS,
     });
     return controller.signal;
   }
@@ -82,8 +86,21 @@ export class ScanLifecycleService {
     }
     const now = Date.now();
     active.lastHeartbeatAt = now;
-    if (active.onHeartbeat) {
-      const owned = await active.onHeartbeat().catch(() => false);
+    const monotonicNow = performance.now();
+    if (
+      !force &&
+      monotonicNow - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS
+    ) {
+      // The signal check above is intentionally the hot path for every item.
+      // Lease extension and the LibraryScan status write happen periodically.
+      return;
+    }
+
+    const refresh =
+      active.heartbeatRefresh || this.refreshHeartbeat(scanId, active, now, monotonicNow);
+    active.heartbeatRefresh = refresh;
+    try {
+      const owned = await refresh;
       if (!owned) {
         const interruption = new ScanInterruptedError('library_operation_lost');
         await this.interruptScan(scanId, 'library_operation_lost', interruption).catch(() => {
@@ -93,16 +110,30 @@ export class ScanLifecycleService {
         });
         throw interruption;
       }
+    } finally {
+      if (active.heartbeatRefresh === refresh) active.heartbeatRefresh = undefined;
     }
-    if (force || now - active.lastPersistedHeartbeatAt >= HEARTBEAT_PERSIST_INTERVAL_MS) {
-      active.lastPersistedHeartbeatAt = now;
-      await this.prisma.libraryScan
-        .updateMany({
-          where: { id: scanId, status: 'running' },
-          data: { heartbeatAt: new Date(now) },
-        })
-        .catch(() => {});
-    }
+  }
+
+  private async refreshHeartbeat(
+    scanId: string,
+    active: ActiveScan,
+    now: number,
+    monotonicNow: number,
+  ): Promise<boolean> {
+    const owned = active.onHeartbeat ? await active.onHeartbeat().catch(() => false) : true;
+    if (!owned) return false;
+
+    // Record the timestamp only after the lease refresh succeeded. The
+    // monotonic clock is immune to wall-clock adjustments on the host.
+    active.lastPersistedHeartbeatAt = Math.max(monotonicNow, performance.now());
+    await this.prisma.libraryScan
+      .updateMany({
+        where: { id: scanId, status: 'running' },
+        data: { heartbeatAt: new Date(now) },
+      })
+      .catch(() => {});
+    return true;
   }
 
   public finish(scanId: string): void {

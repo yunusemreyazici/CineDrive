@@ -30,7 +30,6 @@ export class PlaybackService {
         ? data.clientInstanceId
         : null;
     const clientSequence = Number.isSafeInteger(data.clientSequence) ? data.clientSequence : null;
-    const serverRevision = Number.isSafeInteger(data.serverRevision) ? data.serverRevision : null;
     const hasClientOrdering = clientInstanceId !== null && clientSequence !== null;
     let positionSeconds = data.positionSeconds;
     let durationSeconds = data.durationSeconds;
@@ -133,16 +132,17 @@ export class PlaybackService {
 
         // Client wall-clock timestamps are deliberately ignored. A device can
         // be minutes ahead/behind the server, and Date.now() cannot establish
-        // ordering across requests. The persisted server revision and the
-        // optional per-client sequence are both checked in the same atomic
-        // UPDATE so concurrent requests cannot overwrite a newer save.
-        if (serverRevision !== null && serverRevision! < existing.serverRevision) {
-          progress = await tx.playbackProgress.findUniqueOrThrow({
-            where: { id: existing.id },
-            include: { mediaItem: true, episode: true },
-          });
-          return progress;
-        } else if (
+        // ordering across requests.
+        //
+        // `serverRevision` is server-owned response metadata, not an incoming
+        // optimistic-concurrency token. A client may have a stale snapshot
+        // while still sending a newer event from its own sequence. Treating
+        // the two fields as one gate silently drops that valid event.
+        //
+        // `clientSequence` orders events only within the identified client
+        // stream. Different clients are serialized by the SQLite transaction
+        // and the last committed update receives the next server revision.
+        if (
           hasClientOrdering &&
           existing.clientInstanceId === clientInstanceId &&
           existing.clientSequence !== null &&
@@ -154,10 +154,7 @@ export class PlaybackService {
           });
           return progress;
         } else {
-          const updateWhere: Prisma.PlaybackProgressWhereInput = {
-            id: existing.id,
-            serverRevision: existing.serverRevision,
-          };
+          const updateWhere: Prisma.PlaybackProgressWhereInput = { id: existing.id };
           if (hasClientOrdering) {
             updateWhere.OR = [
               { clientInstanceId: { not: clientInstanceId } },

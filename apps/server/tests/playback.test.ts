@@ -431,6 +431,263 @@ describe('Playback & History API Integration Tests', () => {
     expect(await app.prisma.playbackProgress.count({ where: { episodeId: episode.id } })).toBe(1);
   });
 
+  it('does not drop a newer client sequence when its server revision snapshot is stale', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+    const common = {
+      mediaItemId: 'media_test_pb_1',
+      durationSeconds: 8100,
+    };
+
+    const first = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 100,
+        clientInstanceId: 'playback-client-a',
+        clientSequence: 1,
+      },
+    });
+    const firstRevision = first.json().progress.serverRevision as number;
+
+    // A second client advances the server revision before client A's next
+    // request arrives. A's request still has a newer sequence for A, even
+    // though it carries the older revision snapshot from response 1.
+    await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 200,
+        clientInstanceId: 'playback-client-b',
+        clientSequence: 1,
+        serverRevision: firstRevision,
+      },
+    });
+
+    await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 300,
+        clientInstanceId: 'playback-client-a',
+        clientSequence: 2,
+        serverRevision: firstRevision,
+      },
+    });
+
+    await expect(
+      app.prisma.playbackProgress.findUnique({
+        where: {
+          userId_mediaItemId_trackingKey: {
+            userId: (await app.authService.ensureAdminUserExists()).id,
+            mediaItemId: 'media_test_pb_1',
+            trackingKey: '__media__',
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      positionSeconds: 300,
+      clientInstanceId: 'playback-client-a',
+      clientSequence: 2,
+    });
+  });
+
+  it('keeps sequence ordering when responses overlap, retry, pause, and unload', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+    const common = {
+      mediaItemId: 'media_test_pb_1',
+      durationSeconds: 8100,
+      clientInstanceId: 'playback-overlap-client',
+    };
+    const save = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: 'PUT',
+        url: '/api/playback/progress',
+        cookies: { session_id: sessionCookie!.value },
+        payload,
+      });
+
+    const first = await save({ ...common, positionSeconds: 100, clientSequence: 1 });
+    expect(first.statusCode).toBe(200);
+    const firstRevision = (JSON.parse(first.body) as { progress: { serverRevision: number } })
+      .progress.serverRevision;
+
+    // The higher sequence can commit before sequence 2's response arrives.
+    const [sequenceTwo, sequenceThree] = await Promise.all([
+      save({
+        ...common,
+        positionSeconds: 200,
+        clientSequence: 2,
+        serverRevision: firstRevision,
+      }),
+      save({
+        ...common,
+        positionSeconds: 300,
+        clientSequence: 3,
+        serverRevision: firstRevision,
+      }),
+    ]);
+    expect(sequenceTwo.statusCode).toBe(200);
+    expect(sequenceThree.statusCode).toBe(200);
+
+    const progressKey = {
+      userId_mediaItemId_trackingKey: {
+        userId: (await app.authService.ensureAdminUserExists()).id,
+        mediaItemId: 'media_test_pb_1',
+        trackingKey: '__media__',
+      },
+    };
+    const afterOverlap = await app.prisma.playbackProgress.findUnique({ where: progressKey });
+    expect(afterOverlap).toMatchObject({
+      positionSeconds: 300,
+      clientInstanceId: common.clientInstanceId,
+      clientSequence: 3,
+    });
+
+    // Retrying the same request is idempotent and must not consume a new
+    // server revision or rewrite history with duplicate state.
+    await save({
+      ...common,
+      positionSeconds: 300,
+      clientSequence: 3,
+      serverRevision: firstRevision,
+    });
+    const afterRetry = await app.prisma.playbackProgress.findUnique({ where: progressKey });
+    expect(afterRetry?.serverRevision).toBe(afterOverlap?.serverRevision);
+    expect(afterRetry?.positionSeconds).toBe(300);
+
+    // A genuinely old event must not move either progress or history back.
+    await save({
+      ...common,
+      positionSeconds: 200,
+      clientSequence: 2,
+      serverRevision: firstRevision,
+    });
+    const [afterStale, historyAfterStale] = await Promise.all([
+      app.prisma.playbackProgress.findUnique({ where: progressKey }),
+      app.prisma.watchHistory.findUnique({ where: progressKey }),
+    ]);
+    expect(afterStale).toMatchObject({ positionSeconds: 300, clientSequence: 3 });
+    expect(historyAfterStale).toMatchObject({ positionSeconds: 300 });
+
+    // Pause/unload uses the same monotonic event stream and is allowed to save
+    // a lower position when its sequence is newer.
+    await save({
+      ...common,
+      positionSeconds: 0,
+      clientSequence: 4,
+      serverRevision: firstRevision,
+    });
+    expect(await app.prisma.playbackProgress.findUnique({ where: progressKey })).toMatchObject({
+      positionSeconds: 0,
+      clientSequence: 4,
+    });
+
+    // Sequence state is scoped to the logical media/episode row, not shared
+    // globally across a client's catalogue.
+    const mediaChange = await save({
+      ...common,
+      mediaItemId: 'media_test_pb_2',
+      durationSeconds: 6960,
+      positionSeconds: 700,
+      clientSequence: 1,
+      serverRevision: 0,
+    });
+    expect(mediaChange.statusCode).toBe(200);
+    const episode = await app.prisma.episode.findFirstOrThrow({
+      where: { mediaItemId: 'media_test_pb_series' },
+    });
+    const episodeChange = await save({
+      ...common,
+      mediaItemId: 'media_test_pb_series',
+      episodeId: episode.id,
+      durationSeconds: 3600,
+      positionSeconds: 900,
+      clientSequence: 1,
+      serverRevision: 0,
+    });
+    expect(episodeChange.statusCode).toBe(200);
+    expect(
+      await app.prisma.playbackProgress.count({ where: { mediaItemId: 'media_test_pb_2' } }),
+    ).toBe(1);
+    expect(await app.prisma.playbackProgress.count({ where: { episodeId: episode.id } })).toBe(1);
+  });
+
+  it('serializes concurrent clients without using serverRevision as a write gate', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+    const save = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: 'PUT',
+        url: '/api/playback/progress',
+        cookies: { session_id: sessionCookie!.value },
+        payload,
+      });
+
+    const initial = await save({
+      mediaItemId: 'media_test_pb_1',
+      durationSeconds: 8100,
+      positionSeconds: 100,
+      clientInstanceId: 'playback-client-a',
+      clientSequence: 1,
+    });
+    const initialRevision = (JSON.parse(initial.body) as { progress: { serverRevision: number } })
+      .progress.serverRevision;
+
+    const [clientB, clientC] = await Promise.all([
+      save({
+        mediaItemId: 'media_test_pb_1',
+        durationSeconds: 8100,
+        positionSeconds: 200,
+        clientInstanceId: 'playback-client-b',
+        clientSequence: 1,
+        serverRevision: initialRevision,
+      }),
+      save({
+        mediaItemId: 'media_test_pb_1',
+        durationSeconds: 8100,
+        positionSeconds: 300,
+        clientInstanceId: 'playback-client-c',
+        clientSequence: 1,
+        serverRevision: initialRevision,
+      }),
+    ]);
+    expect(clientB.statusCode).toBe(200);
+    expect(clientC.statusCode).toBe(200);
+
+    const progress = await app.prisma.playbackProgress.findUnique({
+      where: {
+        userId_mediaItemId_trackingKey: {
+          userId: (await app.authService.ensureAdminUserExists()).id,
+          mediaItemId: 'media_test_pb_1',
+          trackingKey: '__media__',
+        },
+      },
+    });
+    expect(progress?.serverRevision).toBe(initialRevision + 2);
+    expect([200, 300]).toContain(progress?.positionSeconds);
+    expect(['playback-client-b', 'playback-client-c']).toContain(progress?.clientInstanceId);
+  });
+
   it('PUT /api/playback/progress with invalid episode ID should return 400', async () => {
     const loginRes = await app.inject({
       method: 'POST',

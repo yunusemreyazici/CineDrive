@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { performance } from 'node:perf_hooks';
 import type { PrismaClient } from '@cinedrive/prisma';
 import {
   ScanInterruptedError,
@@ -6,6 +7,64 @@ import {
 } from '../src/services/scan-lifecycle.service.js';
 
 describe('scan lifecycle lease loss', () => {
+  it('does not refresh the SQLite lease for every scan item', async () => {
+    const leaseHeartbeat = vi.fn().mockResolvedValue(true);
+    const scanHeartbeat = vi.fn().mockResolvedValue({ count: 1 });
+    const prisma = {
+      libraryScan: { updateMany: scanHeartbeat },
+    } as unknown as PrismaClient;
+    const lifecycle = new ScanLifecycleService(prisma);
+    lifecycle.register('scan-1', 'library-1', [], undefined, leaseHeartbeat);
+
+    await lifecycle.heartbeat('scan-1', true);
+    await Promise.all(
+      Array.from({ length: 1_000 }, () => lifecycle.heartbeat('scan-1')),
+    );
+
+    expect(leaseHeartbeat).toHaveBeenCalledOnce();
+    expect(scanHeartbeat).toHaveBeenCalledOnce();
+  });
+
+  it('refreshes a long-running scan before the lease interval elapses', async () => {
+    const performanceNow = vi.spyOn(performance, 'now');
+    try {
+      performanceNow.mockReturnValue(1_000);
+      const leaseHeartbeat = vi.fn().mockResolvedValue(true);
+      const prisma = {
+        libraryScan: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      } as unknown as PrismaClient;
+      const lifecycle = new ScanLifecycleService(prisma);
+      lifecycle.register('scan-1', 'library-1', [], undefined, leaseHeartbeat);
+
+      await lifecycle.heartbeat('scan-1', true);
+      performanceNow.mockReturnValue(6_001);
+      await lifecycle.heartbeat('scan-1');
+
+      expect(leaseHeartbeat).toHaveBeenCalledTimes(2);
+    } finally {
+      performanceNow.mockRestore();
+    }
+  });
+
+  it('hard-stops when the lease heartbeat database write fails', async () => {
+    const leaseHeartbeat = vi.fn().mockRejectedValue(new Error('SQLITE_BUSY'));
+    const prisma = {
+      libraryScan: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    } as unknown as PrismaClient;
+    const lifecycle = new ScanLifecycleService(prisma);
+    const signal = lifecycle.register('scan-1', 'library-1', [], undefined, leaseHeartbeat);
+
+    await expect(lifecycle.heartbeat('scan-1', true)).rejects.toMatchObject({
+      reason: 'library_operation_lost',
+    });
+    expect(signal.aborted).toBe(true);
+    expect(leaseHeartbeat).toHaveBeenCalledOnce();
+    expect(prisma.libraryScan.updateMany).not.toHaveBeenCalled();
+  });
+
   it('aborts the scan, finalizes it as interrupted, and does not swallow the loss', async () => {
     const libraryScanUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
     const sourceUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
