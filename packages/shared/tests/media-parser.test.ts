@@ -105,5 +105,10 @@ describe('parseMediaFilename Comprehensive Tests', () => {
     expect(normalizeSubtitleStem('Movie.en.srt')).toBe('movie');
     expect(normalizeSubtitleStem('Movie.tr.forced.VTT')).toBe('movie');
     expect(normalizeSubtitleStem('Movie 2.en.srt')).toBe('movie 2');
+    expect(normalizeSubtitleStem('Movie-de_tr.sdh.srt')).toBe('movie');
+    expect(normalizeSubtitleStem('Movie-de-custom.srt')).toBe('movie-de-custom');
+    expect(normalizeSubtitleStem(`Movie${'-de'.repeat(10_000)}-custom.srt`)).toBe(
+      `movie${'-de'.repeat(10_000)}-custom`,
+    );
   });
 });

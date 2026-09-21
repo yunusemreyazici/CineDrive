@@ -9,15 +9,45 @@ export interface ParsedMediaInfo {
 
 const CLEANUP_TAGS_REGEX =
   /\b(1080p|2160p|4[kK]|WEB-?DL|WEBRip|BluRay|HDR|DV|x264|x265|HEVC|AAC|DTS|DDP5\.1|MULTI|REPACK|REMUX|PROPER|HDTV|UNRATED|EXTENDED)\b/gi;
-const SUBTITLE_SUFFIX_REGEX =
-  /(?:[._-](?:en|eng|de|ger|fr|fre|es|spa|it|ita|tr|tur|forced|default|sdh|hi))+$/i;
+const SUBTITLE_SUFFIXES = new Set([
+  'en',
+  'eng',
+  'de',
+  'ger',
+  'fr',
+  'fre',
+  'es',
+  'spa',
+  'it',
+  'ita',
+  'tr',
+  'tur',
+  'forced',
+  'default',
+  'sdh',
+  'hi',
+]);
 
 /** Returns a subtitle/video stem with common language and accessibility suffixes removed. */
 export function normalizeSubtitleStem(filename: string): string {
-  return filename
-    .replace(/\.[^/.]+$/, '')
-    .replace(SUBTITLE_SUFFIX_REGEX, '')
-    .toLowerCase();
+  const stem = filename.replace(/\.[^/.]+$/, '');
+  let end = stem.length;
+
+  // Walk backward once: repeated optional suffixes in a regex can backtrack
+  // quadratically on filenames ending in an unrecognized token.
+  while (end > 0) {
+    let start = end;
+    while (start > 0 && !'._-'.includes(stem[start - 1] ?? '')) {
+      start -= 1;
+    }
+    if (start === 0) break;
+
+    const suffix = stem.slice(start, end).toLowerCase();
+    if (!SUBTITLE_SUFFIXES.has(suffix)) break;
+    end = start - 1;
+  }
+
+  return stem.slice(0, end).toLowerCase();
 }
 
 export function parseMediaFilename(filename: string): ParsedMediaInfo {

@@ -23,6 +23,20 @@ const index = () => ({
   ],
 });
 
+test('release validation provides isolated server test credentials', () => {
+  const validate = jobs.get('validate');
+  assert.ok(validate);
+  for (const key of [
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'GOOGLE_REDIRECT_URI',
+    'ADMIN_EMAIL',
+    'ADMIN_PASSWORD',
+  ]) {
+    assert.match(validate, new RegExp(`^      ${key}: .+$`, 'm'), `validate must set ${key}`);
+  }
+});
+
 test('dry runs and tag builds cover both components on matching native runners', () => {
   assert.doesNotMatch(workflow, /setup-qemu|continue-on-error/);
   for (const name of ['dry-run', 'publish-platform']) {
