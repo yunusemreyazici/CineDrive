@@ -11,7 +11,7 @@ import { MediaProbeService } from './media-probe.service.js';
 import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
-import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { isScanInterruptedError, type ScanLifecycleService } from './scan-lifecycle.service.js';
 import type {
   LibraryOperationLock,
   LibraryOperationLockService,
@@ -311,6 +311,8 @@ export class LibraryScanService {
         deletedCount += result.deleted;
 
         if (target.sourceId) {
+          await this.scanLifecycle.heartbeat(scanId, true);
+          signal.throwIfAborted();
           const latestError = result.errors
             ? await this.prisma.libraryScanError.findFirst({
                 where: { scanId },
@@ -337,6 +339,7 @@ export class LibraryScanService {
 
       const durationMs = Date.now() - startTime;
 
+      await this.scanLifecycle.heartbeat(scanId, true);
       signal.throwIfAborted();
       await this.prisma.libraryScan.updateMany({
         where: { id: scanId, status: 'running' },
@@ -776,6 +779,7 @@ export class LibraryScanService {
           );
         }
       } catch (err: unknown) {
+        if (signal.aborted || isScanInterruptedError(err)) throw err;
         errors++;
         await this.prisma.libraryScanError.create({
           data: {
@@ -862,6 +866,7 @@ export class LibraryScanService {
             await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
           }
         } catch (lyricsError) {
+          if (signal.aborted || isScanInterruptedError(lyricsError)) throw lyricsError;
           errors++;
           await this.prisma.libraryScanError.create({
             data: {
@@ -890,6 +895,7 @@ export class LibraryScanService {
             .catch(() => {});
         }
       } catch (error) {
+        if (signal.aborted || isScanInterruptedError(error)) throw error;
         errors++;
         await this.prisma.libraryScanError.create({
           data: {
@@ -901,49 +907,59 @@ export class LibraryScanService {
       }
     }
 
-    await runWithConcurrency(pendingProbes, MEDIA_PROBE_CONCURRENCY, async (probe) => {
-      try {
-        signal.throwIfAborted();
-        await this.scanLifecycle.heartbeat(scanId);
-        const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
-          name: probe.name,
-          size: BigInt(probe.size),
-          readRange: (start, end) =>
-            this.googleOAuthService.withValidAccessToken(
-              userId,
-              googleConnectionId,
-              (accessToken) =>
-                this.driveService.getMediaRangeBuffer(
-                  accessToken,
-                  probe.fileId,
-                  start,
-                  end,
-                  signal,
-                ),
-            ),
-        });
-        await this.prisma.driveFile.update({
-          where: { id: probe.driveFileId },
-          data: technicalMetadata,
-        });
-      } catch (error) {
-        // A file that cannot be probed still belongs in the library; the
-        // failure is recorded on the row so Media Health can surface it.
-        await this.prisma.driveFile
-          .update({
+    await runWithConcurrency(
+      pendingProbes,
+      MEDIA_PROBE_CONCURRENCY,
+      async (probe) => {
+        try {
+          signal.throwIfAborted();
+          await this.scanLifecycle.heartbeat(scanId);
+          const technicalMetadata = await this.mediaProbeService.probeRemoteFile({
+            name: probe.name,
+            size: BigInt(probe.size),
+            readRange: (start, end) =>
+              this.googleOAuthService.withValidAccessToken(
+                userId,
+                googleConnectionId,
+                (accessToken) =>
+                  this.driveService.getMediaRangeBuffer(
+                    accessToken,
+                    probe.fileId,
+                    start,
+                    end,
+                    signal,
+                  ),
+              ),
+          });
+          signal.throwIfAborted();
+          await this.prisma.driveFile.update({
             where: { id: probe.driveFileId },
-            data: {
-              mediaAnalyzedAt: new Date(),
-              mediaAnalysisError:
-                error instanceof Error ? error.message.slice(0, 500) : 'REMOTE_MEDIA_PROBE_FAILED',
-            },
-          })
-          .catch(() => {});
-      }
-    });
+            data: technicalMetadata,
+          });
+        } catch (error) {
+          if (signal.aborted || isScanInterruptedError(error)) throw error;
+          // A file that cannot be probed still belongs in the library; the
+          // failure is recorded on the row so Media Health can surface it.
+          await this.prisma.driveFile
+            .update({
+              where: { id: probe.driveFileId },
+              data: {
+                mediaAnalyzedAt: new Date(),
+                mediaAnalysisError:
+                  error instanceof Error
+                    ? error.message.slice(0, 500)
+                    : 'REMOTE_MEDIA_PROBE_FAILED',
+              },
+            })
+            .catch(() => {});
+        }
+      },
+      signal,
+    );
     signal.throwIfAborted();
 
     const seenGoogleFileIds = new Set(allFiles.map((file) => file.id));
+    signal.throwIfAborted();
     const existingFiles = await this.prisma.driveFile.findMany({
       where: {
         libraryId,
@@ -959,10 +975,14 @@ export class LibraryScanService {
       .filter((file) => !!file.googleDriveFileId && !seenGoogleFileIds.has(file.googleDriveFileId))
       .map((file) => file.id);
     if (missingFileIds.length > 0) {
+      signal.throwIfAborted();
+      await this.scanLifecycle.heartbeat(scanId, true);
+      signal.throwIfAborted();
       const result = await this.prisma.driveFile.updateMany({
         where: { id: { in: missingFileIds }, status: 'active' },
         data: { status: 'missing' },
       });
+      signal.throwIfAborted();
       deleted = result.count;
     }
 

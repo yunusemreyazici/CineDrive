@@ -777,7 +777,9 @@ export function useUpdateProgressMutation(options?: { invalidateOnSuccess?: bool
   const invalidateOnSuccess = options?.invalidateOnSuccess ?? true;
   return useMutation({
     mutationFn: async (data: UpdateProgressInput) => {
-      const res = await apiClient.put('/playback/progress', data);
+      const res = await apiClient.put<{
+        progress: { updatedAt: string; serverRevision: number };
+      }>('/playback/progress', data);
       return res.data;
     },
     onSuccess: () => {

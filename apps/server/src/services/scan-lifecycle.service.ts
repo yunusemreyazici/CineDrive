@@ -1,6 +1,21 @@
 import type { PrismaClient } from '@cinedrive/prisma';
 
-export type ScanInterruptionReason = 'server_restarted' | 'server_shutdown' | 'watchdog_timeout';
+export type ScanInterruptionReason =
+  'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | 'library_operation_lost';
+
+export class ScanInterruptedError extends Error {
+  public readonly reason: ScanInterruptionReason;
+
+  constructor(reason: ScanInterruptionReason) {
+    super(`SCAN_INTERRUPTED:${reason}`);
+    this.name = 'ScanInterruptedError';
+    this.reason = reason;
+  }
+}
+
+export const isScanInterruptedError = (error: unknown): boolean =>
+  error instanceof ScanInterruptedError ||
+  (error instanceof Error && error.message.startsWith('SCAN_INTERRUPTED:'));
 
 interface ActiveScan {
   libraryId: string;
@@ -60,22 +75,33 @@ export class ScanLifecycleService {
   public async heartbeat(scanId: string, force = false): Promise<void> {
     const active = this.activeScans.get(scanId);
     if (!active) return;
+    if (active.controller.signal.aborted) {
+      throw active.controller.signal.reason instanceof Error
+        ? active.controller.signal.reason
+        : new ScanInterruptedError('server_shutdown');
+    }
     const now = Date.now();
     active.lastHeartbeatAt = now;
-    if (!force && now - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS) return;
-    active.lastPersistedHeartbeatAt = now;
-    await this.prisma.libraryScan
-      .updateMany({
-        where: { id: scanId, status: 'running' },
-        data: { heartbeatAt: new Date(now) },
-      })
-      .catch(() => {});
     if (active.onHeartbeat) {
       const owned = await active.onHeartbeat().catch(() => false);
       if (!owned) {
-        active.controller.abort(new Error('LIBRARY_OPERATION_LOST'));
-        active.onInterrupted?.();
+        const interruption = new ScanInterruptedError('library_operation_lost');
+        await this.interruptScan(scanId, 'library_operation_lost', interruption).catch(() => {
+          // The abort signal is the hard stop. If DB finalization is
+          // temporarily unavailable, startup reconciliation can repair the
+          // running row after the process has stopped using it.
+        });
+        throw interruption;
       }
+    }
+    if (force || now - active.lastPersistedHeartbeatAt >= HEARTBEAT_PERSIST_INTERVAL_MS) {
+      active.lastPersistedHeartbeatAt = now;
+      await this.prisma.libraryScan
+        .updateMany({
+          where: { id: scanId, status: 'running' },
+          data: { heartbeatAt: new Date(now) },
+        })
+        .catch(() => {});
     }
   }
 
@@ -123,17 +149,24 @@ export class ScanLifecycleService {
     await Promise.all(stalled.map((scanId) => this.interruptScan(scanId, 'watchdog_timeout')));
   }
 
-  private async interruptScan(scanId: string, reason: ScanInterruptionReason): Promise<void> {
+  private async interruptScan(
+    scanId: string,
+    reason: ScanInterruptionReason,
+    abortReason = new ScanInterruptedError(reason),
+  ): Promise<void> {
     const active = this.activeScans.get(scanId);
     if (!active) return;
-    active.controller.abort(new Error(reason));
-    active.onInterrupted?.();
-    const scan = await this.prisma.libraryScan.findUnique({
-      where: { id: scanId },
-      select: { id: true, libraryId: true, driveScanSourceId: true, startedAt: true },
-    });
-    if (scan) await this.finalizeInterruptedScan(scan, reason, active.sourceIds);
-    this.activeScans.delete(scanId);
+    try {
+      active.controller.abort(abortReason);
+      active.onInterrupted?.();
+      const scan = await this.prisma.libraryScan.findUnique({
+        where: { id: scanId },
+        select: { id: true, libraryId: true, driveScanSourceId: true, startedAt: true },
+      });
+      if (scan) await this.finalizeInterruptedScan(scan, reason, active.sourceIds);
+    } finally {
+      this.activeScans.delete(scanId);
+    }
   }
 
   private async finalizeInterruptedScan(

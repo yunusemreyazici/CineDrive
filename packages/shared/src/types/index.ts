@@ -244,7 +244,8 @@ export interface SourceScanSummaryDto {
   startedAt: string;
   heartbeatAt?: string | null;
   completedAt?: string | null;
-  interruptionReason?: 'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | null;
+  interruptionReason?:
+    'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | 'library_operation_lost' | null;
   durationMs?: number | null;
   addedCount: number;
   updatedCount: number;

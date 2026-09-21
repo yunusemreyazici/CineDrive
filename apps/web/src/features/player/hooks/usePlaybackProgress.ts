@@ -1,6 +1,40 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUpdateProgressMutation } from '../../../hooks/useApi';
+
+const PLAYBACK_CLIENT_KEY = 'cinedrive_video_playback_client';
+const PLAYBACK_SEQUENCE_KEY = 'cinedrive_video_playback_sequence';
+let fallbackSequence = 0;
+
+const makePlaybackClientId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+
+const getPlaybackClientId = (): string => {
+  try {
+    const stored = globalThis.sessionStorage?.getItem(PLAYBACK_CLIENT_KEY);
+    if (stored) return stored;
+    const created = makePlaybackClientId();
+    globalThis.sessionStorage?.setItem(PLAYBACK_CLIENT_KEY, created);
+    return created;
+  } catch {
+    return makePlaybackClientId();
+  }
+};
+
+const nextPlaybackSequence = (): number => {
+  try {
+    const stored = Number(globalThis.sessionStorage?.getItem(PLAYBACK_SEQUENCE_KEY) || 0);
+    const next = Math.max(Number.isSafeInteger(stored) ? stored + 1 : 1, fallbackSequence + 1);
+    fallbackSequence = next;
+    globalThis.sessionStorage?.setItem(PLAYBACK_SEQUENCE_KEY, String(next));
+    return next;
+  } catch {
+    fallbackSequence += 1;
+    return fallbackSequence;
+  }
+};
 
 interface UsePlaybackProgressOptions {
   mediaItemId: string;
@@ -29,12 +63,15 @@ export function usePlaybackProgress({
 
   const lastSavedPositionRef = useRef<number>(-1);
   const prevIsPlayingRef = useRef<boolean>(isPlaying);
+  const [clientInstanceId] = useState(getPlaybackClientId);
+  const serverRevisionRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     // A new media/episode gets its own change threshold and unload snapshot.
     // Otherwise the first position of the next item can be suppressed because
     // it is close to the previous item's last saved second.
     lastSavedPositionRef.current = -1;
+    serverRevisionRef.current = undefined;
   }, [mediaItemId, episodeId]);
 
   const saveProgress = useCallback(
@@ -52,6 +89,7 @@ export function usePlaybackProgress({
       }
 
       lastSavedPositionRef.current = pos;
+      const clientSequence = nextPlaybackSequence();
 
       mutate(
         {
@@ -59,10 +97,17 @@ export function usePlaybackProgress({
           episodeId: episodeId || undefined,
           positionSeconds: pos,
           durationSeconds: dur,
+          clientInstanceId,
+          clientSequence,
+          serverRevision: serverRevisionRef.current,
           clientTimestamp: Date.now(),
         },
         {
-          onSuccess: () => {
+          onSuccess: (result) => {
+            const revision = result.progress?.serverRevision;
+            if (Number.isSafeInteger(revision)) {
+              serverRevisionRef.current = Math.max(serverRevisionRef.current || 0, revision);
+            }
             if (!force) return;
             void Promise.all([
               queryClient.invalidateQueries({ queryKey: ['continueWatching'] }),
@@ -72,7 +117,7 @@ export function usePlaybackProgress({
         },
       );
     },
-    [queryClient],
+    [clientInstanceId, queryClient],
   );
 
   // Periodic progress saving every 15 seconds during active playback
@@ -107,6 +152,9 @@ export function usePlaybackProgress({
           episodeId: episodeId || undefined,
           positionSeconds: pos,
           durationSeconds: dur,
+          clientInstanceId,
+          clientSequence: nextPlaybackSequence(),
+          serverRevision: serverRevisionRef.current,
           clientTimestamp: Date.now(),
         });
 
@@ -122,7 +170,7 @@ export function usePlaybackProgress({
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
+  }, [clientInstanceId]);
 
   // Save progress when component unmounts
   useEffect(() => {

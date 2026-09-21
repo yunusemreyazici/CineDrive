@@ -338,6 +338,9 @@ model PlaybackProgress {
   firstStartedAt  DateTime  @default(now())
   lastPlayedAt    DateTime  @default(now())
   completedAt     DateTime?
+  clientInstanceId String?
+  clientSequence   Int?
+  serverRevision   Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

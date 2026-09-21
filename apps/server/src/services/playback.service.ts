@@ -7,6 +7,13 @@ const MINIMUM_PROGRESS_SECONDS = 15;
 const MAX_DURATION_SECONDS = 360000; // 100 Hours max limit
 const GENERAL_TRACKING_KEY = '__media__';
 
+const isUniqueConstraintError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+
+type PlaybackProgressWithRelations = Prisma.PlaybackProgressGetPayload<{
+  include: { mediaItem: true; episode: true };
+}>;
+
 export class PlaybackService {
   constructor(private prisma: PrismaClient) {}
 
@@ -17,7 +24,14 @@ export class PlaybackService {
     userId: string,
     data: UpdateProgressInput & { clientTimestamp?: number; deviceType?: string },
   ) {
-    const { mediaItemId, episodeId, clientTimestamp } = data;
+    const { mediaItemId, episodeId } = data;
+    const clientInstanceId =
+      typeof data.clientInstanceId === 'string' && data.clientInstanceId.length > 0
+        ? data.clientInstanceId
+        : null;
+    const clientSequence = Number.isSafeInteger(data.clientSequence) ? data.clientSequence : null;
+    const serverRevision = Number.isSafeInteger(data.serverRevision) ? data.serverRevision : null;
+    const hasClientOrdering = clientInstanceId !== null && clientSequence !== null;
     let positionSeconds = data.positionSeconds;
     let durationSeconds = data.durationSeconds;
 
@@ -58,21 +72,11 @@ export class PlaybackService {
         if (!episode) throw new Error('INVALID_EPISODE');
       }
 
-      const existing = await tx.playbackProgress.findUnique({
+      let existing = await tx.playbackProgress.findUnique({
         where: {
           userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
         },
       });
-
-      if (existing && Number.isFinite(clientTimestamp)) {
-        const existingTime = existing.lastPlayedAt.getTime();
-        if (existingTime - (clientTimestamp as number) > 5000) {
-          return tx.playbackProgress.findUniqueOrThrow({
-            where: { id: existing.id },
-            include: { mediaItem: true, episode: true },
-          });
-        }
-      }
 
       const now = new Date();
       const progressData = {
@@ -83,21 +87,105 @@ export class PlaybackService {
         lastPlayedAt: now,
         completedAt: isCompleted ? existing?.completedAt || now : null,
       };
-      const progress = await tx.playbackProgress.upsert({
-        where: {
-          userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
-        },
-        update: progressData,
-        create: {
-          userId,
-          mediaItemId,
-          episodeId: episodeId || null,
-          trackingKey,
-          ...progressData,
-          firstStartedAt: now,
-        },
-        include: { mediaItem: true, episode: true },
-      });
+
+      let created = false;
+      if (!existing) {
+        try {
+          await tx.playbackProgress.create({
+            data: {
+              userId,
+              mediaItemId,
+              episodeId: episodeId || null,
+              trackingKey,
+              ...progressData,
+              firstStartedAt: now,
+              serverRevision: 1,
+              ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
+            },
+          });
+          created = true;
+        } catch (error: unknown) {
+          // Another request may create the same logical row concurrently. Let
+          // the conditional update below arbitrate its ordering instead of
+          // turning that normal race into a failed progress save.
+          if (!isUniqueConstraintError(error)) throw error;
+        }
+
+        if (!created) {
+          existing = await tx.playbackProgress.findUnique({
+            where: {
+              userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
+            },
+          });
+        }
+      }
+
+      let progress: PlaybackProgressWithRelations;
+      if (created) {
+        progress = await tx.playbackProgress.findUniqueOrThrow({
+          where: {
+            userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
+          },
+          include: { mediaItem: true, episode: true },
+        });
+      } else {
+        if (!existing) throw new Error('PLAYBACK_PROGRESS_CREATE_FAILED');
+
+        // Client wall-clock timestamps are deliberately ignored. A device can
+        // be minutes ahead/behind the server, and Date.now() cannot establish
+        // ordering across requests. The persisted server revision and the
+        // optional per-client sequence are both checked in the same atomic
+        // UPDATE so concurrent requests cannot overwrite a newer save.
+        if (serverRevision !== null && serverRevision! < existing.serverRevision) {
+          progress = await tx.playbackProgress.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { mediaItem: true, episode: true },
+          });
+          return progress;
+        } else if (
+          hasClientOrdering &&
+          existing.clientInstanceId === clientInstanceId &&
+          existing.clientSequence !== null &&
+          clientSequence! <= existing.clientSequence
+        ) {
+          progress = await tx.playbackProgress.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { mediaItem: true, episode: true },
+          });
+          return progress;
+        } else {
+          const updateWhere: Prisma.PlaybackProgressWhereInput = {
+            id: existing.id,
+            serverRevision: existing.serverRevision,
+          };
+          if (hasClientOrdering) {
+            updateWhere.OR = [
+              { clientInstanceId: { not: clientInstanceId } },
+              { clientInstanceId: null },
+              { clientSequence: null },
+              { clientSequence: { lt: clientSequence } },
+            ];
+          }
+
+          const updated = await tx.playbackProgress.updateMany({
+            where: updateWhere,
+            data: {
+              ...progressData,
+              serverRevision: { increment: 1 },
+              ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
+            },
+          });
+          progress = await tx.playbackProgress.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { mediaItem: true, episode: true },
+          });
+
+          // A competing transaction may have won the revision/sequence race.
+          // Returning its row is intentional: history must follow the same
+          // accepted state and must not be rewritten by the stale request.
+          if (updated.count === 0) return progress;
+        }
+      }
 
       const existingHistory = await tx.watchHistory.findUnique({
         where: {
@@ -305,9 +393,7 @@ export class PlaybackService {
     userId: string,
     params: { page?: number; limit?: number; type?: string },
   ) {
-    const page = Number.isFinite(params.page)
-      ? Math.max(1, Math.floor(params.page!))
-      : 1;
+    const page = Number.isFinite(params.page) ? Math.max(1, Math.floor(params.page!)) : 1;
     const limit = Number.isFinite(params.limit)
       ? Math.min(50, Math.max(1, Math.floor(params.limit!)))
       : 20;

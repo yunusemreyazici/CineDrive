@@ -38,6 +38,54 @@ describe('Playback & History API Integration Tests', () => {
         duration: 8100,
       },
     });
+
+    await app.prisma.mediaItem.createMany({
+      data: [
+        {
+          id: 'media_test_pb_2',
+          libraryId: playbackLibraryId,
+          type: 'movie',
+          title: 'Arrival',
+          normalizedTitle: 'arrival',
+          year: 2016,
+          duration: 6960,
+        },
+        {
+          id: 'media_test_pb_series',
+          libraryId: playbackLibraryId,
+          type: 'series',
+          title: 'Playback Series',
+          normalizedTitle: 'playback series',
+        },
+      ],
+    });
+    const series = await app.prisma.series.create({
+      data: { mediaItemId: 'media_test_pb_series' },
+    });
+    const season = await app.prisma.season.create({
+      data: { seriesId: series.id, seasonNumber: 1, name: 'Season 1' },
+    });
+    const episodeFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: playbackLibraryId,
+        storageType: 'local',
+        localFilePath: `/tmp/cinedrive-playback-${randomUUID()}.mp4`,
+        name: 'Playback Series - S01E01.mp4',
+        mimeType: 'video/mp4',
+      },
+    });
+    await app.prisma.episode.create({
+      data: {
+        seriesId: series.id,
+        seasonId: season.id,
+        mediaItemId: 'media_test_pb_series',
+        driveFileId: episodeFile.id,
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: 'Episode 1',
+        duration: 3600,
+      },
+    });
   });
 
   afterEach(async () => {
@@ -248,6 +296,139 @@ describe('Playback & History API Integration Tests', () => {
     ]);
     expect(progressRows).toBe(1);
     expect(historyRows).toBe(1);
+  });
+
+  it('orders progress by server revision and client sequence, not device wall-clock time', async () => {
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const sessionCookie = loginRes.cookies.find((cookie) => cookie.name === 'session_id');
+    const common = {
+      mediaItemId: 'media_test_pb_1',
+      durationSeconds: 8100,
+      clientInstanceId: 'playback-test-client',
+    };
+
+    const first = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 100,
+        clientSequence: 1,
+        clientTimestamp: Date.now() + 30_000,
+      },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // This request is newer by sequence but its clock is 30 seconds behind.
+    // The old Date.now() comparison incorrectly discarded it.
+    const clockSkewed = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 200,
+        clientSequence: 2,
+        clientTimestamp: Date.now() - 30_000,
+      },
+    });
+    expect(clockSkewed.statusCode).toBe(200);
+
+    const ahead = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        positionSeconds: 250,
+        clientSequence: 3,
+        clientTimestamp: Date.now() + 30_000,
+      },
+    });
+    expect(ahead.statusCode).toBe(200);
+
+    // An actually out-of-order request must not move the cursor backwards.
+    const newest = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: { ...common, positionSeconds: 400, clientSequence: 5 },
+    });
+    const stale = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: { ...common, positionSeconds: 300, clientSequence: 4 },
+    });
+    expect(newest.statusCode).toBe(200);
+    expect(stale.statusCode).toBe(200);
+
+    const [fastOne, fastTwo] = await Promise.all([
+      app.inject({
+        method: 'PUT',
+        url: '/api/playback/progress',
+        cookies: { session_id: sessionCookie!.value },
+        payload: { ...common, positionSeconds: 500, clientSequence: 6 },
+      }),
+      app.inject({
+        method: 'PUT',
+        url: '/api/playback/progress',
+        cookies: { session_id: sessionCookie!.value },
+        payload: { ...common, positionSeconds: 600, clientSequence: 7 },
+      }),
+    ]);
+    expect(fastOne.statusCode).toBe(200);
+    expect(fastTwo.statusCode).toBe(200);
+
+    await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        mediaItemId: 'media_test_pb_2',
+        durationSeconds: 6960,
+        positionSeconds: 700,
+        clientSequence: 8,
+      },
+    });
+    const episode = await app.prisma.episode.findFirstOrThrow({
+      where: { mediaItemId: 'media_test_pb_series' },
+    });
+    await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        ...common,
+        mediaItemId: 'media_test_pb_series',
+        episodeId: episode.id,
+        durationSeconds: 3600,
+        positionSeconds: 900,
+        clientSequence: 9,
+      },
+    });
+
+    expect(
+      await app.prisma.playbackProgress.findUnique({
+        where: {
+          userId_mediaItemId_trackingKey: {
+            userId: (await app.authService.ensureAdminUserExists()).id,
+            mediaItemId: 'media_test_pb_1',
+            trackingKey: '__media__',
+          },
+        },
+      }),
+    ).toMatchObject({ positionSeconds: 600, clientSequence: 7 });
+    expect(
+      await app.prisma.playbackProgress.count({ where: { mediaItemId: 'media_test_pb_2' } }),
+    ).toBe(1);
+    expect(await app.prisma.playbackProgress.count({ where: { episodeId: episode.id } })).toBe(1);
   });
 
   it('PUT /api/playback/progress with invalid episode ID should return 400', async () => {

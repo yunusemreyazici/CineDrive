@@ -6,7 +6,7 @@ import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
-import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { isScanInterruptedError, type ScanLifecycleService } from './scan-lifecycle.service.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isVideoFilename } from './media-file-types.js';
 import { isPathWithinRoot, resolveLocalFolder } from './local-folder-validation.js';
@@ -173,6 +173,7 @@ export class LocalScanService {
             try {
               technicalMetadata = await this.mediaProbeService.probeLocalFile(file.fullPath);
             } catch (probeError) {
+              if (signal.aborted || isScanInterruptedError(probeError)) throw probeError;
               technicalMetadata = {
                 mediaAnalyzedAt: new Date(),
                 mediaAnalysisError:
@@ -425,6 +426,7 @@ export class LocalScanService {
             })
             .catch(() => {});
         } catch (fileErr: unknown) {
+          if (signal.aborted || isScanInterruptedError(fileErr)) throw fileErr;
           // Log individual file errors but continue scanning
           console.error(`[LocalScan] Dosya işlenirken hata: ${file.fullPath}`, fileErr);
           await this.prisma.libraryScanError
@@ -528,6 +530,7 @@ export class LocalScanService {
               await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
             }
           } catch (lyricsError) {
+            if (signal.aborted || isScanInterruptedError(lyricsError)) throw lyricsError;
             await this.prisma.libraryScanError.create({
               data: {
                 scanId: scan.id,
@@ -545,6 +548,7 @@ export class LocalScanService {
             })
             .catch(() => {});
         } catch (error) {
+          if (signal.aborted || isScanInterruptedError(error)) throw error;
           await this.prisma.libraryScanError.create({
             data: {
               scanId: scan.id,
@@ -617,6 +621,7 @@ export class LocalScanService {
             });
           }
         } catch (subErr: unknown) {
+          if (signal.aborted || isScanInterruptedError(subErr)) throw subErr;
           console.error(`[LocalScan] Altyazı işlenirken hata: ${subFile.fullPath}`, subErr);
         }
       }
@@ -631,6 +636,7 @@ export class LocalScanService {
         },
         select: { id: true, localFilePath: true },
       });
+      signal.throwIfAborted();
       const missingFileIds: string[] = [];
       for (const file of existingLocalFiles) {
         if (!file.localFilePath) continue;
@@ -663,15 +669,20 @@ export class LocalScanService {
         }
       }
       if (missingFileIds.length > 0) {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId, true);
+        signal.throwIfAborted();
         await this.prisma.driveFile.updateMany({
           where: { id: { in: missingFileIds }, status: 'active' },
           data: { status: 'missing' },
         });
+        signal.throwIfAborted();
       }
 
       // Mark scan completed only after reconciliation succeeds. An interrupted
       // or failed walk must never make unseen files look deleted.
       const errorCount = await this.prisma.libraryScanError.count({ where: { scanId: scan.id } });
+      await this.scanLifecycle.heartbeat(scanId, true);
       signal.throwIfAborted();
       await this.prisma.libraryScan.updateMany({
         where: { id: scan.id, status: 'running' },
@@ -688,10 +699,12 @@ export class LocalScanService {
         },
       });
 
+      signal.throwIfAborted();
       await this.prisma.library.update({
         where: { id: libraryId },
         data: { lastScannedAt: new Date() },
       });
+      signal.throwIfAborted();
       void new MusicLanguageEnrichmentService(this.prisma)
         .enrichLibrary(libraryId)
         .catch(() => undefined);

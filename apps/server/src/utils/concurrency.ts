@@ -9,21 +9,34 @@ export const runWithConcurrency = async <T>(
   items: readonly T[],
   limit: number,
   worker: (item: T, index: number) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> => {
   if (items.length === 0) return;
 
   const effectiveLimit = Math.max(1, Math.min(limit, items.length));
   let nextIndex = 0;
+  let stopped = false;
 
   const runners = Array.from({ length: effectiveLimit }, async () => {
     for (;;) {
+      if (stopped) return;
+      signal?.throwIfAborted();
       const index = nextIndex++;
       if (index >= items.length) return;
-      // A single failure must not abandon the remaining items; workers are
-      // expected to record their own errors.
-      await worker(items[index]!, index);
+      try {
+        await worker(items[index]!, index);
+      } catch (error) {
+        stopped = true;
+        throw error;
+      }
     }
   });
 
-  await Promise.all(runners);
+  try {
+    await Promise.all(runners);
+  } catch (error) {
+    stopped = true;
+    await Promise.allSettled(runners);
+    throw error;
+  }
 };

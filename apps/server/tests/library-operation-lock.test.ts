@@ -59,4 +59,46 @@ describe('library operation leases', () => {
       (await app.prisma.library.findUnique({ where: { id: libraryId } }))?.operationLockToken,
     ).toBeNull();
   });
+
+  it.each(['clear', 'delete'] as const)(
+    'interrupts a scan when a replacement %s operation takes the lease',
+    async (replacementKind) => {
+      const scan = await app.prisma.libraryScan.create({
+        data: { libraryId, status: 'running', heartbeatAt: new Date() },
+      });
+      const scanLock = await app.libraryOperationLockService.acquire(libraryId, 'scan');
+      const signal = app.scanLifecycleService.register(
+        scan.id,
+        libraryId,
+        [],
+        undefined,
+        scanLock.heartbeat,
+      );
+
+      await app.prisma.library.update({
+        where: { id: libraryId },
+        data: {
+          operationLockToken: `replacement-${replacementKind}`,
+          operationLockKind: replacementKind,
+          operationLockExpiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+
+      await expect(app.scanLifecycleService.heartbeat(scan.id)).rejects.toMatchObject({
+        reason: 'library_operation_lost',
+      });
+      expect(signal.aborted).toBe(true);
+      expect(await app.prisma.libraryScan.findUnique({ where: { id: scan.id } })).toMatchObject({
+        status: 'interrupted',
+        interruptionReason: 'library_operation_lost',
+      });
+
+      // The old scan's finally block may still release its stale token, but it
+      // must not clear the replacement operation.
+      await scanLock.release();
+      expect(
+        (await app.prisma.library.findUnique({ where: { id: libraryId } }))?.operationLockToken,
+      ).toBe(`replacement-${replacementKind}`);
+    },
+  );
 });

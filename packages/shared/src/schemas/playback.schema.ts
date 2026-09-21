@@ -5,6 +5,11 @@ export const updateProgressSchema = z.object({
   episodeId: z.string().nullable().optional(),
   positionSeconds: z.number().min(0),
   durationSeconds: z.number().min(0),
+  // Wall-clock time is retained only for compatibility; it is not a safe
+  // ordering authority because devices can be skewed or adjusted.
+  clientInstanceId: z.string().min(1).max(128).optional(),
+  clientSequence: z.number().int().nonnegative().max(2_147_483_647).optional(),
+  serverRevision: z.number().int().nonnegative().max(2_147_483_647).optional(),
   clientTimestamp: z.number().finite().optional(),
 });
 

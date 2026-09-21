@@ -5,7 +5,7 @@ import type { PrismaClient } from '@cinedrive/prisma';
  * process must never advertise readiness while the binary expects a schema
  * newer than the one Prisma has applied.
  */
-export const EXPECTED_LATEST_MIGRATION = '20260921020000_playback_tracking_keys';
+export const EXPECTED_LATEST_MIGRATION = '20260921030000_playback_server_ordering';
 
 type MigrationRow = {
   migration_name: string;

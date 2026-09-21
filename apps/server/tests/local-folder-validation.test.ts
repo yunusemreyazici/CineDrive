@@ -5,7 +5,11 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
-import { resolveSafeLocalFile, validateLocalFolder } from '../src/services/local-folder-validation';
+import {
+  resolveLocalFolder,
+  resolveSafeLocalFile,
+  validateLocalFolder,
+} from '../src/services/local-folder-validation';
 
 describe('local folder access validation', () => {
   let app: FastifyInstance;
@@ -93,6 +97,43 @@ describe('local folder access validation', () => {
       const response = await check({ localFolderPath: value });
       expect(response.statusCode).toBe(400);
       expect(response.json().error.code).toBe('LOCAL_FOLDER_UNAVAILABLE');
+    }
+  });
+  it('rejects application ancestors and symlink aliases but accepts siblings', async () => {
+    const applicationRoot = await fs.realpath(process.cwd());
+    const applicationParent = path.dirname(applicationRoot);
+    const sibling = await fs.mkdtemp(
+      path.join(applicationParent, `${path.basename(applicationRoot)}-sibling-`),
+    );
+    const similarPrefix = await fs.mkdtemp(
+      path.join(applicationParent, `${path.basename(applicationRoot)}-archive-`),
+    );
+    const parentSymlink = path.join(directory, 'application-parent-link');
+
+    try {
+      for (const value of [
+        applicationRoot,
+        path.join(applicationRoot, 'apps'),
+        applicationParent,
+        path.dirname(applicationParent),
+      ]) {
+        await expect(resolveLocalFolder(value)).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+      }
+      await fs.symlink(applicationParent, parentSymlink, 'dir');
+      await expect(resolveLocalFolder(parentSymlink)).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+
+      await expect(resolveLocalFolder(sibling)).resolves.toBe(await fs.realpath(sibling));
+      await expect(resolveLocalFolder(similarPrefix)).resolves.toBe(
+        await fs.realpath(similarPrefix),
+      );
+
+      if (process.platform === 'darwin') {
+        await expect(resolveLocalFolder('/var')).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+      }
+    } finally {
+      await fs.rm(sibling, { recursive: true, force: true });
+      await fs.rm(similarPrefix, { recursive: true, force: true });
+      await fs.rm(parentSymlink, { force: true });
     }
   });
   it('sanitizes permission and unexpected filesystem failures', async () => {

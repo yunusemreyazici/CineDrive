@@ -33,7 +33,9 @@ const isTestTemporaryPath = (resolved: string) => {
   if (process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true') return false;
   const temporaryRoot = path.resolve(os.tmpdir());
   const realpathTemporaryRoot = path.join('/private', temporaryRoot.replace(/^\/+/, ''));
-  return isPathWithinRoot(temporaryRoot, resolved) || isPathWithinRoot(realpathTemporaryRoot, resolved);
+  return (
+    isPathWithinRoot(temporaryRoot, resolved) || isPathWithinRoot(realpathTemporaryRoot, resolved)
+  );
 };
 
 const assertSafeLibraryRoot = (resolved: string) => {
@@ -42,12 +44,15 @@ const assertSafeLibraryRoot = (resolved: string) => {
   // Do not let an admin turn the application checkout/data directory into a
   // media root. This also prevents a later scan from indexing secrets,
   // migrations or runtime cache files stored next to the server.
-  if (isPathWithinRoot(path.resolve(process.cwd()), resolved)) {
+  const applicationRoot = path.resolve(process.cwd());
+  if (isPathWithinRoot(applicationRoot, resolved) || isPathWithinRoot(resolved, applicationRoot)) {
     throw new Error('LOCAL_FOLDER_UNSAFE');
   }
 
   if (
-    protectedSystemRoots.some((root) => isPathWithinRoot(root, resolved)) &&
+    protectedSystemRoots.some(
+      (root) => isPathWithinRoot(root, resolved) || isPathWithinRoot(resolved, root),
+    ) &&
     !isTestTemporaryPath(resolved)
   ) {
     throw new Error('LOCAL_FOLDER_UNSAFE');
@@ -74,7 +79,10 @@ export async function resolveSafePathWithinRoot(
     throw new Error('LOCAL_FILE_UNAVAILABLE');
   }
 
-  const [resolvedRoot, resolvedFile] = await Promise.all([fs.realpath(root), fs.realpath(storedPath)]);
+  const [resolvedRoot, resolvedFile] = await Promise.all([
+    fs.realpath(root),
+    fs.realpath(storedPath),
+  ]);
   if (!isPathWithinRoot(resolvedRoot, resolvedFile)) {
     throw new Error('LOCAL_FILE_UNAVAILABLE');
   }
