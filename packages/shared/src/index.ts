@@ -1,4 +1,4 @@
-import { parseMediaFilename } from './utils/media-parser';
+import { normalizeSubtitleStem, parseMediaFilename } from './utils/media-parser';
 import { parseSubtitleFilename, convertSrtToVtt } from './utils/subtitle-parser';
 
 export * from './schemas/env.schema';
@@ -10,4 +10,4 @@ export * from './schemas/music.schema';
 export * from './types';
 export * from './constants';
 export * from './utils/html-text';
-export { parseMediaFilename, parseSubtitleFilename, convertSrtToVtt };
+export { normalizeSubtitleStem, parseMediaFilename, parseSubtitleFilename, convertSrtToVtt };

@@ -55,54 +55,51 @@ describe('Video Media Streaming API Integration Tests', () => {
     });
 
     // Mock GoogleDriveService createMediaStream
-    app.driveService.createMediaStream = vi.fn().mockImplementation(
-      async (
-        _token: string,
-        _fileId: string,
-        rangeHeader?: string,
-        signal?: AbortSignal,
-      ) => {
-        abortSignalReceived = signal;
+    app.driveService.createMediaStream = vi
+      .fn()
+      .mockImplementation(
+        async (_token: string, _fileId: string, rangeHeader?: string, signal?: AbortSignal) => {
+          abortSignalReceived = signal;
 
-        if (rangeHeader === 'bytes=invalid-range') {
-          const err = new Error('Range Not Satisfiable') as Error & { code: number };
-          err.code = 416;
-          throw err;
-        }
+          if (rangeHeader === 'bytes=invalid-range') {
+            const err = new Error('Range Not Satisfiable') as Error & { code: number };
+            err.code = 416;
+            throw err;
+          }
 
-        mockDriveStream = new Readable({
-          read() {
-            this.push(Buffer.from('fake-video-stream-chunk-data'));
-            this.push(null);
-          },
-        });
+          mockDriveStream = new Readable({
+            read() {
+              this.push(Buffer.from('fake-video-stream-chunk-data'));
+              this.push(null);
+            },
+          });
 
-        if (rangeHeader) {
+          if (rangeHeader) {
+            return {
+              stream: mockDriveStream,
+              status: 206,
+              headers: {
+                'content-type': 'video/mp4',
+                'content-length': '1024',
+                'content-range': 'bytes 0-1023/10485760',
+                'accept-ranges': 'bytes',
+                etag: '"mock-etag-123"',
+                'last-modified': 'Wed, 21 Oct 2025 07:28:00 GMT',
+              },
+            };
+          }
+
           return {
             stream: mockDriveStream,
-            status: 206,
+            status: 200,
             headers: {
               'content-type': 'video/mp4',
-              'content-length': '1024',
-              'content-range': 'bytes 0-1023/10485760',
+              'content-length': '10485760',
               'accept-ranges': 'bytes',
-              'etag': '"mock-etag-123"',
-              'last-modified': 'Wed, 21 Oct 2025 07:28:00 GMT',
             },
           };
-        }
-
-        return {
-          stream: mockDriveStream,
-          status: 200,
-          headers: {
-            'content-type': 'video/mp4',
-            'content-length': '10485760',
-            'accept-ranges': 'bytes',
-          },
-        };
-      },
-    );
+        },
+      );
   });
 
   afterEach(async () => {
@@ -420,8 +417,7 @@ describe('Video Media Streaming API Integration Tests', () => {
     // FFmpeg input. Guards the maxParamLength override in app.ts.
     const capability = app.driveSourceService.issue({
       googleDriveFileId: 'gdrive_video_id_100',
-      userId: '9ca10484-195e-4e7c-b1c3-c45645df7706',
-      connectionId: '8e7be4b3-2ec9-4f50-a4a5-4a7f77414ffc',
+      userId: (await app.authService.ensureAdminUserExists()).id,
     });
     expect(capability.length).toBeGreaterThan(100);
 

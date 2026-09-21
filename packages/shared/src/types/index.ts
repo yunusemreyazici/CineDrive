@@ -210,12 +210,12 @@ export type ReadinessResponse =
   | {
       status: 'ready';
       timestamp: string;
-      checks: { database: 'ok' };
+      checks: { database: 'ok'; migrations: 'ok' };
     }
   | {
       status: 'not_ready';
       timestamp: string;
-      checks: { database: 'error' };
+      checks: { database: 'ok' | 'error'; migrations: 'ok' | 'error' };
       requestId: string;
     };
 

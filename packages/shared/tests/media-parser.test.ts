@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMediaFilename } from '../src/utils/media-parser';
+import { normalizeSubtitleStem, parseMediaFilename } from '../src/utils/media-parser';
 
 describe('parseMediaFilename Comprehensive Tests', () => {
   describe('Movie Parsing', () => {
@@ -98,5 +98,12 @@ describe('parseMediaFilename Comprehensive Tests', () => {
         episodeNumber: 5,
       });
     });
+  });
+
+  it('matches localized subtitle stems without confusing similarly-prefixed videos', () => {
+    expect(normalizeSubtitleStem('Movie.mp4')).toBe('movie');
+    expect(normalizeSubtitleStem('Movie.en.srt')).toBe('movie');
+    expect(normalizeSubtitleStem('Movie.tr.forced.VTT')).toBe('movie');
+    expect(normalizeSubtitleStem('Movie 2.en.srt')).toBe('movie 2');
   });
 });

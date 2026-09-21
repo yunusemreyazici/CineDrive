@@ -7,7 +7,18 @@ export interface ParsedMediaInfo {
   episodeNumber?: number;
 }
 
-const CLEANUP_TAGS_REGEX = /\b(1080p|2160p|4[kK]|WEB-?DL|WEBRip|BluRay|HDR|DV|x264|x265|HEVC|AAC|DTS|DDP5\.1|MULTI|REPACK|REMUX|PROPER|HDTV|UNRATED|EXTENDED)\b/gi;
+const CLEANUP_TAGS_REGEX =
+  /\b(1080p|2160p|4[kK]|WEB-?DL|WEBRip|BluRay|HDR|DV|x264|x265|HEVC|AAC|DTS|DDP5\.1|MULTI|REPACK|REMUX|PROPER|HDTV|UNRATED|EXTENDED)\b/gi;
+const SUBTITLE_SUFFIX_REGEX =
+  /(?:[._-](?:en|eng|de|ger|fr|fre|es|spa|it|ita|tr|tur|forced|default|sdh|hi))+$/i;
+
+/** Returns a subtitle/video stem with common language and accessibility suffixes removed. */
+export function normalizeSubtitleStem(filename: string): string {
+  return filename
+    .replace(/\.[^/.]+$/, '')
+    .replace(SUBTITLE_SUFFIX_REGEX, '')
+    .toLowerCase();
+}
 
 export function parseMediaFilename(filename: string): ParsedMediaInfo {
   // 1. Remove file extension
@@ -22,7 +33,9 @@ export function parseMediaFilename(filename: string): ParsedMediaInfo {
   // Pattern 2: 1x01 or 01x01
   const nxnMatch = cleanName.match(/\b(\d{1,2})x(\d{1,2})\b/i);
   // Pattern 3: Season 1 Episode 1 or Sezon 1 Bölüm 1
-  const verboseMatch = cleanName.match(/(?:Season|Sezon)\s*(\d{1,2})\s*(?:Episode|Bölüm)\s*(\d{1,2})/i);
+  const verboseMatch = cleanName.match(
+    /(?:Season|Sezon)\s*(\d{1,2})\s*(?:Episode|Bölüm)\s*(\d{1,2})/i,
+  );
 
   const episodeMatch = s00e00Match || nxnMatch || verboseMatch;
 
@@ -35,7 +48,11 @@ export function parseMediaFilename(filename: string): ParsedMediaInfo {
     let seriesTitle = cleanName.substring(0, episodeTagIndex).trim();
 
     // Clean tags from title
-    seriesTitle = seriesTitle.replace(CLEANUP_TAGS_REGEX, '').replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    seriesTitle = seriesTitle
+      .replace(CLEANUP_TAGS_REGEX, '')
+      .replace(/[-–—]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     return {
       type: 'series',
@@ -61,7 +78,11 @@ export function parseMediaFilename(filename: string): ParsedMediaInfo {
   }
 
   // Clean tags from movie title
-  movieTitle = movieTitle.replace(CLEANUP_TAGS_REGEX, '').replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+  movieTitle = movieTitle
+    .replace(CLEANUP_TAGS_REGEX, '')
+    .replace(/[-–—]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   return {
     type: 'movie',

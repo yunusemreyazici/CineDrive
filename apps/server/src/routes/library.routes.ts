@@ -177,7 +177,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Keep one configurable Google Drive library available. The environment
     // value is only an initial default and never overwrites UI changes.
-    if (request.user!.role === 'admin' && !libraries.some((library) => library.userId === userId && library.storageType === 'gdrive')) {
+    if (
+      request.user!.role === 'admin' &&
+      !libraries.some((library) => library.userId === userId && library.storageType === 'gdrive')
+    ) {
       await fastify.prisma.library.create({
         data: {
           userId,
@@ -222,13 +225,21 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/validate-local', async (request, reply) => {
     if (request.user!.role !== 'admin') {
       return reply.code(403).send({
-        error: { code: 'FORBIDDEN', message: 'Yönetici erişimi gereklidir.', requestId: request.id },
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Yönetici erişimi gereklidir.',
+          requestId: request.id,
+        },
       });
     }
     const parsed = validateLocalFolderSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Geçerli bir klasör yolu girin.', requestId: request.id },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçerli bir klasör yolu girin.',
+          requestId: request.id,
+        },
       });
     }
     try {
@@ -333,7 +344,14 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { id: string } }>('/:id/members', async (request, reply) => {
     const library = await findOwnerLibrary(request.params.id, request.user!.id);
-    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    if (!library)
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
     const memberships = await fastify.prisma.libraryMembership.findMany({
       where: { libraryId: library.id },
       include: { user: true },
@@ -342,27 +360,71 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     const owner = await fastify.prisma.user.findUnique({ where: { id: library.userId } });
     return {
       members: [
-        ...(owner ? [{ id: `owner:${owner.id}`, userId: owner.id, name: owner.name, email: owner.email, role: 'owner', createdAt: library.createdAt.toISOString() }] : []),
-        ...memberships.filter((membership) => membership.userId !== library.userId).map((membership) => ({
-          id: membership.id,
-          userId: membership.userId,
-          name: membership.user.name,
-          email: membership.user.email,
-          role: membership.role,
-          createdAt: membership.createdAt.toISOString(),
-        })),
+        ...(owner
+          ? [
+              {
+                id: `owner:${owner.id}`,
+                userId: owner.id,
+                name: owner.name,
+                email: owner.email,
+                role: 'owner',
+                createdAt: library.createdAt.toISOString(),
+              },
+            ]
+          : []),
+        ...memberships
+          .filter((membership) => membership.userId !== library.userId)
+          .map((membership) => ({
+            id: membership.id,
+            userId: membership.userId,
+            name: membership.user.name,
+            email: membership.user.email,
+            role: membership.role,
+            createdAt: membership.createdAt.toISOString(),
+          })),
       ],
     };
   });
 
   fastify.put<{ Params: { id: string } }>('/:id/members', async (request, reply) => {
     const library = await findOwnerLibrary(request.params.id, request.user!.id);
-    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
+    if (!library)
+      return reply.status(404).send({
+        error: {
+          code: 'LIBRARY_NOT_FOUND',
+          message: 'Kütüphane bulunamadı.',
+          requestId: request.id,
+        },
+      });
     const parsed = upsertLibraryMemberSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz üyelik bilgileri.', requestId: request.id, details: parsed.error.format() } });
-    if (parsed.data.userId === library.userId) return reply.status(409).send({ error: { code: 'OWNER_MEMBERSHIP_IMMUTABLE', message: 'Kütüphane sahibi üyelik olarak değiştirilemez.', requestId: request.id } });
-    const user = await fastify.prisma.user.findFirst({ where: { id: parsed.data.userId, disabledAt: null } });
-    if (!user) return reply.status(404).send({ error: { code: 'USER_NOT_FOUND', message: 'Kullanıcı bulunamadı.', requestId: request.id } });
+    if (!parsed.success)
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz üyelik bilgileri.',
+          requestId: request.id,
+          details: parsed.error.format(),
+        },
+      });
+    if (parsed.data.userId === library.userId)
+      return reply.status(409).send({
+        error: {
+          code: 'OWNER_MEMBERSHIP_IMMUTABLE',
+          message: 'Kütüphane sahibi üyelik olarak değiştirilemez.',
+          requestId: request.id,
+        },
+      });
+    const user = await fastify.prisma.user.findFirst({
+      where: { id: parsed.data.userId, disabledAt: null },
+    });
+    if (!user)
+      return reply.status(404).send({
+        error: {
+          code: 'USER_NOT_FOUND',
+          message: 'Kullanıcı bulunamadı.',
+          requestId: request.id,
+        },
+      });
     const membership = await fastify.prisma.libraryMembership.upsert({
       where: { libraryId_userId: { libraryId: library.id, userId: user.id } },
       create: { libraryId: library.id, userId: user.id, role: parsed.data.role },
@@ -371,12 +433,24 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     return { membership };
   });
 
-  fastify.delete<{ Params: { id: string; userId: string } }>('/:id/members/:userId', async (request, reply) => {
-    const library = await findOwnerLibrary(request.params.id, request.user!.id);
-    if (!library) return reply.status(404).send({ error: { code: 'LIBRARY_NOT_FOUND', message: 'Kütüphane bulunamadı.', requestId: request.id } });
-    await fastify.prisma.libraryMembership.deleteMany({ where: { libraryId: library.id, userId: request.params.userId } });
-    return reply.status(204).send();
-  });
+  fastify.delete<{ Params: { id: string; userId: string } }>(
+    '/:id/members/:userId',
+    async (request, reply) => {
+      const library = await findOwnerLibrary(request.params.id, request.user!.id);
+      if (!library)
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      await fastify.prisma.libraryMembership.deleteMany({
+        where: { libraryId: library.id, userId: request.params.userId },
+      });
+      return reply.status(204).send();
+    },
+  );
 
   // PATCH /api/libraries/:id: Update library
   fastify.patch<{ Params: { id: string }; Body: UpdateLibraryInput }>(
@@ -410,7 +484,11 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         Object.prototype.hasOwnProperty.call(parseResult.data, 'rootFolderId') ||
         Object.prototype.hasOwnProperty.call(parseResult.data, 'localFolderPath') ||
         Object.prototype.hasOwnProperty.call(parseResult.data, 'googleConnectionId');
-      if (sourceFieldsChanged && request.user!.role !== 'admin' && existing.userId !== request.user!.id) {
+      if (
+        sourceFieldsChanged &&
+        request.user!.role !== 'admin' &&
+        existing.userId !== request.user!.id
+      ) {
         return reply.status(403).send({
           error: {
             code: 'LIBRARY_OWNER_REQUIRED',
@@ -744,7 +822,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
             },
           });
         }
-        if (code === 'SCAN_ALREADY_IN_PROGRESS') {
+        if (code === 'SCAN_ALREADY_IN_PROGRESS' || code === 'LIBRARY_OPERATION_IN_PROGRESS') {
           return reply.status(409).send({
             error: {
               code,
@@ -782,14 +860,6 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      if (fastify.libraryScanService.isScanning(library.id))
-        return reply.status(409).send({
-          error: {
-            code: 'SCAN_ALREADY_IN_PROGRESS',
-            message: 'Tarama sürerken kaynak kaldırılamaz.',
-            requestId: request.id,
-          },
-        });
       const source = await fastify.prisma.driveScanSource.findFirst({
         where: { id: request.params.sourceId, libraryId: library.id },
       });
@@ -802,67 +872,90 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
 
-      const movies = await fastify.prisma.mediaItem.findMany({
-        where: {
-          libraryId: library.id,
-          movie: { driveFile: { driveScanSourceId: source.id } },
-        },
-        select: { id: true },
-      });
-      const movieIds = movies.map((item) => item.id);
-      const removed = await fastify.prisma.$transaction(async (tx) => {
-        if (movieIds.length) await tx.mediaItem.deleteMany({ where: { id: { in: movieIds } } });
-        const files = await tx.driveFile.deleteMany({ where: { driveScanSourceId: source.id } });
-
-        // Deleting a Drive file cascades only its episode. Keep a series that
-        // still has episodes from another source, then prune empty containers.
-        await tx.season.deleteMany({
-          where: { series: { mediaItem: { libraryId: library.id } }, episodes: { none: {} } },
-        });
-        const emptySeries = await tx.series.findMany({
-          where: { mediaItem: { libraryId: library.id }, seasons: { none: {} } },
-          select: { mediaItemId: true },
-        });
-        if (emptySeries.length) {
-          await tx.mediaItem.deleteMany({
-            where: { id: { in: emptySeries.map((series) => series.mediaItemId) } },
+      let operationLock;
+      try {
+        operationLock = await fastify.libraryOperationLockService.acquire(
+          library.id,
+          'source-unlink',
+        );
+      } catch (error) {
+        if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+          return reply.status(409).send({
+            error: {
+              code: 'SCAN_ALREADY_IN_PROGRESS',
+              message: 'Tarama veya başka bir kütüphane işlemi sürerken kaynak kaldırılamaz.',
+              requestId: request.id,
+            },
           });
         }
-        await tx.driveScanSource.delete({ where: { id: source.id } });
-        const replacement = await tx.driveScanSource.findFirst({
-          where: { libraryId: library.id },
-          orderBy: { createdAt: 'asc' },
+        throw error;
+      }
+
+      try {
+        const movies = await fastify.prisma.mediaItem.findMany({
+          where: {
+            libraryId: library.id,
+            movie: { driveFile: { driveScanSourceId: source.id } },
+          },
+          select: { id: true },
         });
-        await tx.library.update({
-          where: { id: library.id },
-          data: {
-            rootFolderId: replacement?.rootFolderId || '',
-            googleConnectionId: replacement?.googleConnectionId || null,
+        const movieIds = movies.map((item) => item.id);
+        const removed = await fastify.prisma.$transaction(async (tx) => {
+          if (movieIds.length) await tx.mediaItem.deleteMany({ where: { id: { in: movieIds } } });
+          const files = await tx.driveFile.deleteMany({ where: { driveScanSourceId: source.id } });
+
+          // Deleting a Drive file cascades only its episode. Keep a series that
+          // still has episodes from another source, then prune empty containers.
+          await tx.season.deleteMany({
+            where: { series: { mediaItem: { libraryId: library.id } }, episodes: { none: {} } },
+          });
+          const emptySeries = await tx.series.findMany({
+            where: { mediaItem: { libraryId: library.id }, seasons: { none: {} } },
+            select: { mediaItemId: true },
+          });
+          if (emptySeries.length) {
+            await tx.mediaItem.deleteMany({
+              where: { id: { in: emptySeries.map((series) => series.mediaItemId) } },
+            });
+          }
+          await tx.driveScanSource.delete({ where: { id: source.id } });
+          const replacement = await tx.driveScanSource.findFirst({
+            where: { libraryId: library.id },
+            orderBy: { createdAt: 'asc' },
+          });
+          await tx.library.update({
+            where: { id: library.id },
+            data: {
+              rootFolderId: replacement?.rootFolderId || '',
+              googleConnectionId: replacement?.googleConnectionId || null,
+            },
+          });
+          return files.count;
+        });
+
+        await fastify.prisma.musicAlbum.deleteMany({
+          where: { userId: request.user!.id, tracks: { none: {} } },
+        });
+        await fastify.prisma.musicArtist.deleteMany({
+          where: {
+            userId: request.user!.id,
+            trackCredits: { none: {} },
+            albumTracks: { none: {} },
+            albums: { none: {} },
           },
         });
-        return files.count;
-      });
-
-      await fastify.prisma.musicAlbum.deleteMany({
-        where: { userId: request.user!.id, tracks: { none: {} } },
-      });
-      await fastify.prisma.musicArtist.deleteMany({
-        where: {
-          userId: request.user!.id,
-          trackCredits: { none: {} },
-          albumTracks: { none: {} },
-          albums: { none: {} },
-        },
-      });
-      await fastify.prisma.musicArtwork.deleteMany({
-        where: {
-          userId: request.user!.id,
-          albums: { none: {} },
-          artists: { none: {} },
-          tracks: { none: {} },
-        },
-      });
-      return reply.send({ removed: { media: movieIds.length, files: removed } });
+        await fastify.prisma.musicArtwork.deleteMany({
+          where: {
+            userId: request.user!.id,
+            albums: { none: {} },
+            artists: { none: {} },
+            tracks: { none: {} },
+          },
+        });
+        return reply.send({ removed: { media: movieIds.length, files: removed } });
+      } finally {
+        await operationLock.release();
+      }
     },
   );
 
@@ -888,42 +981,52 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-    if (fastify.libraryScanService.isScanning(library.id)) {
-      return reply.status(409).send({
-        error: {
-          code: 'SCAN_ALREADY_IN_PROGRESS',
-          message: 'Tarama sürerken yerel kütüphane kaldırılamaz.',
-          requestId: request.id,
-        },
-      });
+    let operationLock;
+    try {
+      operationLock = await fastify.libraryOperationLockService.acquire(library.id, 'delete');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message: 'Tarama veya başka bir kütüphane işlemi sürerken kütüphane kaldırılamaz.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
     }
 
-    const [media, files] = await Promise.all([
-      fastify.prisma.mediaItem.count({ where: { libraryId: library.id } }),
-      fastify.prisma.driveFile.count({ where: { libraryId: library.id } }),
-    ]);
-    await fastify.prisma.library.delete({ where: { id: library.id } });
-    await fastify.prisma.musicAlbum.deleteMany({
-      where: { userId: request.user!.id, tracks: { none: {} } },
-    });
-    await fastify.prisma.musicArtist.deleteMany({
-      where: {
-        userId: request.user!.id,
-        trackCredits: { none: {} },
-        albumTracks: { none: {} },
-        albums: { none: {} },
-      },
-    });
-    await fastify.prisma.musicArtwork.deleteMany({
-      where: {
-        userId: request.user!.id,
-        albums: { none: {} },
-        artists: { none: {} },
-        tracks: { none: {} },
-      },
-    });
+    try {
+      const [media, files] = await Promise.all([
+        fastify.prisma.mediaItem.count({ where: { libraryId: library.id } }),
+        fastify.prisma.driveFile.count({ where: { libraryId: library.id } }),
+      ]);
+      await fastify.prisma.library.delete({ where: { id: library.id } });
+      await fastify.prisma.musicAlbum.deleteMany({
+        where: { userId: request.user!.id, tracks: { none: {} } },
+      });
+      await fastify.prisma.musicArtist.deleteMany({
+        where: {
+          userId: request.user!.id,
+          trackCredits: { none: {} },
+          albumTracks: { none: {} },
+          albums: { none: {} },
+        },
+      });
+      await fastify.prisma.musicArtwork.deleteMany({
+        where: {
+          userId: request.user!.id,
+          albums: { none: {} },
+          artists: { none: {} },
+          tracks: { none: {} },
+        },
+      });
 
-    return reply.send({ removed: { library: 1, media, files } });
+      return reply.send({ removed: { library: 1, media, files } });
+    } finally {
+      await operationLock.release();
+    }
   });
 
   // POST /api/libraries/:id/scan: Trigger library scan
@@ -957,7 +1060,11 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           scan: scan ? serializeScanRecord(scan) : null,
         });
       } catch (err: unknown) {
-        if (err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS') {
+        if (
+          err instanceof Error &&
+          (err.message === 'SCAN_ALREADY_IN_PROGRESS' ||
+            err.message === 'LIBRARY_OPERATION_IN_PROGRESS')
+        ) {
           return reply.status(409).send({
             error: {
               code: 'SCAN_ALREADY_IN_PROGRESS',
@@ -1005,7 +1112,10 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
         (err.message === 'GOOGLE_ACCOUNT_NOT_CONNECTED' ||
           err.message === 'GOOGLE_REAUTHORIZATION_REQUIRED' ||
           err.message.includes('File not found'));
-      const isAlreadyRunning = err instanceof Error && err.message === 'SCAN_ALREADY_IN_PROGRESS';
+      const isAlreadyRunning =
+        err instanceof Error &&
+        (err.message === 'SCAN_ALREADY_IN_PROGRESS' ||
+          err.message === 'LIBRARY_OPERATION_IN_PROGRESS');
 
       if (isAlreadyRunning) {
         return reply.status(409).send({
@@ -1128,71 +1238,81 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    /*
-     * Scoped to this library. Every statement here except the two `libraryId`
-     * ones used to be an unfiltered `deleteMany({})`: clearing one library
-     * wiped every media item, subtitle, favourite and watch-history row in the
-     * database — including other libraries' and, now that libraries have
-     * owners, other accounts'.
-     */
-    // A single indexed column now; this walked movie/episode -> driveFile ->
-    // library to work out which media belonged here.
-    const mediaIdsInLibrary = await fastify.prisma.mediaItem.findMany({
-      where: { libraryId: id },
-      select: { id: true },
-    });
-    const mediaIds = mediaIdsInLibrary.map((item) => item.id);
-
-    await fastify.prisma.libraryScan.deleteMany({ where: { libraryId: id } });
-
-    if (mediaIds.length > 0) {
-      // Progress, history and favourites are per-user rows about these media
-      // items; the cascade from MediaItem removes them, but doing it first
-      // keeps the intent explicit.
-      await fastify.prisma.playbackProgress.deleteMany({
-        where: { mediaItemId: { in: mediaIds } },
-      });
-      await fastify.prisma.watchHistory.deleteMany({
-        where: { mediaItemId: { in: mediaIds } },
-      });
-      await fastify.prisma.favorite.deleteMany({ where: { mediaItemId: { in: mediaIds } } });
-      await fastify.prisma.mediaItem.deleteMany({ where: { id: { in: mediaIds } } });
+    let operationLock;
+    try {
+      operationLock = await fastify.libraryOperationLockService.acquire(library.id, 'clear');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message: 'Tarama veya başka bir kütüphane işlemi sürerken kütüphane temizlenemez.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
     }
 
-    // Subtitles, episodes, seasons and series follow their DriveFile or their
-    // MediaItem through the schema's cascades.
-    const { count: removedFiles } = await fastify.prisma.driveFile.deleteMany({
-      where: { libraryId: id },
-    });
+    try {
+      /*
+       * Scoped to this library. Every statement here except the two `libraryId`
+       * ones used to be an unfiltered `deleteMany({})`: clearing one library
+       * wiped every media item, subtitle, favourite and watch-history row in the
+       * database — including other libraries' and, now that libraries have
+       * owners, other accounts'.
+       */
+      // The clear is one bounded, relation-scoped transaction. The previous
+      // implementation materialized every media id in JS and could leave a
+      // half-cleared library if a later delete failed.
+      const removed = await fastify.prisma.$transaction(async (tx) => {
+        const mediaCount = await tx.mediaItem.count({ where: { libraryId: id } });
+        const fileCount = await tx.driveFile.count({ where: { libraryId: id } });
 
-    await fastify.prisma.musicAlbum.deleteMany({
-      where: { userId: request.user!.id, tracks: { none: {} } },
-    });
-    await fastify.prisma.musicArtist.deleteMany({
-      where: {
-        userId: request.user!.id,
-        trackCredits: { none: {} },
-        albumTracks: { none: {} },
-        albums: { none: {} },
-      },
-    });
-    await fastify.prisma.musicArtwork.deleteMany({
-      where: {
-        userId: request.user!.id,
-        albums: { none: {} },
-        artists: { none: {} },
-        tracks: { none: {} },
-      },
-    });
+        await tx.libraryScan.deleteMany({ where: { libraryId: id } });
+        await tx.playbackProgress.deleteMany({ where: { mediaItem: { libraryId: id } } });
+        await tx.watchHistory.deleteMany({ where: { mediaItem: { libraryId: id } } });
+        await tx.favorite.deleteMany({ where: { mediaItem: { libraryId: id } } });
+        await tx.mediaItem.deleteMany({ where: { libraryId: id } });
 
-    await fastify.prisma.library.update({
-      where: { id },
-      data: { lastScannedAt: null },
-    });
+        // Subtitles, episodes, seasons and series follow their DriveFile or
+        // MediaItem through the schema's cascades.
+        await tx.driveFile.deleteMany({ where: { libraryId: id } });
 
-    return reply.status(200).send({
-      message: 'Kütüphane veritabanı başarıyla temizlendi.',
-      removed: { media: mediaIds.length, files: removedFiles },
-    });
+        await tx.musicAlbum.deleteMany({
+          where: { userId: request.user!.id, tracks: { none: {} } },
+        });
+        await tx.musicArtist.deleteMany({
+          where: {
+            userId: request.user!.id,
+            trackCredits: { none: {} },
+            albumTracks: { none: {} },
+            albums: { none: {} },
+          },
+        });
+        await tx.musicArtwork.deleteMany({
+          where: {
+            userId: request.user!.id,
+            albums: { none: {} },
+            artists: { none: {} },
+            tracks: { none: {} },
+          },
+        });
+
+        await tx.library.update({
+          where: { id },
+          data: { lastScannedAt: null },
+        });
+
+        return { media: mediaCount, files: fileCount };
+      });
+
+      return reply.status(200).send({
+        message: 'Kütüphane veritabanı başarıyla temizlendi.',
+        removed,
+      });
+    } finally {
+      await operationLock.release();
+    }
   });
 };

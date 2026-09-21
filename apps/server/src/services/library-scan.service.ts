@@ -1,5 +1,9 @@
 import type { PrismaClient } from '@cinedrive/prisma';
-import { parseMediaFilename, parseSubtitleFilename } from '@cinedrive/shared';
+import {
+  normalizeSubtitleStem,
+  parseMediaFilename,
+  parseSubtitleFilename,
+} from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
 import { MetadataService } from './metadata.service.js';
@@ -8,9 +12,14 @@ import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename, isPlaylistFilename } from './music-metadata.service.js';
 import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import type {
+  LibraryOperationLock,
+  LibraryOperationLockService,
+} from './library-operation-lock.service.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isDriveVideoFile } from './media-file-types.js';
-import { resolveMediaItemId } from './media-item-id.service.js';
+import { resolveMediaItemId, upsertMediaItemWithIdentity } from './media-item-id.service.js';
+import { createOrUpdateDriveFileForLibrary } from './drive-file-identity.service.js';
 import {
   MAX_SCAN_FILE_COUNT,
   MAX_SCAN_FOLDER_COUNT,
@@ -40,6 +49,7 @@ export class LibraryScanService {
     private prisma: PrismaClient,
     private googleOAuthService: GoogleOAuthService,
     private scanLifecycle: ScanLifecycleService,
+    private operationLocks: LibraryOperationLockService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
   }
@@ -157,6 +167,9 @@ export class LibraryScanService {
     targets: DriveScanTarget[],
     exclusiveSourceId?: string,
   ): Promise<string> {
+    const operationLock = await this.operationLocks.acquire(libraryId, 'scan');
+    let handedOff = false;
+
     // Token checks happen before this method, so repeat the lock check to close
     // the small race between two requests validating access simultaneously.
     if (
@@ -167,6 +180,7 @@ export class LibraryScanService {
             (activeLibraryId) => activeLibraryId === libraryId,
           ))
     ) {
+      await operationLock.release();
       throw new Error('SCAN_ALREADY_IN_PROGRESS');
     }
     if (exclusiveSourceId) this.activeSourceScans.set(exclusiveSourceId, libraryId);
@@ -199,19 +213,33 @@ export class LibraryScanService {
           heartbeatAt: new Date(),
         },
       });
-      const signal = this.scanLifecycle.register(scan.id, libraryId, sourceIds, () => {
-        if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
-        else this.activeLibraryScans.delete(libraryId);
-      });
+      const signal = this.scanLifecycle.register(
+        scan.id,
+        libraryId,
+        sourceIds,
+        () => {
+          if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
+          else this.activeLibraryScans.delete(libraryId);
+        },
+        () => operationLock.heartbeat(),
+      );
 
       // Launch scan execution asynchronously in background.
-      this.executeScanAsync(userId, libraryId, scan.id, targets, signal, exclusiveSourceId).catch(
-        () => {},
-      );
+      this.executeScanAsync(
+        userId,
+        libraryId,
+        scan.id,
+        targets,
+        signal,
+        operationLock,
+        exclusiveSourceId,
+      ).catch(() => {});
+      handedOff = true;
       return scan.id;
     } catch (error) {
       if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
       else this.activeLibraryScans.delete(libraryId);
+      if (!handedOff) await operationLock.release();
       throw error;
     }
   }
@@ -222,6 +250,7 @@ export class LibraryScanService {
     scanId: string,
     targets: DriveScanTarget[],
     signal: AbortSignal,
+    operationLock: LibraryOperationLock,
     exclusiveSourceId?: string,
   ): Promise<void> {
     const startTime = Date.now();
@@ -368,6 +397,7 @@ export class LibraryScanService {
       this.scanLifecycle.finish(scanId);
       if (exclusiveSourceId) this.activeSourceScans.delete(exclusiveSourceId);
       else this.activeLibraryScans.delete(libraryId);
+      await operationLock.release();
     }
   }
 
@@ -527,6 +557,12 @@ export class LibraryScanService {
           type,
           normalizedTitle,
           libraryId,
+          {
+            year,
+            driveFileId: driveFile.record.id,
+            seasonNumber: parsedName.seasonNumber,
+            episodeNumber: parsedName.episodeNumber,
+          },
         );
         const existingMediaItem = await this.prisma.mediaItem.findUnique({
           where: { id: mediaItemId },
@@ -576,11 +612,21 @@ export class LibraryScanService {
           if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
         }
 
-        // Upsert MediaItem
-        const mediaItem = await this.prisma.mediaItem.upsert({
-          where: { id: mediaItemId },
-          create: {
-            id: mediaItemId,
+        // Create-first plus retry prevents a simultaneous scan of another
+        // library from being re-homed through an upsert update branch.
+        const mediaItem = await upsertMediaItemWithIdentity(
+          this.prisma,
+          mediaItemId,
+          type,
+          normalizedTitle,
+          libraryId,
+          {
+            year,
+            driveFileId: driveFile.record.id,
+            seasonNumber: parsedName.seasonNumber,
+            episodeNumber: parsedName.episodeNumber,
+          },
+          {
             // Recorded at scan time so ownership is one indexed column rather
             // than a walk through movie/episode -> driveFile -> library.
             libraryId,
@@ -601,8 +647,8 @@ export class LibraryScanService {
             tmdbId,
             imdbId,
           },
-          update: {
-            // A rescan re-homes the record to the library that just found it.
+          {
+            // A rescan updates metadata without changing the library owner.
             libraryId,
             title,
             year: finalYear,
@@ -618,7 +664,7 @@ export class LibraryScanService {
             tmdbId: tmdbId || undefined,
             imdbId: imdbId || undefined,
           },
-        });
+        );
 
         if (type === 'movie') {
           await this.prisma.movie.upsert({
@@ -638,7 +684,7 @@ export class LibraryScanService {
             googleConnectionId,
             driveScanSourceId,
             allFiles,
-            video.name,
+            video,
             {
               mediaItemId: mediaItem.id,
             },
@@ -723,7 +769,7 @@ export class LibraryScanService {
             googleConnectionId,
             driveScanSourceId,
             allFiles,
-            video.name,
+            video,
             {
               episodeId: episode.id,
             },
@@ -910,10 +956,7 @@ export class LibraryScanService {
       select: { id: true, googleDriveFileId: true },
     });
     const missingFileIds = existingFiles
-      .filter(
-        (file) =>
-          !!file.googleDriveFileId && !seenGoogleFileIds.has(file.googleDriveFileId),
-      )
+      .filter((file) => !!file.googleDriveFileId && !seenGoogleFileIds.has(file.googleDriveFileId))
       .map((file) => file.id);
     if (missingFileIds.length > 0) {
       const result = await this.prisma.driveFile.updateMany({
@@ -986,6 +1029,9 @@ export class LibraryScanService {
     const existing = await this.prisma.driveFile.findUnique({
       where: { googleDriveFileId: file.id },
     });
+    if (existing && existing.libraryId !== libraryId) {
+      throw new Error('DRIVE_FILE_LIBRARY_CONFLICT');
+    }
     const nextModifiedTime = file.modifiedTime ? new Date(file.modifiedTime) : null;
     const sourceChanged =
       !!existing &&
@@ -993,9 +1039,11 @@ export class LibraryScanService {
         existing.modifiedTime?.getTime() !== nextModifiedTime?.getTime() ||
         existing.md5Checksum !== (file.md5Checksum || null));
 
-    const record = await this.prisma.driveFile.upsert({
-      where: { googleDriveFileId: file.id },
-      create: {
+    const result = await createOrUpdateDriveFileForLibrary(
+      this.prisma,
+      { googleDriveFileId: file.id },
+      libraryId,
+      {
         libraryId,
         googleConnectionId,
         driveScanSourceId,
@@ -1008,7 +1056,7 @@ export class LibraryScanService {
         md5Checksum: file.md5Checksum || null,
         status: 'active',
       },
-      update: {
+      {
         libraryId,
         googleConnectionId,
         driveScanSourceId,
@@ -1038,11 +1086,12 @@ export class LibraryScanService {
             }
           : {}),
       },
-    });
+    );
+    const record = result.record;
 
     return {
       record,
-      isNew: !existing,
+      isNew: result.created,
       sourceChanged,
       needsMediaAnalysis: !existing?.mediaAnalyzedAt || sourceChanged,
     };
@@ -1053,14 +1102,17 @@ export class LibraryScanService {
     googleConnectionId: string,
     driveScanSourceId: string | null,
     allFiles: DriveFileMetadata[],
-    videoName: string,
+    video: DriveFileMetadata,
     target: { mediaItemId?: string; episodeId?: string },
   ) {
-    const videoBase = videoName.replace(/\.[^/.]+$/, '').toLowerCase();
+    const videoBase = normalizeSubtitleStem(video.name);
     const subtitles = allFiles.filter(
       (f) =>
-        (f.name.endsWith('.vtt') || f.name.endsWith('.srt')) &&
-        f.name.toLowerCase().startsWith(videoBase),
+        (f.name.toLowerCase().endsWith('.vtt') || f.name.toLowerCase().endsWith('.srt')) &&
+        normalizeSubtitleStem(f.name) === videoBase &&
+        (!video.parents?.length ||
+          !f.parents?.length ||
+          f.parents.some((parent) => video.parents?.includes(parent))),
     );
 
     for (const sub of subtitles) {

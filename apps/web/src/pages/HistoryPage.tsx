@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Calendar, Film, Monitor, Smartphone, Tablet, Trash2 } from 'lucide-react';
 import {
@@ -27,9 +27,23 @@ export const HistoryPage: React.FC = () => {
   const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('all');
   const [episodesOnly, setEpisodesOnly] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const { data: historyItems, isLoading, isError, error, refetch } = useWatchHistoryQuery();
+  const {
+    data: historyData,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useWatchHistoryQuery();
   const deleteHistoryMutation = useDeleteHistoryMutation();
   const clearHistoryMutation = useClearWatchHistoryMutation();
+  const historyItems = useMemo(
+    () => historyData?.pages.flatMap((page) => page.history) || [],
+    [historyData],
+  );
+  const totalHistoryCount = historyData?.pages[0]?.pagination.total ?? historyItems.length;
 
   // `window.confirm` blocks the tab with a browser chrome dialog that ignores
   // the app's focus handling and styling; every other destructive action here
@@ -79,8 +93,8 @@ export const HistoryPage: React.FC = () => {
         <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
           {t.history.title}
         </h2>
-        {historyItems && historyItems.length > 0 && (
-          <span className="text-sm text-zinc-500">{t.history.itemCount(historyItems.length)}</span>
+        {historyItems.length > 0 && (
+          <span className="text-sm text-zinc-500">{t.history.itemCount(totalHistoryCount)}</span>
         )}
         <p className="w-full text-sm text-zinc-400">{t.history.subtitle}</p>
       </div>
@@ -170,107 +184,135 @@ export const HistoryPage: React.FC = () => {
       ) : isError ? (
         <ErrorState error={error} title={t.history.loadFailed} onRetry={() => void refetch()} />
       ) : filteredItems.length === 0 ? (
-        <EmptyState
-          title={t.history.emptyTitle}
-          description={t.history.emptyDescription}
-          actionLabel={t.history.exploreLibrary}
-          onAction={() => navigate('/library')}
-        />
+        <>
+          <EmptyState
+            title={t.history.emptyTitle}
+            description={t.history.emptyDescription}
+            actionLabel={t.history.exploreLibrary}
+            onAction={() => navigate('/library')}
+          />
+          {hasNextPage && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {isFetchingNextPage ? t.history.loadingMore : t.history.loadMore}
+              </button>
+            </div>
+          )}
+        </>
       ) : (
-        <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
-          {filteredItems.map((item) => {
-            const posterUrl = getPosterUrl(item.mediaItem);
-            const watchHref = item.episodeId
-              ? `/watch/${item.mediaItem.id}/${item.episodeId}`
-              : `/watch/${item.mediaItem.id}`;
+        <>
+          <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
+            {filteredItems.map((item) => {
+              const posterUrl = getPosterUrl(item.mediaItem);
+              const watchHref = item.episodeId
+                ? `/watch/${item.mediaItem.id}/${item.episodeId}`
+                : `/watch/${item.mediaItem.id}`;
 
-            return (
-              <li key={item.id} className="group relative flex items-center gap-4 py-3">
-                <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-zinc-900">
-                  {posterUrl ? (
-                    <img
-                      src={posterUrl}
-                      alt=""
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-zinc-600">
-                      <Film className="h-5 w-5" />
-                    </div>
-                  )}
-                </div>
+              return (
+                <li key={item.id} className="group relative flex items-center gap-4 py-3">
+                  <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-zinc-900">
+                    {posterUrl ? (
+                      <img
+                        src={posterUrl}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-zinc-600">
+                        <Film className="h-5 w-5" />
+                      </div>
+                    )}
+                  </div>
 
-                <div className="min-w-0 flex-1">
-                  {/*
+                  <div className="min-w-0 flex-1">
+                    {/*
                     The whole row is the link now. It used to be a plain div
                     with hover styling and a small button as the only way in —
                     and that button was an `<a href>`, so every "watch" click
                     reloaded the entire app instead of routing.
                   */}
-                  <Link
-                    to={watchHref}
-                    className="after:absolute after:inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-                  >
-                    <span className="block truncate text-sm font-semibold text-zinc-100 group-hover:text-brand-300">
-                      {item.mediaItem.title}
-                      {item.episode && (
-                        <span className="ml-2 text-xs font-normal text-zinc-400">
-                          {item.episode.seasonNumber}x
-                          {item.episode.episodeNumber < 10
-                            ? `0${item.episode.episodeNumber}`
-                            : item.episode.episodeNumber}{' '}
-                          · {item.episode.title}
-                        </span>
-                      )}
-                    </span>
-                  </Link>
+                    <Link
+                      to={watchHref}
+                      className="after:absolute after:inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                    >
+                      <span className="block truncate text-sm font-semibold text-zinc-100 group-hover:text-brand-300">
+                        {item.mediaItem.title}
+                        {item.episode && (
+                          <span className="ml-2 text-xs font-normal text-zinc-400">
+                            {item.episode.seasonNumber}x
+                            {item.episode.episodeNumber < 10
+                              ? `0${item.episode.episodeNumber}`
+                              : item.episode.episodeNumber}{' '}
+                            · {item.episode.title}
+                          </span>
+                        )}
+                      </span>
+                    </Link>
 
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
-                    <span className="uppercase tracking-wide">
-                      {item.mediaItem.type === 'movie' ? t.common.movie : t.common.series}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {formatFriendlyDate(item.watchedAt)}
-                    </span>
-                    <span>
-                      {t.history.watchedMinutes(
-                        Math.max(1, Math.round(item.positionSeconds / 60)),
-                      )}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {item.deviceType === 'mobile' ? (
-                        <Smartphone className="h-3 w-3" />
-                      ) : item.deviceType === 'tablet' ? (
-                        <Tablet className="h-3 w-3" />
-                      ) : (
-                        <Monitor className="h-3 w-3" />
-                      )}
-                      {item.deviceType === 'mobile'
-                        ? t.history.deviceMobile
-                        : item.deviceType === 'tablet'
-                          ? t.history.deviceTablet
-                          : item.deviceType === 'desktop'
-                            ? t.history.deviceDesktop
-                            : t.history.deviceUnknown}
-                    </span>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                      <span className="uppercase tracking-wide">
+                        {item.mediaItem.type === 'movie' ? t.common.movie : t.common.series}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {formatFriendlyDate(item.watchedAt)}
+                      </span>
+                      <span>
+                        {t.history.watchedMinutes(
+                          Math.max(1, Math.round(item.positionSeconds / 60)),
+                        )}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        {item.deviceType === 'mobile' ? (
+                          <Smartphone className="h-3 w-3" />
+                        ) : item.deviceType === 'tablet' ? (
+                          <Tablet className="h-3 w-3" />
+                        ) : (
+                          <Monitor className="h-3 w-3" />
+                        )}
+                        {item.deviceType === 'mobile'
+                          ? t.history.deviceMobile
+                          : item.deviceType === 'tablet'
+                            ? t.history.deviceTablet
+                            : item.deviceType === 'desktop'
+                              ? t.history.deviceDesktop
+                              : t.history.deviceUnknown}
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Above the stretched link, so it stays clickable. */}
-                <button
-                  onClick={() => deleteHistoryMutation.mutate(item.id)}
-                  disabled={deleteHistoryMutation.isPending}
-                  className="relative z-10 shrink-0 rounded-md p-2 text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
-                  aria-label={t.history.deleteEntry(item.mediaItem.title)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  {/* Above the stretched link, so it stays clickable. */}
+                  <button
+                    onClick={() => deleteHistoryMutation.mutate(item.id)}
+                    disabled={deleteHistoryMutation.isPending}
+                    className="relative z-10 shrink-0 rounded-md p-2 text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50"
+                    aria-label={t.history.deleteEntry(item.mediaItem.title)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {hasNextPage && (
+            <div className="flex justify-center pt-4">
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {isFetchingNextPage ? t.history.loadingMore : t.history.loadMore}
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <Modal

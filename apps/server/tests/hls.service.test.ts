@@ -4,7 +4,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HlsService } from '../src/services/hls.service';
 import { HlsCacheStore } from '../src/services/hls-cache-store';
-import { HlsSlotScheduler, NORMAL_PRIORITY, SEEK_PRIORITY } from '../src/services/hls-slot-scheduler';
+import {
+  HlsSlotScheduler,
+  NORMAL_PRIORITY,
+  SEEK_PRIORITY,
+} from '../src/services/hls-slot-scheduler';
 import { selectProfile, videoOptions } from '../src/services/hls-encoder';
 
 const temporaryDirectories: string[] = [];
@@ -154,6 +158,39 @@ describe('HlsService cache management', () => {
     expect(service.releaseHls(cacheKey, 'player_session_2')).toBe(true);
     expect(kill).toHaveBeenCalledWith('SIGKILL');
     expect(service.getStats().activeJobs).toBe(0);
+  });
+
+  it('does not let a different user release an HLS lease', () => {
+    const service = createService(1024);
+    const cacheKey = 'owned-session';
+    const kill = vi.fn();
+    const idleTimer = setInterval(() => {}, 60_000);
+    idleTimer.unref();
+    const internals = service as unknown as {
+      jobs: Map<string, unknown>;
+      acquireLease: (key: string, session: string, user: string) => void;
+    };
+    internals.jobs.set(cacheKey, {
+      id: 'owned-job',
+      command: { kill },
+      ready: Promise.resolve(),
+      familyKey: cacheKey,
+      mediaName: 'Owned Episode.mkv',
+      pid: 1234,
+      startSeconds: 0,
+      startedAt: Date.now(),
+      lastAccessAt: Date.now(),
+      idleTimer,
+      profile: 'video-copy-aac',
+      lastRequestedSegment: -1,
+      isPaused: false,
+    });
+    internals.acquireLease(cacheKey, 'owned_session', 'user-a');
+
+    expect(service.releaseHls(cacheKey, 'owned_session', 'user-b')).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+    expect(service.releaseHls(cacheKey, 'owned_session', 'user-a')).toBe(true);
+    expect(kill).toHaveBeenCalledWith('SIGKILL');
   });
 
   it('does not let a stopped encoder detach its back-navigation replacement', () => {

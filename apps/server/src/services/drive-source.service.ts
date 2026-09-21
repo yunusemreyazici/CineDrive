@@ -18,12 +18,15 @@ const CAPABILITY_TTL_MS = 12 * 60 * 60 * 1000;
 export type DriveSourceCapability = {
   googleDriveFileId: string;
   userId: string;
+  /** User whose library access must still be valid when the token is used. */
+  accessUserId?: string;
   connectionId?: string;
 };
 
 type CapabilityPayload = {
   f: string;
   u: string;
+  a?: string;
   c: string;
   e: number;
 };
@@ -45,6 +48,7 @@ export class DriveSourceService {
       u: capability.userId,
       c: capability.connectionId || '',
       e: now + CAPABILITY_TTL_MS,
+      ...(capability.accessUserId ? { a: capability.accessUserId } : {}),
     };
     const encoded = base64url(JSON.stringify(payload));
     return `${encoded}.${this.sign(encoded)}`;
@@ -81,6 +85,7 @@ export class DriveSourceService {
     return {
       googleDriveFileId: payload.f,
       userId: payload.u,
+      ...(typeof payload.a === 'string' && payload.a ? { accessUserId: payload.a } : {}),
       ...(payload.c ? { connectionId: payload.c } : {}),
     };
   }

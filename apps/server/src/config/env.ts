@@ -11,10 +11,6 @@ const envPaths = [
   path.resolve(process.cwd(), '../../.env'),
   path.resolve(__dirname, '../../../.env'),
   path.resolve(__dirname, '../../../../.env'),
-  path.resolve(process.cwd(), '.env.example'),
-  path.resolve(process.cwd(), '../../.env.example'),
-  path.resolve(__dirname, '../../../.env.example'),
-  path.resolve(__dirname, '../../../../.env.example'),
 ];
 
 loadDotenvFiles(envPaths);
@@ -30,11 +26,29 @@ const parseEnv = (): EnvConfig => {
 
   // Strict production secrets validation
   if (parsed.NODE_ENV === 'production') {
-    if (parsed.SESSION_SECRET.includes('super-secret-session-key')) {
-      throw new Error('FATAL: Default SESSION_SECRET cannot be used in production environment!');
-    }
-    if (parsed.TOKEN_ENCRYPTION_KEY.length !== 64) {
-      throw new Error('FATAL: TOKEN_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)!');
+    const placeholders = [
+      'your-32-byte-hex-session-secret-key-goes-here',
+      'your-google-client-id.apps.googleusercontent.com',
+      'your-google-client-secret',
+      'your-google-drive-root-folder-id',
+      'admin@example.com',
+      'YourStrongAdminPassword123!',
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    ];
+    if (
+      placeholders.some((placeholder) =>
+        [
+          parsed.SESSION_SECRET,
+          parsed.TOKEN_ENCRYPTION_KEY,
+          parsed.GOOGLE_CLIENT_ID,
+          parsed.GOOGLE_CLIENT_SECRET,
+          parsed.GOOGLE_DRIVE_ROOT_FOLDER_ID,
+          parsed.ADMIN_EMAIL,
+          parsed.ADMIN_PASSWORD,
+        ].includes(placeholder),
+      )
+    ) {
+      throw new Error('FATAL: Example credentials cannot be used in production environment!');
     }
   }
 

@@ -372,6 +372,138 @@ describe('Library API Integration Tests', () => {
     await app.prisma.mediaItem.deleteMany({ where: { id: keeper.mediaItem.id } });
   });
 
+  it('does not delete a DriveFile still referenced by another media row', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: `Shared file delete ${Date.now()}`, rootFolderId: 'shared' },
+    });
+    const driveFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        googleDriveFileId: `shared-delete-${Date.now()}`,
+        name: 'shared.mkv',
+        mimeType: 'video/x-matroska',
+      },
+    });
+    const mediaItems = await Promise.all(
+      ['First reference', 'Second reference'].map((title) =>
+        app.prisma.mediaItem.create({
+          data: {
+            libraryId: library.id,
+            type: 'movie',
+            title,
+            normalizedTitle: title.toLowerCase(),
+            movie: { create: { driveFileId: driveFile.id } },
+          },
+        }),
+      ),
+    );
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/media/${mediaItems[0]!.id}`,
+      cookies: { session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      await app.prisma.mediaItem.findUnique({ where: { id: mediaItems[1]!.id } }),
+    ).not.toBeNull();
+    expect(await app.prisma.driveFile.findUnique({ where: { id: driveFile.id } })).not.toBeNull();
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+  });
+
+  it('returns the newest episode progress on a media list card', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: `Newest progress ${Date.now()}`, rootFolderId: 'progress' },
+    });
+    const media = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: library.id,
+        type: 'series',
+        title: 'Progress Series',
+        normalizedTitle: 'progress series',
+      },
+    });
+    const series = await app.prisma.series.create({ data: { mediaItemId: media.id } });
+    const season = await app.prisma.season.create({
+      data: { seriesId: series.id, seasonNumber: 1, name: 'Season 1' },
+    });
+    const episodes = await Promise.all(
+      [1, 2].map(async (episodeNumber) => {
+        const driveFile = await app.prisma.driveFile.create({
+          data: {
+            libraryId: library.id,
+            googleDriveFileId: `progress-${Date.now()}-${episodeNumber}`,
+            name: `episode-${episodeNumber}.mkv`,
+            mimeType: 'video/x-matroska',
+          },
+        });
+        return app.prisma.episode.create({
+          data: {
+            seriesId: series.id,
+            seasonId: season.id,
+            mediaItemId: media.id,
+            driveFileId: driveFile.id,
+            seasonNumber: 1,
+            episodeNumber,
+            title: `Episode ${episodeNumber}`,
+          },
+        });
+      }),
+    );
+    await app.prisma.playbackProgress.create({
+      data: {
+        userId: owner.id,
+        mediaItemId: media.id,
+        episodeId: episodes[0]!.id,
+        trackingKey: episodes[0]!.id,
+        positionSeconds: 10,
+        durationSeconds: 100,
+        percentage: 10,
+        lastPlayedAt: new Date('2026-01-01T00:00:00Z'),
+      },
+    });
+    await app.prisma.playbackProgress.create({
+      data: {
+        userId: owner.id,
+        mediaItemId: media.id,
+        episodeId: episodes[1]!.id,
+        trackingKey: episodes[1]!.id,
+        positionSeconds: 80,
+        durationSeconds: 100,
+        percentage: 80,
+        lastPlayedAt: new Date('2026-02-01T00:00:00Z'),
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/media?type=series&limit=20',
+      cookies: { session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      JSON.parse(response.body).media.find((item: { id: string }) => item.id === media.id).progress
+        .positionSeconds,
+    ).toBe(80);
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+  });
+
   it('removes a local library and its indexed records without touching the folder', async () => {
     const owner = await app.authService.ensureAdminUserExists();
     const suffix = Date.now();

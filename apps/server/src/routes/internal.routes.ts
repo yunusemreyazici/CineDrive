@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { isLoopbackAddress } from '../services/drive-source.service.js';
 import { resolveRangeRequest } from '../utils/http-range.js';
+import { accessibleLibraryFilter } from '../utils/library-access.js';
 
 /**
  * Loopback-only Drive source proxy consumed by FFmpeg.
@@ -21,6 +22,27 @@ export const internalRoutes: FastifyPluginAsync = async (fastify) => {
       const capability = fastify.driveSourceService.verify(request.params.capability);
       if (!capability) {
         return reply.status(403).send();
+      }
+
+      const accessUserId = capability.accessUserId || capability.userId;
+      const driveFile = await fastify.prisma.driveFile.findFirst({
+        where: {
+          googleDriveFileId: capability.googleDriveFileId,
+          status: 'active',
+          library: accessibleLibraryFilter(accessUserId),
+          ...(capability.connectionId
+            ? {
+                googleConnection: {
+                  id: capability.connectionId,
+                  userId: capability.userId,
+                },
+              }
+            : {}),
+        },
+        select: { id: true },
+      });
+      if (!driveFile) {
+        return reply.status(404).send();
       }
 
       let accessToken: string;

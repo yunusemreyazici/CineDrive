@@ -25,6 +25,10 @@ import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { musicRoutes } from './routes/music.routes.js';
 import { systemMetricsRoutes } from './routes/system-metrics.routes.js';
+import {
+  assertProductionSchema,
+  hasProductionSchema,
+} from './services/database-readiness.service.js';
 import type {
   HealthResponse,
   ReadinessResponse,
@@ -144,6 +148,9 @@ export const buildApp = async (
 
   // Register Core Database & Auth Plugins
   await app.register(prismaPlugin);
+  if (env.NODE_ENV === 'production') {
+    await assertProductionSchema(app.prisma);
+  }
   await app.register(systemMetricsPlugin);
   await app.register(authPlugin);
 
@@ -182,10 +189,22 @@ export const buildApp = async (
 
     try {
       await withTimeout(app.prisma.$queryRaw`SELECT 1`, readinessTimeoutMs);
+      const migrationsReady =
+        env.NODE_ENV !== 'production'
+          ? true
+          : await withTimeout(hasProductionSchema(app.prisma), readinessTimeoutMs);
+      if (!migrationsReady) {
+        return reply.status(503).send({
+          status: 'not_ready',
+          timestamp,
+          checks: { database: 'ok', migrations: 'error' },
+          requestId: request.id,
+        });
+      }
       return {
         status: 'ready',
         timestamp,
-        checks: { database: 'ok' },
+        checks: { database: 'ok', migrations: 'ok' },
       };
     } catch (error) {
       const requestId = request.id;
@@ -193,7 +212,7 @@ export const buildApp = async (
       return reply.status(503).send({
         status: 'not_ready',
         timestamp,
-        checks: { database: 'error' },
+        checks: { database: 'error', migrations: 'error' },
         requestId,
       });
     }

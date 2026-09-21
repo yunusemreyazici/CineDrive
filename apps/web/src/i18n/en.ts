@@ -212,6 +212,8 @@ export const en: Translations = {
     playlistCreated: 'Playlist created.',
     noPlaylists: 'You have no playlists yet.',
     noTracks: 'No tracks found',
+    loadMore: 'Load more tracks',
+    loadingMore: 'Loading more tracks…',
     search: 'Search tracks, artists or albums…',
     play: 'Play',
     pause: 'Pause',
@@ -1002,6 +1004,8 @@ export const en: Translations = {
     deleteEntry: (title: string) => `Delete the ${title} entry from history`,
     clearConfirmTitle: 'Clear history',
     itemCount: (count: number) => `${count} entries`,
+    loadMore: 'Load more',
+    loadingMore: 'Loading more…',
   },
 
   settings: {

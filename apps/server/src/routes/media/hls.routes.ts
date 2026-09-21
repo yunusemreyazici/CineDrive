@@ -16,7 +16,11 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
   }>('/:driveFileId/hls/index.m3u8', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(fastify, request.params.driveFileId, request.user!.id);
+    const driveFile = await resolveActiveDriveFile(
+      fastify,
+      request.params.driveFileId,
+      request.user!.id,
+    );
     if (!driveFile) {
       return reply.status(404).send({
         error: {
@@ -95,6 +99,7 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
         driveFile.name,
         driveFile.videoCodec,
         abortController.signal,
+        request.user!.id,
       );
       const assetQuery = `?start=${startSeconds}`;
       const playlist = fs
@@ -147,7 +152,11 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string };
     Querystring: { start?: string; session?: string };
   }>('/:driveFileId/hls/release', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(fastify, request.params.driveFileId, request.user!.id);
+    const driveFile = await resolveActiveDriveFile(
+      fastify,
+      request.params.driveFileId,
+      request.user!.id,
+    );
     if (!driveFile) return reply.status(404).send();
 
     const startSeconds = parseHlsStart(request.query.start);
@@ -156,7 +165,11 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send();
     }
 
-    const stopped = fastify.hlsService.releaseHls(hlsCacheKey(driveFile, startSeconds), sessionId);
+    const stopped = fastify.hlsService.releaseHls(
+      hlsCacheKey(driveFile, startSeconds),
+      sessionId,
+      request.user!.id,
+    );
     return reply.status(200).send({ stopped });
   });
 
@@ -164,7 +177,11 @@ export const mediaHlsRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { driveFileId: string; assetName: string };
     Querystring: { start?: string };
   }>('/:driveFileId/hls/:assetName', async (request, reply) => {
-    const driveFile = await resolveActiveDriveFile(fastify, request.params.driveFileId, request.user!.id);
+    const driveFile = await resolveActiveDriveFile(
+      fastify,
+      request.params.driveFileId,
+      request.user!.id,
+    );
     if (!driveFile) return reply.status(404).send();
 
     try {

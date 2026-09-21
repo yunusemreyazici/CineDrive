@@ -95,6 +95,78 @@ describe('Playback & History API Integration Tests', () => {
     await app.prisma.user.delete({ where: { id: intruder.id } });
   });
 
+  it('removes playback visibility and write access after library membership is revoked', async () => {
+    const password = 'PlaybackMemberPassword123!';
+    const member = await app.prisma.user.create({
+      data: {
+        email: `playback-member-${randomUUID()}@cinedrive.test`,
+        name: 'Playback member',
+        passwordHash: await app.authService.hashPassword(password),
+      },
+    });
+    await app.prisma.libraryMembership.create({
+      data: { libraryId: playbackLibraryId, userId: member.id, role: 'listener' },
+    });
+
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: member.email, password },
+    });
+    const sessionCookie = login.cookies.find((cookie) => cookie.name === 'session_id');
+
+    const saved = await app.inject({
+      method: 'PUT',
+      url: '/api/playback/progress',
+      cookies: { session_id: sessionCookie!.value },
+      payload: {
+        mediaItemId: 'media_test_pb_1',
+        positionSeconds: 120,
+        durationSeconds: 8100,
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    await app.prisma.libraryMembership.delete({
+      where: { libraryId_userId: { libraryId: playbackLibraryId, userId: member.id } },
+    });
+
+    const [history, continueWatching, progress, writeAfterRevoke] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/api/history',
+        cookies: { session_id: sessionCookie!.value },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/playback/continue',
+        cookies: { session_id: sessionCookie!.value },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/playback/media_test_pb_1',
+        cookies: { session_id: sessionCookie!.value },
+      }),
+      app.inject({
+        method: 'PUT',
+        url: '/api/playback/progress',
+        cookies: { session_id: sessionCookie!.value },
+        payload: {
+          mediaItemId: 'media_test_pb_1',
+          positionSeconds: 240,
+          durationSeconds: 8100,
+        },
+      }),
+    ]);
+
+    expect(history.json().history).toHaveLength(0);
+    expect(continueWatching.json().items).toHaveLength(0);
+    expect(progress.json()).toMatchObject({ progress: null, all: [] });
+    expect(writeAfterRevoke.statusCode).toBe(404);
+
+    await app.prisma.user.delete({ where: { id: member.id } });
+  });
+
   it('PUT /api/playback/progress keeps validation issue details in the 400 response', async () => {
     const loginRes = await app.inject({
       method: 'POST',

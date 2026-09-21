@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUpdateProgressMutation } from '../../../hooks/useApi';
 
 interface UsePlaybackProgressOptions {
@@ -16,37 +17,63 @@ export function usePlaybackProgress({
   currentTime,
   duration,
 }: UsePlaybackProgressOptions) {
-  const { mutate } = useUpdateProgressMutation();
+  const queryClient = useQueryClient();
+  const { mutate } = useUpdateProgressMutation({ invalidateOnSuccess: false });
 
   const optionsRef = useRef({ mediaItemId, episodeId, currentTime, duration, mutate });
+  const latestPositionRef = useRef({ currentTime, duration });
   useEffect(() => {
     optionsRef.current = { mediaItemId, episodeId, currentTime, duration, mutate };
+    latestPositionRef.current = { currentTime, duration };
   });
 
   const lastSavedPositionRef = useRef<number>(-1);
   const prevIsPlayingRef = useRef<boolean>(isPlaying);
 
-  const saveProgress = useCallback((force = false) => {
-    const { mediaItemId, episodeId, currentTime, duration, mutate } = optionsRef.current;
-    if (!mediaItemId || duration <= 0) return;
+  useEffect(() => {
+    // A new media/episode gets its own change threshold and unload snapshot.
+    // Otherwise the first position of the next item can be suppressed because
+    // it is close to the previous item's last saved second.
+    lastSavedPositionRef.current = -1;
+  }, [mediaItemId, episodeId]);
 
-    const pos = Math.floor(currentTime);
-    const dur = Math.floor(duration);
+  const saveProgress = useCallback(
+    (force = false) => {
+      const { mediaItemId, episodeId, duration, mutate } = optionsRef.current;
+      if (!mediaItemId || duration <= 0) return;
 
-    // Avoid redundant progress updates if position hasn't meaningfully changed
-    if (!force && Math.abs(pos - lastSavedPositionRef.current) < 2) {
-      return;
-    }
+      const latest = latestPositionRef.current;
+      const pos = Math.floor(latest.currentTime);
+      const dur = Math.floor(latest.duration || duration);
 
-    lastSavedPositionRef.current = pos;
+      // Avoid redundant progress updates if position hasn't meaningfully changed
+      if (!force && Math.abs(pos - lastSavedPositionRef.current) < 2) {
+        return;
+      }
 
-    mutate({
-      mediaItemId,
-      episodeId: episodeId || undefined,
-      positionSeconds: pos,
-      durationSeconds: dur,
-    });
-  }, []);
+      lastSavedPositionRef.current = pos;
+
+      mutate(
+        {
+          mediaItemId,
+          episodeId: episodeId || undefined,
+          positionSeconds: pos,
+          durationSeconds: dur,
+          clientTimestamp: Date.now(),
+        },
+        {
+          onSuccess: () => {
+            if (!force) return;
+            void Promise.all([
+              queryClient.invalidateQueries({ queryKey: ['continueWatching'] }),
+              queryClient.invalidateQueries({ queryKey: ['watchHistory'] }),
+            ]);
+          },
+        },
+      );
+    },
+    [queryClient],
+  );
 
   // Periodic progress saving every 15 seconds during active playback
   useEffect(() => {
@@ -70,15 +97,17 @@ export function usePlaybackProgress({
   // Save progress on page unload (tab close / refresh) with fetch keepalive
   useEffect(() => {
     const handleBeforeUnload = () => {
-      const { mediaItemId, episodeId, duration } = optionsRef.current;
-      if (mediaItemId && duration > 0 && lastSavedPositionRef.current > 0) {
-        const pos = Math.floor(lastSavedPositionRef.current);
+      const { mediaItemId, episodeId } = optionsRef.current;
+      const { currentTime, duration } = latestPositionRef.current;
+      if (mediaItemId && duration > 0 && currentTime > 0) {
+        const pos = Math.floor(currentTime);
         const dur = Math.floor(duration);
         const payload = JSON.stringify({
           mediaItemId,
           episodeId: episodeId || undefined,
           positionSeconds: pos,
           durationSeconds: dur,
+          clientTimestamp: Date.now(),
         });
 
         fetch('/api/playback/progress', {

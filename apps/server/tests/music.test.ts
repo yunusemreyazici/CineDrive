@@ -1192,6 +1192,35 @@ describe('Music library', () => {
     ]);
   });
 
+  it('serializes concurrent playlist appends without duplicate positions', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/music/playlists',
+      cookies: { session_id: cookie },
+      payload: { name: 'Concurrent append' },
+    });
+    const playlistId = JSON.parse(created.body).playlist.id;
+
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playlists/${playlistId}/items`,
+          cookies: { session_id: cookie },
+          payload: { trackId },
+        }),
+      ),
+    );
+
+    expect(responses.every((response) => response.statusCode === 201)).toBe(true);
+    const positions = await app.prisma.musicPlaylistItem.findMany({
+      where: { playlistId },
+      orderBy: { position: 'asc' },
+      select: { position: true },
+    });
+    expect(positions.map((item) => item.position)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
   it('reports maintenance issues and applies owned bulk metadata updates', async () => {
     const report = await app.inject({
       method: 'GET',

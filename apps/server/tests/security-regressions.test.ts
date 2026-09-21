@@ -280,6 +280,64 @@ describe('security regression coverage', () => {
     }
   });
 
+  it('does not rehome a local DriveFile when the same path is scanned by another library', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cinedrive-library-boundary-'));
+    try {
+      const admin = await app.authService.ensureAdminUserExists();
+      const [ownerLibrary, scanningLibrary] = await Promise.all([
+        app.prisma.library.create({
+          data: {
+            userId: admin.id,
+            name: `Existing local owner ${randomUUID()}`,
+            storageType: 'local',
+            localFolderPath: path.join(root, 'owner'),
+          },
+        }),
+        app.prisma.library.create({
+          data: {
+            userId: admin.id,
+            name: `Scanning local library ${randomUUID()}`,
+            storageType: 'local',
+            localFolderPath: root,
+          },
+        }),
+      ]);
+      const mediaPath = path.join(root, 'same-title.mp4');
+      await fs.writeFile(mediaPath, 'not a real video');
+      const canonicalMediaPath = await fs.realpath(mediaPath);
+      const existing = await app.prisma.driveFile.create({
+        data: {
+          libraryId: ownerLibrary.id,
+          storageType: 'local',
+          localFilePath: canonicalMediaPath,
+          name: 'same-title.mp4',
+          mimeType: 'video/mp4',
+          status: 'active',
+        },
+      });
+
+      const scanId = await app.localScanService.startLocalScan(scanningLibrary.id);
+      let scan = await app.prisma.libraryScan.findUnique({ where: { id: scanId } });
+      for (let attempt = 0; attempt < 100 && scan?.status === 'running'; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        scan = await app.prisma.libraryScan.findUnique({ where: { id: scanId } });
+      }
+
+      try {
+        expect(scan?.status).toBe('completed');
+        expect(scan?.errorCount).toBeGreaterThan(0);
+        expect(
+          (await app.prisma.driveFile.findUnique({ where: { id: existing.id } }))?.libraryId,
+        ).toBe(ownerLibrary.id);
+      } finally {
+        await app.prisma.library.delete({ where: { id: scanningLibrary.id } });
+        await app.prisma.library.delete({ where: { id: ownerLibrary.id } });
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps same-title media isolated between libraries', async () => {
     const admin = await app.authService.ensureAdminUserExists();
     const [firstLibrary, secondLibrary] = await Promise.all([
@@ -301,12 +359,135 @@ describe('security regression coverage', () => {
       },
     });
 
-    expect(await resolveMediaItemId(app.prisma, 'movie', 'same title', firstLibrary.id)).toBe(baseId);
+    expect(await resolveMediaItemId(app.prisma, 'movie', 'same title', firstLibrary.id)).toBe(
+      baseId,
+    );
     expect(await resolveMediaItemId(app.prisma, 'movie', 'same title', secondLibrary.id)).toBe(
       `${baseId}_${secondLibrary.id}`,
     );
     await app.prisma.library.delete({ where: { id: firstLibrary.id } });
     await app.prisma.library.delete({ where: { id: secondLibrary.id } });
+  });
+
+  it('does not re-home orphaned or differently typed media identities', async () => {
+    const admin = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: admin.id, name: `Identity edge ${randomUUID()}`, storageType: 'gdrive' },
+    });
+    const orphanId = await resolveMediaItemId(app.prisma, 'movie', 'orphan title', library.id);
+    await app.prisma.mediaItem.create({
+      data: {
+        id: orphanId,
+        type: 'movie',
+        title: 'Orphan Title',
+        normalizedTitle: 'orphan title',
+      },
+    });
+    expect(await resolveMediaItemId(app.prisma, 'movie', 'orphan title', library.id)).toBe(
+      orphanId + '_' + library.id,
+    );
+
+    const typedId = await resolveMediaItemId(app.prisma, 'movie', 'shared title', library.id);
+    await app.prisma.mediaItem.create({
+      data: {
+        id: typedId,
+        libraryId: library.id,
+        type: 'movie',
+        title: 'Shared Title',
+        normalizedTitle: 'shared title',
+      },
+    });
+    expect(await resolveMediaItemId(app.prisma, 'series', 'shared title', library.id)).not.toBe(
+      typedId,
+    );
+
+    await app.prisma.library.delete({ where: { id: library.id } });
+    await app.prisma.mediaItem.deleteMany({ where: { id: orphanId } });
+  });
+
+  it('keeps same-library movie editions from overwriting one another', async () => {
+    const admin = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: admin.id, name: `Edition identity ${randomUUID()}`, storageType: 'gdrive' },
+    });
+    const firstFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        storageType: 'gdrive',
+        googleDriveFileId: `edition-${randomUUID()}`,
+        name: 'Dune (2021).mkv',
+        mimeType: 'video/x-matroska',
+        status: 'active',
+      },
+    });
+    const baseId = await resolveMediaItemId(app.prisma, 'movie', 'dune', library.id, {
+      year: 2021,
+      driveFileId: firstFile.id,
+    });
+    await app.prisma.mediaItem.create({
+      data: {
+        id: baseId,
+        libraryId: library.id,
+        type: 'movie',
+        title: 'Dune',
+        normalizedTitle: 'dune',
+        year: 2021,
+        movie: { create: { driveFileId: firstFile.id } },
+      },
+    });
+
+    const secondFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        storageType: 'gdrive',
+        googleDriveFileId: `edition-${randomUUID()}`,
+        name: 'Dune (1984).mkv',
+        mimeType: 'video/x-matroska',
+        status: 'active',
+      },
+    });
+    const secondId = await resolveMediaItemId(app.prisma, 'movie', 'dune', library.id, {
+      year: 1984,
+      driveFileId: secondFile.id,
+    });
+    expect(secondId).toBe(`${baseId}_1984`);
+    await app.prisma.mediaItem.create({
+      data: {
+        id: secondId,
+        libraryId: library.id,
+        type: 'movie',
+        title: 'Dune',
+        normalizedTitle: 'dune',
+        year: 1984,
+        movie: { create: { driveFileId: secondFile.id } },
+      },
+    });
+
+    expect(
+      await resolveMediaItemId(app.prisma, 'movie', 'dune', library.id, {
+        year: 1984,
+        driveFileId: secondFile.id,
+      }),
+    ).toBe(secondId);
+
+    const thirdFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: library.id,
+        storageType: 'gdrive',
+        googleDriveFileId: `edition-${randomUUID()}`,
+        name: 'Dune (2021) alternate.mkv',
+        mimeType: 'video/x-matroska',
+        status: 'active',
+      },
+    });
+    expect(
+      await resolveMediaItemId(app.prisma, 'movie', 'dune', library.id, {
+        year: 2021,
+        driveFileId: thirdFile.id,
+      }),
+    ).not.toBe(baseId);
+
+    await app.prisma.library.delete({ where: { id: library.id } });
   });
 
   it('pages large insights catalogues without changing aggregate results', async () => {
@@ -346,7 +527,11 @@ describe('security regression coverage', () => {
     const cookie = login.cookies.find((entry) => entry.name === 'session_id')!.value;
     const [storage, health] = await Promise.all([
       app.inject({ method: 'GET', url: '/api/insights/storage', cookies: { session_id: cookie } }),
-      app.inject({ method: 'GET', url: '/api/insights/media-health', cookies: { session_id: cookie } }),
+      app.inject({
+        method: 'GET',
+        url: '/api/insights/media-health',
+        cookies: { session_id: cookie },
+      }),
     ]);
 
     expect(storage.statusCode).toBe(200);

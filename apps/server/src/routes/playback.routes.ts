@@ -26,7 +26,7 @@ export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const userId = request.user!.id;
-    const clientTimestamp = (request.body as { clientTimestamp?: number })?.clientTimestamp;
+    const clientTimestamp = parseResult.data.clientTimestamp;
 
     try {
       const progress = await fastify.playbackService.updateProgress(userId, {

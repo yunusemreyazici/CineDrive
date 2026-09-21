@@ -7,6 +7,7 @@ interface ActiveScan {
   sourceIds: string[];
   controller: AbortController;
   onInterrupted?: () => void;
+  onHeartbeat?: () => Promise<boolean>;
   lastHeartbeatAt: number;
   lastPersistedHeartbeatAt: number;
 }
@@ -30,6 +31,7 @@ export class ScanLifecycleService {
     libraryId: string,
     sourceIds: string[] = [],
     onInterrupted?: () => void,
+    onHeartbeat?: () => Promise<boolean>,
   ): AbortSignal {
     const controller = new AbortController();
     const now = Date.now();
@@ -38,6 +40,7 @@ export class ScanLifecycleService {
       sourceIds,
       controller,
       onInterrupted,
+      onHeartbeat,
       lastHeartbeatAt: now,
       lastPersistedHeartbeatAt: now,
     });
@@ -67,6 +70,13 @@ export class ScanLifecycleService {
         data: { heartbeatAt: new Date(now) },
       })
       .catch(() => {});
+    if (active.onHeartbeat) {
+      const owned = await active.onHeartbeat().catch(() => false);
+      if (!owned) {
+        active.controller.abort(new Error('LIBRARY_OPERATION_LOST'));
+        active.onInterrupted?.();
+      }
+    }
   }
 
   public finish(scanId: string): void {
