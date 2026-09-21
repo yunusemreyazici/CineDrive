@@ -14,6 +14,11 @@ type PlaybackProgressWithRelations = Prisma.PlaybackProgressGetPayload<{
   include: { mediaItem: true; episode: true };
 }>;
 
+type PlaybackUpdateResult = {
+  progress: PlaybackProgressWithRelations;
+  conflict?: true;
+};
+
 export class PlaybackService {
   constructor(private prisma: PrismaClient) {}
 
@@ -31,6 +36,8 @@ export class PlaybackService {
         : null;
     const clientSequence = Number.isSafeInteger(data.clientSequence) ? data.clientSequence : null;
     const hasClientOrdering = clientInstanceId !== null && clientSequence !== null;
+    const serverRevision = Number.isSafeInteger(data.serverRevision) ? data.serverRevision : null;
+    const hasServerRevision = serverRevision !== null;
     let positionSeconds = data.positionSeconds;
     let durationSeconds = data.durationSeconds;
 
@@ -58,7 +65,7 @@ export class PlaybackService {
     // All reads and writes below share one SQLite transaction. The non-null
     // trackingKey gives movies/series-level rows a real unique identity even
     // though episodeId remains nullable for API and relational compatibility.
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx): Promise<PlaybackUpdateResult> => {
       // 3. Validate MediaItem and optional episode inside the write transaction
       // so a revoke/delete racing this request cannot authorize stale data.
       const mediaItem = await tx.mediaItem.findFirst({
@@ -134,53 +141,78 @@ export class PlaybackService {
         // be minutes ahead/behind the server, and Date.now() cannot establish
         // ordering across requests.
         //
-        // `serverRevision` is server-owned response metadata, not an incoming
-        // optimistic-concurrency token. A client may have a stale snapshot
-        // while still sending a newer event from its own sequence. Treating
-        // the two fields as one gate silently drops that valid event.
+        // `serverRevision` is the global optimistic-concurrency token. A
+        // revision-aware request may update only the exact canonical revision
+        // it observed. This check must happen before client sequence ordering;
+        // otherwise a high sequence from another client can overwrite a newer
+        // global state from an older snapshot.
         //
         // `clientSequence` orders events only within the identified client
-        // stream. Different clients are serialized by the SQLite transaction
-        // and the last committed update receives the next server revision.
-        if (
+        // stream. It never allows a different client to bypass a stale
+        // serverRevision. Requests without a serverRevision keep the legacy
+        // last-writer-wins behavior for older clients.
+        const isSameClientStaleSequence =
           hasClientOrdering &&
           existing.clientInstanceId === clientInstanceId &&
           existing.clientSequence !== null &&
-          clientSequence! <= existing.clientSequence
-        ) {
+          clientSequence! <= existing.clientSequence;
+
+        if (hasServerRevision && serverRevision !== existing.serverRevision) {
           progress = await tx.playbackProgress.findUniqueOrThrow({
             where: { id: existing.id },
             include: { mediaItem: true, episode: true },
           });
-          return progress;
-        } else {
-          const updateWhere: Prisma.PlaybackProgressWhereInput = { id: existing.id };
-          if (hasClientOrdering) {
-            updateWhere.OR = [
-              { clientInstanceId: { not: clientInstanceId } },
-              { clientInstanceId: null },
-              { clientSequence: null },
-              { clientSequence: { lt: clientSequence } },
-            ];
-          }
+          return isSameClientStaleSequence ? { progress } : { progress, conflict: true };
+        }
 
-          const updated = await tx.playbackProgress.updateMany({
-            where: updateWhere,
-            data: {
-              ...progressData,
-              serverRevision: { increment: 1 },
-              ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
-            },
-          });
+        if (isSameClientStaleSequence) {
           progress = await tx.playbackProgress.findUniqueOrThrow({
             where: { id: existing.id },
             include: { mediaItem: true, episode: true },
           });
+          return { progress };
+        }
 
-          // A competing transaction may have won the revision/sequence race.
-          // Returning its row is intentional: history must follow the same
-          // accepted state and must not be rewritten by the stale request.
-          if (updated.count === 0) return progress;
+        const updateWhere: Prisma.PlaybackProgressWhereInput = { id: existing.id };
+        if (hasServerRevision) {
+          // Keep the revision predicate in the SQL write as well as the
+          // pre-check above. This closes the race where another transaction
+          // commits after the read but before this update.
+          updateWhere.serverRevision = existing.serverRevision;
+        }
+        if (hasClientOrdering) {
+          updateWhere.OR = [
+            { clientInstanceId: { not: clientInstanceId } },
+            { clientInstanceId: null },
+            { clientSequence: null },
+            { clientSequence: { lt: clientSequence } },
+          ];
+        }
+
+        const updated = await tx.playbackProgress.updateMany({
+          where: updateWhere,
+          data: {
+            ...progressData,
+            serverRevision: { increment: 1 },
+            ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
+          },
+        });
+        progress = await tx.playbackProgress.findUniqueOrThrow({
+          where: { id: existing.id },
+          include: { mediaItem: true, episode: true },
+        });
+
+        // A competing revision-aware transaction may have won the CAS race.
+        // Return its canonical state and never rewrite history for the loser.
+        if (updated.count === 0) {
+          const duplicateAfterRace =
+            hasClientOrdering &&
+            progress.clientInstanceId === clientInstanceId &&
+            progress.clientSequence !== null &&
+            clientSequence! <= progress.clientSequence;
+          return hasServerRevision && !duplicateAfterRace
+            ? { progress, conflict: true }
+            : { progress };
         }
       }
 
@@ -224,7 +256,7 @@ export class PlaybackService {
         });
       }
 
-      return progress;
+      return { progress };
     });
   }
 
