@@ -776,6 +776,8 @@ export const tr = {
     goBack: 'Geri Dön',
     buffering: 'Akış tamponlanıyor…',
     seekLabel: 'Oynatma konumu',
+    progressConflict:
+      'İzleme konumu başka bir cihazda değişti. Bu konum kaydedilmedi; korumak için yeniden atlayın.',
     notFoundTitle: 'Medya Bulunamadı',
     notFoundDescription: 'Oynatılacak içerik bulunamadı veya silinmiş olabilir.',
     loadFailed: 'Oynatıcı Yüklenemedi',

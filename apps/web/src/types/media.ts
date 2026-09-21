@@ -70,6 +70,7 @@ export interface PlaybackProgressType {
   durationSeconds: number;
   percentage: number;
   completed: boolean;
+  serverRevision?: number;
 }
 
 export interface CastMemberType {

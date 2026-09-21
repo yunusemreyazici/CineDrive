@@ -156,6 +156,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
   const { saveProgress } = usePlaybackProgress({
     mediaItemId: media.id,
     episodeId: active.activeEpisodeId,
+    initialServerRevision: active.progress?.serverRevision ?? 0,
     isPlaying,
     currentTime,
     duration,
@@ -422,6 +423,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
         duration > 0 ? Math.min(duration, requestedTime) : requestedTime,
       );
       seekStartedAtRef.current = performance.now();
+      saveProgress(false, targetTime);
 
       if (source.playbackMode === 'direct') {
         clearTimer(pendingSeekTimerRef);
@@ -475,6 +477,7 @@ export const MediaPlayer: React.FC<MediaPlayerProps> = ({ media, episodeId }) =>
     [
       dispatchSource,
       duration,
+      saveProgress,
       setConnectionMessage,
       source.playbackMode,
       source.startOffset,

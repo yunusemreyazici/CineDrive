@@ -776,6 +776,8 @@ export const en: Translations = {
     goBack: 'Go back',
     buffering: 'Buffering the stream…',
     seekLabel: 'Playback position',
+    progressConflict:
+      'Playback progress changed on another device. This position was not saved; seek again to keep it.',
     notFoundTitle: 'Media not found',
     notFoundDescription: 'The content could not be found, or it may have been deleted.',
     loadFailed: 'Could not load the player',
