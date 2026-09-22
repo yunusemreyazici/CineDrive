@@ -34,7 +34,9 @@ export const LibraryScanSection: React.FC = () => {
   const scanLibrary = useScanLibraryMutation();
   const allConnections = useGoogleConnections();
 
-  const activeLibrary = libraries?.find((library) => library.storageType === 'gdrive');
+  const activeLibrary = libraries?.find(
+    (library) => library.storageType === 'gdrive' && library.accessRole === 'owner',
+  );
   const { data: sources = [] } = useDriveScanSourcesQuery(activeLibrary?.id);
   const { data: scanHistory } = useLibraryScansQuery(activeLibrary?.id);
   const lastScan = scanHistory?.[0];

@@ -1,9 +1,23 @@
 import type { PrismaClient, Prisma } from '@cinedrive/prisma';
 import type { UpdateProgressInput } from '@cinedrive/shared';
+import { ownedMediaFilter } from '../utils/library-access.js';
 
 const DEFAULT_COMPLETION_THRESHOLD_PERCENT = 92;
 const MINIMUM_PROGRESS_SECONDS = 15;
 const MAX_DURATION_SECONDS = 360000; // 100 Hours max limit
+const GENERAL_TRACKING_KEY = '__media__';
+
+const isUniqueConstraintError = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+
+type PlaybackProgressWithRelations = Prisma.PlaybackProgressGetPayload<{
+  include: { mediaItem: true; episode: true };
+}>;
+
+type PlaybackUpdateResult = {
+  progress: PlaybackProgressWithRelations;
+  conflict?: true;
+};
 
 export class PlaybackService {
   constructor(private prisma: PrismaClient) {}
@@ -15,7 +29,15 @@ export class PlaybackService {
     userId: string,
     data: UpdateProgressInput & { clientTimestamp?: number; deviceType?: string },
   ) {
-    const { mediaItemId, episodeId, clientTimestamp } = data;
+    const { mediaItemId, episodeId } = data;
+    const clientInstanceId =
+      typeof data.clientInstanceId === 'string' && data.clientInstanceId.length > 0
+        ? data.clientInstanceId
+        : null;
+    const clientSequence = Number.isSafeInteger(data.clientSequence) ? data.clientSequence : null;
+    const hasClientOrdering = clientInstanceId !== null && clientSequence !== null;
+    const serverRevision = Number.isSafeInteger(data.serverRevision) ? data.serverRevision : null;
+    const hasServerRevision = serverRevision !== null;
     let positionSeconds = data.positionSeconds;
     let durationSeconds = data.durationSeconds;
 
@@ -35,111 +57,186 @@ export class PlaybackService {
 
     positionSeconds = Math.min(positionSeconds, durationSeconds);
 
-    // 2. Validate MediaItem exists
-    const mediaItem = await this.prisma.mediaItem.findUnique({
-      where: { id: mediaItemId },
-    });
+    // 2. Calculate percentage & completed status
+    const percentage = durationSeconds > 0 ? (positionSeconds / durationSeconds) * 100 : 0;
+    const isCompleted = percentage >= DEFAULT_COMPLETION_THRESHOLD_PERCENT;
+    const trackingKey = episodeId || GENERAL_TRACKING_KEY;
 
-    if (!mediaItem) {
-      throw new Error('MEDIA_NOT_FOUND');
-    }
+    // All reads and writes below share one SQLite transaction. The non-null
+    // trackingKey gives movies/series-level rows a real unique identity even
+    // though episodeId remains nullable for API and relational compatibility.
+    return this.prisma.$transaction(async (tx): Promise<PlaybackUpdateResult> => {
+      // 3. Validate MediaItem and optional episode inside the write transaction
+      // so a revoke/delete racing this request cannot authorize stale data.
+      const mediaItem = await tx.mediaItem.findFirst({
+        where: { id: mediaItemId, ...ownedMediaFilter(userId) },
+      });
+      if (!mediaItem) throw new Error('MEDIA_NOT_FOUND');
 
-    // 3. If episodeId is provided, validate it belongs to this MediaItem
-    if (episodeId) {
-      const episode = await this.prisma.episode.findFirst({
+      if (episodeId) {
+        const episode = await tx.episode.findFirst({ where: { id: episodeId, mediaItemId } });
+        if (!episode) throw new Error('INVALID_EPISODE');
+      }
+
+      let existing = await tx.playbackProgress.findUnique({
         where: {
-          id: episodeId,
-          mediaItemId,
+          userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
         },
       });
 
-      if (!episode) {
-        throw new Error('INVALID_EPISODE');
+      const now = new Date();
+      const progressData = {
+        positionSeconds,
+        durationSeconds,
+        percentage,
+        completed: isCompleted,
+        lastPlayedAt: now,
+        completedAt: isCompleted ? existing?.completedAt || now : null,
+      };
+
+      let created = false;
+      if (!existing) {
+        try {
+          await tx.playbackProgress.create({
+            data: {
+              userId,
+              mediaItemId,
+              episodeId: episodeId || null,
+              trackingKey,
+              ...progressData,
+              firstStartedAt: now,
+              serverRevision: 1,
+              ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
+            },
+          });
+          created = true;
+        } catch (error: unknown) {
+          // Another request may create the same logical row concurrently. Let
+          // the conditional update below arbitrate its ordering instead of
+          // turning that normal race into a failed progress save.
+          if (!isUniqueConstraintError(error)) throw error;
+        }
+
+        if (!created) {
+          existing = await tx.playbackProgress.findUnique({
+            where: {
+              userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
+            },
+          });
+        }
       }
-    }
 
-    // 4. Calculate percentage & completed status
-    const percentage = durationSeconds > 0 ? (positionSeconds / durationSeconds) * 100 : 0;
-    const isCompleted = percentage >= DEFAULT_COMPLETION_THRESHOLD_PERCENT;
-
-    // 5. Check existing progress for stale write protection
-    const existing = await this.prisma.playbackProgress.findFirst({
-      where: {
-        userId,
-        mediaItemId,
-        episodeId: episodeId || null,
-      },
-    });
-
-    if (existing && clientTimestamp) {
-      const existingTime = existing.lastPlayedAt.getTime();
-      if (existingTime - clientTimestamp > 5000) {
-        // Incoming request is older than current database record; return current DB record without overwriting
-        return existing;
-      }
-    }
-
-    const now = new Date();
-
-    // 6. Upsert PlaybackProgress
-    const progressData = {
-      positionSeconds,
-      durationSeconds,
-      percentage,
-      completed: isCompleted,
-      lastPlayedAt: now,
-      completedAt: isCompleted ? existing?.completedAt || now : null,
-    };
-    const progress = existing
-      ? await this.prisma.playbackProgress.update({
-          where: { id: existing.id },
-          data: progressData,
-          include: {
-            mediaItem: true,
-            episode: true,
+      let progress: PlaybackProgressWithRelations;
+      if (created) {
+        progress = await tx.playbackProgress.findUniqueOrThrow({
+          where: {
+            userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
           },
-        })
-      : await this.prisma.playbackProgress.create({
+          include: { mediaItem: true, episode: true },
+        });
+      } else {
+        if (!existing) throw new Error('PLAYBACK_PROGRESS_CREATE_FAILED');
+
+        // Client wall-clock timestamps are deliberately ignored. A device can
+        // be minutes ahead/behind the server, and Date.now() cannot establish
+        // ordering across requests.
+        //
+        // `serverRevision` is the global optimistic-concurrency token. A
+        // revision-aware request may update only the exact canonical revision
+        // it observed. This check must happen before client sequence ordering;
+        // otherwise a high sequence from another client can overwrite a newer
+        // global state from an older snapshot.
+        //
+        // `clientSequence` orders events only within the identified client
+        // stream. It never allows a different client to bypass a stale
+        // serverRevision. Requests without a serverRevision keep the legacy
+        // last-writer-wins behavior for older clients.
+        const isSameClientStaleSequence =
+          hasClientOrdering &&
+          existing.clientInstanceId === clientInstanceId &&
+          existing.clientSequence !== null &&
+          clientSequence! <= existing.clientSequence;
+
+        if (hasServerRevision && serverRevision !== existing.serverRevision) {
+          progress = await tx.playbackProgress.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { mediaItem: true, episode: true },
+          });
+          return isSameClientStaleSequence ? { progress } : { progress, conflict: true };
+        }
+
+        if (isSameClientStaleSequence) {
+          progress = await tx.playbackProgress.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: { mediaItem: true, episode: true },
+          });
+          return { progress };
+        }
+
+        const updateWhere: Prisma.PlaybackProgressWhereInput = { id: existing.id };
+        if (hasServerRevision) {
+          // Keep the revision predicate in the SQL write as well as the
+          // pre-check above. This closes the race where another transaction
+          // commits after the read but before this update.
+          updateWhere.serverRevision = existing.serverRevision;
+        }
+        if (hasClientOrdering) {
+          updateWhere.OR = [
+            { clientInstanceId: { not: clientInstanceId } },
+            { clientInstanceId: null },
+            { clientSequence: null },
+            { clientSequence: { lt: clientSequence } },
+          ];
+        }
+
+        const updated = await tx.playbackProgress.updateMany({
+          where: updateWhere,
           data: {
-            userId,
-            mediaItemId,
-            episodeId: episodeId || null,
             ...progressData,
-            firstStartedAt: now,
-          },
-          include: {
-            mediaItem: true,
-            episode: true,
+            serverRevision: { increment: 1 },
+            ...(hasClientOrdering ? { clientInstanceId, clientSequence } : {}),
           },
         });
+        progress = await tx.playbackProgress.findUniqueOrThrow({
+          where: { id: existing.id },
+          include: { mediaItem: true, episode: true },
+        });
 
-    // 7. Update WatchHistory without relying on a nullable compound unique
-    // key. SQLite treats NULL values as distinct, so Prisma upsert would
-    // create a new movie/general-series row on every progress save.
-    const existingHistory = await this.prisma.watchHistory.findFirst({
-      where: {
-        userId,
-        mediaItemId,
-        episodeId: episodeId || null,
-      },
-    });
-    if (existingHistory) {
-      await this.prisma.watchHistory.update({
-        where: { id: existingHistory.id },
-        data: {
+        // A competing revision-aware transaction may have won the CAS race.
+        // Return its canonical state and never rewrite history for the loser.
+        if (updated.count === 0) {
+          const duplicateAfterRace =
+            hasClientOrdering &&
+            progress.clientInstanceId === clientInstanceId &&
+            progress.clientSequence !== null &&
+            clientSequence! <= progress.clientSequence;
+          return hasServerRevision && !duplicateAfterRace
+            ? { progress, conflict: true }
+            : { progress };
+        }
+      }
+
+      const existingHistory = await tx.watchHistory.findUnique({
+        where: {
+          userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
+        },
+      });
+      await tx.watchHistory.upsert({
+        where: {
+          userId_mediaItemId_trackingKey: { userId, mediaItemId, trackingKey },
+        },
+        update: {
           positionSeconds,
           durationSeconds,
           completed: isCompleted,
-          deviceType: data.deviceType || existingHistory.deviceType,
+          deviceType: data.deviceType || existingHistory?.deviceType || 'unknown',
           watchedAt: now,
         },
-      });
-    } else {
-      await this.prisma.watchHistory.create({
-        data: {
+        create: {
           userId,
           mediaItemId,
           episodeId: episodeId || null,
+          trackingKey,
           positionSeconds,
           durationSeconds,
           completed: isCompleted,
@@ -147,121 +244,107 @@ export class PlaybackService {
           watchedAt: now,
         },
       });
-    }
 
-    if (episodeId) {
-      // Older player versions saved the first selected episode as a
-      // series-level NULL record. Once a concrete episode is saved, discard
-      // that legacy sibling so the series appears only once.
-      await this.prisma.$transaction([
-        this.prisma.playbackProgress.deleteMany({
-          where: { userId, mediaItemId, episodeId: null },
-        }),
-        this.prisma.watchHistory.deleteMany({
-          where: { userId, mediaItemId, episodeId: null },
-        }),
-      ]);
-    }
+      if (episodeId) {
+        // Older player versions saved a series-level NULL record. Remove the
+        // legacy sibling in the same transaction as the concrete episode row.
+        await tx.playbackProgress.deleteMany({
+          where: { userId, mediaItemId, trackingKey: GENERAL_TRACKING_KEY },
+        });
+        await tx.watchHistory.deleteMany({
+          where: { userId, mediaItemId, trackingKey: GENERAL_TRACKING_KEY },
+        });
+      }
 
-    return progress;
+      return { progress };
+    });
   }
 
   public async repairDuplicateTrackingRecords() {
-    const [progressRows, historyRows] = await Promise.all([
-      this.prisma.playbackProgress.findMany({
-        orderBy: { lastPlayedAt: 'desc' },
-        select: {
-          id: true,
-          userId: true,
-          mediaItemId: true,
-          episodeId: true,
-          positionSeconds: true,
-          durationSeconds: true,
-          completed: true,
-          lastPlayedAt: true,
-        },
-      }),
-      this.prisma.watchHistory.findMany({
-        orderBy: { watchedAt: 'desc' },
-        select: { id: true, userId: true, mediaItemId: true, episodeId: true },
-      }),
-    ]);
+    // The tracking-key migration performs the one-time duplicate merge before
+    // creating the unique indexes. Startup must not read the whole catalogue
+    // into JS (or do an O(n²) duplicate pass) on every restart. This bounded
+    // SQL repair only restores a history row if an older deployment left one
+    // missing; INSERT OR IGNORE makes it safe to run repeatedly.
+    const historyRestored = await this.prisma.$executeRaw`
+      INSERT OR IGNORE INTO "WatchHistory" (
+        "id",
+        "userId",
+        "mediaItemId",
+        "episodeId",
+        "trackingKey",
+        "positionSeconds",
+        "durationSeconds",
+        "completed",
+        "watchedAt",
+        "createdAt",
+        "updatedAt"
+      )
+      SELECT
+        lower(hex(randomblob(16))),
+        progress."userId",
+        progress."mediaItemId",
+        progress."episodeId",
+        progress."trackingKey",
+        progress."positionSeconds",
+        progress."durationSeconds",
+        progress."completed",
+        progress."lastPlayedAt",
+        progress."lastPlayedAt",
+        progress."lastPlayedAt"
+      FROM "PlaybackProgress" AS progress
+      LEFT JOIN "WatchHistory" AS history
+        ON history."userId" = progress."userId"
+       AND history."mediaItemId" = progress."mediaItemId"
+       AND history."trackingKey" = progress."trackingKey"
+      WHERE history."id" IS NULL
+    `;
 
-    const duplicateIds = <
-      T extends {
-        id: string;
-        userId: string;
-        mediaItemId: string;
-        episodeId: string | null;
-      },
-    >(
-      rows: T[],
-    ) => {
-      const seen = new Set<string>();
-      const duplicates: string[] = [];
-      for (const row of rows) {
-        const key = `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
-        if (seen.has(key)) duplicates.push(row.id);
-        else seen.add(key);
-      }
-      return duplicates;
-    };
-
-    const progressDuplicates = duplicateIds(progressRows);
-    const historyDuplicates = duplicateIds(historyRows);
-    const [progressResult, historyResult] = await this.prisma.$transaction([
-      this.prisma.playbackProgress.deleteMany({
-        where: { id: { in: progressDuplicates } },
-      }),
-      this.prisma.watchHistory.deleteMany({
-        where: { id: { in: historyDuplicates } },
-      }),
-    ]);
-
-    const trackingKey = (row: { userId: string; mediaItemId: string; episodeId: string | null }) =>
-      `${row.userId}:${row.mediaItemId}:${row.episodeId || 'no-episode'}`;
-    const retainedProgress = progressRows.filter((row) => !progressDuplicates.includes(row.id));
-    const retainedHistoryKeys = new Set(
-      historyRows
-        .filter((row) => !historyDuplicates.includes(row.id))
-        .map((row) => trackingKey(row)),
-    );
-    const missingHistory = retainedProgress.filter(
-      (row) => !retainedHistoryKeys.has(trackingKey(row)),
-    );
-    if (missingHistory.length > 0) {
-      await this.prisma.watchHistory.createMany({
-        data: missingHistory.map((row) => ({
-          userId: row.userId,
-          mediaItemId: row.mediaItemId,
-          episodeId: row.episodeId,
-          positionSeconds: row.positionSeconds,
-          durationSeconds: row.durationSeconds,
-          completed: row.completed,
-          watchedAt: row.lastPlayedAt,
-        })),
-      });
-    }
-
-    return {
-      progressRemoved: progressResult.count,
-      historyRemoved: historyResult.count,
-      historyRestored: missingHistory.length,
-    };
+    return { progressRemoved: 0, historyRemoved: 0, historyRestored: Number(historyRestored) };
   }
 
   /**
    * Returns list of "Continue Watching" items for the active user
    */
   public async getContinueWatchingList(userId: string) {
-    const items = await this.prisma.playbackProgress.findMany({
-      where: {
-        userId,
-        completed: false,
-        positionSeconds: { gte: MINIMUM_PROGRESS_SECONDS },
-      },
-      orderBy: { lastPlayedAt: 'desc' },
-      take: 20,
+    // Select the newest eligible progress row per media in SQLite before
+    // loading relations. A flat `ORDER BY ... LIMIT 20` lets one long series
+    // consume the entire page with its episodes and returns fewer than 20
+    // distinct titles. The NOT EXISTS anti-join keeps this bounded at 20 rows.
+    const candidateRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT progress."id"
+      FROM "PlaybackProgress" AS progress
+      JOIN "MediaItem" AS media ON media."id" = progress."mediaItemId"
+      JOIN "Library" AS library ON library."id" = media."libraryId"
+      LEFT JOIN "LibraryMembership" AS membership
+        ON membership."libraryId" = library."id" AND membership."userId" = ${userId}
+      WHERE progress."userId" = ${userId}
+        AND progress."completed" = 0
+        AND progress."positionSeconds" >= ${MINIMUM_PROGRESS_SECONDS}
+        AND (library."userId" = ${userId} OR membership."userId" IS NOT NULL)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "PlaybackProgress" AS newer
+          WHERE newer."userId" = progress."userId"
+            AND newer."mediaItemId" = progress."mediaItemId"
+            AND newer."completed" = 0
+            AND newer."positionSeconds" >= ${MINIMUM_PROGRESS_SECONDS}
+            AND (
+              newer."lastPlayedAt" > progress."lastPlayedAt"
+              OR (
+                newer."lastPlayedAt" = progress."lastPlayedAt"
+                AND newer."id" > progress."id"
+              )
+            )
+        )
+      ORDER BY progress."lastPlayedAt" DESC, progress."id" DESC
+      LIMIT 20
+    `;
+
+    if (candidateRows.length === 0) return [];
+
+    const fetchedItems = await this.prisma.playbackProgress.findMany({
+      where: { id: { in: candidateRows.map((row) => row.id) } },
       include: {
         mediaItem: {
           include: {
@@ -270,9 +353,11 @@ export class PlaybackService {
               include: {
                 seasons: {
                   orderBy: { seasonNumber: 'asc' },
+                  take: 1,
                   include: {
                     episodes: {
                       orderBy: { episodeNumber: 'asc' },
+                      take: 1,
                     },
                   },
                 },
@@ -283,19 +368,12 @@ export class PlaybackService {
         episode: true,
       },
     });
+    const itemById = new Map(fetchedItems.map((item) => [item.id, item]));
+    const items = candidateRows
+      .map((row) => itemById.get(row.id))
+      .filter((item): item is (typeof fetchedItems)[number] => Boolean(item));
 
-    // Deduplicate by mediaItemId so each movie or series appears at most once
-    const seenMediaIds = new Set<string>();
-    const uniqueItems = [];
-
-    for (const item of items) {
-      if (!seenMediaIds.has(item.mediaItemId)) {
-        seenMediaIds.add(item.mediaItemId);
-        uniqueItems.push(item);
-      }
-    }
-
-    return uniqueItems.map((item) => {
+    return items.map((item) => {
       let continueUrl = `/watch/${item.mediaItemId}`;
       if (item.mediaItem.type === 'series') {
         const activeEpId = item.episodeId || item.mediaItem.series?.seasons[0]?.episodes[0]?.id;
@@ -323,7 +401,7 @@ export class PlaybackService {
    */
   public async getMediaProgress(userId: string, mediaItemId: string) {
     return this.prisma.playbackProgress.findMany({
-      where: { userId, mediaItemId },
+      where: { userId, mediaItemId, mediaItem: ownedMediaFilter(userId) },
       orderBy: { lastPlayedAt: 'desc' },
     });
   }
@@ -333,7 +411,7 @@ export class PlaybackService {
    */
   public async resetProgress(userId: string, mediaItemId: string) {
     await this.prisma.playbackProgress.deleteMany({
-      where: { userId, mediaItemId },
+      where: { userId, mediaItemId, mediaItem: ownedMediaFilter(userId) },
     });
   }
 
@@ -344,14 +422,19 @@ export class PlaybackService {
     userId: string,
     params: { page?: number; limit?: number; type?: string },
   ) {
-    const page = Math.max(1, params.page || 1);
-    const limit = Math.min(50, Math.max(1, params.limit || 20));
+    const page = Number.isFinite(params.page) ? Math.max(1, Math.floor(params.page!)) : 1;
+    const limit = Number.isFinite(params.limit)
+      ? Math.min(50, Math.max(1, Math.floor(params.limit!)))
+      : 20;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.WatchHistoryWhereInput = { userId };
+    const where: Prisma.WatchHistoryWhereInput = {
+      userId,
+      mediaItem: ownedMediaFilter(userId),
+    };
 
     if (params.type === 'movie' || params.type === 'series') {
-      where.mediaItem = { type: params.type };
+      where.mediaItem = { AND: [ownedMediaFilter(userId), { type: params.type }] };
     } else if (params.type === 'completed') {
       where.completed = true;
     } else if (params.type === 'in_progress') {
@@ -388,16 +471,23 @@ export class PlaybackService {
    */
   public async deleteWatchHistoryItem(userId: string, historyId: string) {
     const existing = await this.prisma.watchHistory.findFirst({
-      where: { id: historyId, userId },
+      where: { id: historyId, userId, mediaItem: ownedMediaFilter(userId) },
     });
 
     if (!existing) {
       throw new Error('HISTORY_NOT_FOUND');
     }
 
-    await this.prisma.watchHistory.delete({
-      where: { id: historyId },
-    });
+    await this.prisma.$transaction([
+      this.prisma.watchHistory.delete({ where: { id: historyId } }),
+      this.prisma.playbackProgress.deleteMany({
+        where: {
+          userId,
+          mediaItemId: existing.mediaItemId,
+          trackingKey: existing.trackingKey,
+        },
+      }),
+    ]);
   }
 
   /**

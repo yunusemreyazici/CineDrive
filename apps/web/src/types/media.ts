@@ -70,6 +70,7 @@ export interface PlaybackProgressType {
   durationSeconds: number;
   percentage: number;
   completed: boolean;
+  serverRevision?: number;
 }
 
 export interface CastMemberType {
@@ -134,7 +135,12 @@ export interface LibraryScanType {
   startedAt: string;
   heartbeatAt?: string | null;
   completedAt?: string | null;
-  interruptionReason?: 'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | null;
+  interruptionReason?:
+    | 'server_restarted'
+    | 'server_shutdown'
+    | 'watchdog_timeout'
+    | 'library_operation_lost'
+    | null;
   lastError?: string | null;
   errors?: Array<{
     id: string;

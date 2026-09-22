@@ -61,6 +61,11 @@ jobs:
       DATABASE_URL: 'file:./data/ci.db'
       SESSION_SECRET: ci-session-secret-not-used-outside-continuous-integration
       TOKEN_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      GOOGLE_CLIENT_ID: ci-client.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ci-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3000/auth/google/callback
+      ADMIN_EMAIL: admin@example.test
+      ADMIN_PASSWORD: ci-password-only-for-tests
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,6 +133,11 @@ jobs:
       DATABASE_URL: 'file:./data/ci.db'
       SESSION_SECRET: ci-session-secret-not-used-outside-continuous-integration
       TOKEN_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      GOOGLE_CLIENT_ID: ci-client.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ci-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:3000/auth/google/callback
+      ADMIN_EMAIL: admin@example.test
+      ADMIN_PASSWORD: ci-password-only-for-tests
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

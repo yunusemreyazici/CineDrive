@@ -27,7 +27,22 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     files: total.files + removed.files,
     media: total.media + removed.media,
   });
-  const requireAdmin = async (request: Parameters<typeof fastify.authenticate>[0], reply: Parameters<typeof fastify.authenticate>[1]) => {
+  const acquireConnectionCleanupLocks = async (libraryIds: string[]) => {
+    const locks: Array<{ release(): Promise<void> }> = [];
+    try {
+      for (const libraryId of [...new Set(libraryIds)].sort()) {
+        locks.push(await fastify.libraryOperationLockService.acquire(libraryId, 'source-unlink'));
+      }
+      return locks;
+    } catch (error) {
+      await Promise.all(locks.map((lock) => lock.release()));
+      throw error;
+    }
+  };
+  const requireAdmin = async (
+    request: Parameters<typeof fastify.authenticate>[0],
+    reply: Parameters<typeof fastify.authenticate>[1],
+  ) => {
     await fastify.authenticate(request, reply);
     if (reply.sent) return;
     if (request.user?.role !== 'admin') {
@@ -98,7 +113,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         }
         if (err instanceof Error && err.message === 'ACCOUNT_DISABLED') {
           return reply.status(403).send({
-            error: { code: 'ACCOUNT_DISABLED', message: 'Bu hesap devre dışı.', requestId: request.id },
+            error: {
+              code: 'ACCOUNT_DISABLED',
+              message: 'Bu hesap devre dışı.',
+              requestId: request.id,
+            },
           });
         }
         if (err instanceof Error && err.message === 'MULTI_USER_DISABLED') {
@@ -214,24 +233,23 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /api/auth/session
-  fastify.get<{ Reply: { authenticated: boolean; user: UserDto | null; authMode: 'single-user' | 'multi-user' } }>(
-    '/session',
-    async (request, reply) => {
-      if (!request.user) {
-        return reply.status(200).send({
-          authenticated: false,
-          user: null,
-          authMode: env.APP_AUTH_MODE,
-        });
-      }
-
+  fastify.get<{
+    Reply: { authenticated: boolean; user: UserDto | null; authMode: 'single-user' | 'multi-user' };
+  }>('/session', async (request, reply) => {
+    if (!request.user) {
       return reply.status(200).send({
-        authenticated: true,
-        user: request.user,
+        authenticated: false,
+        user: null,
         authMode: env.APP_AUTH_MODE,
       });
-    },
-  );
+    }
+
+    return reply.status(200).send({
+      authenticated: true,
+      user: request.user,
+      authMode: env.APP_AUTH_MODE,
+    });
+  });
 
   fastify.get('/users', { preHandler: [requireAdmin] }, async () => ({
     users: await fastify.authService.listUsers(),
@@ -242,7 +260,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     const parsed = createUserSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Geçersiz kullanıcı bilgileri.', requestId: request.id, details: parsed.error.format() },
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Geçersiz kullanıcı bilgileri.',
+          requestId: request.id,
+          details: parsed.error.format(),
+        },
       });
     }
     try {
@@ -250,38 +273,103 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(201).send({ user });
     } catch (error) {
       if (error instanceof Error && /unique constraint/i.test(error.message)) {
-        return reply.status(409).send({ error: { code: 'EMAIL_IN_USE', message: 'Bu e-posta zaten kullanılıyor.', requestId: request.id } });
+        return reply
+          .status(409)
+          .send({
+            error: {
+              code: 'EMAIL_IN_USE',
+              message: 'Bu e-posta zaten kullanılıyor.',
+              requestId: request.id,
+            },
+          });
       }
       throw error;
     }
   });
 
-  fastify.patch<{ Params: { id: string } }>('/users/:id', { preHandler: [requireAdmin] }, async (request, reply) => {
-    const parsed = updateUserSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz kullanıcı güncellemesi.', requestId: request.id, details: parsed.error.format() } });
-    }
-    try {
-      return { user: await fastify.authService.updateUser(request.user!.id, request.params.id, parsed.data) };
-    } catch (error) {
-      const code = error instanceof Error ? error.message : '';
-      if (code === 'USER_NOT_FOUND') return reply.status(404).send({ error: { code, message: 'Kullanıcı bulunamadı.', requestId: request.id } });
-      if (code === 'CANNOT_RESTRICT_SELF' || code === 'LAST_ADMIN_REQUIRED') return reply.status(409).send({ error: { code, message: code === 'CANNOT_RESTRICT_SELF' ? 'Kendi yönetici erişiminizi kaldıramazsınız.' : 'En az bir etkin yönetici kalmalıdır.', requestId: request.id } });
-      throw error;
-    }
-  });
+  fastify.patch<{ Params: { id: string } }>(
+    '/users/:id',
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = updateUserSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Geçersiz kullanıcı güncellemesi.',
+              requestId: request.id,
+              details: parsed.error.format(),
+            },
+          });
+      }
+      try {
+        return {
+          user: await fastify.authService.updateUser(
+            request.user!.id,
+            request.params.id,
+            parsed.data,
+          ),
+        };
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'USER_NOT_FOUND')
+          return reply
+            .status(404)
+            .send({ error: { code, message: 'Kullanıcı bulunamadı.', requestId: request.id } });
+        if (code === 'CANNOT_RESTRICT_SELF' || code === 'LAST_ADMIN_REQUIRED')
+          return reply
+            .status(409)
+            .send({
+              error: {
+                code,
+                message:
+                  code === 'CANNOT_RESTRICT_SELF'
+                    ? 'Kendi yönetici erişiminizi kaldıramazsınız.'
+                    : 'En az bir etkin yönetici kalmalıdır.',
+                requestId: request.id,
+              },
+            });
+        throw error;
+      }
+    },
+  );
 
-  fastify.post<{ Params: { id: string } }>('/users/:id/reset-password', { preHandler: [requireAdmin] }, async (request, reply) => {
-    const parsed = resetUserPasswordSchema.safeParse(request.body);
-    if (!parsed.success) return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Geçersiz şifre.', requestId: request.id, details: parsed.error.format() } });
-    try {
-      await fastify.authService.resetUserPassword(request.params.id, parsed.data.password);
-      return { success: true };
-    } catch (error) {
-      if (error instanceof Error && error.message === 'USER_NOT_FOUND') return reply.status(404).send({ error: { code: 'USER_NOT_FOUND', message: 'Kullanıcı bulunamadı.', requestId: request.id } });
-      throw error;
-    }
-  });
+  fastify.post<{ Params: { id: string } }>(
+    '/users/:id/reset-password',
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = resetUserPasswordSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Geçersiz şifre.',
+              requestId: request.id,
+              details: parsed.error.format(),
+            },
+          });
+      try {
+        await fastify.authService.resetUserPassword(request.params.id, parsed.data.password);
+        return { success: true };
+      } catch (error) {
+        if (error instanceof Error && error.message === 'USER_NOT_FOUND')
+          return reply
+            .status(404)
+            .send({
+              error: {
+                code: 'USER_NOT_FOUND',
+                message: 'Kullanıcı bulunamadı.',
+                requestId: request.id,
+              },
+            });
+        throw error;
+      }
+    },
+  );
 
   // --- GOOGLE OAUTH 2.0 ROUTES ---
 
@@ -371,18 +459,39 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    let removed = emptyRemoval();
-    for (const connection of connections) {
-      removed = addRemoval(
-        removed,
-        await googleConnectionCleanup.removeConnectionContent(userId, connection.id),
-      );
+    let locks: Array<{ release(): Promise<void> }> = [];
+    try {
+      locks = await acquireConnectionCleanupLocks(affectedLibraryIds);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+        return reply.status(409).send({
+          error: {
+            code: 'SCAN_ALREADY_IN_PROGRESS',
+            message:
+              'Tarama veya başka bir kütüphane işlemi sürerken Google hesapları kaldırılamaz.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
     }
-    await fastify.googleOAuthService.unlinkGoogleAccount(userId);
-    return reply.status(200).send({
-      success: true,
-      removed: { connections: connections.length, ...removed },
-    });
+
+    try {
+      let removed = emptyRemoval();
+      for (const connection of connections) {
+        removed = addRemoval(
+          removed,
+          await googleConnectionCleanup.removeConnectionContent(userId, connection.id),
+        );
+      }
+      await fastify.googleOAuthService.unlinkGoogleAccount(userId);
+      return reply.status(200).send({
+        success: true,
+        removed: { connections: connections.length, ...removed },
+      });
+    } finally {
+      await Promise.all(locks.map((lock) => lock.release()));
+    }
   });
 
   // GET /api/auth/google/status: Check Google Connection Status
@@ -441,12 +550,35 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const removed = await googleConnectionCleanup.removeConnectionContent(userId, id);
-      await fastify.googleOAuthService.unlinkGoogleAccount(userId, id);
-      return reply.status(200).send({
-        success: true,
-        removed: { connections: 1, ...removed },
-      });
+      let locks: Array<{ release(): Promise<void> }> = [];
+      if (affectedLibraryIds.length > 0) {
+        try {
+          locks = await acquireConnectionCleanupLocks(affectedLibraryIds);
+        } catch (error) {
+          if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+            return reply.status(409).send({
+              error: {
+                code: 'SCAN_ALREADY_IN_PROGRESS',
+                message:
+                  'Tarama veya başka bir kütüphane işlemi sürerken Google hesabı kaldırılamaz.',
+                requestId: request.id,
+              },
+            });
+          }
+          throw error;
+        }
+      }
+
+      try {
+        const removed = await googleConnectionCleanup.removeConnectionContent(userId, id);
+        await fastify.googleOAuthService.unlinkGoogleAccount(userId, id);
+        return reply.status(200).send({
+          success: true,
+          removed: { connections: 1, ...removed },
+        });
+      } finally {
+        await Promise.all(locks.map((lock) => lock.release()));
+      }
     },
   );
 

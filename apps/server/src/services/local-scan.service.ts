@@ -1,14 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PrismaClient } from '@cinedrive/prisma';
-import { parseMediaFilename } from '@cinedrive/shared';
+import { normalizeSubtitleStem, parseMediaFilename } from '@cinedrive/shared';
 import { MetadataService } from './metadata.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
-import type { ScanLifecycleService } from './scan-lifecycle.service.js';
+import { isScanInterruptedError, type ScanLifecycleService } from './scan-lifecycle.service.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { isVideoFilename } from './media-file-types.js';
+import { isPathWithinRoot, resolveLocalFolder } from './local-folder-validation.js';
+import { resolveMediaItemId, upsertMediaItemWithIdentity } from './media-item-id.service.js';
+import { createOrUpdateDriveFileForLibrary } from './drive-file-identity.service.js';
+import type { LibraryOperationLockService } from './library-operation-lock.service.js';
+import {
+  MAX_SCAN_FILE_COUNT,
+  MAX_SCAN_FOLDER_COUNT,
+  SCAN_FILE_LIMIT_EXCEEDED,
+  SCAN_FOLDER_LIMIT_EXCEEDED,
+} from './scan-limits.js';
 
 export class LocalScanService {
   private metadataService = new MetadataService();
@@ -19,6 +29,7 @@ export class LocalScanService {
   constructor(
     private prisma: PrismaClient,
     private scanLifecycle: ScanLifecycleService,
+    private operationLocks: LibraryOperationLockService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
   }
@@ -33,42 +44,69 @@ export class LocalScanService {
    * progress reporting already worked; only the response was blocking.
    */
   public async startLocalScan(libraryId: string): Promise<string> {
+    const operationLock = await this.operationLocks.acquire(libraryId, 'scan');
+    let handedOff = false;
+
     if (this.activeScans.has(libraryId)) {
+      await operationLock.release();
       throw new Error('SCAN_ALREADY_IN_PROGRESS');
     }
 
-    const library = await this.prisma.library.findUnique({
-      where: { id: libraryId },
-    });
-
-    if (!library || library.storageType !== 'local' || !library.localFolderPath) {
-      throw new Error('Yerel kütüphane bulunamadı veya geçerli bir yerel klasör yolu yok.');
-    }
-
-    this.activeScans.add(libraryId);
-
-    const scan = await this.prisma.libraryScan.create({
-      data: {
-        libraryId,
-        status: 'running',
-        startedAt: new Date(),
-        heartbeatAt: new Date(),
-      },
-    });
-    const signal = this.scanLifecycle.register(scan.id, libraryId, [], () => {
-      this.activeScans.delete(libraryId);
-    });
-
-    void this.executeLocalScan(libraryId, library.userId, library.localFolderPath, scan.id, signal)
-      .catch(() => {
-        // Failures are already recorded on the scan row for the UI to read.
-      })
-      .finally(() => {
-        this.scanLifecycle.finish(scan.id);
-        this.activeScans.delete(libraryId);
+    try {
+      const library = await this.prisma.library.findUnique({
+        where: { id: libraryId },
       });
 
-    return scan.id;
+      if (!library || library.storageType !== 'local' || !library.localFolderPath) {
+        throw new Error('Yerel kütüphane bulunamadı veya geçerli bir yerel klasör yolu yok.');
+      }
+
+      let resolvedFolder: string;
+      try {
+        // Re-resolve on every scan. A directory can be replaced with a symlink
+        // after creation, so trusting the stored path would re-open traversal.
+        resolvedFolder = await resolveLocalFolder(library.localFolderPath);
+      } catch {
+        throw new Error('LOCAL_FOLDER_UNAVAILABLE');
+      }
+
+      this.activeScans.add(libraryId);
+
+      const scan = await this.prisma.libraryScan.create({
+        data: {
+          libraryId,
+          status: 'running',
+          startedAt: new Date(),
+          heartbeatAt: new Date(),
+        },
+      });
+      const signal = this.scanLifecycle.register(
+        scan.id,
+        libraryId,
+        [],
+        () => {
+          this.activeScans.delete(libraryId);
+        },
+        () => operationLock.heartbeat(),
+      );
+
+      void this.executeLocalScan(libraryId, library.userId, resolvedFolder, scan.id, signal)
+        .catch(() => {
+          // Failures are already recorded on the scan row for the UI to read.
+        })
+        .finally(async () => {
+          this.scanLifecycle.finish(scan.id);
+          this.activeScans.delete(libraryId);
+          await operationLock.release();
+        });
+
+      handedOff = true;
+      return scan.id;
+    } catch (error) {
+      this.activeScans.delete(libraryId);
+      if (!handedOff) await operationLock.release();
+      throw error;
+    }
   }
 
   /**
@@ -98,7 +136,12 @@ export class LocalScanService {
           select: { tmdbApiKey: true },
         })
       )?.tmdbApiKey;
-      const allFiles = await this.readdirRecursive(library.localFolderPath, scanId, signal);
+      const allFiles = await this.readdirRecursive(
+        library.localFolderPath,
+        library.localFolderPath,
+        scanId,
+        signal,
+      );
 
       const subtitleExtensions = ['.srt', '.vtt'];
 
@@ -121,6 +164,7 @@ export class LocalScanService {
           const existingDriveFile = await this.prisma.driveFile.findUnique({
             where: { localFilePath: file.fullPath },
           });
+          this.assertDriveFileLibrary(existingDriveFile, libraryId);
           const sourceChanged =
             !existingDriveFile?.modifiedTime ||
             existingDriveFile.modifiedTime.getTime() !== stat.mtime.getTime();
@@ -129,6 +173,7 @@ export class LocalScanService {
             try {
               technicalMetadata = await this.mediaProbeService.probeLocalFile(file.fullPath);
             } catch (probeError) {
+              if (signal.aborted || isScanInterruptedError(probeError)) throw probeError;
               technicalMetadata = {
                 mediaAnalyzedAt: new Date(),
                 mediaAnalysisError:
@@ -149,17 +194,11 @@ export class LocalScanService {
             addedCount++;
           }
 
-          const driveFile = await this.prisma.driveFile.upsert({
-            where: { localFilePath: file.fullPath },
-            update: {
-              name: file.name,
-              size: BigInt(stat.size),
-              modifiedTime: stat.mtime,
-              mimeType,
-              status: 'active',
-              ...technicalMetadata,
-            },
-            create: {
+          const driveFileResult = await createOrUpdateDriveFileForLibrary(
+            this.prisma,
+            { localFilePath: file.fullPath },
+            libraryId,
+            {
               libraryId,
               storageType: 'local',
               localFilePath: file.fullPath,
@@ -170,7 +209,17 @@ export class LocalScanService {
               status: 'active',
               ...technicalMetadata,
             },
-          });
+            {
+              libraryId,
+              name: file.name,
+              size: BigInt(stat.size),
+              modifiedTime: stat.mtime,
+              mimeType,
+              status: 'active',
+              ...technicalMetadata,
+            },
+          );
+          const driveFile = driveFileResult.record;
 
           // Use shared parseMediaFilename for better title parsing (same as GDrive scan)
           const parsedName = parseMediaFilename(file.name);
@@ -180,11 +229,18 @@ export class LocalScanService {
           const type = parsedName.type; // 'movie' | 'series'
           const seasonNumber = parsedName.seasonNumber || 1;
           const episodeNumber = parsedName.episodeNumber || 1;
-          const safeTitle = normalizedTitle
-            .replace(/[^a-z0-9]/g, '_')
-            .replace(/_+/g, '_')
-            .replace(/^_+|_+$/g, '');
-          const mediaItemId = `media_${type}_${safeTitle}`;
+          const mediaItemId = await resolveMediaItemId(
+            this.prisma,
+            type,
+            normalizedTitle,
+            libraryId,
+            {
+              year,
+              driveFileId: driveFile.id,
+              seasonNumber: parsedName.seasonNumber,
+              episodeNumber: parsedName.episodeNumber,
+            },
+          );
           const existingMediaItem = await this.prisma.mediaItem.findUnique({
             where: { id: mediaItemId },
           });
@@ -229,10 +285,19 @@ export class LocalScanService {
 
           // Deterministic ID (same algorithm as LibraryScanService)
           // Upsert MediaItem with full TMDB data
-          const mediaItem = await this.prisma.mediaItem.upsert({
-            where: { id: mediaItemId },
-            create: {
-              id: mediaItemId,
+          const mediaItem = await upsertMediaItemWithIdentity(
+            this.prisma,
+            mediaItemId,
+            type,
+            normalizedTitle,
+            libraryId,
+            {
+              year,
+              driveFileId: driveFile.id,
+              seasonNumber: parsedName.seasonNumber,
+              episodeNumber: parsedName.episodeNumber,
+            },
+            {
               // Recorded at scan time so ownership is one indexed column rather
               // than a walk through movie/episode -> driveFile -> library.
               libraryId,
@@ -252,8 +317,8 @@ export class LocalScanService {
               tmdbId,
               imdbId,
             },
-            update: {
-              // A rescan re-homes the record to the library that just found it.
+            {
+              // A rescan updates metadata without changing the library owner.
               libraryId,
               title,
               year: finalYear ?? undefined,
@@ -269,7 +334,7 @@ export class LocalScanService {
               tmdbId: tmdbId ?? undefined,
               imdbId: imdbId ?? undefined,
             },
-          });
+          );
 
           if (type === 'movie') {
             await this.prisma.movie.upsert({
@@ -361,8 +426,19 @@ export class LocalScanService {
             })
             .catch(() => {});
         } catch (fileErr: unknown) {
+          if (signal.aborted || isScanInterruptedError(fileErr)) throw fileErr;
           // Log individual file errors but continue scanning
           console.error(`[LocalScan] Dosya işlenirken hata: ${file.fullPath}`, fileErr);
+          await this.prisma.libraryScanError
+            .create({
+              data: {
+                scanId: scan.id,
+                errorMessage: `Dosya işlenemedi (${file.name}): ${
+                  fileErr instanceof Error ? fileErr.message : String(fileErr)
+                }`,
+              },
+            })
+            .catch(() => {});
         }
       }
 
@@ -375,15 +451,18 @@ export class LocalScanService {
           const existing = await this.prisma.driveFile.findUnique({
             where: { localFilePath: file.fullPath },
           });
+          this.assertDriveFileLibrary(existing, libraryId);
           const sourceChanged =
             !existing?.modifiedTime || existing.modifiedTime.getTime() !== stat.mtime.getTime();
           const parsed = await this.musicLibraryService.metadata.parseLocalFile(
             file.fullPath,
             library.localFolderPath,
           );
-          const driveFile = await this.prisma.driveFile.upsert({
-            where: { localFilePath: file.fullPath },
-            create: {
+          const driveFileResult = await createOrUpdateDriveFileForLibrary(
+            this.prisma,
+            { localFilePath: file.fullPath },
+            libraryId,
+            {
               libraryId,
               storageType: 'local',
               localFilePath: file.fullPath,
@@ -402,7 +481,7 @@ export class LocalScanService {
               mediaDuration: parsed.duration,
               mediaAnalyzedAt: new Date(),
             },
-            update: {
+            {
               libraryId,
               name: file.name,
               mimeType: this.getMimeType(file.name),
@@ -420,7 +499,8 @@ export class LocalScanService {
               mediaAnalyzedAt: new Date(),
               mediaAnalysisError: null,
             },
-          });
+          );
+          const driveFile = driveFileResult.record;
           const track = await this.musicLibraryService.indexTrack({
             userId,
             libraryId,
@@ -450,6 +530,7 @@ export class LocalScanService {
               await this.musicLibraryService.lyrics.removeSidecarLyrics(track.id);
             }
           } catch (lyricsError) {
+            if (signal.aborted || isScanInterruptedError(lyricsError)) throw lyricsError;
             await this.prisma.libraryScanError.create({
               data: {
                 scanId: scan.id,
@@ -467,6 +548,7 @@ export class LocalScanService {
             })
             .catch(() => {});
         } catch (error) {
+          if (signal.aborted || isScanInterruptedError(error)) throw error;
           await this.prisma.libraryScanError.create({
             data: {
               scanId: scan.id,
@@ -483,25 +565,45 @@ export class LocalScanService {
           await this.scanLifecycle.heartbeat(scanId);
           const matchingVideo = videoFiles.find(
             (v) =>
-              path.parse(v.name).name.toLowerCase() === path.parse(subFile.name).name.toLowerCase(),
+              path.dirname(v.fullPath) === path.dirname(subFile.fullPath) &&
+              normalizeSubtitleStem(v.name) === normalizeSubtitleStem(subFile.name),
           );
 
           if (matchingVideo) {
             const lang = this.detectSubtitleLanguage(subFile.name);
-
-            // Upsert subtitle file as its own DriveFile
-            const subDriveFile = await this.prisma.driveFile.upsert({
+            const existingSubtitleFile = await this.prisma.driveFile.findUnique({
               where: { localFilePath: subFile.fullPath },
-              update: { name: subFile.name },
-              create: {
+            });
+            this.assertDriveFileLibrary(existingSubtitleFile, libraryId);
+
+            // Create first so a path cannot be moved to another library by a
+            // concurrent scan; the helper verifies ownership on a unique-key
+            // race before taking the update path.
+            const subtitleMimeType =
+              path.extname(subFile.name).toLowerCase() === '.vtt'
+                ? 'text/vtt'
+                : 'application/x-subrip';
+            const subDriveFileResult = await createOrUpdateDriveFileForLibrary(
+              this.prisma,
+              { localFilePath: subFile.fullPath },
+              libraryId,
+              {
                 libraryId,
                 storageType: 'local',
                 localFilePath: subFile.fullPath,
                 name: subFile.name,
-                mimeType: subFile.name.endsWith('.vtt') ? 'text/vtt' : 'application/x-subrip',
+                mimeType: subtitleMimeType,
                 status: 'active',
               },
-            });
+              {
+                libraryId,
+                storageType: 'local',
+                name: subFile.name,
+                mimeType: subtitleMimeType,
+                status: 'active',
+              },
+            );
+            const subDriveFile = subDriveFileResult.record;
 
             // Upsert subtitle track linked to subtitle DriveFile
             await this.prisma.subtitleTrack.upsert({
@@ -519,12 +621,68 @@ export class LocalScanService {
             });
           }
         } catch (subErr: unknown) {
+          if (signal.aborted || isScanInterruptedError(subErr)) throw subErr;
           console.error(`[LocalScan] Altyazı işlenirken hata: ${subFile.fullPath}`, subErr);
         }
       }
 
-      // Mark scan completed
+      const seenPaths = new Set(allFiles.map((file) => file.fullPath));
+      const existingLocalFiles = await this.prisma.driveFile.findMany({
+        where: {
+          libraryId,
+          storageType: 'local',
+          status: 'active',
+          localFilePath: { not: null },
+        },
+        select: { id: true, localFilePath: true },
+      });
+      signal.throwIfAborted();
+      const missingFileIds: string[] = [];
+      for (const file of existingLocalFiles) {
+        if (!file.localFilePath) continue;
+
+        // Older rows may contain a symlink spelling such as /var/... while
+        // the current scan root is /private/var/... on macOS. Resolve the
+        // existing path when possible, and resolve its parent when the file
+        // itself has disappeared, so reconciliation remains compatible with
+        // those historical rows without trusting a symlink target outside the
+        // configured root.
+        let comparablePath = file.localFilePath;
+        try {
+          comparablePath = await fs.realpath(file.localFilePath);
+        } catch {
+          try {
+            comparablePath = path.join(
+              await fs.realpath(path.dirname(file.localFilePath)),
+              path.basename(file.localFilePath),
+            );
+          } catch {
+            comparablePath = path.resolve(file.localFilePath);
+          }
+        }
+
+        if (
+          isPathWithinRoot(library.localFolderPath, comparablePath) &&
+          !seenPaths.has(comparablePath)
+        ) {
+          missingFileIds.push(file.id);
+        }
+      }
+      if (missingFileIds.length > 0) {
+        signal.throwIfAborted();
+        await this.scanLifecycle.heartbeat(scanId, true);
+        signal.throwIfAborted();
+        await this.prisma.driveFile.updateMany({
+          where: { id: { in: missingFileIds }, status: 'active' },
+          data: { status: 'missing' },
+        });
+        signal.throwIfAborted();
+      }
+
+      // Mark scan completed only after reconciliation succeeds. An interrupted
+      // or failed walk must never make unseen files look deleted.
       const errorCount = await this.prisma.libraryScanError.count({ where: { scanId: scan.id } });
+      await this.scanLifecycle.heartbeat(scanId, true);
       signal.throwIfAborted();
       await this.prisma.libraryScan.updateMany({
         where: { id: scan.id, status: 'running' },
@@ -532,6 +690,7 @@ export class LocalScanService {
           status: 'completed',
           addedCount,
           updatedCount,
+          deletedCount: missingFileIds.length,
           errorCount,
           durationMs: Date.now() - startedAt,
           completedAt: new Date(),
@@ -540,10 +699,12 @@ export class LocalScanService {
         },
       });
 
+      signal.throwIfAborted();
       await this.prisma.library.update({
         where: { id: libraryId },
         data: { lastScannedAt: new Date() },
       });
+      signal.throwIfAborted();
       void new MusicLanguageEnrichmentService(this.prisma)
         .enrichLibrary(libraryId)
         .catch(() => undefined);
@@ -590,10 +751,18 @@ export class LocalScanService {
 
   private async readdirRecursive(
     dir: string,
+    root: string,
     scanId: string,
     signal: AbortSignal,
+    visitedDirectories = new Set<string>(),
   ): Promise<Array<{ name: string; fullPath: string }>> {
     const results: Array<{ name: string; fullPath: string }> = [];
+
+    if (visitedDirectories.has(dir)) return results;
+    visitedDirectories.add(dir);
+    if (visitedDirectories.size > MAX_SCAN_FOLDER_COUNT) {
+      throw new Error(SCAN_FOLDER_LIMIT_EXCEEDED);
+    }
 
     try {
       signal.throwIfAborted();
@@ -610,18 +779,38 @@ export class LocalScanService {
             entry.name !== 'node_modules' &&
             entry.name !== '__pycache__'
           ) {
-            const subDirFiles = await this.readdirRecursive(fullPath, scanId, signal);
-            results.push(...subDirFiles);
+            const canonicalDirectory = await fs.realpath(fullPath);
+            if (isPathWithinRoot(root, canonicalDirectory)) {
+              const subDirFiles = await this.readdirRecursive(
+                canonicalDirectory,
+                root,
+                scanId,
+                signal,
+                visitedDirectories,
+              );
+              if (results.length + subDirFiles.length > MAX_SCAN_FILE_COUNT) {
+                throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+              }
+              results.push(...subDirFiles);
+            }
           }
         } else if (entry.isFile()) {
           if (!entry.name.startsWith('.')) {
-            results.push({ name: entry.name, fullPath });
+            const canonicalFile = await fs.realpath(fullPath);
+            if (isPathWithinRoot(root, canonicalFile)) {
+              if (results.length >= MAX_SCAN_FILE_COUNT) {
+                throw new Error(SCAN_FILE_LIMIT_EXCEEDED);
+              }
+              results.push({ name: entry.name, fullPath: canonicalFile });
+            }
           }
         }
       }
     } catch (error) {
-      if (signal.aborted) throw error;
-      // Ignore unreadable subdirectories
+      // A partial walk cannot distinguish an unreadable directory from a
+      // directory whose files were removed concurrently. Fail the scan so
+      // reconciliation never marks unseen rows as missing on incomplete input.
+      throw error;
     }
 
     return results;
@@ -665,6 +854,12 @@ export class LocalScanService {
         return 'audio/x-ms-wma';
       default:
         return 'application/octet-stream';
+    }
+  }
+
+  private assertDriveFileLibrary(driveFile: { libraryId: string } | null, libraryId: string): void {
+    if (driveFile && driveFile.libraryId !== libraryId) {
+      throw new Error('DRIVE_FILE_LIBRARY_CONFLICT');
     }
   }
 }

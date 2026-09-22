@@ -40,6 +40,22 @@ test('verification, browser tests, and Docker smoke do not wait for audit', () =
   }
 });
 
+test('server test jobs provide isolated credentials instead of loading example env files', () => {
+  for (const name of ['verify', 'node-compatibility']) {
+    const job = jobs.get(name);
+    assert.ok(job);
+    for (const key of [
+      'GOOGLE_CLIENT_ID',
+      'GOOGLE_CLIENT_SECRET',
+      'GOOGLE_REDIRECT_URI',
+      'ADMIN_EMAIL',
+      'ADMIN_PASSWORD',
+    ]) {
+      assert.match(job, new RegExp(`^      ${key}: .+$`, 'm'), `${name} must set ${key}`);
+    }
+  }
+});
+
 test('existing required e2e check includes audit and always evaluates upstream results', () => {
   const gate = jobs.get('e2e');
   assert.ok(gate, 'preserve the ruleset-required e2e check name');

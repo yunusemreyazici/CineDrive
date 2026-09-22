@@ -37,7 +37,7 @@ describe('Auth & Health API Integration Tests', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       status: 'ready',
-      checks: { database: 'ok' },
+      checks: { database: 'ok', migrations: 'ok' },
     });
   });
 
@@ -54,7 +54,7 @@ describe('Auth & Health API Integration Tests', () => {
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({
       status: 'not_ready',
-      checks: { database: 'error' },
+      checks: { database: 'error', migrations: 'error' },
       timestamp: expect.any(String),
       requestId: 'readiness-failure-request',
     });
@@ -78,7 +78,7 @@ describe('Auth & Health API Integration Tests', () => {
       expect(response.statusCode).toBe(503);
       expect(response.json()).toMatchObject({
         status: 'not_ready',
-        checks: { database: 'error' },
+        checks: { database: 'error', migrations: 'error' },
         requestId: 'readiness-timeout-request',
       });
       expect(response.body).not.toContain('timed out');
@@ -262,5 +262,35 @@ describe('Auth & Health API Integration Tests', () => {
       ).statusCode,
     ).toBe(403);
     await app.prisma.user.delete({ where: { id: user.id } });
+  });
+
+  it('preserves one active administrator under concurrent demotions', async () => {
+    const firstAdmin = await app.authService.ensureAdminUserExists();
+    const secondAdmin = await app.prisma.user.create({
+      data: {
+        email: `concurrent-admin-${Date.now()}@cinedrive.test`,
+        name: 'Concurrent admin',
+        passwordHash: await app.authService.hashPassword('ConcurrentAdminPassword123!'),
+        role: 'admin',
+      },
+    });
+
+    const results = await Promise.allSettled([
+      app.authService.updateUser(firstAdmin.id, secondAdmin.id, { role: 'user' }),
+      app.authService.updateUser(secondAdmin.id, firstAdmin.id, { role: 'user' }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(
+      results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === 'rejected' && result.reason instanceof Error,
+      )?.reason.message,
+    ).toBe('LAST_ADMIN_REQUIRED');
+    expect(await app.prisma.user.count({ where: { role: 'admin', disabledAt: null } })).toBe(1);
+
+    await app.prisma.user.update({ where: { id: firstAdmin.id }, data: { role: 'admin' } });
+    await app.prisma.user.delete({ where: { id: secondAdmin.id } });
   });
 });

@@ -86,20 +86,14 @@ export const resolveActiveDriveFile = (
 ) =>
   fastify.prisma.driveFile.findFirst({
     where: {
-      OR: [
-        { googleDriveFileId: driveFileId },
-        { id: driveFileId },
-        { localFilePath: driveFileId },
-      ],
+      OR: [{ googleDriveFileId: driveFileId }, { id: driveFileId }, { localFilePath: driveFileId }],
       status: 'active',
       library: ownedLibraryFilter(userId),
     },
     include: { library: true },
   });
 
-export type ResolvedDriveFile = NonNullable<
-  Awaited<ReturnType<typeof resolveActiveDriveFile>>
->;
+export type ResolvedDriveFile = NonNullable<Awaited<ReturnType<typeof resolveActiveDriveFile>>>;
 
 /**
  * FFmpeg is pointed at this server rather than at googleapis.com so each
@@ -117,6 +111,7 @@ export const driveSourceInput = (
   const capability = fastify.driveSourceService.issue({
     googleDriveFileId: driveFile.googleDriveFileId || '',
     userId: driveFile.library?.userId || userId,
+    accessUserId: userId,
     ...(driveFile.googleConnectionId || driveFile.library?.googleConnectionId
       ? {
           connectionId:

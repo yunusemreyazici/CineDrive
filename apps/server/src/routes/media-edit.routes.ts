@@ -9,6 +9,69 @@ import { manageableMediaFilter } from '../utils/library-access.js';
 export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
+  const deleteMediaRows = async (userId: string, requestedIds: string[]) => {
+    const ids = [...new Set(requestedIds)];
+    const candidates = await fastify.prisma.mediaItem.findMany({
+      where: { id: { in: ids }, ...manageableMediaFilter(userId) },
+      select: { libraryId: true },
+    });
+    const locks: Array<{ release(): Promise<void> }> = [];
+    try {
+      for (const libraryId of [
+        ...new Set(candidates.flatMap((item) => (item.libraryId ? [item.libraryId] : []))),
+      ].sort()) {
+        locks.push(await fastify.libraryOperationLockService.acquire(libraryId, 'delete'));
+      }
+
+      return await fastify.prisma.$transaction(async (tx) => {
+        const mediaItems = await tx.mediaItem.findMany({
+          where: { id: { in: ids }, ...manageableMediaFilter(userId) },
+          select: {
+            id: true,
+            movie: { select: { driveFileId: true } },
+            series: {
+              select: {
+                seasons: { select: { episodes: { select: { driveFileId: true } } } },
+              },
+            },
+          },
+        });
+        const driveFileIds = [
+          ...new Set(
+            mediaItems.flatMap((item) => [
+              ...(item.movie?.driveFileId ? [item.movie.driveFileId] : []),
+              ...(item.series?.seasons.flatMap((season) =>
+                season.episodes.map((episode) => episode.driveFileId),
+              ) || []),
+            ]),
+          ),
+        ];
+        const ownedIds = mediaItems.map((item) => item.id);
+        const deleteResult = await tx.mediaItem.deleteMany({
+          where: { id: { in: ownedIds }, ...manageableMediaFilter(userId) },
+        });
+
+        // A DriveFile can be referenced by more than one derived media row in
+        // legacy data. Only remove the physical index row after all references
+        // are gone; the database cascade then cleans its subtitle/music data.
+        if (driveFileIds.length) {
+          await tx.driveFile.deleteMany({
+            where: {
+              id: { in: driveFileIds },
+              movies: { none: {} },
+              episodes: { none: {} },
+              subtitles: { none: {} },
+              musicTrack: { is: null },
+            },
+          });
+        }
+        return deleteResult.count;
+      });
+    } finally {
+      await Promise.all(locks.map((lock) => lock.release()));
+    }
+  };
+
   // POST /api/media/batch-delete: Bulk remove media items from the database
   fastify.post<{ Body: { ids: string[] } }>('/batch-delete', async (request, reply) => {
     const parseResult = batchDeleteMediaSchema.safeParse(request.body);
@@ -30,51 +93,25 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
      * account's records by guessing or reading an id — and the ids are derived
      * from the title (`media_movie_inception`), so they are guessable.
      */
-    const mediaItems = await fastify.prisma.mediaItem.findMany({
-      where: { id: { in: ids }, ...manageableMediaFilter(request.user!.id) },
-      include: {
-        movie: true,
-        series: {
-          include: {
-            seasons: {
-              include: {
-                episodes: true,
-              },
-            },
+    let deletedCount: number;
+    try {
+      deletedCount = await deleteMediaRows(request.user!.id, ids);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+        return reply.status(409).send({
+          error: {
+            code: 'LIBRARY_OPERATION_IN_PROGRESS',
+            message: 'Kütüphane taraması veya başka bir silme işlemi devam ediyor.',
+            requestId: request.id,
           },
-        },
-      },
-    });
-
-    const driveFileIdsToDelete: string[] = [];
-    for (const item of mediaItems) {
-      if (item.movie?.driveFileId) {
-        driveFileIdsToDelete.push(item.movie.driveFileId);
+        });
       }
-      if (item.series?.seasons) {
-        for (const season of item.series.seasons) {
-          for (const ep of season.episodes) {
-            if (ep.driveFileId) driveFileIdsToDelete.push(ep.driveFileId);
-          }
-        }
-      }
-    }
-
-    // Only what the lookup above confirmed as the caller's own.
-    const ownedIds = mediaItems.map((item) => item.id);
-    const deleteResult = await fastify.prisma.mediaItem.deleteMany({
-      where: { id: { in: ownedIds } },
-    });
-
-    if (driveFileIdsToDelete.length > 0) {
-      await fastify.prisma.driveFile.deleteMany({
-        where: { id: { in: driveFileIdsToDelete } },
-      }).catch(() => {});
+      throw error;
     }
 
     return reply.status(200).send({
-      message: `${deleteResult.count} adet medya içeriği veritabanından silindi.`,
-      deletedCount: deleteResult.count,
+      message: `${deletedCount} adet medya içeriği veritabanından silindi.`,
+      deletedCount,
     });
   });
 
@@ -83,21 +120,6 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
     '/:id',
     async (request, reply) => {
       const { id } = request.params;
-
-      // Someone else's media answers exactly like media that does not exist.
-      const mediaItem = await fastify.prisma.mediaItem.findFirst({
-        where: { id, ...manageableMediaFilter(request.user!.id) },
-      });
-
-      if (!mediaItem) {
-        return reply.status(404).send({
-          error: {
-            code: 'MEDIA_NOT_FOUND',
-            message: 'Medya içeriği bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      }
 
       const parseResult = updateMediaMetadataSchema.safeParse(request.body);
       if (!parseResult.success) {
@@ -125,10 +147,27 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
       if (data.trailerUrl !== undefined) updatePayload.trailerUrl = data.trailerUrl;
       if (data.genres !== undefined) updatePayload.genres = JSON.stringify(data.genres);
 
-      const updated = await fastify.prisma.mediaItem.update({
-        where: { id },
-        data: updatePayload,
+      // Keep the authorization predicate in the write itself. A membership
+      // revoke between a preliminary find and update must not leave a stale
+      // caller able to mutate a now-inaccessible media row.
+      const updated = await fastify.prisma.$transaction(async (tx) => {
+        const result = await tx.mediaItem.updateMany({
+          where: { id, ...manageableMediaFilter(request.user!.id) },
+          data: updatePayload,
+        });
+        if (!result.count) return null;
+        return tx.mediaItem.findUnique({ where: { id } });
       });
+
+      if (!updated) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'Medya içeriği bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
 
       return reply.status(200).send({
         message: 'Medya bilgileri başarıyla güncellendi.',
@@ -143,18 +182,7 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
 
     const mediaItem = await fastify.prisma.mediaItem.findFirst({
       where: { id, ...manageableMediaFilter(request.user!.id) },
-      include: {
-        movie: true,
-        series: {
-          include: {
-            seasons: {
-              include: {
-                episodes: true,
-              },
-            },
-          },
-        },
-      },
+      select: { id: true },
     });
 
     if (!mediaItem) {
@@ -167,29 +195,19 @@ export const mediaEditRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    // Collect drive file IDs associated with this media item or its episodes
-    const driveFileIdsToDelete: string[] = [];
-    if (mediaItem.movie?.driveFileId) {
-      driveFileIdsToDelete.push(mediaItem.movie.driveFileId);
-    }
-    if (mediaItem.series?.seasons) {
-      for (const season of mediaItem.series.seasons) {
-        for (const ep of season.episodes) {
-          if (ep.driveFileId) driveFileIdsToDelete.push(ep.driveFileId);
-        }
+    try {
+      await deleteMediaRows(request.user!.id, [mediaItem.id]);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'LIBRARY_OPERATION_IN_PROGRESS') {
+        return reply.status(409).send({
+          error: {
+            code: 'LIBRARY_OPERATION_IN_PROGRESS',
+            message: 'Kütüphane taraması veya başka bir silme işlemi devam ediyor.',
+            requestId: request.id,
+          },
+        });
       }
-    }
-
-    // Delete MediaItem (Prisma cascade handles Movie, Series, Episode, SubtitleTrack, PlaybackProgress, WatchHistory, Favorite)
-    await fastify.prisma.mediaItem.delete({
-      where: { id },
-    });
-
-    // Clean up associated DriveFile records if any
-    if (driveFileIdsToDelete.length > 0) {
-      await fastify.prisma.driveFile.deleteMany({
-        where: { id: { in: driveFileIdsToDelete } },
-      }).catch(() => {});
+      throw error;
     }
 
     return reply.status(200).send({

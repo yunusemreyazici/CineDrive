@@ -1,14 +1,32 @@
+import { performance } from 'node:perf_hooks';
 import type { PrismaClient } from '@cinedrive/prisma';
 
-export type ScanInterruptionReason = 'server_restarted' | 'server_shutdown' | 'watchdog_timeout';
+export type ScanInterruptionReason =
+  'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | 'library_operation_lost';
+
+export class ScanInterruptedError extends Error {
+  public readonly reason: ScanInterruptionReason;
+
+  constructor(reason: ScanInterruptionReason) {
+    super(`SCAN_INTERRUPTED:${reason}`);
+    this.name = 'ScanInterruptedError';
+    this.reason = reason;
+  }
+}
+
+export const isScanInterruptedError = (error: unknown): boolean =>
+  error instanceof ScanInterruptedError ||
+  (error instanceof Error && error.message.startsWith('SCAN_INTERRUPTED:'));
 
 interface ActiveScan {
   libraryId: string;
   sourceIds: string[];
   controller: AbortController;
   onInterrupted?: () => void;
+  onHeartbeat?: () => Promise<boolean>;
   lastHeartbeatAt: number;
   lastPersistedHeartbeatAt: number;
+  heartbeatRefresh?: Promise<boolean>;
 }
 
 const HEARTBEAT_PERSIST_INTERVAL_MS = 5_000;
@@ -30,6 +48,7 @@ export class ScanLifecycleService {
     libraryId: string,
     sourceIds: string[] = [],
     onInterrupted?: () => void,
+    onHeartbeat?: () => Promise<boolean>,
   ): AbortSignal {
     const controller = new AbortController();
     const now = Date.now();
@@ -38,8 +57,11 @@ export class ScanLifecycleService {
       sourceIds,
       controller,
       onInterrupted,
+      onHeartbeat,
       lastHeartbeatAt: now,
-      lastPersistedHeartbeatAt: now,
+      // Make the first non-forced heartbeat perform a real lease check while
+      // keeping subsequent item-level calls cheap.
+      lastPersistedHeartbeatAt: performance.now() - HEARTBEAT_PERSIST_INTERVAL_MS,
     });
     return controller.signal;
   }
@@ -57,16 +79,61 @@ export class ScanLifecycleService {
   public async heartbeat(scanId: string, force = false): Promise<void> {
     const active = this.activeScans.get(scanId);
     if (!active) return;
+    if (active.controller.signal.aborted) {
+      throw active.controller.signal.reason instanceof Error
+        ? active.controller.signal.reason
+        : new ScanInterruptedError('server_shutdown');
+    }
     const now = Date.now();
     active.lastHeartbeatAt = now;
-    if (!force && now - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS) return;
-    active.lastPersistedHeartbeatAt = now;
+    const monotonicNow = performance.now();
+    if (
+      !force &&
+      monotonicNow - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS
+    ) {
+      // The signal check above is intentionally the hot path for every item.
+      // Lease extension and the LibraryScan status write happen periodically.
+      return;
+    }
+
+    const refresh =
+      active.heartbeatRefresh || this.refreshHeartbeat(scanId, active, now, monotonicNow);
+    active.heartbeatRefresh = refresh;
+    try {
+      const owned = await refresh;
+      if (!owned) {
+        const interruption = new ScanInterruptedError('library_operation_lost');
+        await this.interruptScan(scanId, 'library_operation_lost', interruption).catch(() => {
+          // The abort signal is the hard stop. If DB finalization is
+          // temporarily unavailable, startup reconciliation can repair the
+          // running row after the process has stopped using it.
+        });
+        throw interruption;
+      }
+    } finally {
+      if (active.heartbeatRefresh === refresh) active.heartbeatRefresh = undefined;
+    }
+  }
+
+  private async refreshHeartbeat(
+    scanId: string,
+    active: ActiveScan,
+    now: number,
+    monotonicNow: number,
+  ): Promise<boolean> {
+    const owned = active.onHeartbeat ? await active.onHeartbeat().catch(() => false) : true;
+    if (!owned) return false;
+
+    // Record the timestamp only after the lease refresh succeeded. The
+    // monotonic clock is immune to wall-clock adjustments on the host.
+    active.lastPersistedHeartbeatAt = Math.max(monotonicNow, performance.now());
     await this.prisma.libraryScan
       .updateMany({
         where: { id: scanId, status: 'running' },
         data: { heartbeatAt: new Date(now) },
       })
       .catch(() => {});
+    return true;
   }
 
   public finish(scanId: string): void {
@@ -113,17 +180,24 @@ export class ScanLifecycleService {
     await Promise.all(stalled.map((scanId) => this.interruptScan(scanId, 'watchdog_timeout')));
   }
 
-  private async interruptScan(scanId: string, reason: ScanInterruptionReason): Promise<void> {
+  private async interruptScan(
+    scanId: string,
+    reason: ScanInterruptionReason,
+    abortReason = new ScanInterruptedError(reason),
+  ): Promise<void> {
     const active = this.activeScans.get(scanId);
     if (!active) return;
-    active.controller.abort(new Error(reason));
-    active.onInterrupted?.();
-    const scan = await this.prisma.libraryScan.findUnique({
-      where: { id: scanId },
-      select: { id: true, libraryId: true, driveScanSourceId: true, startedAt: true },
-    });
-    if (scan) await this.finalizeInterruptedScan(scan, reason, active.sourceIds);
-    this.activeScans.delete(scanId);
+    try {
+      active.controller.abort(abortReason);
+      active.onInterrupted?.();
+      const scan = await this.prisma.libraryScan.findUnique({
+        where: { id: scanId },
+        select: { id: true, libraryId: true, driveScanSourceId: true, startedAt: true },
+      });
+      if (scan) await this.finalizeInterruptedScan(scan, reason, active.sourceIds);
+    } finally {
+      this.activeScans.delete(scanId);
+    }
   }
 
   private async finalizeInterruptedScan(

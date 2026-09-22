@@ -70,6 +70,8 @@ export class HlsService {
   private readonly jobs = new Map<string, HlsJob>();
   /** Player sessions currently holding a cache key open. */
   private readonly leases = new Map<string, Set<string>>();
+  /** HLS session ownership prevents one library member releasing another's lease. */
+  private readonly leaseOwners = new Map<string, Map<string, string>>();
   private readonly blockedSessions = new Map<string, number>();
   /** De-duplicates concurrent starts of the same cache key. */
   private readonly inflightStarts = new Map<string, Promise<string>>();
@@ -81,7 +83,11 @@ export class HlsService {
       positiveNumber(options.maxCacheBytes, process.env.HLS_CACHE_MAX_BYTES, DEFAULT_CACHE_BYTES),
     );
     this.scheduler = new HlsSlotScheduler(
-      positiveNumber(options.maxActiveJobs, process.env.HLS_MAX_ACTIVE_JOBS, DEFAULT_MAX_ACTIVE_JOBS),
+      positiveNumber(
+        options.maxActiveJobs,
+        process.env.HLS_MAX_ACTIVE_JOBS,
+        DEFAULT_MAX_ACTIVE_JOBS,
+      ),
       () => this.jobs.size,
     );
     this.processRegistry = new HlsProcessRegistry(
@@ -107,6 +113,7 @@ export class HlsService {
     mediaName = cacheKey,
     sourceVideoCodec?: string | null,
     signal?: AbortSignal,
+    ownerUserId?: string,
   ) {
     if (signal?.aborted) throw new Error('HLS_CLIENT_ABORTED');
 
@@ -114,7 +121,7 @@ export class HlsService {
     if (inflight) {
       if (sessionId) {
         if (this.isSessionBlocked(cacheKey, sessionId)) throw new Error('HLS_JOB_STOPPED');
-        this.acquireLease(cacheKey, sessionId);
+        this.acquireLease(cacheKey, sessionId, ownerUserId);
       }
       return inflight;
     }
@@ -128,6 +135,7 @@ export class HlsService {
       mediaName,
       sourceVideoCodec,
       signal,
+      ownerUserId,
     );
     this.inflightStarts.set(cacheKey, start);
     try {
@@ -148,6 +156,7 @@ export class HlsService {
     mediaName: string,
     sourceVideoCodec: string | null | undefined,
     signal?: AbortSignal,
+    ownerUserId?: string,
   ) {
     if (sessionId && this.isSessionBlocked(cacheKey, sessionId)) {
       throw new Error('HLS_JOB_STOPPED');
@@ -155,7 +164,7 @@ export class HlsService {
 
     const outputDir = this.cache.getCacheDir(cacheKey);
     const playlistPath = path.join(outputDir, 'index.m3u8');
-    if (sessionId) this.acquireLease(cacheKey, sessionId);
+    if (sessionId) this.acquireLease(cacheKey, sessionId, ownerUserId);
     this.cache.markRecentlyServed(cacheKey);
 
     const existingJob = this.jobs.get(cacheKey);
@@ -259,6 +268,7 @@ export class HlsService {
       clearInterval(activeJob.idleTimer);
       this.jobs.delete(activeKey);
       this.leases.delete(activeKey);
+      this.leaseOwners.delete(activeKey);
       killCommand(activeJob.command);
     }
   }
@@ -488,8 +498,10 @@ export class HlsService {
     return true;
   }
 
-  public releaseHls(cacheKey: string, sessionId: string) {
+  public releaseHls(cacheKey: string, sessionId: string, userId?: string) {
     assertValidSessionId(sessionId);
+    const owner = this.leaseOwners.get(cacheKey)?.get(sessionId);
+    if (owner && owner !== userId) return false;
     this.blockedSessions.delete(sessionKey(cacheKey, sessionId));
     this.scheduler.cancelForSession(sessionId, cacheKey);
 
@@ -497,6 +509,9 @@ export class HlsService {
     if (!sessions) return false;
 
     sessions.delete(sessionId);
+    const owners = this.leaseOwners.get(cacheKey);
+    owners?.delete(sessionId);
+    if (owners?.size === 0) this.leaseOwners.delete(cacheKey);
     if (sessions.size > 0) return false;
     this.leases.delete(cacheKey);
 
@@ -522,6 +537,7 @@ export class HlsService {
     }
     this.jobs.clear();
     this.leases.clear();
+    this.leaseOwners.clear();
     this.blockedSessions.clear();
     this.cache.clearRecentlyServed();
     this.scheduler.shutdown();
@@ -536,7 +552,10 @@ export class HlsService {
   private teardownJob(cacheKey: string, job: HlsJob, options?: { leaseAlreadyCleared?: boolean }) {
     clearInterval(job.idleTimer);
     this.jobs.delete(cacheKey);
-    if (!options?.leaseAlreadyCleared) this.leases.delete(cacheKey);
+    if (!options?.leaseAlreadyCleared) {
+      this.leases.delete(cacheKey);
+      this.leaseOwners.delete(cacheKey);
+    }
     killCommand(job.command);
     this.scheduler.drain();
   }
@@ -563,12 +582,22 @@ export class HlsService {
     clearInterval(currentJob.idleTimer);
     this.jobs.delete(cacheKey);
     this.leases.delete(cacheKey);
+    this.leaseOwners.delete(cacheKey);
     this.scheduler.drain();
     return 'detached' as const;
   }
 
-  private acquireLease(cacheKey: string, sessionId: string) {
+  private acquireLease(cacheKey: string, sessionId: string, userId?: string) {
     assertValidSessionId(sessionId);
+    const owners = this.leaseOwners.get(cacheKey) || new Map<string, string>();
+    const existingOwner = owners.get(sessionId);
+    if (existingOwner && userId && existingOwner !== userId) {
+      throw new Error('HLS_SESSION_OWNERSHIP_CONFLICT');
+    }
+    if (userId) {
+      owners.set(sessionId, userId);
+      this.leaseOwners.set(cacheKey, owners);
+    }
     const sessions = this.leases.get(cacheKey) || new Set<string>();
     sessions.add(sessionId);
     this.leases.set(cacheKey, sessions);

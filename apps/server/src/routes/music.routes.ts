@@ -40,6 +40,7 @@ import {
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
+import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
   formatMusicArtist,
@@ -143,6 +144,19 @@ const manageableTrackWhere = (userId: string): Prisma.MusicTrackWhereInput => ({
   },
   driveFile: { status: 'active' },
 });
+
+/**
+ * SQLite serializes writers, but a deferred transaction can still let two
+ * playlist append/reorder requests read the same position before either one
+ * writes. This tiny no-op update upgrades the transaction to a writer before
+ * we calculate positions. It is scoped to one playlist and keeps the public
+ * playlist contract unchanged.
+ */
+const lockPlaylistWriter = async (tx: Prisma.TransactionClient, playlistId: string) => {
+  await tx.$executeRaw`
+    UPDATE "MusicPlaylist" SET "id" = "id" WHERE "id" = ${playlistId}
+  `;
+};
 
 const formatLyrics = (lyrics: {
   trackId: string;
@@ -379,7 +393,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         const grant = verifyDownloadGrant(token);
         const format = parsedURL.searchParams.get('format') || 'original';
         if (grant && grant.t === match[1] && grant.f === format) {
-          const user = await fastify.prisma.user.findUnique({ where: { id: grant.u } });
+          const user = await fastify.prisma.user.findFirst({
+            where: { id: grant.u, disabledAt: null },
+          });
           if (user) request.user = fastify.authService.toUserDto(user);
         }
       }
@@ -423,7 +439,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicPlaylist.findMany({
         where: { userId },
-        include: { items: { include: { track: { select: { duration: true } } } } },
+        include: {
+          items: {
+            include: { track: { select: { duration: true } } },
+            orderBy: { position: 'asc' },
+          },
+        },
         orderBy: { updatedAt: 'desc' },
         take: 12,
       }),
@@ -547,7 +568,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicPlaylist.findMany({
         where: playlistWhere,
-        include: { items: { include: { track: { select: { duration: true } } } } },
+        include: {
+          items: {
+            include: { track: { select: { duration: true } } },
+            orderBy: { position: 'asc' },
+          },
+        },
         orderBy: { updatedAt: 'desc' },
       }),
       fastify.prisma.musicPlaylist.findMany({ where: { userId }, select: { id: true } }),
@@ -1962,7 +1988,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/playlists', async (request) => {
     const playlists = await fastify.prisma.musicPlaylist.findMany({
       where: { userId: request.user!.id },
-      include: { items: { include: { track: { select: { duration: true } } } } },
+      include: {
+        items: {
+          include: { track: { select: { duration: true } } },
+          orderBy: { position: 'asc' },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
     return {
@@ -2026,7 +2057,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           create: trackIds.map((trackId, position) => ({ trackId, position })),
         },
       },
-      include: { items: { include: { track: { select: { duration: true } } } } },
+      include: {
+        items: {
+          include: { track: { select: { duration: true } } },
+          orderBy: { position: 'asc' },
+        },
+      },
     });
     return reply.status(201).send({
       playlist: {
@@ -2168,35 +2204,47 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'VALIDATION_ERROR', message: 'Geçersiz parça.', requestId: request.id },
       });
     const userId = request.user!.id;
-    const [playlist, track] = await Promise.all([
-      fastify.prisma.musicPlaylist.findFirst({ where: { id: request.params.id, userId } }),
-      fastify.prisma.musicTrack.findFirst({
-        where: { id: parsed.data.trackId, ...ownedTrackWhere(userId) },
-      }),
-    ]);
-    if (!playlist || !track)
-      return reply.status(404).send({
-        error: {
-          code: 'MUSIC_RESOURCE_NOT_FOUND',
-          message: 'Çalma listesi veya parça bulunamadı.',
-          requestId: request.id,
-        },
+    let item: Prisma.MusicPlaylistItemGetPayload<{}>;
+    try {
+      item = await fastify.prisma.$transaction(async (tx) => {
+        await lockPlaylistWriter(tx, request.params.id);
+        const [playlist, track] = await Promise.all([
+          tx.musicPlaylist.findFirst({ where: { id: request.params.id, userId } }),
+          tx.musicTrack.findFirst({
+            where: { id: parsed.data.trackId, ...ownedTrackWhere(userId) },
+          }),
+        ]);
+        if (!playlist || !track) throw new Error('MUSIC_RESOURCE_NOT_FOUND');
+
+        const aggregate = await tx.musicPlaylistItem.aggregate({
+          where: { playlistId: playlist.id },
+          _max: { position: true },
+        });
+        const created = await tx.musicPlaylistItem.create({
+          data: {
+            playlistId: playlist.id,
+            trackId: track.id,
+            position: (aggregate._max.position ?? -1) + 1,
+          },
+        });
+        await tx.musicPlaylist.update({
+          where: { id: playlist.id },
+          data: { updatedAt: new Date() },
+        });
+        return created;
       });
-    const aggregate = await fastify.prisma.musicPlaylistItem.aggregate({
-      where: { playlistId: playlist.id },
-      _max: { position: true },
-    });
-    const item = await fastify.prisma.musicPlaylistItem.create({
-      data: {
-        playlistId: playlist.id,
-        trackId: track.id,
-        position: (aggregate._max.position ?? -1) + 1,
-      },
-    });
-    await fastify.prisma.musicPlaylist.update({
-      where: { id: playlist.id },
-      data: { updatedAt: new Date() },
-    });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MUSIC_RESOURCE_NOT_FOUND') {
+        return reply.status(404).send({
+          error: {
+            code: 'MUSIC_RESOURCE_NOT_FOUND',
+            message: 'Çalma listesi veya parça bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
+    }
     return reply.status(201).send({ item });
   });
   fastify.post<{ Params: { id: string } }>('/playlists/:id/items/batch', async (request, reply) => {
@@ -2207,80 +2255,100 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     const userId = request.user!.id;
     const uniqueTrackIds = [...new Set(parsed.data.trackIds)];
-    const [playlist, ownedTrackCount] = await Promise.all([
-      fastify.prisma.musicPlaylist.findFirst({
-        where: { id: request.params.id, userId },
-        select: { id: true },
-      }),
-      fastify.prisma.musicTrack.count({
-        where: { id: { in: uniqueTrackIds }, ...ownedTrackWhere(userId) },
-      }),
-    ]);
-    if (!playlist || ownedTrackCount !== uniqueTrackIds.length)
-      return reply.status(404).send({
-        error: {
-          code: 'MUSIC_RESOURCE_NOT_FOUND',
-          message: 'Çalma listesi veya seçilen parçalardan bazıları bulunamadı.',
-          requestId: request.id,
-        },
-      });
-    const aggregate = await fastify.prisma.musicPlaylistItem.aggregate({
-      where: { playlistId: playlist.id },
-      _max: { position: true },
-    });
-    const firstPosition = (aggregate._max.position ?? -1) + 1;
-    await fastify.prisma.$transaction([
-      fastify.prisma.musicPlaylistItem.createMany({
-        data: parsed.data.trackIds.map((trackId, index) => ({
-          playlistId: playlist.id,
-          trackId,
-          position: firstPosition + index,
-        })),
-      }),
-      fastify.prisma.musicPlaylist.update({
-        where: { id: playlist.id },
-        data: { updatedAt: new Date() },
-      }),
-    ]);
-    return reply.status(201).send({ added: parsed.data.trackIds.length });
-  });
-  fastify.delete<{ Params: { id: string; itemId: string } }>(
-    '/playlists/:id/items/:itemId',
-    async (request, reply) => {
-      const playlist = await fastify.prisma.musicPlaylist.findFirst({
-        where: { id: request.params.id, userId: request.user!.id },
-      });
-      if (!playlist)
-        return reply.status(404).send({
-          error: {
-            code: 'PLAYLIST_NOT_FOUND',
-            message: 'Çalma listesi bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      await fastify.prisma.musicPlaylistItem.deleteMany({
-        where: { id: request.params.itemId, playlistId: playlist.id },
-      });
-      const remaining = await fastify.prisma.musicPlaylistItem.findMany({
-        where: { playlistId: playlist.id },
-        orderBy: { position: 'asc' },
-        select: { id: true },
-      });
+    try {
       await fastify.prisma.$transaction(async (tx) => {
-        for (const [position, item] of remaining.entries()) {
-          await tx.musicPlaylistItem.update({
-            where: { id: item.id },
-            data: { position: position + 100000 },
-          });
+        await lockPlaylistWriter(tx, request.params.id);
+        const [playlist, ownedTrackCount] = await Promise.all([
+          tx.musicPlaylist.findFirst({
+            where: { id: request.params.id, userId },
+            select: { id: true },
+          }),
+          tx.musicTrack.count({
+            where: { id: { in: uniqueTrackIds }, ...ownedTrackWhere(userId) },
+          }),
+        ]);
+        if (!playlist || ownedTrackCount !== uniqueTrackIds.length) {
+          throw new Error('MUSIC_RESOURCE_NOT_FOUND');
         }
-        for (const [position, item] of remaining.entries()) {
-          await tx.musicPlaylistItem.update({ where: { id: item.id }, data: { position } });
-        }
+        const aggregate = await tx.musicPlaylistItem.aggregate({
+          where: { playlistId: playlist.id },
+          _max: { position: true },
+        });
+        const firstPosition = (aggregate._max.position ?? -1) + 1;
+        await tx.musicPlaylistItem.createMany({
+          data: parsed.data.trackIds.map((trackId, index) => ({
+            playlistId: playlist.id,
+            trackId,
+            position: firstPosition + index,
+          })),
+        });
         await tx.musicPlaylist.update({
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
       });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MUSIC_RESOURCE_NOT_FOUND') {
+        return reply.status(404).send({
+          error: {
+            code: 'MUSIC_RESOURCE_NOT_FOUND',
+            message: 'Çalma listesi veya seçilen parçalardan bazıları bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+      throw error;
+    }
+    return reply.status(201).send({ added: parsed.data.trackIds.length });
+  });
+  fastify.delete<{ Params: { id: string; itemId: string } }>(
+    '/playlists/:id/items/:itemId',
+    async (request, reply) => {
+      const userId = request.user!.id;
+      try {
+        await fastify.prisma.$transaction(async (tx) => {
+          await lockPlaylistWriter(tx, request.params.id);
+          const playlist = await tx.musicPlaylist.findFirst({
+            where: { id: request.params.id, userId },
+            select: { id: true },
+          });
+          if (!playlist) throw new Error('PLAYLIST_NOT_FOUND');
+
+          await tx.musicPlaylistItem.deleteMany({
+            where: { id: request.params.itemId, playlistId: playlist.id },
+          });
+          const remaining = await tx.musicPlaylistItem.findMany({
+            where: { playlistId: playlist.id },
+            orderBy: { position: 'asc' },
+            select: { id: true },
+          });
+          const temporaryOffset = remaining.length + 1;
+          for (const [position, item] of remaining.entries()) {
+            await tx.musicPlaylistItem.update({
+              where: { id: item.id },
+              data: { position: position + temporaryOffset },
+            });
+          }
+          for (const [position, item] of remaining.entries()) {
+            await tx.musicPlaylistItem.update({ where: { id: item.id }, data: { position } });
+          }
+          await tx.musicPlaylist.update({
+            where: { id: playlist.id },
+            data: { updatedAt: new Date() },
+          });
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === 'PLAYLIST_NOT_FOUND') {
+          return reply.status(404).send({
+            error: {
+              code: 'PLAYLIST_NOT_FOUND',
+              message: 'Çalma listesi bulunamadı.',
+              requestId: request.id,
+            },
+          });
+        }
+        throw error;
+      }
       return reply.status(204).send();
     },
   );
@@ -2290,37 +2358,47 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({
         error: { code: 'VALIDATION_ERROR', message: 'Geçersiz sıralama.', requestId: request.id },
       });
-    const playlist = await fastify.prisma.musicPlaylist.findFirst({
-      where: { id: request.params.id, userId: request.user!.id },
-      include: { items: { select: { id: true } } },
-    });
-    if (
-      !playlist ||
-      playlist.items.length !== parsed.data.itemIds.length ||
-      playlist.items.some((item) => !parsed.data.itemIds.includes(item.id))
-    )
-      return reply.status(400).send({
-        error: {
-          code: 'INVALID_PLAYLIST_ORDER',
-          message: 'Sıralama tüm liste öğelerini içermelidir.',
-          requestId: request.id,
-        },
+    try {
+      await fastify.prisma.$transaction(async (tx) => {
+        await lockPlaylistWriter(tx, request.params.id);
+        const playlist = await tx.musicPlaylist.findFirst({
+          where: { id: request.params.id, userId: request.user!.id },
+          include: { items: { select: { id: true } } },
+        });
+        if (
+          !playlist ||
+          playlist.items.length !== parsed.data.itemIds.length ||
+          playlist.items.some((item) => !parsed.data.itemIds.includes(item.id))
+        ) {
+          throw new Error('INVALID_PLAYLIST_ORDER');
+        }
+        const temporaryOffset = playlist.items.length + 1;
+        for (const [position, id] of parsed.data.itemIds.entries()) {
+          await tx.musicPlaylistItem.update({
+            where: { id },
+            data: { position: position + temporaryOffset },
+          });
+        }
+        for (const [position, id] of parsed.data.itemIds.entries()) {
+          await tx.musicPlaylistItem.update({ where: { id }, data: { position } });
+        }
+        await tx.musicPlaylist.update({
+          where: { id: playlist.id },
+          data: { updatedAt: new Date() },
+        });
       });
-    await fastify.prisma.$transaction(async (tx) => {
-      for (const [position, id] of parsed.data.itemIds.entries()) {
-        await tx.musicPlaylistItem.update({
-          where: { id },
-          data: { position: position + 100000 },
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_PLAYLIST_ORDER') {
+        return reply.status(400).send({
+          error: {
+            code: 'INVALID_PLAYLIST_ORDER',
+            message: 'Sıralama tüm liste öğelerini içermelidir.',
+            requestId: request.id,
+          },
         });
       }
-      for (const [position, id] of parsed.data.itemIds.entries()) {
-        await tx.musicPlaylistItem.update({ where: { id }, data: { position } });
-      }
-      await tx.musicPlaylist.update({
-        where: { id: playlist.id },
-        data: { updatedAt: new Date() },
-      });
-    });
+      throw error;
+    }
     return { reordered: true };
   });
 
@@ -3306,7 +3384,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/sidecar', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
       where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
-      include: { lyrics: true, driveFile: { select: { localFilePath: true } } },
+      include: {
+        lyrics: true,
+        driveFile: {
+          select: { localFilePath: true, library: { select: { localFolderPath: true } } },
+        },
+      },
     });
     if (!track?.lyrics)
       return reply.status(404).send({
@@ -3324,10 +3407,27 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const parsedPath = path.parse(track.driveFile.localFilePath);
+    let safeLocalFilePath: string;
+    try {
+      safeLocalFilePath = await resolveSafeLocalFile(
+        track.driveFile.library.localFolderPath,
+        track.driveFile.localFilePath,
+      );
+    } catch {
+      return reply.status(404).send({
+        error: {
+          code: 'LOCAL_FILE_NOT_FOUND',
+          message: 'Yerel dosya diskte bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
+    const parsedPath = path.parse(safeLocalFilePath);
     const lrcPath = path.join(parsedPath.dir, `${parsedPath.name}.lrc`);
     await fs.promises.writeFile(lrcPath, track.lyrics.content, 'utf8');
-    return { path: lrcPath };
+    // Keep the response field for existing clients, but never disclose the
+    // server's absolute filesystem layout.
+    return { path: path.basename(lrcPath) };
   });
 
   fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {
@@ -3427,6 +3527,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
     const file = track.driveFile;
+    let safeLocalFilePath: string | undefined;
+    if (file.storageType === 'local' && file.localFilePath) {
+      try {
+        safeLocalFilePath = await resolveSafeLocalFile(
+          file.library.localFolderPath,
+          file.localFilePath,
+        );
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Ses dosyası diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
     const extension = path.extname(file.name);
     const downloadName =
       format === 'aac'
@@ -3450,13 +3567,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }
       reply.header('Content-Type', 'audio/mp4').header('Accept-Ranges', 'none');
       if (head) return reply.send();
-      const source =
-        file.storageType === 'local' && file.localFilePath
-          ? { input: file.localFilePath, inputOptions: [] as string[] }
-          : (() => {
-              const remote = driveSourceInput(fastify, file, userId);
-              return { input: remote.url, inputOptions: remote.inputOptions };
-            })();
+      const source = safeLocalFilePath
+        ? { input: safeLocalFilePath, inputOptions: [] as string[] }
+        : (() => {
+            const remote = driveSourceInput(fastify, file, userId);
+            return { input: remote.url, inputOptions: remote.inputOptions };
+          })();
       try {
         const output = fastify.transcodeService.createTranscodedStream(source.input, {
           audioOnly: true,
@@ -3500,16 +3616,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    if (file.storageType === 'local' && file.localFilePath) {
-      if (!fs.existsSync(file.localFilePath))
-        return reply.status(404).send({
-          error: {
-            code: 'LOCAL_FILE_NOT_FOUND',
-            message: 'Ses dosyası diskte bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      const stat = fs.statSync(file.localFilePath);
+    if (safeLocalFilePath) {
+      const stat = fs.statSync(safeLocalFilePath);
       const localResolution = resolveRangeRequest(range, stat.size);
       if (
         localResolution.kind === 'invalid' ||
@@ -3529,7 +3637,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       return head
         ? reply.send()
-        : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
+        : reply.send(fs.createReadStream(safeLocalFilePath, { start, end }));
     }
 
     if (head) {
@@ -3633,6 +3741,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         error: { code: 'TRACK_NOT_FOUND', message: 'Parça bulunamadı.', requestId: request.id },
       });
     const file = track.driveFile;
+    let safeLocalFilePath: string | undefined;
+    if (file.storageType === 'local' && file.localFilePath) {
+      try {
+        safeLocalFilePath = await resolveSafeLocalFile(
+          file.library.localFolderPath,
+          file.localFilePath,
+        );
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'LOCAL_FILE_NOT_FOUND',
+            message: 'Ses dosyası diskte bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+    }
     const range = request.headers.range;
     const size = file.size === null ? null : Number(file.size);
     const resolution = resolveRangeRequest(range, size);
@@ -3667,13 +3792,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           .header('Accept-Ranges', 'none')
           .header('Cache-Control', 'no-store')
           .send();
-      const source =
-        file.storageType === 'local' && file.localFilePath
-          ? { input: file.localFilePath, inputOptions: [] as string[] }
-          : (() => {
-              const remote = driveSourceInput(fastify, file, userId);
-              return { input: remote.url, inputOptions: remote.inputOptions };
-            })();
+      const source = safeLocalFilePath
+        ? { input: safeLocalFilePath, inputOptions: [] as string[] }
+        : (() => {
+            const remote = driveSourceInput(fastify, file, userId);
+            return { input: remote.url, inputOptions: remote.inputOptions };
+          })();
       try {
         const output = fastify.transcodeService.createTranscodedStream(source.input, {
           audioOnly: true,
@@ -3706,16 +3830,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         throw error;
       }
     }
-    if (file.storageType === 'local' && file.localFilePath) {
-      if (!fs.existsSync(file.localFilePath))
-        return reply.status(404).send({
-          error: {
-            code: 'LOCAL_FILE_NOT_FOUND',
-            message: 'Ses dosyası diskte bulunamadı.',
-            requestId: request.id,
-          },
-        });
-      const stat = fs.statSync(file.localFilePath);
+    if (safeLocalFilePath) {
+      const stat = fs.statSync(safeLocalFilePath);
       const localResolution = resolveRangeRequest(range, stat.size);
       if (
         localResolution.kind === 'invalid' ||
@@ -3735,7 +3851,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       return head
         ? reply.send()
-        : reply.send(fs.createReadStream(file.localFilePath, { start, end }));
+        : reply.send(fs.createReadStream(safeLocalFilePath, { start, end }));
     }
     if (head) {
       reply

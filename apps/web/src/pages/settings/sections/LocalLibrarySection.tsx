@@ -28,7 +28,10 @@ export const LocalLibrarySection: React.FC = () => {
   const [localFolderPath, setLocalFolderPath] = useState('');
   const [libraryToRemove, setLibraryToRemove] = useState<LibraryDto | null>(null);
 
-  const localLibraries = libraries?.filter((library) => library.storageType === 'local') || [];
+  const localLibraries =
+    libraries?.filter(
+      (library) => library.storageType === 'local' && library.accessRole === 'owner',
+    ) || [];
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

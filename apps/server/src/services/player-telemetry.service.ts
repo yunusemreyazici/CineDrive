@@ -19,7 +19,7 @@ export class PlayerTelemetryService {
     }
   }
 
-  public getStats() {
+  public getStats(options: { includeRecent?: boolean } = {}) {
     const durations = (eventName: PlayerTelemetryEvent['event']) =>
       this.events
         .filter((event) => event.event === eventName && typeof event.durationMs === 'number')
@@ -40,7 +40,7 @@ export class PlayerTelemetryService {
       seekCount: seeks.length,
       seekRecoveryAverageMs: average(seeks),
       errorCount: this.events.filter((event) => event.event === 'error').length,
-      recent: this.events.slice(-10).reverse(),
+      recent: options.includeRecent === false ? [] : this.events.slice(-10).reverse(),
     };
   }
 }

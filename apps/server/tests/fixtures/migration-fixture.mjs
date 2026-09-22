@@ -35,8 +35,12 @@ const seedInitialDatabase = () => {
       VALUES ('legacy-movie', 'legacy-media', 'legacy-file');
     INSERT INTO "PlaybackProgress" ("id", "userId", "mediaItemId", "positionSeconds", "durationSeconds", "percentage", "completed", "createdAt", "updatedAt")
       VALUES ('legacy-progress', 'legacy-user', 'legacy-media', 120, 1200, 10, false, '2026-01-02T03:04:05.000Z', '2026-01-02T03:04:05.000Z');
+    INSERT INTO "PlaybackProgress" ("id", "userId", "mediaItemId", "positionSeconds", "durationSeconds", "percentage", "completed", "lastPlayedAt", "createdAt", "updatedAt")
+      VALUES ('legacy-progress-duplicate', 'legacy-user', 'legacy-media', 60, 1200, 5, false, '2026-01-01T03:04:05.000Z', '2026-01-01T03:04:05.000Z', '2026-01-01T03:04:05.000Z');
     INSERT INTO "WatchHistory" ("id", "userId", "mediaItemId", "positionSeconds", "durationSeconds", "completed", "deviceType", "watchedAt", "createdAt", "updatedAt")
       VALUES ('legacy-history', 'legacy-user', 'legacy-media', 120, 1200, false, 'web', '2026-01-02T03:04:05.000Z', '2026-01-02T03:04:05.000Z', '2026-01-02T03:04:05.000Z');
+    INSERT INTO "WatchHistory" ("id", "userId", "mediaItemId", "positionSeconds", "durationSeconds", "completed", "deviceType", "watchedAt", "createdAt", "updatedAt")
+      VALUES ('legacy-history-duplicate', 'legacy-user', 'legacy-media', 60, 1200, false, 'web', '2026-01-01T03:04:05.000Z', '2026-01-01T03:04:05.000Z', '2026-01-01T03:04:05.000Z');
     INSERT INTO "Favorite" ("id", "userId", "mediaItemId", "createdAt")
       VALUES ('legacy-favorite', 'legacy-user', 'legacy-media', '2026-01-02T03:04:05.000Z');
     INSERT INTO "LibraryScan" ("id", "libraryId", "status", "addedCount", "startedAt", "completedAt")
@@ -148,9 +152,23 @@ const verifyInitialUpgrade = () => {
     'PlaybackProgress',
   );
   assertEqual(
+    scalar(
+      `SELECT COUNT(*) FROM "PlaybackProgress" WHERE "userId" = 'legacy-user' AND "mediaItemId" = 'legacy-media' AND "trackingKey" = '__media__'`,
+    ),
+    1,
+    'PlaybackProgress duplicate merge',
+  );
+  assertEqual(
     scalar(`SELECT "deviceType" FROM "WatchHistory" WHERE "id" = 'legacy-history'`),
     'web',
     'WatchHistory',
+  );
+  assertEqual(
+    scalar(
+      `SELECT COUNT(*) FROM "WatchHistory" WHERE "userId" = 'legacy-user' AND "mediaItemId" = 'legacy-media' AND "trackingKey" = '__media__'`,
+    ),
+    1,
+    'WatchHistory duplicate merge',
   );
   assertEqual(
     scalar(`SELECT COUNT(*) FROM "Favorite" WHERE "id" = 'legacy-favorite'`),

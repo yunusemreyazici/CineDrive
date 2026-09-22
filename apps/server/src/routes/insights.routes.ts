@@ -1,8 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { ownedLibraryFilter } from '../utils/library-access.js';
+import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
 import type { MediaHealthDto } from '@cinedrive/shared';
 import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
 import { MediaProbeService } from '../services/media-probe.service.js';
+import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
+
+const INSIGHTS_PAGE_SIZE = 500;
 
 export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
@@ -30,17 +33,27 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/insights/storage: Analyze Drive Storage & Quota
   fastify.get('/storage', async (request, reply) => {
     const userId = request.user!.id;
-    const files = await fastify.prisma.driveFile.findMany({
+    const where = {
       where: {
         status: 'active',
         library: ownedLibraryFilter(userId),
       },
-      include: {
-        library: true,
+      orderBy: { id: 'asc' as const },
+      take: INSIGHTS_PAGE_SIZE,
+      select: {
+        id: true,
+        name: true,
+        size: true,
+        md5Checksum: true,
+        googleDriveFileId: true,
+        library: { select: { name: true } },
       },
-    });
+    };
 
-    const totalFiles = files.length;
+    type StorageFile = Awaited<ReturnType<typeof fastify.prisma.driveFile.findMany<typeof where>>>[number];
+    let cursorId: string | undefined;
+
+    let totalFiles = 0;
     let totalSizeBytes = 0;
 
     const resolutionStats = {
@@ -50,8 +63,8 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       sd: { count: 0, sizeBytes: 0 },
     };
 
-    const nameMap = new Map<string, typeof files>();
-    const md5Map = new Map<string, typeof files>();
+    const nameMap = new Map<string, StorageFile[]>();
+    const md5Map = new Map<string, StorageFile[]>();
 
     const largestFilesList: Array<{
       id: string;
@@ -61,48 +74,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       googleDriveFileId: string;
     }> = [];
 
-    for (const file of files) {
-      const sizeNum = file.size ? Number(file.size) : 0;
-      totalSizeBytes += sizeNum;
-
-      // Classify resolution
-      const fileNameLower = file.name.toLowerCase();
-      if (
-        fileNameLower.includes('2160p') ||
-        fileNameLower.includes('4k') ||
-        sizeNum > 8 * 1024 * 1024 * 1024
-      ) {
-        resolutionStats.k4.count++;
-        resolutionStats.k4.sizeBytes += sizeNum;
-      } else if (
-        fileNameLower.includes('1080p') ||
-        (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)
-      ) {
-        resolutionStats.p1080.count++;
-        resolutionStats.p1080.sizeBytes += sizeNum;
-      } else if (
-        fileNameLower.includes('720p') ||
-        (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)
-      ) {
-        resolutionStats.p720.count++;
-        resolutionStats.p720.sizeBytes += sizeNum;
-      } else {
-        resolutionStats.sd.count++;
-        resolutionStats.sd.sizeBytes += sizeNum;
-      }
-
-      // Group for duplicates
-      if (file.md5Checksum) {
-        const list = md5Map.get(file.md5Checksum) || [];
-        list.push(file);
-        md5Map.set(file.md5Checksum, list);
-      }
-
-      const cleanName = fileNameLower.trim();
-      const listByName = nameMap.get(cleanName) || [];
-      listByName.push(file);
-      nameMap.set(cleanName, listByName);
-
+    const addLargestFile = (file: StorageFile, sizeNum: number) => {
       largestFilesList.push({
         id: file.id,
         name: file.name,
@@ -110,10 +82,68 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         libraryName: file.library?.name || 'Bilinmeyen',
         googleDriveFileId: file.googleDriveFileId || '',
       });
+      largestFilesList.sort((a, b) => b.size - a.size);
+      if (largestFilesList.length > 10) largestFilesList.pop();
+    };
+
+    while (true) {
+      const files = await fastify.prisma.driveFile.findMany({
+        ...where,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (files.length === 0) break;
+
+      for (const file of files) {
+        totalFiles++;
+        const sizeNum = file.size ? Number(file.size) : 0;
+        totalSizeBytes += sizeNum;
+
+        // Classify resolution
+        const fileNameLower = file.name.toLowerCase();
+        if (
+          fileNameLower.includes('2160p') ||
+          fileNameLower.includes('4k') ||
+          sizeNum > 8 * 1024 * 1024 * 1024
+        ) {
+          resolutionStats.k4.count++;
+          resolutionStats.k4.sizeBytes += sizeNum;
+        } else if (
+          fileNameLower.includes('1080p') ||
+          (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)
+        ) {
+          resolutionStats.p1080.count++;
+          resolutionStats.p1080.sizeBytes += sizeNum;
+        } else if (
+          fileNameLower.includes('720p') ||
+          (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)
+        ) {
+          resolutionStats.p720.count++;
+          resolutionStats.p720.sizeBytes += sizeNum;
+        } else {
+          resolutionStats.sd.count++;
+          resolutionStats.sd.sizeBytes += sizeNum;
+        }
+
+        // Group for duplicates
+        if (file.md5Checksum) {
+          const list = md5Map.get(file.md5Checksum) || [];
+          list.push(file);
+          md5Map.set(file.md5Checksum, list);
+        }
+
+        const cleanName = fileNameLower.trim();
+        const listByName = nameMap.get(cleanName) || [];
+        listByName.push(file);
+        nameMap.set(cleanName, listByName);
+
+        addLargestFile(file, sizeNum);
+      }
+
+      cursorId = files[files.length - 1]?.id;
+      if (files.length < INSIGHTS_PAGE_SIZE) break;
     }
 
     // Sort largest files
-    largestFilesList.sort((a, b) => b.size - a.size);
     const topLargestFiles = largestFilesList.slice(0, 10);
 
     // Identify duplicates
@@ -178,8 +208,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/media-health', async (request, reply) => {
     const userId = request.user!.id;
-    const files = await fastify.prisma.driveFile.findMany({
-      where: {
+    const where = {
         status: 'active',
         OR: [
           { mimeType: { startsWith: 'video/' } },
@@ -187,8 +216,8 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           { mimeType: 'application/x-matroska' },
         ],
         library: ownedLibraryFilter(userId),
-      },
-      select: {
+      };
+    const select = {
         id: true,
         name: true,
         mediaContainer: true,
@@ -203,8 +232,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         mediaAnalyzedAt: true,
         mediaAnalysisError: true,
         library: { select: { name: true } },
-      },
-    });
+      } as const;
 
     const emptyModes = (): Record<PlaybackMode, number> => ({
       direct: 0,
@@ -217,8 +245,10 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     const audioCodecs = new Map<string, number>();
     const containers = new Map<string, number>();
     const failures: MediaHealthDto['failures'] = [];
+    let totalVideos = 0;
     let analyzedVideos = 0;
     let failedVideos = 0;
+    let pendingVideos = 0;
 
     const increment = (map: Map<string, number>, value?: string | null) => {
       const key = value?.trim().toLowerCase() || 'bilinmiyor';
@@ -227,26 +257,43 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     const normalizeContainer = (value?: string | null) =>
       value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] || value;
 
-    for (const file of files) {
-      const plan = buildPlaybackPlan(file);
-      playback.safari[plan.safari]++;
-      playback.chromium[plan.chromium]++;
-      increment(videoCodecs, file.videoCodec);
-      increment(audioCodecs, file.audioCodec);
-      increment(containers, normalizeContainer(file.mediaContainer));
+    let cursorId: string | undefined;
+    while (true) {
+      const files = await fastify.prisma.driveFile.findMany({
+        where,
+        select,
+        orderBy: { id: 'asc' },
+        take: INSIGHTS_PAGE_SIZE,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (files.length === 0) break;
 
-      if (file.mediaAnalyzedAt && !file.mediaAnalysisError) analyzedVideos++;
-      if (file.mediaAnalysisError) {
-        failedVideos++;
-        if (failures.length < 25) {
-          failures.push({
-            id: file.id,
-            name: file.name,
-            libraryName: file.library.name,
-            error: summarizeAnalysisError(file.mediaAnalysisError),
-          });
+      totalVideos += files.length;
+      for (const file of files) {
+        const plan = buildPlaybackPlan(file);
+        playback.safari[plan.safari]++;
+        playback.chromium[plan.chromium]++;
+        increment(videoCodecs, file.videoCodec);
+        increment(audioCodecs, file.audioCodec);
+        increment(containers, normalizeContainer(file.mediaContainer));
+
+        if (file.mediaAnalyzedAt && !file.mediaAnalysisError) analyzedVideos++;
+        if (!file.mediaAnalyzedAt) pendingVideos++;
+        if (file.mediaAnalysisError) {
+          failedVideos++;
+          if (failures.length < 25) {
+            failures.push({
+              id: file.id,
+              name: file.name,
+              libraryName: file.library.name,
+              error: summarizeAnalysisError(file.mediaAnalysisError),
+            });
+          }
         }
       }
+
+      cursorId = files[files.length - 1]?.id;
+      if (files.length < INSIGHTS_PAGE_SIZE) break;
     }
 
     const sortedDistribution = (map: Map<string, number>) =>
@@ -254,11 +301,24 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         .map(([name, count]) => ({ name, count }))
         .sort((left, right) => right.count - left.count);
 
+    const hlsStats = fastify.hlsService.getStats();
+    const runtimeHls =
+      request.user!.role === 'admin'
+        ? hlsStats
+        : {
+            ...hlsStats,
+            // HLS jobs are currently process-global. Do not expose media names,
+            // cache keys or queue entries from another library to a regular
+            // account until the scheduler carries per-user ownership.
+            jobs: [],
+            queue: [],
+          };
+
     const response: MediaHealthDto = {
-      totalVideos: files.length,
+      totalVideos,
       analyzedVideos,
       failedVideos,
-      pendingVideos: files.filter((file) => !file.mediaAnalyzedAt).length,
+      pendingVideos,
       playback,
       codecs: {
         video: sortedDistribution(videoCodecs),
@@ -266,9 +326,11 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         containers: sortedDistribution(containers),
       },
       runtime: {
-        hls: fastify.hlsService.getStats(),
+        hls: runtimeHls,
         transcode: fastify.transcodeService.getStats(),
-        playerTelemetry: fastify.playerTelemetryService.getStats(),
+        playerTelemetry: fastify.playerTelemetryService.getStats({
+          includeRecent: request.user!.role === 'admin',
+        }),
       },
       failures,
     };
@@ -298,6 +360,26 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     ) {
       return reply.status(400).send();
     }
+    const [media, driveFile] = await Promise.all([
+      fastify.prisma.mediaItem.findFirst({
+        where: { id: body.mediaId, ...ownedMediaFilter(request.user!.id) },
+        select: { id: true },
+      }),
+      fastify.prisma.driveFile.findFirst({
+        where: {
+          id: body.driveFileId,
+          status: 'active',
+          library: ownedLibraryFilter(request.user!.id),
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    // Telemetry is best-effort. Silently discard identifiers outside the
+    // caller's catalogue instead of turning this endpoint into an ownership
+    // oracle or allowing a user to poison the administrator's global metrics.
+    if (!media || !driveFile) return reply.status(202).send();
+
     fastify.playerTelemetryService.record({
       mediaId: body.mediaId,
       driveFileId: body.driveFileId,
@@ -313,6 +395,15 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { jobId: string } }>(
     '/media-health/hls/:jobId/stop',
     async (request, reply) => {
+      if (request.user!.role !== 'admin') {
+        return reply.code(403).send({
+          error: {
+            code: 'ADMIN_REQUIRED',
+            message: 'HLS işlerini durdurmak için yönetici yetkisi gerekir.',
+            requestId: request.id,
+          },
+        });
+      }
       const stopped = fastify.hlsService.stopJob(request.params.jobId);
       if (!stopped) {
         return reply.status(404).send({
@@ -364,7 +455,11 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         let metadata;
         if (driveFile.storageType === 'local' && driveFile.localFilePath) {
-          metadata = await mediaProbeService.probeLocalFile(driveFile.localFilePath);
+          const localFilePath = await resolveSafeLocalFile(
+            driveFile.library.localFolderPath,
+            driveFile.localFilePath,
+          );
+          metadata = await mediaProbeService.probeLocalFile(localFilePath);
         } else {
           const { accessToken } = await fastify.driveAccessService.getAccess(userId, driveFile);
           metadata = await mediaProbeService.probeRemoteFile({

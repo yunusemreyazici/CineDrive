@@ -5,7 +5,11 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app';
 import { env } from '../src/config/env';
-import { validateLocalFolder } from '../src/services/local-folder-validation';
+import {
+  resolveLocalFolder,
+  resolveSafeLocalFile,
+  validateLocalFolder,
+} from '../src/services/local-folder-validation';
 
 describe('local folder access validation', () => {
   let app: FastifyInstance;
@@ -88,6 +92,50 @@ describe('local folder access validation', () => {
       expect(response.json().error.requestId).toBeTruthy();
     }
   });
+  it('rejects filesystem roots and the application checkout', async () => {
+    for (const value of ['/', process.cwd()]) {
+      const response = await check({ localFolderPath: value });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('LOCAL_FOLDER_UNAVAILABLE');
+    }
+  });
+  it('rejects application ancestors and symlink aliases but accepts siblings', async () => {
+    const applicationRoot = await fs.realpath(process.cwd());
+    const applicationParent = path.dirname(applicationRoot);
+    const sibling = await fs.mkdtemp(
+      path.join(applicationParent, `${path.basename(applicationRoot)}-sibling-`),
+    );
+    const similarPrefix = await fs.mkdtemp(
+      path.join(applicationParent, `${path.basename(applicationRoot)}-archive-`),
+    );
+    const parentSymlink = path.join(directory, 'application-parent-link');
+
+    try {
+      for (const value of [
+        applicationRoot,
+        path.join(applicationRoot, 'src'),
+        applicationParent,
+        path.dirname(applicationParent),
+      ]) {
+        await expect(resolveLocalFolder(value)).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+      }
+      await fs.symlink(applicationParent, parentSymlink, 'dir');
+      await expect(resolveLocalFolder(parentSymlink)).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+
+      await expect(resolveLocalFolder(sibling)).resolves.toBe(await fs.realpath(sibling));
+      await expect(resolveLocalFolder(similarPrefix)).resolves.toBe(
+        await fs.realpath(similarPrefix),
+      );
+
+      if (process.platform === 'darwin') {
+        await expect(resolveLocalFolder('/var')).rejects.toThrow('LOCAL_FOLDER_UNSAFE');
+      }
+    } finally {
+      await fs.rm(sibling, { recursive: true, force: true });
+      await fs.rm(similarPrefix, { recursive: true, force: true });
+      await fs.rm(parentSymlink, { force: true });
+    }
+  });
   it('sanitizes permission and unexpected filesystem failures', async () => {
     const spy = vi
       .spyOn(fs, 'access')
@@ -111,6 +159,26 @@ describe('local folder access validation', () => {
       expect(close).toHaveBeenCalledOnce();
     } finally {
       open.mockRestore();
+    }
+  });
+
+  it('rejects local files outside the root, including symlink escapes', async () => {
+    const outsideDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cinedrive-outside-'));
+    const outsideFile = path.join(outsideDirectory, 'outside.mp4');
+    const symlinkPath = path.join(directory, 'outside-link.mp4');
+    try {
+      await fs.writeFile(outsideFile, 'private media');
+      await fs.symlink(outsideFile, symlinkPath);
+
+      await expect(resolveSafeLocalFile(directory, outsideFile)).rejects.toThrow(
+        'LOCAL_FILE_UNAVAILABLE',
+      );
+      await expect(resolveSafeLocalFile(directory, symlinkPath)).rejects.toThrow(
+        'LOCAL_FILE_UNAVAILABLE',
+      );
+    } finally {
+      await fs.rm(outsideDirectory, { recursive: true, force: true });
+      await fs.rm(symlinkPath, { force: true });
     }
   });
 });

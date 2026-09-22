@@ -22,6 +22,8 @@ const MAX_FAMILY_CACHE_ENTRIES = 3;
 const RECENT_ACCESS_PROTECTION_MS = 5 * 60 * 1000;
 /** A playlist counts as playable once this many segments exist. */
 const READY_SEGMENT_COUNT = 1;
+/** Avoid a synchronous metadata write for every HLS segment request. */
+const ACCESS_TOUCH_THROTTLE_MS = 10 * 1000;
 
 export interface CacheEntry {
   directory: string;
@@ -31,6 +33,7 @@ export interface CacheEntry {
 
 export class HlsCacheStore {
   private readonly recentlyServed = new Map<string, number>();
+  private readonly lastTouchedAt = new Map<string, number>();
 
   constructor(
     public readonly cacheRoot: string,
@@ -73,18 +76,26 @@ export class HlsCacheStore {
   }
 
   public touch(directory: string) {
-    if (!fs.existsSync(directory)) return;
+    if (!fs.existsSync(directory)) {
+      this.lastTouchedAt.delete(directory);
+      return;
+    }
+    const nowMs = Date.now();
+    const lastTouchedAt = this.lastTouchedAt.get(directory);
+    if (lastTouchedAt !== undefined && nowMs - lastTouchedAt < ACCESS_TOUCH_THROTTLE_MS) return;
     const marker = path.join(directory, ACCESS_MARKER);
     const now = new Date();
     try {
       if (!fs.existsSync(marker)) fs.writeFileSync(marker, '');
       fs.utimesSync(marker, now, now);
+      this.lastTouchedAt.set(directory, nowMs);
     } catch {
       // Cache access tracking must never interrupt playback.
     }
   }
 
   public remove(directory: string) {
+    this.lastTouchedAt.delete(directory);
     try {
       fs.rmSync(directory, { recursive: true, force: true });
     } catch {

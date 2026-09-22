@@ -58,29 +58,58 @@ export class AuthService {
       throw new Error('MULTI_USER_DISABLED');
     }
 
-    // Clean up any old expired sessions for this user
-    await this.prisma.session.deleteMany({
-      where: {
-        userId: user.id,
-        expiresAt: { lt: new Date() },
-      },
-    });
+    const { currentUser, sessionToken } = await this.prisma.$transaction(async (tx) => {
+      // Re-check account state while holding SQLite's writer lock. Otherwise a
+      // disable request racing the final session insert could leave a fresh
+      // session for an account that had just been revoked.
+      const locked = await tx.$executeRaw`
+        UPDATE "User" SET "id" = "id" WHERE "id" = ${user.id}
+      `;
+      if (locked !== 1) throw new Error('INVALID_CREDENTIALS');
 
-    const sessionToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + SESSION_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+      const currentUser = await tx.user.findUnique({ where: { id: user.id } });
+      if (!currentUser || currentUser.disabledAt) throw new Error('ACCOUNT_DISABLED');
+      if (
+        env.NODE_ENV !== 'test' &&
+        env.APP_AUTH_MODE === 'single-user' &&
+        currentUser.role !== 'admin'
+      ) {
+        throw new Error('MULTI_USER_DISABLED');
+      }
+      if (currentUser.passwordHash !== targetHash) {
+        const currentPasswordValid = await argon2.verify(
+          currentUser.passwordHash || DUMMY_ARGON2_HASH,
+          passwordPlain,
+        );
+        if (!currentUser.passwordHash || !currentPasswordValid) {
+          throw new Error('INVALID_CREDENTIALS');
+        }
+      }
 
-    await this.prisma.session.create({
-      data: {
-        userId: user.id,
-        token: sessionToken,
-        expiresAt,
-        ipAddress,
-        userAgent,
-      },
+      await tx.session.deleteMany({
+        where: {
+          userId: currentUser.id,
+          expiresAt: { lt: new Date() },
+        },
+      });
+
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + SESSION_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+      await tx.session.create({
+        data: {
+          userId: currentUser.id,
+          token: sessionToken,
+          expiresAt,
+          ipAddress,
+          userAgent,
+        },
+      });
+
+      return { currentUser, sessionToken };
     });
 
     return {
-      user: this.toUserDto(user),
+      user: this.toUserDto(currentUser),
       sessionToken,
     };
   }
@@ -103,7 +132,10 @@ export class AuthService {
     if (!session) return null;
 
     if (session.expiresAt < new Date() || session.user.disabledAt) {
-      await this.prisma.session.delete({ where: { id: session.id } });
+      // Two requests can observe the same expired/disabled session. Make the
+      // cleanup idempotent so the loser does not turn a normal auth failure
+      // into a P2025/500 response.
+      await this.prisma.session.deleteMany({ where: { id: session.id } });
       return null;
     }
 
@@ -202,30 +234,46 @@ export class AuthService {
     targetUserId: string,
     input: { name?: string; role?: 'admin' | 'user'; disabled?: boolean },
   ): Promise<UserDto> {
-    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
-    if (!target) throw new Error('USER_NOT_FOUND');
-    if (actorUserId === targetUserId && (input.disabled === true || input.role === 'user')) {
-      throw new Error('CANNOT_RESTRICT_SELF');
-    }
-    const removesActiveAdmin =
-      target.role === 'admin' && !target.disabledAt && (input.role === 'user' || input.disabled === true);
-    if (removesActiveAdmin) {
-      const activeAdmins = await this.prisma.user.count({
-        where: { role: 'admin', disabledAt: null },
+    const user = await this.prisma.$transaction(async (tx) => {
+      // A no-op write obtains SQLite's database writer lock before the admin
+      // count is read. Two concurrent demotions therefore observe each other
+      // serially instead of both passing the last-admin check.
+      const locked = await tx.$executeRaw`
+        UPDATE "User" SET "id" = "id" WHERE "id" = ${targetUserId}
+      `;
+      if (locked !== 1) throw new Error('USER_NOT_FOUND');
+
+      const target = await tx.user.findUnique({ where: { id: targetUserId } });
+      if (!target) throw new Error('USER_NOT_FOUND');
+      if (actorUserId === targetUserId && (input.disabled === true || input.role === 'user')) {
+        throw new Error('CANNOT_RESTRICT_SELF');
+      }
+      const removesActiveAdmin =
+        target.role === 'admin' &&
+        !target.disabledAt &&
+        (input.role === 'user' || input.disabled === true);
+      if (removesActiveAdmin) {
+        const activeAdmins = await tx.user.count({
+          where: { role: 'admin', disabledAt: null },
+        });
+        if (activeAdmins <= 1) throw new Error('LAST_ADMIN_REQUIRED');
+      }
+
+      const updated = await tx.user.update({
+        where: { id: targetUserId },
+        data: {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...(input.disabled !== undefined
+            ? { disabledAt: input.disabled ? new Date() : null }
+            : {}),
+        },
       });
-      if (activeAdmins <= 1) throw new Error('LAST_ADMIN_REQUIRED');
-    }
-    const user = await this.prisma.user.update({
-      where: { id: targetUserId },
-      data: {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.role !== undefined ? { role: input.role } : {}),
-        ...(input.disabled !== undefined ? { disabledAt: input.disabled ? new Date() : null } : {}),
-      },
+      if (input.disabled === true) {
+        await tx.session.deleteMany({ where: { userId: targetUserId } });
+      }
+      return updated;
     });
-    if (input.disabled === true) {
-      await this.prisma.session.deleteMany({ where: { userId: targetUserId } });
-    }
     return this.toUserDto(user);
   }
 

@@ -26,16 +26,19 @@ export const playbackRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const userId = request.user!.id;
-    const clientTimestamp = (request.body as { clientTimestamp?: number })?.clientTimestamp;
+    const clientTimestamp = parseResult.data.clientTimestamp;
 
     try {
-      const progress = await fastify.playbackService.updateProgress(userId, {
+      const result = await fastify.playbackService.updateProgress(userId, {
         ...parseResult.data,
         clientTimestamp,
         deviceType: deviceTypeFromUserAgent(request.headers['user-agent']),
       });
 
-      return reply.status(200).send({ progress });
+      return reply.status(200).send({
+        progress: result.progress,
+        ...(result.conflict ? { conflict: true } : {}),
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
 

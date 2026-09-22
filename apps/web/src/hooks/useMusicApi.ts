@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   MusicAlbumDto,
   MusicArtistDto,
@@ -112,16 +112,32 @@ export const useArtistRadioMutation = () =>
 export const fetchTrackRadio = async (trackId: string) =>
   (await apiClient.get<{ mix: MusicMixDto }>(`/music/radio/track/${trackId}`)).data.mix;
 
+export interface MusicTracksPageResponse {
+  tracks: MusicTrackDto[];
+  pagination: { total: number; page: number; limit: number; totalPages: number };
+}
+
 export const useMusicTracksQuery = (params?: QueryParams) =>
   useQuery({
     queryKey: ['music', 'tracks', params],
     queryFn: async () =>
+      (await apiClient.get<MusicTracksPageResponse>('/music/tracks', { params })).data,
+  });
+
+export const useMusicTracksInfiniteQuery = (params?: QueryParams) =>
+  useInfiniteQuery({
+    queryKey: ['music', 'tracks', 'infinite', params],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) =>
       (
-        await apiClient.get<{
-          tracks: MusicTrackDto[];
-          pagination: { total: number; page: number; limit: number; totalPages: number };
-        }>('/music/tracks', { params })
+        await apiClient.get<MusicTracksPageResponse>('/music/tracks', {
+          params: { ...params, page: pageParam },
+        })
       ).data,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination.page < lastPage.pagination.totalPages
+        ? lastPage.pagination.page + 1
+        : undefined,
   });
 
 export const useMusicAlbumsQuery = (params?: QueryParams) =>

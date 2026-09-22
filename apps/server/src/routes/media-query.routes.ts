@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { mediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@cinedrive/prisma';
 import { buildPlaybackPlan } from '../services/playback-plan.service.js';
-import { ownedMediaFilter } from '../utils/library-access.js';
+import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -57,13 +57,67 @@ const technicalMetadataSelect = {
   mediaAnalysisError: true,
 } satisfies Prisma.DriveFileSelect;
 
+const safeSubtitleDriveFileSelect = {
+  id: true,
+  googleDriveFileId: true,
+} satisfies Prisma.DriveFileSelect;
+
+const safeSubtitleSelect = {
+  id: true,
+  language: true,
+  label: true,
+  isForced: true,
+  isHearingImpaired: true,
+  isDefault: true,
+  sourceFormat: true,
+  mediaItemId: true,
+  episodeId: true,
+  driveFileId: true,
+  driveFile: { select: safeSubtitleDriveFileSelect },
+} satisfies Prisma.SubtitleTrackSelect;
+
+const subtitleUrl = (driveFile: { id: string; googleDriveFileId: string | null }) =>
+  `/api/media/${driveFile.googleDriveFileId || driveFile.id}/subtitle`;
+
+const safeSubtitleWithUrl = (subtitle: {
+  id: string;
+  language: string;
+  label: string | null;
+  isForced: boolean;
+  isHearingImpaired: boolean;
+  isDefault: boolean;
+  driveFile: { id: string; googleDriveFileId: string | null };
+}) => ({
+  id: subtitle.id,
+  languageCode: subtitle.language,
+  languageLabel: subtitle.label || subtitle.language.toUpperCase(),
+  forced: subtitle.isForced,
+  hearingImpaired: subtitle.isHearingImpaired,
+  isDefault: subtitle.isDefault,
+  url: subtitleUrl(subtitle.driveFile),
+});
+
 export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
   // GET /api/media: Filter & Search Media Items
   fastify.get('/', async (request, reply) => {
     const parseResult = mediaQuerySchema.safeParse(request.query);
-    const { type, genre, person, year, yearFrom, yearTo, minRating, search, hideWithoutMetadata, sortBy, sortOrder, page, limit } = parseResult.success
+    const {
+      type,
+      genre,
+      person,
+      year,
+      yearFrom,
+      yearTo,
+      minRating,
+      search,
+      hideWithoutMetadata,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    } = parseResult.success
       ? parseResult.data
       : { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
 
@@ -140,19 +194,31 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.playbackProgress.findMany({
         where: { userId, mediaItemId: { in: pageItemIds } },
+        orderBy: { lastPlayedAt: 'desc' },
       }),
     ]);
 
     const favoriteSet = new Set(favorites.map((f) => f.mediaItemId));
-    const progressMap = new Map(progressList.map((p) => [p.mediaItemId, p]));
+    // The query is newest-first. Map's constructor would overwrite each
+    // media's first row with the oldest episode, so keep the first occurrence.
+    const progressMap = new Map<string, (typeof progressList)[number]>();
+    for (const progress of progressList) {
+      if (!progressMap.has(progress.mediaItemId)) {
+        progressMap.set(progress.mediaItemId, progress);
+      }
+    }
 
     const enrichedItems = items.map((item) => ({
       ...item,
       genres: safeJsonParse<string[]>(item.genres, []),
       isFavorite: favoriteSet.has(item.id),
       progress: progressMap.get(item.id) || null,
-      posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
-      backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
+      posterUrl: item.posterDriveFileId
+        ? `/api/media/assets/${item.posterDriveFileId}`
+        : item.posterUrl || null,
+      backdropUrl: item.backdropDriveFileId
+        ? `/api/media/assets/${item.backdropDriveFileId}`
+        : item.backdropUrl || null,
     }));
 
     return reply.status(200).send({
@@ -225,16 +291,24 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
 
       const progress = await fastify.prisma.playbackProgress.findFirst({
         where: { userId, mediaItemId: media.id },
+        orderBy: { lastPlayedAt: 'desc' },
       });
 
       const enrichedMedia = {
         ...media,
         genres: safeJsonParse<string[]>(media.genres, []),
-        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(media.cast, []),
+        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
+          media.cast,
+          [],
+        ),
         isFavorite: !!isFavorite,
         progress: progress || null,
-        posterUrl: media.posterDriveFileId ? `/api/media/assets/${media.posterDriveFileId}` : media.posterUrl || null,
-        backdropUrl: media.backdropDriveFileId ? `/api/media/assets/${media.backdropDriveFileId}` : media.backdropUrl || null,
+        posterUrl: media.posterDriveFileId
+          ? `/api/media/assets/${media.posterDriveFileId}`
+          : media.posterUrl || null,
+        backdropUrl: media.backdropDriveFileId
+          ? `/api/media/assets/${media.backdropDriveFileId}`
+          : media.backdropUrl || null,
       };
 
       return reply.status(200).send({ media: enrichedMedia });
@@ -265,10 +339,11 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                   include: {
                     driveFile: { select: technicalMetadataSelect },
                     subtitles: {
-                      include: { driveFile: true },
+                      select: safeSubtitleSelect,
                     },
                     playbackProgresses: {
                       where: { userId },
+                      orderBy: { lastPlayedAt: 'desc' },
                     },
                   },
                 },
@@ -277,10 +352,11 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
         subtitles: {
-          include: { driveFile: true },
+          select: safeSubtitleSelect,
         },
         playbackProgresses: {
           where: { userId },
+          orderBy: { lastPlayedAt: 'desc' },
         },
         favorites: {
           where: { userId },
@@ -298,15 +374,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const formattedSubtitles = item.subtitles.map((sub) => ({
-      id: sub.id,
-      languageCode: sub.language,
-      languageLabel: sub.label || sub.language.toUpperCase(),
-      forced: sub.isForced,
-      hearingImpaired: sub.isHearingImpaired,
-      isDefault: sub.isDefault,
-      url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-    }));
+    const formattedSubtitles = item.subtitles.map(safeSubtitleWithUrl);
 
     const formattedSeries = item.series
       ? {
@@ -319,15 +387,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
                 ...episode,
                 technicalMetadata: driveFile,
                 playbackPlan: buildPlaybackPlan(driveFile),
-                subtitles: ep.subtitles.map((sub) => ({
-                  id: sub.id,
-                  languageCode: sub.language,
-                  languageLabel: sub.label || sub.language.toUpperCase(),
-                  forced: sub.isForced,
-                  hearingImpaired: sub.isHearingImpaired,
-                  isDefault: sub.isDefault,
-                  url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-                })),
+                subtitles: ep.subtitles.map(safeSubtitleWithUrl),
               };
             }),
           })),
@@ -347,11 +407,18 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       media: {
         ...item,
         genres: safeJsonParse<string[]>(item.genres, []),
-        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(item.cast, []),
+        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
+          item.cast,
+          [],
+        ),
         isFavorite: item.favorites.length > 0,
         progress: item.playbackProgresses[0] || null,
-        posterUrl: item.posterDriveFileId ? `/api/media/assets/${item.posterDriveFileId}` : item.posterUrl || null,
-        backdropUrl: item.backdropDriveFileId ? `/api/media/assets/${item.backdropDriveFileId}` : item.backdropUrl || null,
+        posterUrl: item.posterDriveFileId
+          ? `/api/media/assets/${item.posterDriveFileId}`
+          : item.posterUrl || null,
+        backdropUrl: item.backdropDriveFileId
+          ? `/api/media/assets/${item.backdropDriveFileId}`
+          : item.backdropUrl || null,
         subtitles: formattedSubtitles,
         movie: formattedMovie,
         series: formattedSeries,
@@ -363,14 +430,17 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/series/:id/seasons', async (request, reply) => {
     const { id } = request.params;
     const seasons = await fastify.prisma.season.findMany({
-      where: { seriesId: id },
+      where: {
+        seriesId: id,
+        series: { mediaItem: ownedMediaFilter(request.user!.id) },
+      },
       orderBy: { seasonNumber: 'asc' },
       include: {
         episodes: {
           orderBy: { episodeNumber: 'asc' },
           include: {
             subtitles: {
-              include: { driveFile: true },
+              select: safeSubtitleSelect,
             },
           },
         },
@@ -384,76 +454,101 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/seasons/:id/episodes', async (request, reply) => {
     const { id } = request.params;
     const episodes = await fastify.prisma.episode.findMany({
-      where: { seasonId: id },
+      where: {
+        seasonId: id,
+        season: { series: { mediaItem: ownedMediaFilter(request.user!.id) } },
+      },
       orderBy: { episodeNumber: 'asc' },
       include: {
         subtitles: {
-          include: { driveFile: true },
+          select: safeSubtitleSelect,
         },
       },
     });
 
     const formattedEpisodes = episodes.map((ep) => ({
       ...ep,
-      subtitles: ep.subtitles.map((sub) => ({
-        id: sub.id,
-        languageCode: sub.language,
-        languageLabel: sub.label || sub.language.toUpperCase(),
-        forced: sub.isForced,
-        hearingImpaired: sub.isHearingImpaired,
-        isDefault: sub.isDefault,
-        url: `/api/media/${sub.driveFile.googleDriveFileId}/subtitle`,
-      })),
+      subtitles: ep.subtitles.map(safeSubtitleWithUrl),
     }));
 
     return reply.status(200).send({ episodes: formattedEpisodes });
   });
 
   // GET /api/assets/:driveFileId: Serve image asset
-  fastify.get<{ Params: { driveFileId: string } }>('/assets/:driveFileId', async (request, reply) => {
-    const { driveFileId } = request.params;
-    const userId = request.user!.id;
+  fastify.get<{ Params: { driveFileId: string } }>(
+    '/assets/:driveFileId',
+    async (request, reply) => {
+      const { driveFileId } = request.params;
+      const userId = request.user!.id;
 
-    // Without this check the route was a generic Drive proxy: any file readable
-    // under the app's OAuth grant could be fetched by ID, and 200-vs-404 leaked
-    // whether an arbitrary file ID existed. Only IDs this library actually
-    // references as artwork are servable.
-    const isKnownAsset = await fastify.prisma.mediaItem.findFirst({
-      where: {
-        OR: [{ posterDriveFileId: driveFileId }, { backdropDriveFileId: driveFileId }],
-      },
-      select: { id: true },
-    });
-
-    if (!isKnownAsset) {
-      return reply.status(404).send({
-        error: {
-          code: 'ASSET_NOT_FOUND',
-          message: 'Görsel yüklenemedi.',
-          requestId: request.id,
+      // Without this check the route was a generic Drive proxy: any file readable
+      // under the app's OAuth grant could be fetched by ID, and 200-vs-404 leaked
+      // whether an arbitrary file ID existed. Only IDs this library actually
+      // references as artwork are servable.
+      const isKnownAsset = await fastify.prisma.mediaItem.findFirst({
+        where: {
+          ...ownedMediaFilter(userId),
+          OR: [{ posterDriveFileId: driveFileId }, { backdropDriveFileId: driveFileId }],
+        },
+        select: {
+          id: true,
+          library: { select: { userId: true, googleConnectionId: true } },
         },
       });
-    }
 
-    try {
-      const accessToken = await fastify.googleOAuthService.getValidAccessToken(userId);
-      const driveStreamRes = await fastify.driveService.createMediaStream(accessToken, driveFileId);
-
-      reply.status(200);
-      if (driveStreamRes.headers['content-type']) {
-        reply.header('Content-Type', driveStreamRes.headers['content-type']);
+      if (!isKnownAsset) {
+        return reply.status(404).send({
+          error: {
+            code: 'ASSET_NOT_FOUND',
+            message: 'Görsel yüklenemedi.',
+            requestId: request.id,
+          },
+        });
       }
-      reply.header('Cache-Control', 'public, max-age=86400'); // Cache image for 24h
 
-      return reply.send(driveStreamRes.stream);
-    } catch {
-      return reply.status(404).send({
-        error: {
-          code: 'ASSET_NOT_FOUND',
-          message: 'Görsel yüklenemedi.',
-          requestId: request.id,
-        },
-      });
-    }
-  });
+      try {
+        // Artwork metadata historically stored the Google id directly, while
+        // newer scan rows also have a DriveFile record. Prefer the record so a
+        // shared library uses its owner's connection rather than the viewer's
+        // default account; fall back to the library owner for legacy artwork.
+        const assetDriveFile = await fastify.prisma.driveFile.findFirst({
+          where: {
+            OR: [{ id: driveFileId }, { googleDriveFileId: driveFileId }],
+            status: 'active',
+            library: ownedLibraryFilter(userId),
+          },
+          include: { library: true },
+        });
+        const accessToken = assetDriveFile
+          ? (await fastify.driveAccessService.getAccess(userId, assetDriveFile)).accessToken
+          : await fastify.googleOAuthService.getValidAccessToken(
+              isKnownAsset.library?.userId || userId,
+              isKnownAsset.library?.googleConnectionId || undefined,
+            );
+        const driveStreamRes = await fastify.driveService.createMediaStream(
+          accessToken,
+          assetDriveFile?.googleDriveFileId || driveFileId,
+        );
+
+        reply.status(200);
+        if (driveStreamRes.headers['content-type']) {
+          reply.header('Content-Type', driveStreamRes.headers['content-type']);
+        }
+        // The URL is protected by the session cookie and the underlying asset
+        // belongs to a user-scoped library. A shared/public cache would let one
+        // viewer reuse another viewer's authenticated response.
+        reply.header('Cache-Control', 'private, max-age=86400');
+
+        return reply.send(driveStreamRes.stream);
+      } catch {
+        return reply.status(404).send({
+          error: {
+            code: 'ASSET_NOT_FOUND',
+            message: 'Görsel yüklenemedi.',
+            requestId: request.id,
+          },
+        });
+      }
+    },
+  );
 };

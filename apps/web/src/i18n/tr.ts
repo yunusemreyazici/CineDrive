@@ -209,6 +209,8 @@ export const tr = {
     playlistCreated: 'Çalma listesi oluşturuldu.',
     noPlaylists: 'Henüz bir çalma listeniz yok.',
     noTracks: 'Parça bulunamadı',
+    loadMore: 'Daha fazla parça yükle',
+    loadingMore: 'Daha fazla parça yükleniyor…',
     search: 'Parça, sanatçı veya albüm ara…',
     play: 'Oynat',
     pause: 'Duraklat',
@@ -774,6 +776,8 @@ export const tr = {
     goBack: 'Geri Dön',
     buffering: 'Akış tamponlanıyor…',
     seekLabel: 'Oynatma konumu',
+    progressConflict:
+      'İzleme konumu başka bir cihazda değişti. Bu konum kaydedilmedi; korumak için yeniden atlayın.',
     notFoundTitle: 'Medya Bulunamadı',
     notFoundDescription: 'Oynatılacak içerik bulunamadı veya silinmiş olabilir.',
     loadFailed: 'Oynatıcı Yüklenemedi',
@@ -1004,6 +1008,8 @@ export const tr = {
     deleteEntry: (title: string) => `${title} kaydını geçmişten sil`,
     clearConfirmTitle: 'Geçmişi Temizle',
     itemCount: (count: number) => `${count} kayıt`,
+    loadMore: 'Daha fazla yükle',
+    loadingMore: 'Daha fazla yükleniyor…',
   },
 
   settings: {

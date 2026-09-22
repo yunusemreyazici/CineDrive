@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, parseApiError } from '../api/client';
 import type {
   LoginInput,
@@ -84,9 +84,8 @@ export function useLibraryMembersQuery(libraryId?: string, enabled = true) {
   return useQuery({
     queryKey: ['library-members', libraryId],
     queryFn: async () =>
-      (
-        await apiClient.get<{ members: LibraryMemberDto[] }>(`/libraries/${libraryId}/members`)
-      ).data.members,
+      (await apiClient.get<{ members: LibraryMemberDto[] }>(`/libraries/${libraryId}/members`)).data
+        .members,
     enabled: enabled && Boolean(libraryId),
   });
 }
@@ -94,8 +93,15 @@ export function useLibraryMembersQuery(libraryId?: string, enabled = true) {
 export function useUpsertLibraryMemberMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ libraryId, userId, role }: { libraryId: string; userId: string; role: 'editor' | 'listener' }) =>
-      apiClient.put(`/libraries/${libraryId}/members`, { userId, role }),
+    mutationFn: async ({
+      libraryId,
+      userId,
+      role,
+    }: {
+      libraryId: string;
+      userId: string;
+      role: 'editor' | 'listener';
+    }) => apiClient.put(`/libraries/${libraryId}/members`, { userId, role }),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['library-members', variables.libraryId] });
     },
@@ -221,7 +227,8 @@ export function useValidateLocalFolderMutation() {
     mutationFn: async (input: ValidateLocalFolderInput) =>
       (
         await apiClient.post<{ validation: LocalFolderValidationDto }>(
-          '/libraries/validate-local', input,
+          '/libraries/validate-local',
+          input,
         )
       ).data.validation,
   });
@@ -700,20 +707,35 @@ export function useResetProgressMutation() {
     mutationFn: async (mediaItemId: string) => {
       await apiClient.delete(`/playback/${mediaItemId}`);
     },
-    onSuccess: () => {
+    onSuccess: (_, mediaItemId) => {
       queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail', mediaItemId] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
     },
   });
 }
 
 export function useWatchHistoryQuery() {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['watchHistory'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ history: WatchHistoryType[] }>('/history');
-      return res.data.history || [];
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const res = await apiClient.get<{
+        history: WatchHistoryType[];
+        pagination: { page: number; totalPages: number; total: number };
+      }>('/history', {
+        params: { page: pageParam, limit: 50 },
+      });
+      return {
+        history: res.data.history || [],
+        pagination: res.data.pagination,
+      };
     },
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination.page < lastPage.pagination.totalPages
+        ? lastPage.pagination.page + 1
+        : undefined,
   });
 }
 
@@ -725,6 +747,9 @@ export function useDeleteHistoryMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
+      queryClient.invalidateQueries({ queryKey: ['media'] });
+      queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
     },
   });
 }
@@ -747,14 +772,19 @@ export function useClearWatchHistoryMutation() {
   });
 }
 
-export function useUpdateProgressMutation() {
+export function useUpdateProgressMutation(options?: { invalidateOnSuccess?: boolean }) {
   const queryClient = useQueryClient();
+  const invalidateOnSuccess = options?.invalidateOnSuccess ?? true;
   return useMutation({
     mutationFn: async (data: UpdateProgressInput) => {
-      const res = await apiClient.put('/playback/progress', data);
+      const res = await apiClient.put<{
+        progress: { updatedAt: string; serverRevision: number };
+        conflict?: boolean;
+      }>('/playback/progress', data);
       return res.data;
     },
     onSuccess: () => {
+      if (!invalidateOnSuccess) return;
       queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
     },

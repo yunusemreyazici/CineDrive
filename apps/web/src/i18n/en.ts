@@ -212,6 +212,8 @@ export const en: Translations = {
     playlistCreated: 'Playlist created.',
     noPlaylists: 'You have no playlists yet.',
     noTracks: 'No tracks found',
+    loadMore: 'Load more tracks',
+    loadingMore: 'Loading more tracks…',
     search: 'Search tracks, artists or albums…',
     play: 'Play',
     pause: 'Pause',
@@ -774,6 +776,8 @@ export const en: Translations = {
     goBack: 'Go back',
     buffering: 'Buffering the stream…',
     seekLabel: 'Playback position',
+    progressConflict:
+      'Playback progress changed on another device. This position was not saved; seek again to keep it.',
     notFoundTitle: 'Media not found',
     notFoundDescription: 'The content could not be found, or it may have been deleted.',
     loadFailed: 'Could not load the player',
@@ -1002,6 +1006,8 @@ export const en: Translations = {
     deleteEntry: (title: string) => `Delete the ${title} entry from history`,
     clearConfirmTitle: 'Clear history',
     itemCount: (count: number) => `${count} entries`,
+    loadMore: 'Load more',
+    loadingMore: 'Loading more…',
   },
 
   settings: {

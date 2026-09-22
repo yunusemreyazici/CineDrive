@@ -90,8 +90,9 @@ const scanStatusLabel = (
 export const LibrarySourceManagerSection: React.FC = () => {
   const fieldId = useId();
   const { data: libraries = [] } = useLibrariesQuery();
-  const driveLibrary = libraries.find((library) => library.storageType === 'gdrive');
-  const localLibraries = libraries.filter((library) => library.storageType === 'local');
+  const ownedLibraries = libraries.filter((library) => library.accessRole === 'owner');
+  const driveLibrary = ownedLibraries.find((library) => library.storageType === 'gdrive');
+  const localLibraries = ownedLibraries.filter((library) => library.storageType === 'local');
   const { data: driveSources = [] } = useDriveScanSourcesQuery(driveLibrary?.id);
   const { data: scans = [] } = useAllLibraryScansQuery();
   const connections = useGoogleConnections();

@@ -14,6 +14,7 @@ import { PreviewService } from '../services/preview.service.js';
 import { DriveSourceService } from '../services/drive-source.service.js';
 import { DriveAccessService } from '../services/drive-access.service.js';
 import { ScanLifecycleService } from '../services/scan-lifecycle.service.js';
+import { LibraryOperationLockService } from '../services/library-operation-lock.service.js';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 
@@ -37,6 +38,7 @@ declare module 'fastify' {
     driveSourceService: DriveSourceService;
     driveAccessService: DriveAccessService;
     scanLifecycleService: ScanLifecycleService;
+    libraryOperationLockService: LibraryOperationLockService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -44,11 +46,13 @@ declare module 'fastify' {
 export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance) => {
   const authService = new AuthService(fastify.prisma);
   const googleOAuthService = new GoogleOAuthService(fastify.prisma);
+  const libraryOperationLockService = new LibraryOperationLockService(fastify.prisma);
   const scanLifecycleService = new ScanLifecycleService(fastify.prisma);
   const libraryScanService = new LibraryScanService(
     fastify.prisma,
     googleOAuthService,
     scanLifecycleService,
+    libraryOperationLockService,
   );
   const driveService = new GoogleDriveService();
   const driveAccessService = new DriveAccessService(
@@ -59,7 +63,11 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const subtitleService = new SubtitleService(fastify.prisma, driveAccessService);
   const playbackService = new PlaybackService(fastify.prisma);
   const transcodeService = new TranscodeService();
-  const localScanService = new LocalScanService(fastify.prisma, scanLifecycleService);
+  const localScanService = new LocalScanService(
+    fastify.prisma,
+    scanLifecycleService,
+    libraryOperationLockService,
+  );
   const hlsService = new HlsService();
   const playerTelemetryService = new PlayerTelemetryService();
   const previewService = new PreviewService();
@@ -79,6 +87,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('driveSourceService', driveSourceService);
   fastify.decorate('driveAccessService', driveAccessService);
   fastify.decorate('scanLifecycleService', scanLifecycleService);
+  fastify.decorate('libraryOperationLockService', libraryOperationLockService);
   fastify.addHook('onClose', async () => {
     await scanLifecycleService.shutdown();
     hlsService.shutdown();

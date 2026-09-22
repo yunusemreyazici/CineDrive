@@ -52,7 +52,12 @@ export const MediaHealthPage: React.FC = () => {
   const { data, isLoading, error, refetch, isFetching } = useQuery<MediaHealthDto>({
     queryKey: ['media-health'],
     queryFn: async () => (await apiClient.get<MediaHealthDto>('/insights/media-health')).data,
-    refetchInterval: 5_000,
+    // The endpoint scans every indexed video to build codec/playback
+    // distributions. Five-second polling multiplied that full-table work by
+    // every open settings tab; fifteen seconds keeps runtime feedback useful
+    // without turning the health panel into a permanent rescan loop.
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['media-health'] });

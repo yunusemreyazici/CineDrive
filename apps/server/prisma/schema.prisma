@@ -96,6 +96,12 @@ model Library {
   lastScannedAt      DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
+  // A database-backed lease serializes scans and destructive library
+  // operations across requests and server processes. The token prevents an
+  // expired owner from releasing a newer owner's lock.
+  operationLockKind      String?
+  operationLockToken     String?
+  operationLockExpiresAt DateTime?
   files              DriveFile[]
   scans              LibraryScan[]
   mediaItems         MediaItem[]
@@ -104,6 +110,7 @@ model Library {
   memberships        LibraryMembership[]
 
   @@index([userId])
+  @@index([operationLockExpiresAt])
 }
 
 model LibraryMembership {
@@ -194,6 +201,7 @@ model DriveFile {
   musicTrack         MusicTrack?
 
   @@index([libraryId])
+  @@index([libraryId, status])
   @@index([googleConnectionId])
   @@index([driveScanSourceId])
   @@index([parentDriveFileId])
@@ -240,6 +248,7 @@ model MediaItem {
   @@index([normalizedTitle])
   @@index([type])
   @@index([libraryId])
+  @@index([libraryId, type, createdAt])
 }
 
 model Movie {
@@ -288,6 +297,7 @@ model Episode {
   watchHistories     WatchHistory[]
 
   @@unique([seasonId, episodeNumber])
+  @@index([mediaItemId])
 }
 
 model SubtitleTrack {
@@ -308,6 +318,8 @@ model SubtitleTrack {
   updatedAt         DateTime   @updatedAt
 
   @@unique([driveFileId])
+  @@index([mediaItemId])
+  @@index([episodeId])
 }
 
 model PlaybackProgress {
@@ -318,6 +330,7 @@ model PlaybackProgress {
   mediaItem       MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   episodeId       String?
   episode         Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  trackingKey     String    @default("__media__")
   positionSeconds Float
   durationSeconds Float
   percentage      Float
@@ -325,10 +338,14 @@ model PlaybackProgress {
   firstStartedAt  DateTime  @default(now())
   lastPlayedAt    DateTime  @default(now())
   completedAt     DateTime?
+  clientInstanceId String?
+  clientSequence   Int?
+  serverRevision   Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@unique([userId, mediaItemId, episodeId])
+  @@unique([userId, mediaItemId, trackingKey])
   @@index([userId])
   @@index([userId, mediaItemId])
   @@index([userId, lastPlayedAt])
@@ -342,6 +359,7 @@ model WatchHistory {
   mediaItem       MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   episodeId       String?
   episode         Episode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  trackingKey     String    @default("__media__")
   positionSeconds Float     @default(0)
   durationSeconds Float     @default(0)
   completed       Boolean   @default(false)
@@ -351,6 +369,7 @@ model WatchHistory {
   updatedAt       DateTime  @updatedAt
 
   @@unique([userId, mediaItemId, episodeId])
+  @@unique([userId, mediaItemId, trackingKey])
   @@index([userId])
   @@index([userId, watchedAt])
 }
@@ -755,6 +774,7 @@ model LibraryScan {
   errors             LibraryScanError[]
 
   @@index([driveScanSourceId])
+  @@index([libraryId, startedAt])
   @@index([status, heartbeatAt])
 }
 

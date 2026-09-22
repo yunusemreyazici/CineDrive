@@ -210,12 +210,12 @@ export type ReadinessResponse =
   | {
       status: 'ready';
       timestamp: string;
-      checks: { database: 'ok' };
+      checks: { database: 'ok'; migrations: 'ok' };
     }
   | {
       status: 'not_ready';
       timestamp: string;
-      checks: { database: 'error' };
+      checks: { database: 'ok' | 'error'; migrations: 'ok' | 'error' };
       requestId: string;
     };
 
@@ -244,7 +244,8 @@ export interface SourceScanSummaryDto {
   startedAt: string;
   heartbeatAt?: string | null;
   completedAt?: string | null;
-  interruptionReason?: 'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | null;
+  interruptionReason?:
+    'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | 'library_operation_lost' | null;
   durationMs?: number | null;
   addedCount: number;
   updatedCount: number;

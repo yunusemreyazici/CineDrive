@@ -203,7 +203,7 @@ describe('Music library', () => {
       credits: [{ name: 'Fixture Composer', role: 'composer', source: 'tag' }],
       source: {
         fileName: '01 - Test Song.mp3',
-        localPath: fixturePath,
+        localPath: null,
       },
     });
   });
@@ -488,7 +488,7 @@ describe('Music library', () => {
     expect(response.headers['accept-ranges']).toBe('none');
     expect(response.body).toBe('aac');
     expect(transcode).toHaveBeenCalledWith(
-      fixturePath,
+      fs.realpathSync(fixturePath),
       expect.objectContaining({ audioOnly: true, realtime: false }),
     );
     expect(kill).toHaveBeenCalled();
@@ -1192,6 +1192,35 @@ describe('Music library', () => {
     ]);
   });
 
+  it('serializes concurrent playlist appends without duplicate positions', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/music/playlists',
+      cookies: { session_id: cookie },
+      payload: { name: 'Concurrent append' },
+    });
+    const playlistId = JSON.parse(created.body).playlist.id;
+
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playlists/${playlistId}/items`,
+          cookies: { session_id: cookie },
+          payload: { trackId },
+        }),
+      ),
+    );
+
+    expect(responses.every((response) => response.statusCode === 201)).toBe(true);
+    const positions = await app.prisma.musicPlaylistItem.findMany({
+      where: { playlistId },
+      orderBy: { position: 'asc' },
+      select: { position: true },
+    });
+    expect(positions.map((item) => item.position)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
   it('reports maintenance issues and applies owned bulk metadata updates', async () => {
     const report = await app.inject({
       method: 'GET',
@@ -1645,7 +1674,7 @@ describe('Music library', () => {
     expect(response.headers['content-range']).toBeUndefined();
     expect(response.body).toBe('fragmented-aac');
     expect(transcode).toHaveBeenCalledWith(
-      fixturePath,
+      fs.realpathSync(fixturePath),
       expect.objectContaining({ audioOnly: true, startSeconds: 0 }),
     );
     expect(kill).toHaveBeenCalled();

@@ -25,6 +25,10 @@ import { insightsRoutes } from './routes/insights.routes.js';
 import { internalRoutes } from './routes/internal.routes.js';
 import { musicRoutes } from './routes/music.routes.js';
 import { systemMetricsRoutes } from './routes/system-metrics.routes.js';
+import {
+  assertProductionSchema,
+  hasProductionSchema,
+} from './services/database-readiness.service.js';
 import type {
   HealthResponse,
   ReadinessResponse,
@@ -43,6 +47,15 @@ const API_RATE_LIMIT_MAX = env.NODE_ENV === 'test' ? 10_000 : 100;
 const PLAYBACK_RATE_LIMIT_MAX = 1200;
 const CONNECT_RATE_LIMIT_MAX = 600;
 const DATABASE_READINESS_TIMEOUT_MS = 2_000;
+
+/** Capability tokens travel in the internal source URL and must not enter logs. */
+export const redactRequestUrl = (url: string): string =>
+  url
+    .replace(/(\/api\/internal\/drive-source\/)[^/?]+/g, '$1[redacted]')
+    .replace(
+      /([?&](?:token|access_token|refresh_token|id_token|downloadGrant|session|state|code)=)[^&]*/gi,
+      '$1[redacted]',
+    );
 
 export const rateLimitBucket = (url: string): 'playback' | 'connect' | 'api' => {
   const path = url.split('?')[0] || '';
@@ -82,6 +95,14 @@ export const buildApp = async (
     logger: {
       level: env.LOG_LEVEL,
       transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+      serializers: {
+        req: (request) => ({
+          method: request.method,
+          url: redactRequestUrl(request.url),
+          host: request.headers.host,
+          remoteAddress: request.ip,
+        }),
+      },
     },
     trustProxy: env.TRUST_PROXY,
   });
@@ -127,6 +148,9 @@ export const buildApp = async (
 
   // Register Core Database & Auth Plugins
   await app.register(prismaPlugin);
+  if (env.NODE_ENV === 'production') {
+    await assertProductionSchema(app.prisma);
+  }
   await app.register(systemMetricsPlugin);
   await app.register(authPlugin);
 
@@ -165,10 +189,22 @@ export const buildApp = async (
 
     try {
       await withTimeout(app.prisma.$queryRaw`SELECT 1`, readinessTimeoutMs);
+      const migrationsReady =
+        env.NODE_ENV !== 'production'
+          ? true
+          : await withTimeout(hasProductionSchema(app.prisma), readinessTimeoutMs);
+      if (!migrationsReady) {
+        return reply.status(503).send({
+          status: 'not_ready',
+          timestamp,
+          checks: { database: 'ok', migrations: 'error' },
+          requestId: request.id,
+        });
+      }
       return {
         status: 'ready',
         timestamp,
-        checks: { database: 'ok' },
+        checks: { database: 'ok', migrations: 'ok' },
       };
     } catch (error) {
       const requestId = request.id;
@@ -176,7 +212,7 @@ export const buildApp = async (
       return reply.status(503).send({
         status: 'not_ready',
         timestamp,
-        checks: { database: 'error' },
+        checks: { database: 'error', migrations: 'error' },
         requestId,
       });
     }
