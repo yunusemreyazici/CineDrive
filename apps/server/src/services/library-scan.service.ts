@@ -1216,7 +1216,7 @@ export class LibraryScanService {
     const visitedFolderIds = new Set<string>();
     const discoveredFolderIds = new Set<string>([rootFolderId]);
 
-    while (pendingFolderIds.length > 0) {
+    while (nextPendingFolderIndex < pendingFolderIds.length) {
       signal.throwIfAborted();
       const folderId = pendingFolderIds[nextPendingFolderIndex++]!;
       if (visitedFolderIds.has(folderId)) continue;

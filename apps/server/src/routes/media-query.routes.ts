@@ -359,7 +359,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const { type, minRating } = parseResult.data;
+      const { type, minRating, compact } = parseResult.data;
 
       // The dice used to roll across every library in the database.
       const where: Prisma.MediaItemWhereInput = { ...ownedMediaFilter(request.user!.id) };
@@ -413,6 +413,51 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           ? `/api/media/assets/${media.posterDriveFileId}`
           : media.posterUrl || null,
       };
+
+      if (compact !== 'true') {
+        // Existing clients receive the original rich response. The web dice
+        // requests a compact card explicitly to avoid fetching episode trees.
+        const fullMedia = await fastify.prisma.mediaItem.findFirst({
+          where: { id: media.id, ...ownedMediaFilter(request.user!.id) },
+          include: {
+            movie: true,
+            series: { include: { seasons: { include: { episodes: true } } } },
+          },
+        });
+        if (!fullMedia) {
+          return reply.status(404).send({
+            error: { code: 'MEDIA_NOT_FOUND', message: 'Medya bulunamadı.', requestId: request.id },
+          });
+        }
+        const userId = request.user!.id;
+        const [favorite, progress] = await Promise.all([
+          fastify.prisma.favorite.findUnique({
+            where: { userId_mediaItemId: { userId, mediaItemId: fullMedia.id } },
+          }),
+          fastify.prisma.playbackProgress.findFirst({
+            where: { userId, mediaItemId: fullMedia.id },
+            orderBy: { lastPlayedAt: 'desc' },
+          }),
+        ]);
+        return reply.status(200).send({
+          media: {
+            ...fullMedia,
+            genres: safeJsonParse<string[]>(fullMedia.genres, []),
+            cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
+              fullMedia.cast,
+              [],
+            ),
+            isFavorite: !!favorite,
+            progress: progress || null,
+            posterUrl: fullMedia.posterDriveFileId
+              ? `/api/media/assets/${fullMedia.posterDriveFileId}`
+              : fullMedia.posterUrl || null,
+            backdropUrl: fullMedia.backdropDriveFileId
+              ? `/api/media/assets/${fullMedia.backdropDriveFileId}`
+              : fullMedia.backdropUrl || null,
+          },
+        });
+      }
 
       return reply.status(200).send({ media: enrichedMedia });
     },

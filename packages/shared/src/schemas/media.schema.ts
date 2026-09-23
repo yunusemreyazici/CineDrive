@@ -26,6 +26,7 @@ export type MediaQueryInput = z.infer<typeof mediaQuerySchema>;
 export const randomMediaQuerySchema = z.object({
   type: z.enum(['movie', 'series']).optional(),
   minRating: z.coerce.number().min(0).max(10).optional(),
+  compact: z.enum(['true', 'false']).optional(),
 });
 
 export type RandomMediaQueryInput = z.infer<typeof randomMediaQuerySchema>;

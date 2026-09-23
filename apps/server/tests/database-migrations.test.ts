@@ -76,18 +76,25 @@ const verifyFixture = (mode: string, databasePath: string) => {
 };
 
 const verifyNoSchemaDrift = (databaseUrl: string) => {
-  runPrisma(
+  const drift = runPrisma(
     [
       'migrate',
       'diff',
       '--from-config-datasource',
       `--to-schema=${schemaPath}`,
-      '--exit-code',
+      '--script',
       '--config',
       productionConfigPath,
     ],
     databaseUrl,
   );
+  // Prisma cannot model SQLite FTS5 virtual/shadow tables. Their intentional
+  // presence is the only accepted difference from schema.prisma.
+  const withoutFtsTables = drift.replace(
+    /-- DropTable\s+PRAGMA foreign_keys=off;\s+DROP TABLE "MediaItemSearch(?:_(?:config|data|docsize|idx))?";\s+PRAGMA foreign_keys=on;\s*/g,
+    '',
+  );
+  expect(withoutFtsTables.trim()).toBe('');
 };
 
 afterEach(async () => {
