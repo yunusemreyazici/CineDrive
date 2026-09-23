@@ -168,12 +168,15 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       if (search.trim().length < 3) {
         where.OR = [
           { title: { contains: search } },
+          { originalTitle: { contains: search } },
           { normalizedTitle: { contains: search.toLowerCase() } },
           { cast: { contains: search } },
         ];
       } else {
         const phrase = quoteFtsPhrase(search.trim());
-        ftsParts.push(`(title : ${phrase} OR normalizedTitle : ${phrase} OR cast : ${phrase})`);
+        ftsParts.push(
+          `(title : ${phrase} OR originalTitle : ${phrase} OR normalizedTitle : ${phrase} OR cast : ${phrase})`,
+        );
       }
     }
 
@@ -219,6 +222,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
           AND (? IS NULL OR m.year <= ?)
           AND (? IS NULL OR m.voteAverage >= ?)
           AND (? IS NULL OR instr(lower(m.title), lower(?)) > 0
+            OR instr(lower(COALESCE(m.originalTitle, '')), lower(?)) > 0
             OR instr(lower(m.normalizedTitle), lower(?)) > 0
             OR instr(lower(COALESCE(m.cast, '')), lower(?)) > 0)
           AND (? = 0 OR m.type = 'series' OR m.tmdbId IS NOT NULL)
@@ -241,6 +245,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         rangeYearTo,
         minRating || null,
         minRating || null,
+        shortSearch,
         shortSearch,
         shortSearch,
         shortSearch,

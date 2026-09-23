@@ -312,6 +312,7 @@ describe('Library API Integration Tests', () => {
         libraryId: library.id,
         type: 'movie',
         title: 'Searchable Midnight Movie',
+        originalTitle: 'Nocturnal Expedition',
         normalizedTitle: 'searchable midnight movie',
       },
     });
@@ -358,6 +359,26 @@ describe('Library API Integration Tests', () => {
         otherMedia.id,
       );
 
+      const originalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Nocturnal',
+        cookies,
+      });
+      expect(originalTitleSearch.statusCode).toBe(200);
+      expect(
+        JSON.parse(originalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
+
+      const shortOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=No',
+        cookies,
+      });
+      expect(shortOriginalTitleSearch.statusCode).toBe(200);
+      expect(
+        JSON.parse(shortOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
+
       const otherLogin = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
@@ -376,7 +397,11 @@ describe('Library API Integration Tests', () => {
 
       await app.prisma.mediaItem.update({
         where: { id: media.id },
-        data: { title: 'Updated Midnight Movie', normalizedTitle: 'updated midnight movie' },
+        data: {
+          title: 'Updated Midnight Movie',
+          originalTitle: 'Hidden Voyage',
+          normalizedTitle: 'updated midnight movie',
+        },
       });
       const oldSearch = await app.inject({
         method: 'GET',
@@ -388,12 +413,28 @@ describe('Library API Integration Tests', () => {
         url: '/api/media?search=Updated',
         cookies,
       });
+      const oldOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Nocturnal',
+        cookies,
+      });
+      const newOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Voyage',
+        cookies,
+      });
       expect(JSON.parse(oldSearch.body).media.map((item: { id: string }) => item.id)).not.toContain(
         media.id,
       );
       expect(JSON.parse(newSearch.body).media.map((item: { id: string }) => item.id)).toContain(
         media.id,
       );
+      expect(
+        JSON.parse(oldOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).not.toContain(media.id);
+      expect(
+        JSON.parse(newOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
     } finally {
       await app.prisma.library.deleteMany({ where: { id: { in: [library.id, otherLibrary.id] } } });
       await app.prisma.user.delete({ where: { id: other.id } });

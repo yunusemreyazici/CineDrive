@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Film } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
 import { FilterPanel } from '../components/media/FilterPanel';
@@ -43,6 +43,12 @@ export const MoviesPage: React.FC = () => {
   }, [filterState, page]);
 
   const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
+
+  useEffect(() => {
+    if (!data || page <= Math.max(1, data.pagination.totalPages)) return;
+    const timer = window.setTimeout(() => setPage(Math.max(1, data.pagination.totalPages)), 0);
+    return () => window.clearTimeout(timer);
+  }, [data, page]);
 
   return (
     <div className="space-y-8">

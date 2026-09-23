@@ -9,7 +9,7 @@ const [mode, databasePath] = process.argv.slice(2);
 
 if (!mode || !databasePath) {
   throw new Error(
-    'Usage: node migration-fixture.mjs <seed-initial|seed-music|verify-initial|verify-music> <database.db>',
+    'Usage: node migration-fixture.mjs <seed-initial|seed-music|seed-fts|verify-initial|verify-music|verify-fts> <database.db>',
   );
 }
 
@@ -77,6 +77,20 @@ const seedMusicDatabase = () => {
       VALUES ('music-state', 'music-user', 'music-track', 42, false, 'all', 3, '2026-08-10T03:04:05.000Z');
     INSERT INTO "LibraryScan" ("id", "libraryId", "status", "addedCount", "startedAt", "completedAt")
       VALUES ('music-scan', 'music-library', 'completed', 1, '2026-08-10T03:04:05.000Z', '2026-08-10T03:05:05.000Z');
+    COMMIT;
+  `);
+};
+
+const seedFtsDatabase = () => {
+  database.exec(`
+    PRAGMA foreign_keys=ON;
+    BEGIN;
+    INSERT INTO "User" ("id", "email", "name", "role", "createdAt", "updatedAt")
+      VALUES ('fts-user', 'fts@example.test', 'FTS User', 'admin', '2026-09-23T03:04:05.000Z', '2026-09-23T03:04:05.000Z');
+    INSERT INTO "Library" ("id", "name", "userId", "storageType", "rootFolderId", "createdAt", "updatedAt")
+      VALUES ('fts-library', 'FTS Library', 'fts-user', 'local', 'fts-root', '2026-09-23T03:04:05.000Z', '2026-09-23T03:04:05.000Z');
+    INSERT INTO "MediaItem" ("id", "libraryId", "type", "title", "originalTitle", "normalizedTitle", "createdAt", "updatedAt")
+      VALUES ('fts-media', 'fts-library', 'movie', 'Yerel Ad', 'Nocturnal Expedition', 'yerel ad', '2026-09-23T03:04:05.000Z', '2026-09-23T03:04:05.000Z');
     COMMIT;
   `);
 };
@@ -242,11 +256,27 @@ const verifyMusicUpgrade = () => {
   );
 };
 
+const verifyFtsUpgrade = () => {
+  verifyDatabaseHealth();
+  assertEqual(
+    scalar(`SELECT COUNT(*) FROM "MediaItemSearch" WHERE "MediaItemSearch" MATCH '"Nocturnal"'`),
+    1,
+    'Original title FTS backfill',
+  );
+  assertEqual(
+    scalar(`SELECT "originalTitle" FROM "MediaItem" WHERE "id" = 'fts-media'`),
+    'Nocturnal Expedition',
+    'Original title preserved',
+  );
+};
+
 try {
   if (mode === 'seed-initial') seedInitialDatabase();
   else if (mode === 'seed-music') seedMusicDatabase();
+  else if (mode === 'seed-fts') seedFtsDatabase();
   else if (mode === 'verify-initial') verifyInitialUpgrade();
   else if (mode === 'verify-music') verifyMusicUpgrade();
+  else if (mode === 'verify-fts') verifyFtsUpgrade();
   else throw new Error(`Unknown migration fixture mode: ${mode}`);
 } finally {
   database.close();
