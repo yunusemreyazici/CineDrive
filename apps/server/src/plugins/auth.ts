@@ -15,6 +15,7 @@ import { DriveSourceService } from '../services/drive-source.service.js';
 import { DriveAccessService } from '../services/drive-access.service.js';
 import { ScanLifecycleService } from '../services/scan-lifecycle.service.js';
 import { LibraryOperationLockService } from '../services/library-operation-lock.service.js';
+import { LibraryScanSchedulerService } from '../services/library-scan-scheduler.service.js';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 
@@ -68,6 +69,12 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
     scanLifecycleService,
     libraryOperationLockService,
   );
+  const libraryScanScheduler = new LibraryScanSchedulerService(
+    fastify.prisma,
+    libraryScanService,
+    localScanService,
+    env.LIBRARY_SCAN_INTERVAL_HOURS,
+  );
   const hlsService = new HlsService();
   const playerTelemetryService = new PlayerTelemetryService();
   const previewService = new PreviewService();
@@ -88,6 +95,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('driveAccessService', driveAccessService);
   fastify.decorate('scanLifecycleService', scanLifecycleService);
   fastify.decorate('libraryOperationLockService', libraryOperationLockService);
+  fastify.addHook('onClose', async () => libraryScanScheduler.stop());
   fastify.addHook('onClose', async () => {
     await scanLifecycleService.shutdown();
     hlsService.shutdown();
@@ -99,6 +107,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   await playbackService.repairDuplicateTrackingRecords();
   await scanLifecycleService.reconcileAbandonedScans({ reason: 'server_restarted' });
   scanLifecycleService.startWatchdog();
+  libraryScanScheduler.start();
 
   // Attach session decorator to each request
   fastify.decorateRequest('user', null);

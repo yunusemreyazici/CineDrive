@@ -13,6 +13,8 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
+const quoteFtsPhrase = (value: string) => `"${value.replaceAll('"', '""')}"`;
+
 /**
  * Everything a grid, rail or hero renders — which is every scalar column
  * except `cast`. Cast was 1.3 kB of a 2.3 kB list item, more than half the
@@ -103,6 +105,17 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/media: Filter & Search Media Items
   fastify.get('/', async (request, reply) => {
     const parseResult = mediaQuerySchema.safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Medya listeleme parametreleri geçersiz.',
+          requestId: request.id,
+          details: parseResult.error.format(),
+        },
+      });
+    }
+
     const {
       type,
       genre,
@@ -117,9 +130,7 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       sortOrder,
       page,
       limit,
-    } = parseResult.success
-      ? parseResult.data
-      : { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
+    } = parseResult.data;
 
     /*
      * Every list request now starts from the caller's own libraries. Until
@@ -129,8 +140,16 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
      */
     const where: Prisma.MediaItemWhereInput = { ...ownedMediaFilter(request.user!.id) };
     if (type) where.type = type;
-    if (genre) where.genres = { contains: genre };
-    if (person) where.cast = { contains: person };
+    const ftsParts: string[] = [];
+    if (genre && genre.trim().length >= 3) {
+      ftsParts.push(`genres : ${quoteFtsPhrase(genre.trim())}`);
+    }
+    if (person && person.trim().length >= 3) {
+      ftsParts.push(`cast : ${quoteFtsPhrase(person.trim())}`);
+    }
+
+    if (genre && genre.trim().length < 3) where.genres = { contains: genre };
+    if (person && person.trim().length < 3) where.cast = { contains: person };
 
     if (year) {
       where.year = year;
@@ -145,12 +164,17 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       where.voteAverage = { gte: minRating };
     }
 
-    if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { normalizedTitle: { contains: search.toLowerCase() } },
-        { cast: { contains: search } },
-      ];
+    if (search?.trim()) {
+      if (search.trim().length < 3) {
+        where.OR = [
+          { title: { contains: search } },
+          { normalizedTitle: { contains: search.toLowerCase() } },
+          { cast: { contains: search } },
+        ];
+      } else {
+        const phrase = quoteFtsPhrase(search.trim());
+        ftsParts.push(`(title : ${phrase} OR normalizedTitle : ${phrase} OR cast : ${phrase})`);
+      }
     }
 
     // This preference hides only unmatched movies. Series and manually managed
@@ -170,16 +194,98 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     // series on the page — data no list view reads, and the single largest
     // contributor to the response size. Callers that need the full tree use
     // GET /api/media/:id.
-    const [items, total] = await Promise.all([
-      fastify.prisma.mediaItem.findMany({
-        where,
-        select: listItemSelect,
-        orderBy: { [sortBy]: sortOrder },
-        skip,
-        take: limit,
-      }),
-      fastify.prisma.mediaItem.count({ where }),
-    ]);
+    let items: Prisma.MediaItemGetPayload<{ select: typeof listItemSelect }>[];
+    let total: number;
+    if (ftsParts.length > 0) {
+      const shortSearch = search?.trim() && search.trim().length < 3 ? search.trim() : null;
+      const shortGenre = genre && genre.trim().length < 3 ? genre : null;
+      const shortPerson = person && person.trim().length < 3 ? person : null;
+      const rangeYearFrom = year ? null : yearFrom || null;
+      const rangeYearTo = year ? null : yearTo || null;
+      const whereSql = `
+        FROM "MediaItem" AS m
+        INNER JOIN "MediaItemSearch" ON "MediaItemSearch".rowid = m.rowid
+        INNER JOIN "Library" AS l ON l.id = m.libraryId
+        WHERE "MediaItemSearch" MATCH ?
+          AND (l.userId = ? OR EXISTS (
+            SELECT 1 FROM "LibraryMembership" AS lm
+            WHERE lm.libraryId = m.libraryId AND lm.userId = ?
+          ))
+          AND (? IS NULL OR m.type = ?)
+          AND (? IS NULL OR instr(lower(COALESCE(m.genres, '')), lower(?)) > 0)
+          AND (? IS NULL OR instr(lower(COALESCE(m.cast, '')), lower(?)) > 0)
+          AND (? IS NULL OR m.year = ?)
+          AND (? IS NULL OR m.year >= ?)
+          AND (? IS NULL OR m.year <= ?)
+          AND (? IS NULL OR m.voteAverage >= ?)
+          AND (? IS NULL OR instr(lower(m.title), lower(?)) > 0
+            OR instr(lower(m.normalizedTitle), lower(?)) > 0
+            OR instr(lower(COALESCE(m.cast, '')), lower(?)) > 0)
+          AND (? = 0 OR m.type = 'series' OR m.tmdbId IS NOT NULL)
+      `;
+      const queryParams: Array<string | number | null> = [
+        ftsParts.join(' AND '),
+        request.user!.id,
+        request.user!.id,
+        type || null,
+        type || null,
+        shortGenre,
+        shortGenre,
+        shortPerson,
+        shortPerson,
+        year || null,
+        year || null,
+        rangeYearFrom,
+        rangeYearFrom,
+        rangeYearTo,
+        rangeYearTo,
+        minRating || null,
+        minRating || null,
+        shortSearch,
+        shortSearch,
+        shortSearch,
+        shortSearch,
+        hideWithoutMetadata ? 1 : 0,
+      ];
+      const [countRows, idRows] = await Promise.all([
+        fastify.prisma.$queryRawUnsafe<Array<{ total: number | bigint }>>(
+          `SELECT COUNT(DISTINCT m.id) AS total ${whereSql}`,
+          ...queryParams,
+        ),
+        fastify.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+          `SELECT DISTINCT m.id ${whereSql}
+           ORDER BY m."${sortBy}" ${sortOrder.toUpperCase()}, m.id ASC
+           LIMIT ? OFFSET ?`,
+          ...queryParams,
+          limit,
+          skip,
+        ),
+      ]);
+      total = Number(countRows[0]?.total || 0);
+      const pageIds = idRows.map((row) => row.id);
+      const rows = pageIds.length
+        ? await fastify.prisma.mediaItem.findMany({
+            where: { ...where, id: { in: pageIds } },
+            select: listItemSelect,
+          })
+        : [];
+      const itemsById = new Map(rows.map((row) => [row.id, row]));
+      items = pageIds.flatMap((id) => {
+        const item = itemsById.get(id);
+        return item ? [item] : [];
+      });
+    } else {
+      [items, total] = await Promise.all([
+        fastify.prisma.mediaItem.findMany({
+          where,
+          select: listItemSelect,
+          orderBy: { [sortBy]: sortOrder },
+          skip,
+          take: limit,
+        }),
+        fastify.prisma.mediaItem.count({ where }),
+      ]);
+    }
 
     // Scoped to the page. These used to fetch every favourite and every
     // progress row the account owns on every list request, so the cost grew
@@ -316,115 +422,125 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /api/media/:id: Detail View
-  fastify.get<{ Params: { id: string } }>('/:id', async (request, reply) => {
-    const { id } = request.params;
-    const userId = request.user!.id;
+  fastify.get<{ Params: { id: string }; Querystring: { includeEpisodes?: string } }>(
+    '/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      const userId = request.user!.id;
+      const includeEpisodes = request.query.includeEpisodes !== 'false';
 
-    // Media the caller does not own answers like media that does not exist.
-    const item = await fastify.prisma.mediaItem.findFirst({
-      where: { id, ...ownedMediaFilter(request.user!.id) },
-      include: {
-        movie: {
-          include: {
-            driveFile: { select: technicalMetadataSelect },
-          },
-        },
-        series: {
-          include: {
-            seasons: {
-              orderBy: { seasonNumber: 'asc' },
-              include: {
-                episodes: {
-                  orderBy: { episodeNumber: 'asc' },
-                  include: {
-                    driveFile: { select: technicalMetadataSelect },
-                    subtitles: {
-                      select: safeSubtitleSelect,
-                    },
-                    playbackProgresses: {
-                      where: { userId },
-                      orderBy: { lastPlayedAt: 'desc' },
-                    },
-                  },
-                },
-              },
+      // Media the caller does not own answers like media that does not exist.
+      const item = await fastify.prisma.mediaItem.findFirst({
+        where: { id, ...ownedMediaFilter(request.user!.id) },
+        include: {
+          movie: {
+            include: {
+              driveFile: { select: technicalMetadataSelect },
             },
           },
-        },
-        subtitles: {
-          select: safeSubtitleSelect,
-        },
-        playbackProgresses: {
-          where: { userId },
-          orderBy: { lastPlayedAt: 'desc' },
-        },
-        favorites: {
-          where: { userId },
-        },
-      },
-    });
-
-    if (!item) {
-      return reply.status(404).send({
-        error: {
-          code: 'MEDIA_NOT_FOUND',
-          message: 'Medya içeriği bulunamadı.',
-          requestId: request.id,
+          series: {
+            include: {
+              seasons: includeEpisodes
+                ? {
+                    orderBy: { seasonNumber: 'asc' },
+                    include: {
+                      episodes: {
+                        orderBy: { episodeNumber: 'asc' },
+                        include: {
+                          driveFile: { select: technicalMetadataSelect },
+                          subtitles: { select: safeSubtitleSelect },
+                          playbackProgresses: {
+                            where: { userId },
+                            orderBy: { lastPlayedAt: 'desc' },
+                          },
+                        },
+                      },
+                    },
+                  }
+                : {
+                    orderBy: { seasonNumber: 'asc' },
+                    select: { id: true, seriesId: true, seasonNumber: true, name: true },
+                  },
+            },
+          },
+          subtitles: {
+            select: safeSubtitleSelect,
+          },
+          playbackProgresses: {
+            where: { userId },
+            orderBy: { lastPlayedAt: 'desc' },
+          },
+          favorites: {
+            where: { userId },
+          },
         },
       });
-    }
 
-    const formattedSubtitles = item.subtitles.map(safeSubtitleWithUrl);
+      if (!item) {
+        return reply.status(404).send({
+          error: {
+            code: 'MEDIA_NOT_FOUND',
+            message: 'Medya içeriği bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
 
-    const formattedSeries = item.series
-      ? {
-          ...item.series,
-          seasons: item.series.seasons.map((season) => ({
-            ...season,
-            episodes: season.episodes.map((ep) => {
-              const { driveFile, ...episode } = ep;
+      const formattedSubtitles = item.subtitles.map(safeSubtitleWithUrl);
+
+      const formattedSeries = item.series
+        ? {
+            ...item.series,
+            seasons: item.series.seasons.map((season) => {
+              if (!('episodes' in season)) return season;
               return {
-                ...episode,
-                technicalMetadata: driveFile,
-                playbackPlan: buildPlaybackPlan(driveFile),
-                subtitles: ep.subtitles.map(safeSubtitleWithUrl),
+                ...season,
+                episodes: season.episodes.map((ep) => {
+                  const { driveFile, ...episode } = ep;
+                  return {
+                    ...episode,
+                    technicalMetadata: driveFile,
+                    playbackPlan: buildPlaybackPlan(driveFile),
+                    subtitles: ep.subtitles.map(safeSubtitleWithUrl),
+                  };
+                }),
               };
             }),
-          })),
-        }
-      : null;
-    const formattedMovie = item.movie
-      ? {
-          id: item.movie.id,
-          mediaItemId: item.movie.mediaItemId,
-          driveFileId: item.movie.driveFileId,
-          technicalMetadata: item.movie.driveFile,
-          playbackPlan: buildPlaybackPlan(item.movie.driveFile || {}),
-        }
-      : null;
+          }
+        : null;
+      const formattedMovie = item.movie
+        ? {
+            id: item.movie.id,
+            mediaItemId: item.movie.mediaItemId,
+            driveFileId: item.movie.driveFileId,
+            technicalMetadata: item.movie.driveFile,
+            playbackPlan: buildPlaybackPlan(item.movie.driveFile || {}),
+          }
+        : null;
 
-    return reply.status(200).send({
-      media: {
-        ...item,
-        genres: safeJsonParse<string[]>(item.genres, []),
-        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
-          item.cast,
-          [],
-        ),
-        isFavorite: item.favorites.length > 0,
-        progress: item.playbackProgresses[0] || null,
-        posterUrl: item.posterDriveFileId
-          ? `/api/media/assets/${item.posterDriveFileId}`
-          : item.posterUrl || null,
-        backdropUrl: item.backdropDriveFileId
-          ? `/api/media/assets/${item.backdropDriveFileId}`
-          : item.backdropUrl || null,
-        subtitles: formattedSubtitles,
-        movie: formattedMovie,
-        series: formattedSeries,
-      },
-    });
-  });
+      return reply.status(200).send({
+        media: {
+          ...item,
+          genres: safeJsonParse<string[]>(item.genres, []),
+          cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
+            item.cast,
+            [],
+          ),
+          isFavorite: item.favorites.length > 0,
+          progress: item.playbackProgresses[0] || null,
+          posterUrl: item.posterDriveFileId
+            ? `/api/media/assets/${item.posterDriveFileId}`
+            : item.posterUrl || null,
+          backdropUrl: item.backdropDriveFileId
+            ? `/api/media/assets/${item.backdropDriveFileId}`
+            : item.backdropUrl || null,
+          subtitles: formattedSubtitles,
+          movie: formattedMovie,
+          series: formattedSeries,
+        },
+      });
+    },
+  );
 
   // GET /api/series/:id/seasons
   fastify.get<{ Params: { id: string } }>('/series/:id/seasons', async (request, reply) => {
@@ -462,6 +578,10 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
       include: {
         subtitles: {
           select: safeSubtitleSelect,
+        },
+        playbackProgresses: {
+          where: { userId: request.user!.id },
+          orderBy: { lastPlayedAt: 'desc' },
         },
       },
     });

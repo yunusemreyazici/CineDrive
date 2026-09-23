@@ -107,6 +107,11 @@ export interface MediaItemType {
   subtitles?: SubtitleItemType[];
 }
 
+export type MediaDetailSeasonType = Omit<SeasonType, 'episodes'> & { episodes?: EpisodeType[] };
+export type MediaDetailType = Omit<MediaItemType, 'series'> & {
+  series?: Omit<SeriesType, 'seasons'> & { seasons: MediaDetailSeasonType[] };
+};
+
 export interface WatchHistoryType {
   id: string;
   watchedAt: string;
@@ -136,11 +141,7 @@ export interface LibraryScanType {
   heartbeatAt?: string | null;
   completedAt?: string | null;
   interruptionReason?:
-    | 'server_restarted'
-    | 'server_shutdown'
-    | 'watchdog_timeout'
-    | 'library_operation_lost'
-    | null;
+    'server_restarted' | 'server_shutdown' | 'watchdog_timeout' | 'library_operation_lost' | null;
   lastError?: string | null;
   errors?: Array<{
     id: string;

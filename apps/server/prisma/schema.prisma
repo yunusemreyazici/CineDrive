@@ -94,6 +94,7 @@ model Library {
   googleConnection   GoogleConnection?   @relation(fields: [googleConnectionId], references: [id], onDelete: SetNull)
   driveId            String?
   lastScannedAt      DateTime?
+  lastScheduledScanAttemptAt DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   // A database-backed lease serializes scans and destructive library

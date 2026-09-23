@@ -16,6 +16,7 @@
 | `TOKEN_ENCRYPTION_KEY`             | Google yenileme belirteçlerini şifreleyen tam 64 onaltılık karakter.                                            |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`    | İlk açılışta oluşturulan yönetici.                                                                              |
 | `APP_AUTH_MODE`                    | Yönetici tarafından oluşturulan hesaplar için `multi-user` yapın.                                               |
+| `LIBRARY_SCAN_INTERVAL_HOURS`      | Tüm kütüphaneleri bu aralıkla otomatik tarar; `0` kapatır. Kesilen tarama başlangıçta yeniden denenir.             |
 | `APP_URL`, `PUBLIC_URL`, `API_URL` | Tarayıcının göreceği uygulama ve API adresleri.                                                                 |
 | `CORS_ORIGIN`                      | İzin verilen tarayıcı origin'i; normalde public uygulama origin'i.                                              |
 | `TRUST_PROXY`                      | Yalnızca dahil edilen Nginx veya başka bir güvenilir reverse proxy arkasında etkinleştirin.                     |

@@ -18,19 +18,25 @@ import type {
   ValidateLocalFolderInput,
   LocalFolderValidationDto,
 } from '@cinedrive/shared';
-import type { MediaItemType, WatchHistoryType, LibraryScanType, EpisodeType } from '../types/media';
+import type {
+  MediaItemType,
+  MediaDetailType,
+  WatchHistoryType,
+  LibraryScanType,
+  EpisodeType,
+} from '../types/media';
 import { useUiStore } from '../stores/useUiStore';
 
 // --- AUTH HOOKS ---
 export function useSessionQuery() {
   return useQuery({
     queryKey: ['session'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
         authenticated: boolean;
         user: UserDto | null;
         authMode: 'single-user' | 'multi-user';
-      }>('/auth/session');
+      }>('/auth/session', { signal });
       return res.data;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
@@ -41,12 +47,12 @@ export function useSessionQuery() {
 export function useUsersQuery(enabled = true) {
   return useQuery({
     queryKey: ['users'],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await apiClient.get<{
           users: UserDto[];
           authMode: 'single-user' | 'multi-user';
-        }>('/auth/users')
+        }>('/auth/users', { signal })
       ).data,
     enabled,
   });
@@ -83,9 +89,12 @@ export function useResetUserPasswordMutation() {
 export function useLibraryMembersQuery(libraryId?: string, enabled = true) {
   return useQuery({
     queryKey: ['library-members', libraryId],
-    queryFn: async () =>
-      (await apiClient.get<{ members: LibraryMemberDto[] }>(`/libraries/${libraryId}/members`)).data
-        .members,
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<{ members: LibraryMemberDto[] }>(`/libraries/${libraryId}/members`, {
+          signal,
+        })
+      ).data.members,
     enabled: enabled && Boolean(libraryId),
   });
 }
@@ -151,12 +160,12 @@ export function useLogoutMutation() {
 export function useGoogleStatusQuery() {
   return useQuery({
     queryKey: ['googleStatus'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
         connected: boolean;
         connection: { id?: string; email?: string; updatedAt: string } | null;
         connections?: Array<{ id: string; email: string; createdAt: string }>;
-      }>('/auth/google/status');
+      }>('/auth/google/status', { signal });
       return res.data;
     },
   });
@@ -165,10 +174,10 @@ export function useGoogleStatusQuery() {
 export function useGoogleConnectionsQuery() {
   return useQuery({
     queryKey: ['googleConnections'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
         connections: Array<{ id: string; email: string; createdAt: string }>;
-      }>('/auth/google/connections');
+      }>('/auth/google/connections', { signal });
       return res.data.connections || [];
     },
   });
@@ -237,10 +246,10 @@ export function useValidateLocalFolderMutation() {
 export function useLibrariesQuery() {
   return useQuery({
     queryKey: ['libraries'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
         libraries: LibraryDto[];
-      }>('/libraries');
+      }>('/libraries', { signal });
       return res.data.libraries;
     },
     refetchInterval: (query) =>
@@ -301,10 +310,11 @@ export function useDeleteLibraryMutation() {
 export function useDriveScanSourcesQuery(libraryId?: string) {
   return useQuery({
     queryKey: ['driveScanSources', libraryId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!libraryId) return [];
       const res = await apiClient.get<{ sources: DriveScanSourceDto[] }>(
         `/libraries/${libraryId}/drive-sources`,
+        { signal },
       );
       return res.data.sources;
     },
@@ -436,10 +446,11 @@ export function useLibraryScansQuery(libraryId?: string) {
 
   const query = useQuery({
     queryKey: ['libraryScans', libraryId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!libraryId) return [];
       const res = await apiClient.get<{ scans: LibraryScanType[] }>(
         `/libraries/${libraryId}/scans`,
+        { signal },
       );
       return res.data.scans || [];
     },
@@ -470,8 +481,9 @@ export function useAllLibraryScansQuery() {
   const wasRunningRef = useRef(false);
   const query = useQuery({
     queryKey: ['libraryScansAll'],
-    queryFn: async () =>
-      (await apiClient.get<{ scans: LibraryScanType[] }>('/libraries/scans')).data.scans || [],
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<{ scans: LibraryScanType[] }>('/libraries/scans', { signal })).data
+        .scans || [],
     refetchInterval: (query) =>
       query.state.data?.some((scan) => scan.status === 'running') ? SCAN_POLL_INTERVAL_MS : false,
   });
@@ -506,8 +518,9 @@ export interface DatabaseStats {
 export function useDatabaseStatsQuery() {
   return useQuery({
     queryKey: ['database-stats'],
-    queryFn: async () =>
-      (await apiClient.get<{ stats: DatabaseStats }>('/settings/database/stats')).data.stats,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<{ stats: DatabaseStats }>('/settings/database/stats', { signal })).data
+        .stats,
   });
 }
 
@@ -652,12 +665,13 @@ export function useMediaListQuery(
 
   return useQuery({
     queryKey: ['media', effectiveParams],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
         media: MediaItemType[];
         pagination: { total: number; page: number; limit: number; totalPages: number };
       }>('/media', {
         params: effectiveParams,
+        signal,
       });
       return res.data;
     },
@@ -665,15 +679,44 @@ export function useMediaListQuery(
   });
 }
 
-export function useMediaDetailQuery(mediaId?: string) {
-  return useQuery({
-    queryKey: ['mediaDetail', mediaId],
-    queryFn: async () => {
+type MediaDetailQueryResult<T extends boolean> = T extends false
+  ? MediaDetailType | null
+  : MediaItemType | null;
+
+export function useMediaDetailQuery<T extends boolean = true>(
+  mediaId?: string,
+  options?: { includeEpisodes?: T },
+) {
+  const includeEpisodes = options?.includeEpisodes !== false;
+  return useQuery<MediaDetailQueryResult<T>>({
+    queryKey: includeEpisodes ? ['mediaDetail', mediaId] : ['mediaDetail', mediaId, 'summary'],
+    queryFn: async ({ signal }) => {
       if (!mediaId) return null;
-      const res = await apiClient.get<{ media: MediaItemType }>(`/media/${mediaId}`);
-      return res.data.media;
+      const res = await apiClient.get<{ media: MediaItemType | MediaDetailType }>(
+        `/media/${mediaId}`,
+        {
+          params: { includeEpisodes: includeEpisodes ? undefined : false },
+          signal,
+        },
+      );
+      return res.data.media as MediaDetailQueryResult<T>;
     },
     enabled: !!mediaId,
+  });
+}
+
+export function useSeasonEpisodesQuery(seasonId?: string) {
+  return useQuery({
+    queryKey: ['seasonEpisodes', seasonId],
+    queryFn: async ({ signal }) => {
+      if (!seasonId) return [];
+      const res = await apiClient.get<{ episodes: EpisodeType[] }>(
+        `/seasons/${seasonId}/episodes`,
+        { signal },
+      );
+      return res.data.episodes;
+    },
+    enabled: !!seasonId,
   });
 }
 
@@ -694,8 +737,10 @@ export interface ContinueWatchingItemType {
 export function useContinueWatchingQuery() {
   return useQuery({
     queryKey: ['continueWatching'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ items: ContinueWatchingItemType[] }>('/playback/continue');
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.get<{ items: ContinueWatchingItemType[] }>('/playback/continue', {
+        signal,
+      });
       return res.data.items;
     },
   });
@@ -720,12 +765,13 @@ export function useWatchHistoryQuery() {
   return useInfiniteQuery({
     queryKey: ['watchHistory'],
     initialPageParam: 1,
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const res = await apiClient.get<{
         history: WatchHistoryType[];
         pagination: { page: number; totalPages: number; total: number };
       }>('/history', {
         params: { page: pageParam, limit: 50 },
+        signal,
       });
       return {
         history: res.data.history || [],
@@ -795,8 +841,8 @@ export function useUpdateProgressMutation(options?: { invalidateOnSuccess?: bool
 export function useFavoritesQuery() {
   return useQuery({
     queryKey: ['favorites'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ favorites: MediaItemType[] }>('/favorites');
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.get<{ favorites: MediaItemType[] }>('/favorites', { signal });
       return res.data.favorites;
     },
   });
@@ -825,6 +871,11 @@ export function useToggleFavoriteMutation() {
 
       const previousFavorites = queryClient.getQueryData<MediaItemType[]>(['favorites']);
       const previousDetail = queryClient.getQueryData<MediaItemType>(['mediaDetail', mediaItemId]);
+      const previousSummary = queryClient.getQueryData<MediaDetailType>([
+        'mediaDetail',
+        mediaItemId,
+        'summary',
+      ]);
 
       // Optimistically update media detail
       if (previousDetail) {
@@ -832,8 +883,13 @@ export function useToggleFavoriteMutation() {
           old ? { ...old, isFavorite: !isFavorite } : old,
         );
       }
+      if (previousSummary) {
+        queryClient.setQueryData<MediaDetailType>(['mediaDetail', mediaItemId, 'summary'], (old) =>
+          old ? { ...old, isFavorite: !isFavorite } : old,
+        );
+      }
 
-      return { previousFavorites, previousDetail };
+      return { previousFavorites, previousDetail, previousSummary };
     },
     onError: (_err, { mediaItemId }, context) => {
       if (context?.previousFavorites) {
@@ -841,6 +897,9 @@ export function useToggleFavoriteMutation() {
       }
       if (context?.previousDetail) {
         queryClient.setQueryData(['mediaDetail', mediaItemId], context.previousDetail);
+      }
+      if (context?.previousSummary) {
+        queryClient.setQueryData(['mediaDetail', mediaItemId, 'summary'], context.previousSummary);
       }
     },
     onSettled: (_data, _error, { mediaItemId }) => {
@@ -896,7 +955,8 @@ export interface UpdateApiSettingsInput {
 export function useApiSettingsQuery() {
   return useQuery({
     queryKey: ['apiSettings'],
-    queryFn: async () => (await apiClient.get<ApiSettingsDto>('/settings/api-keys')).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<ApiSettingsDto>('/settings/api-keys', { signal })).data,
   });
 }
 
@@ -915,8 +975,10 @@ export function useUpdateApiSettingsMutation() {
 export function useOpenSubtitlesSettingsQuery() {
   return useQuery({
     queryKey: ['openSubtitlesSettings'],
-    queryFn: async () => {
-      const res = await apiClient.get<OpenSubtitlesSettingsDto>('/settings/opensubtitles');
+    queryFn: async ({ signal }) => {
+      const res = await apiClient.get<OpenSubtitlesSettingsDto>('/settings/opensubtitles', {
+        signal,
+      });
       return res.data;
     },
   });

@@ -3,8 +3,8 @@ import { t } from '../i18n';
 
 /**
  * A thin `fetch` wrapper standing in for axios, which was 11% of the initial
- * JavaScript bundle for a feature set this app never used: no interceptors, no
- * cancellation, no transforms — just JSON in, JSON out, with cookies.
+ * JavaScript bundle for a feature set this app never used: no interceptors or
+ * transforms, just JSON in, JSON out, cookies, timeouts and request cancellation.
  *
  * The `{ data }` return shape is deliberate, so every call site and the
  * `vi.spyOn(apiClient, 'get')` in the tests stay unchanged.
@@ -42,6 +42,7 @@ export type QueryParams = Record<string, string | number | boolean | undefined |
 export interface RequestConfig {
   params?: QueryParams;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /** Same rule axios applied: `undefined` and `null` values are left out. */
@@ -63,7 +64,13 @@ const request = async <T>(
   config?: RequestConfig,
 ): Promise<{ data: T }> => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config?.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort(config?.signal?.reason);
+  if (config?.signal?.aborted) abortFromCaller();
+  else config?.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+    config?.timeoutMs ?? REQUEST_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(`${baseURL}${path}${buildQuery(config?.params)}`, {
@@ -87,13 +94,16 @@ const request = async <T>(
 
     return { data: payload as T };
   } catch (error) {
-    // An abort here is our own timeout firing, not an answer from the server.
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    // Preserve TanStack Query cancellation, but translate our own timeout into
+    // the normal API network error even when fetch rejects with TimeoutError.
+    if (controller.signal.aborted) {
+      if (config?.signal?.aborted) throw error;
       throw new ApiRequestError(0, null, t.errors.networkError);
     }
     throw error;
   } finally {
     clearTimeout(timeout);
+    config?.signal?.removeEventListener('abort', abortFromCaller);
   }
 };
 

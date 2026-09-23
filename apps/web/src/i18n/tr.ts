@@ -110,6 +110,7 @@ export const tr = {
     clearFilters: 'Filtreleri Temizle',
     loadFailed: 'Kütüphane Yüklenemedi',
     page: 'Sayfa',
+    paginationLabel: 'Medya sayfaları',
     previousPage: 'Önceki sayfa',
     nextPage: 'Sonraki sayfa',
   },

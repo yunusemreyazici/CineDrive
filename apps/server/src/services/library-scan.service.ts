@@ -6,7 +6,10 @@ import {
 } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
-import { MetadataService } from './metadata.service.js';
+import {
+  MetadataEnrichmentService,
+  type MetadataEnrichmentTarget,
+} from './metadata-enrichment.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
@@ -39,7 +42,7 @@ interface DriveScanTarget {
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
-  private metadataService = new MetadataService();
+  private metadataEnrichment: MetadataEnrichmentService;
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
   private activeLibraryScans = new Set<string>();
@@ -52,6 +55,7 @@ export class LibraryScanService {
     private operationLocks: LibraryOperationLockService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
+    this.metadataEnrichment = new MetadataEnrichmentService(prisma);
   }
 
   public isScanning(libraryId: string): boolean {
@@ -491,6 +495,30 @@ export class LibraryScanService {
         (file.mimeType.startsWith('audio/') || isAudioFilename(file.name)),
     );
     const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
+    const subtitlesByStem = new Map<string, DriveFileMetadata[]>();
+    for (const file of allFiles) {
+      const lowerName = file.name.toLowerCase();
+      if (!lowerName.endsWith('.vtt') && !lowerName.endsWith('.srt')) continue;
+      const stem = normalizeSubtitleStem(file.name);
+      const candidates = subtitlesByStem.get(stem) || [];
+      candidates.push(file);
+      subtitlesByStem.set(stem, candidates);
+    }
+    const lyricsByParentAndPrefix = new Map<string, DriveFileMetadata[]>();
+    for (const lyric of lyricsFiles) {
+      const parent = lyric.parents?.[0] || '';
+      const base = lyric.name.replace(/\.lrc$/i, '').toLowerCase();
+      const prefixEnds = new Set<number>([base.length]);
+      for (let dot = base.indexOf('.'); dot >= 0; dot = base.indexOf('.', dot + 1)) {
+        prefixEnds.add(dot);
+      }
+      for (const end of prefixEnds) {
+        const key = `${parent}\u0000${base.slice(0, end)}`;
+        const candidates = lyricsByParentAndPrefix.get(key) || [];
+        candidates.push(lyric);
+        lyricsByParentAndPrefix.set(key, candidates);
+      }
+    }
 
     // Codec probing reads byte ranges straight from Drive and writes only its
     // own row, so it is independent of everything else in the loop. Collected
@@ -502,6 +530,16 @@ export class LibraryScanService {
       size: string;
       fileId: string;
     }> = [];
+    const pendingMetadata = new Map<string, MetadataEnrichmentTarget>();
+    const queueMetadata = (target: MetadataEnrichmentTarget) => {
+      const existing = pendingMetadata.get(target.mediaItemId);
+      pendingMetadata.set(target.mediaItemId, {
+        ...target,
+        year: target.year ?? existing?.year,
+        refreshMedia: target.refreshMedia || existing?.refreshMedia || false,
+        refreshEpisodes: target.refreshEpisodes || existing?.refreshEpisodes || false,
+      });
+    };
 
     // 3. Process Videos across account
     for (const video of videos) {
@@ -575,46 +613,24 @@ export class LibraryScanService {
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
           : undefined;
 
-        let onlinePosterUrl: string | null = null;
-        let onlineBackdropUrl: string | null = null;
-        let overview: string | null = null;
-        let finalYear = year;
-        let voteAverage: number | undefined;
-        let voteCount: number | undefined;
-        let genresStr: string | undefined;
-        let castStr: string | undefined;
-        let trailerUrl: string | undefined;
-        let contentRating: string | undefined;
-        let tmdbId: number | undefined;
-        let imdbId: string | undefined;
+        const onlinePosterUrl: string | null = existingMediaItem?.posterUrl || null;
+        const onlineBackdropUrl: string | null = existingMediaItem?.backdropUrl || null;
+        const overview: string | null = existingMediaItem?.overview || null;
+        const finalYear = year ?? existingMediaItem?.year ?? undefined;
+        const voteAverage = existingMediaItem?.voteAverage ?? undefined;
+        const voteCount = existingMediaItem?.voteCount ?? undefined;
+        const genresStr = existingMediaItem?.genres ?? undefined;
+        const castStr = existingMediaItem?.cast ?? undefined;
+        const trailerUrl = existingMediaItem?.trailerUrl ?? undefined;
+        const contentRating = existingMediaItem?.contentRating ?? undefined;
+        const tmdbId = existingMediaItem?.tmdbId ?? undefined;
+        const imdbId = existingMediaItem?.imdbId ?? undefined;
 
         const shouldRefreshMetadata =
           driveFile.isNew ||
           driveFile.sourceChanged ||
           !existingMediaItem ||
           !existingMediaItem.tmdbId;
-        const onlineMeta = shouldRefreshMetadata
-          ? await this.metadataService.fetchMetadata(
-              title,
-              type as 'movie' | 'series',
-              tmdbApiKey || undefined,
-            )
-          : null;
-        if (onlineMeta) {
-          onlinePosterUrl = onlineMeta.posterUrl;
-          onlineBackdropUrl = onlineMeta.backdropUrl;
-          overview = onlineMeta.overview || null;
-          if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
-          if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
-          if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
-          if (onlineMeta.genres) genresStr = JSON.stringify(onlineMeta.genres);
-          if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
-          if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
-          if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
-          if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
-          if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
-        }
-
         // Create-first plus retry prevents a simultaneous scan of another
         // library from being re-homed through an upsert update branch.
         const mediaItem = await upsertMediaItemWithIdentity(
@@ -686,7 +702,7 @@ export class LibraryScanService {
             libraryId,
             googleConnectionId,
             driveScanSourceId,
-            allFiles,
+            subtitlesByStem,
             video,
             {
               mediaItemId: mediaItem.id,
@@ -726,18 +742,15 @@ export class LibraryScanService {
               },
             },
           });
-          const epMetaMap =
+          const shouldRefreshEpisodeMetadata =
             driveFile.isNew ||
             driveFile.sourceChanged ||
             !existingEpisode ||
-            !existingEpisode.stillUrl
-              ? await this.metadataService.fetchShowEpisodes(title)
-              : new Map();
-          const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
+            !existingEpisode.stillUrl;
 
-          const epTitle = epMeta?.name || video.name.replace(/\.[^/.]+$/, '');
-          const epOverview = epMeta?.overview || null;
-          const epStillUrl = epMeta?.stillUrl || null;
+          const epTitle = existingEpisode?.title || video.name.replace(/\.[^/.]+$/, '');
+          const epOverview = existingEpisode?.overview || null;
+          const epStillUrl = existingEpisode?.stillUrl || null;
 
           const episode = await this.prisma.episode.upsert({
             where: {
@@ -771,12 +784,34 @@ export class LibraryScanService {
             libraryId,
             googleConnectionId,
             driveScanSourceId,
-            allFiles,
+            subtitlesByStem,
             video,
             {
               episodeId: episode.id,
             },
           );
+          queueMetadata({
+            libraryId,
+            mediaItemId: mediaItem.id,
+            title,
+            type: 'series',
+            year: year ?? existingMediaItem?.year ?? undefined,
+            userApiKey: tmdbApiKey || undefined,
+            refreshMedia: shouldRefreshMetadata,
+            seriesId: series.id,
+            refreshEpisodes: shouldRefreshEpisodeMetadata,
+          });
+        }
+        if (type === 'movie') {
+          queueMetadata({
+            libraryId,
+            mediaItemId: mediaItem.id,
+            title,
+            type: 'movie',
+            year: year ?? existingMediaItem?.year ?? undefined,
+            userApiKey: tmdbApiKey || undefined,
+            refreshMedia: shouldRefreshMetadata,
+          });
         }
       } catch (err: unknown) {
         if (signal.aborted || isScanInterruptedError(err)) throw err;
@@ -838,18 +873,13 @@ export class LibraryScanService {
         });
         const audioBase = audio.name.replace(/\.[^/.]+$/, '').toLowerCase();
         const audioParent = audio.parents?.[0];
-        const matchingLyrics = lyricsFiles
-          .filter((candidate) => {
-            if ((candidate.parents?.[0] || null) !== (audioParent || null)) return false;
-            const lyricsBase = candidate.name.replace(/\.lrc$/i, '').toLowerCase();
-            return lyricsBase === audioBase || lyricsBase.startsWith(`${audioBase}.`);
-          })
-          .sort((left, right) => {
-            const leftExact = left.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
-            const rightExact =
-              right.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
-            return leftExact - rightExact || left.name.localeCompare(right.name);
-          })[0];
+        const matchingLyrics = (
+          lyricsByParentAndPrefix.get(`${audioParent || ''}\u0000${audioBase}`) || []
+        ).sort((left, right) => {
+          const leftExact = left.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+          const rightExact = right.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+          return leftExact - rightExact || left.name.localeCompare(right.name);
+        })[0];
         try {
           if (matchingLyrics) {
             await this.musicLibraryService.lyrics.syncTrackLyrics({
@@ -986,6 +1016,10 @@ export class LibraryScanService {
       deleted = result.count;
     }
 
+    await this.metadataEnrichment.enrichAfterIndexing([...pendingMetadata.values()], signal, () =>
+      this.scanLifecycle.heartbeat(scanId),
+    );
+
     return { added, updated, deleted, errors };
   }
 
@@ -998,12 +1032,13 @@ export class LibraryScanService {
   ): Promise<DriveFileMetadata[]> {
     const files: DriveFileMetadata[] = [];
     const pendingFolderIds = [rootFolderId];
+    let nextPendingFolderIndex = 0;
     const visitedFolderIds = new Set<string>();
     const discoveredFolderIds = new Set<string>([rootFolderId]);
 
     while (pendingFolderIds.length > 0) {
       signal.throwIfAborted();
-      const folderId = pendingFolderIds.shift()!;
+      const folderId = pendingFolderIds[nextPendingFolderIndex++]!;
       if (visitedFolderIds.has(folderId)) continue;
       visitedFolderIds.add(folderId);
 
@@ -1121,18 +1156,16 @@ export class LibraryScanService {
     libraryId: string,
     googleConnectionId: string,
     driveScanSourceId: string | null,
-    allFiles: DriveFileMetadata[],
+    subtitlesByStem: ReadonlyMap<string, DriveFileMetadata[]>,
     video: DriveFileMetadata,
     target: { mediaItemId?: string; episodeId?: string },
   ) {
     const videoBase = normalizeSubtitleStem(video.name);
-    const subtitles = allFiles.filter(
+    const subtitles = (subtitlesByStem.get(videoBase) || []).filter(
       (f) =>
-        (f.name.toLowerCase().endsWith('.vtt') || f.name.toLowerCase().endsWith('.srt')) &&
-        normalizeSubtitleStem(f.name) === videoBase &&
-        (!video.parents?.length ||
-          !f.parents?.length ||
-          f.parents.some((parent) => video.parents?.includes(parent))),
+        !video.parents?.length ||
+        !f.parents?.length ||
+        f.parents.some((parent) => video.parents?.includes(parent)),
     );
 
     for (const sub of subtitles) {

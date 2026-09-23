@@ -112,6 +112,7 @@ export const en: Translations = {
     clearFilters: 'Clear filters',
     loadFailed: 'Could not load the library',
     page: 'Page',
+    paginationLabel: 'Media pages',
     previousPage: 'Previous page',
     nextPage: 'Next page',
   },

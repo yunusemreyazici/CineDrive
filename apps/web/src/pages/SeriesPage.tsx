@@ -8,9 +8,11 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useMediaListQuery } from '../hooks/useApi';
 import { t } from '../i18n';
+import { MediaPagination } from '../components/common/MediaPagination';
 
 export const SeriesPage: React.FC = () => {
   const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTERS);
+  const [page, setPage] = useState(1);
 
   const queryInput = useMemo(() => {
     let yearFrom: number | undefined;
@@ -35,9 +37,10 @@ export const SeriesPage: React.FC = () => {
       yearTo,
       sortBy: filterState.sortBy,
       sortOrder: filterState.sortOrder,
-      limit: 100,
+      page,
+      limit: 18,
     };
-  }, [filterState]);
+  }, [filterState, page]);
 
   const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
 
@@ -57,7 +60,13 @@ export const SeriesPage: React.FC = () => {
         <p className="w-full text-sm text-zinc-400">{t.series.subtitle}</p>
       </div>
 
-      <FilterPanel filters={filterState} onChange={setFilterState} />
+      <FilterPanel
+        filters={filterState}
+        onChange={(nextFilters) => {
+          setFilterState(nextFilters);
+          setPage(1);
+        }}
+      />
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -79,6 +88,14 @@ export const SeriesPage: React.FC = () => {
             <MediaCard key={media.id} media={media} />
           ))}
         </div>
+      )}
+
+      {data && (
+        <MediaPagination
+          page={page}
+          totalPages={data.pagination.totalPages}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

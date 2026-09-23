@@ -2,7 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PrismaClient } from '@cinedrive/prisma';
 import { normalizeSubtitleStem, parseMediaFilename } from '@cinedrive/shared';
-import { MetadataService } from './metadata.service.js';
+import {
+  MetadataEnrichmentService,
+  type MetadataEnrichmentTarget,
+} from './metadata-enrichment.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { MusicLibraryService } from './music-library.service.js';
 import { isAudioFilename } from './music-metadata.service.js';
@@ -21,7 +24,7 @@ import {
 } from './scan-limits.js';
 
 export class LocalScanService {
-  private metadataService = new MetadataService();
+  private metadataEnrichment: MetadataEnrichmentService;
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
   private readonly activeScans = new Set<string>();
@@ -32,6 +35,7 @@ export class LocalScanService {
     private operationLocks: LibraryOperationLockService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
+    this.metadataEnrichment = new MetadataEnrichmentService(prisma);
   }
 
   /**
@@ -151,6 +155,42 @@ export class LocalScanService {
       );
       const audioFiles = allFiles.filter((file) => isAudioFilename(file.name));
       const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
+      const pendingMetadata = new Map<string, MetadataEnrichmentTarget>();
+      const queueMetadata = (target: MetadataEnrichmentTarget) => {
+        const existing = pendingMetadata.get(target.mediaItemId);
+        pendingMetadata.set(target.mediaItemId, {
+          ...target,
+          year: target.year ?? existing?.year,
+          refreshMedia: target.refreshMedia || existing?.refreshMedia || false,
+          refreshEpisodes: target.refreshEpisodes || existing?.refreshEpisodes || false,
+        });
+      };
+
+      const directoryNameKey = (directory: string, name: string) => `${directory}\u0000${name}`;
+      const firstVideoBySubtitle = new Map<string, (typeof videoFiles)[number]>();
+      for (const video of videoFiles) {
+        const key = directoryNameKey(
+          path.dirname(video.fullPath),
+          normalizeSubtitleStem(video.name),
+        );
+        if (!firstVideoBySubtitle.has(key)) firstVideoBySubtitle.set(key, video);
+      }
+
+      const lyricsByAudioPrefix = new Map<string, (typeof lyricsFiles)[number][]>();
+      for (const lyric of lyricsFiles) {
+        const directory = path.dirname(lyric.fullPath);
+        const lyricBase = path.parse(lyric.name).name.toLowerCase();
+        const prefixEnds = new Set<number>([lyricBase.length]);
+        for (let dot = lyricBase.indexOf('.'); dot >= 0; dot = lyricBase.indexOf('.', dot + 1)) {
+          prefixEnds.add(dot);
+        }
+        for (const end of prefixEnds) {
+          const key = directoryNameKey(directory, lyricBase.slice(0, end));
+          const matches = lyricsByAudioPrefix.get(key) || [];
+          matches.push(lyric);
+          lyricsByAudioPrefix.set(key, matches);
+        }
+      }
 
       // Process each video file
       for (const file of videoFiles) {
@@ -246,42 +286,21 @@ export class LocalScanService {
           });
 
           // ── TMDB Metadata Enrichment ─────────────────────────────────────────
-          let onlinePosterUrl: string | null = null;
-          let onlineBackdropUrl: string | null = null;
-          let overview: string | null = null;
-          let finalYear = year;
-          let voteAverage: number | undefined;
-          let voteCount: number | undefined;
-          let genresStr: string | undefined;
-          let castStr: string | undefined;
-          let trailerUrl: string | undefined;
-          let contentRating: string | undefined;
-          let tmdbId: number | undefined;
-          let imdbId: string | undefined;
+          const onlinePosterUrl: string | null = existingMediaItem?.posterUrl || null;
+          const onlineBackdropUrl: string | null = existingMediaItem?.backdropUrl || null;
+          const overview: string | null = existingMediaItem?.overview || null;
+          const finalYear = year ?? existingMediaItem?.year ?? undefined;
+          const voteAverage = existingMediaItem?.voteAverage ?? undefined;
+          const voteCount = existingMediaItem?.voteCount ?? undefined;
+          const genresStr = existingMediaItem?.genres ?? undefined;
+          const castStr = existingMediaItem?.cast ?? undefined;
+          const trailerUrl = existingMediaItem?.trailerUrl ?? undefined;
+          const contentRating = existingMediaItem?.contentRating ?? undefined;
+          const tmdbId = existingMediaItem?.tmdbId ?? undefined;
+          const imdbId = existingMediaItem?.imdbId ?? undefined;
 
-          const onlineMeta =
-            !existingDriveFile || sourceChanged || !existingMediaItem || !existingMediaItem.tmdbId
-              ? await this.metadataService.fetchMetadata(
-                  title,
-                  type as 'movie' | 'series',
-                  tmdbApiKey || undefined,
-                )
-              : null;
-          if (onlineMeta) {
-            onlinePosterUrl = onlineMeta.posterUrl;
-            onlineBackdropUrl = onlineMeta.backdropUrl;
-            overview = onlineMeta.overview || null;
-            if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
-            if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
-            if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
-            if (onlineMeta.genres) genresStr = JSON.stringify(onlineMeta.genres);
-            if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
-            if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
-            if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
-            if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
-            if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
-          }
-          // ────────────────────────────────────────────────────────────────────
+          const shouldRefreshMetadata =
+            !existingDriveFile || sourceChanged || !existingMediaItem || !existingMediaItem.tmdbId;
 
           // Deterministic ID (same algorithm as LibraryScanService)
           // Upsert MediaItem with full TMDB data
@@ -347,6 +366,15 @@ export class LocalScanService {
                 driveFileId: driveFile.id,
               },
             });
+            queueMetadata({
+              libraryId,
+              mediaItemId: mediaItem.id,
+              title,
+              type: 'movie',
+              year: year ?? existingMediaItem?.year ?? undefined,
+              userApiKey: tmdbApiKey || undefined,
+              refreshMedia: shouldRefreshMetadata,
+            });
           } else {
             // TV Series
             const series = await this.prisma.series.upsert({
@@ -379,14 +407,11 @@ export class LocalScanService {
                 },
               },
             });
-            const epMetaMap =
-              !existingDriveFile || sourceChanged || !existingEpisode || !existingEpisode.stillUrl
-                ? await this.metadataService.fetchShowEpisodes(title)
-                : new Map();
-            const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
-            const epTitle = epMeta?.name || file.name.replace(/\.[^/.]+$/, '');
-            const epOverview = epMeta?.overview || null;
-            const epStillUrl = epMeta?.stillUrl || null;
+            const shouldRefreshEpisodeMetadata =
+              !existingDriveFile || sourceChanged || !existingEpisode || !existingEpisode.stillUrl;
+            const epTitle = existingEpisode?.title || file.name.replace(/\.[^/.]+$/, '');
+            const epOverview = existingEpisode?.overview || null;
+            const epStillUrl = existingEpisode?.stillUrl || null;
 
             await this.prisma.episode.upsert({
               where: {
@@ -412,6 +437,17 @@ export class LocalScanService {
                 overview: epOverview ?? undefined,
                 stillUrl: epStillUrl ?? undefined,
               },
+            });
+            queueMetadata({
+              libraryId,
+              mediaItemId: mediaItem.id,
+              title,
+              type: 'series',
+              year: year ?? existingMediaItem?.year ?? undefined,
+              userApiKey: tmdbApiKey || undefined,
+              refreshMedia: shouldRefreshMetadata,
+              seriesId: series.id,
+              refreshEpisodes: shouldRefreshEpisodeMetadata,
             });
           }
 
@@ -508,17 +544,13 @@ export class LocalScanService {
             metadata: parsed,
           });
           const audioBase = path.parse(file.name).name.toLowerCase();
-          const matchingLyrics = lyricsFiles
-            .filter((candidate) => {
-              if (path.dirname(candidate.fullPath) !== path.dirname(file.fullPath)) return false;
-              const lyricsBase = path.parse(candidate.name).name.toLowerCase();
-              return lyricsBase === audioBase || lyricsBase.startsWith(`${audioBase}.`);
-            })
-            .sort((left, right) => {
-              const leftExact = path.parse(left.name).name.toLowerCase() === audioBase ? 0 : 1;
-              const rightExact = path.parse(right.name).name.toLowerCase() === audioBase ? 0 : 1;
-              return leftExact - rightExact || left.name.localeCompare(right.name);
-            })[0];
+          const matchingLyrics = (
+            lyricsByAudioPrefix.get(directoryNameKey(path.dirname(file.fullPath), audioBase)) || []
+          ).sort((left, right) => {
+            const leftExact = path.parse(left.name).name.toLowerCase() === audioBase ? 0 : 1;
+            const rightExact = path.parse(right.name).name.toLowerCase() === audioBase ? 0 : 1;
+            return leftExact - rightExact || left.name.localeCompare(right.name);
+          })[0];
           try {
             if (matchingLyrics) {
               await this.musicLibraryService.lyrics.syncTrackLyrics({
@@ -563,10 +595,8 @@ export class LocalScanService {
         try {
           signal.throwIfAborted();
           await this.scanLifecycle.heartbeat(scanId);
-          const matchingVideo = videoFiles.find(
-            (v) =>
-              path.dirname(v.fullPath) === path.dirname(subFile.fullPath) &&
-              normalizeSubtitleStem(v.name) === normalizeSubtitleStem(subFile.name),
+          const matchingVideo = firstVideoBySubtitle.get(
+            directoryNameKey(path.dirname(subFile.fullPath), normalizeSubtitleStem(subFile.name)),
           );
 
           if (matchingVideo) {
@@ -678,6 +708,10 @@ export class LocalScanService {
         });
         signal.throwIfAborted();
       }
+
+      await this.metadataEnrichment.enrichAfterIndexing([...pendingMetadata.values()], signal, () =>
+        this.scanLifecycle.heartbeat(scanId),
+      );
 
       // Mark scan completed only after reconciliation succeeds. An interrupted
       // or failed walk must never make unseen files look deleted.

@@ -16,6 +16,7 @@ Copy `.env.example` to `.env` and replace every example credential and deploymen
 | `TOKEN_ENCRYPTION_KEY`             | Exactly 64 hexadecimal characters used to encrypt Google refresh tokens.                                             |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`    | Initial administrator created on first boot.                                                                         |
 | `APP_AUTH_MODE`                    | Set to `multi-user` for administrator-managed accounts.                                                              |
+| `LIBRARY_SCAN_INTERVAL_HOURS`      | Automatic full-scan interval for all libraries; `0` disables scheduling. Interrupted scans are retried after startup. |
 | `APP_URL`, `PUBLIC_URL`, `API_URL` | Browser-visible application and API addresses.                                                                       |
 | `CORS_ORIGIN`                      | Allowed browser origin; normally the public application origin.                                                      |
 | `TRUST_PROXY`                      | Enable only behind the included Nginx or another trusted reverse proxy.                                              |
