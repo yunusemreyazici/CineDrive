@@ -16,6 +16,7 @@ import {
   E2E_HLS_SECONDS,
   e2eDatabasePath,
   e2eMediaRoot,
+  e2eRuntimeRoot,
   e2eServerEnv,
   serverRoot,
 } from './env.js';
@@ -132,6 +133,7 @@ const renderAudio = (target: string, coverTarget: string) => {
 export const seedE2EDatabase = async () => {
   removeE2EDatabase();
   fs.rmSync(e2eMediaRoot, { recursive: true, force: true });
+  fs.rmSync(e2eRuntimeRoot, { recursive: true, force: true });
   fs.mkdirSync(e2eMediaRoot, { recursive: true });
   fs.mkdirSync(path.dirname(e2eDatabasePath), { recursive: true });
 
