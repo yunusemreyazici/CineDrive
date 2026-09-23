@@ -77,6 +77,7 @@ export interface StorageInsightsDto {
     p720: { count: number; sizeBytes: number };
     sd: { count: number; sizeBytes: number };
   };
+  duplicateCount: number;
   duplicates: DuplicateFileDto[];
   largestFiles: Array<{
     id: string;

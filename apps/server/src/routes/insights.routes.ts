@@ -1,12 +1,19 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
-import type { MediaHealthDto } from '@cinedrive/shared';
+import type { DuplicateFileDto, MediaHealthDto } from '@cinedrive/shared';
 import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
 import { MediaProbeService } from '../services/media-probe.service.js';
 import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 
 const INSIGHTS_PAGE_SIZE = 500;
+const DUPLICATE_SAMPLE_LIMIT = 100;
 const MEDIA_HEALTH_CACHE_TTL_MS = 60_000;
+
+type DuplicateGroup<T> = {
+  first: T;
+  reason: string;
+  isDuplicate: boolean;
+};
 
 type MediaHealthInventory = Pick<
   MediaHealthDto,
@@ -234,8 +241,51 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       sd: { count: 0, sizeBytes: 0 },
     };
 
-    const nameMap = new Map<string, StorageFile[]>();
-    const md5Map = new Map<string, StorageFile[]>();
+    const nameMap = new Map<string, DuplicateGroup<StorageFile>>();
+    const md5Map = new Map<string, DuplicateGroup<StorageFile>>();
+    const duplicateIds = new Set<string>();
+    const md5DuplicateSamples: DuplicateFileDto[] = [];
+    const nameDuplicateSamples: DuplicateFileDto[] = [];
+
+    const toDuplicateFile = (file: StorageFile, reason: string): DuplicateFileDto => ({
+      id: file.id,
+      name: file.name,
+      size: file.size ? Number(file.size) : 0,
+      libraryName: file.library?.name || 'Bilinmeyen',
+      googleDriveFileId: file.googleDriveFileId || '',
+      reason,
+    });
+
+    const recordDuplicate = (
+      file: StorageFile,
+      reason: string,
+      samples: DuplicateFileDto[],
+    ) => {
+      duplicateIds.add(file.id);
+      if (samples.length < DUPLICATE_SAMPLE_LIMIT) {
+        samples.push(toDuplicateFile(file, reason));
+      }
+    };
+
+    const observeDuplicate = (
+      groups: Map<string, DuplicateGroup<StorageFile>>,
+      key: string,
+      file: StorageFile,
+      reason: string,
+      samples: DuplicateFileDto[],
+    ) => {
+      const group = groups.get(key);
+      if (!group) {
+        groups.set(key, { first: file, reason, isDuplicate: false });
+        return;
+      }
+
+      if (!group.isDuplicate) {
+        group.isDuplicate = true;
+        recordDuplicate(group.first, group.reason, samples);
+      }
+      recordDuplicate(file, reason, samples);
+    };
 
     const largestFilesList: Array<{
       id: string;
@@ -295,17 +345,20 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           resolutionStats.sd.sizeBytes += sizeNum;
         }
 
-        // Group for duplicates
+        // Keep one representative per group and cap retained display samples.
+        // The ID set still provides an exact count across name/MD5 overlap.
         if (file.md5Checksum) {
-          const list = md5Map.get(file.md5Checksum) || [];
-          list.push(file);
-          md5Map.set(file.md5Checksum, list);
+          observeDuplicate(
+            md5Map,
+            file.md5Checksum,
+            file,
+            `Aynı MD5 Özeti (${file.md5Checksum.substring(0, 8)}...)`,
+            md5DuplicateSamples,
+          );
         }
 
         const cleanName = fileNameLower.trim();
-        const listByName = nameMap.get(cleanName) || [];
-        listByName.push(file);
-        nameMap.set(cleanName, listByName);
+        observeDuplicate(nameMap, cleanName, file, 'Aynı Dosya Adı', nameDuplicateSamples);
 
         addLargestFile(file, sizeNum);
       }
@@ -317,52 +370,12 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     // Sort largest files
     const topLargestFiles = largestFilesList.slice(0, 10);
 
-    // Identify duplicates
-    const duplicates: Array<{
-      id: string;
-      name: string;
-      size: number;
-      libraryName: string;
-      googleDriveFileId: string;
-      reason: string;
-    }> = [];
-
-    const addedDuplicateIds = new Set<string>();
-
-    for (const [md5, list] of md5Map.entries()) {
-      if (list.length > 1) {
-        for (const item of list) {
-          if (!addedDuplicateIds.has(item.id)) {
-            addedDuplicateIds.add(item.id);
-            duplicates.push({
-              id: item.id,
-              name: item.name,
-              size: item.size ? Number(item.size) : 0,
-              libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId || '',
-              reason: `Aynı MD5 Özeti (${md5.substring(0, 8)}...)`,
-            });
-          }
-        }
-      }
-    }
-
-    for (const [, list] of nameMap.entries()) {
-      if (list.length > 1) {
-        for (const item of list) {
-          if (!addedDuplicateIds.has(item.id)) {
-            addedDuplicateIds.add(item.id);
-            duplicates.push({
-              id: item.id,
-              name: item.name,
-              size: item.size ? Number(item.size) : 0,
-              libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId || '',
-              reason: 'Aynı Dosya Adı',
-            });
-          }
-        }
-      }
+    // Prefer MD5 explanations when a file matches both duplicate rules. Keep
+    // the exact total while limiting the response and retained display data.
+    const duplicateSamples = new Map<string, DuplicateFileDto>();
+    for (const sample of [...md5DuplicateSamples, ...nameDuplicateSamples]) {
+      if (duplicateSamples.size >= DUPLICATE_SAMPLE_LIMIT) break;
+      if (!duplicateSamples.has(sample.id)) duplicateSamples.set(sample.id, sample);
     }
 
     const averageSizeBytes = totalFiles > 0 ? Math.round(totalSizeBytes / totalFiles) : 0;
@@ -372,7 +385,8 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       totalSizeBytes,
       averageSizeBytes,
       resolutions: resolutionStats,
-      duplicates,
+      duplicateCount: duplicateIds.size,
+      duplicates: [...duplicateSamples.values()],
       largestFiles: topLargestFiles,
     });
   });

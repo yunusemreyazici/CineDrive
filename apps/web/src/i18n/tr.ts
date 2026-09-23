@@ -1470,6 +1470,8 @@ export const tr = {
     },
     duplicateList: 'Mükerrer (Tekrarlayan) Dosyalar',
     duplicatesDetected: (count: number) => `${count} adet tespit edildi`,
+    duplicateSampleNotice: (shown: number, total: number) =>
+      `${total} mükerrer dosyanın ilk ${shown} örneği gösteriliyor.`,
     largestFiles: 'En Yüksek Boyutlu 10 Medya Dosyası',
     itemCount: (count: number) => `${count} adet`,
     fileUnit: (count: number) => `${count} dosya`,

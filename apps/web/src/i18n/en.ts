@@ -1465,6 +1465,8 @@ export const en: Translations = {
     },
     duplicateList: 'Duplicate files',
     duplicatesDetected: (count: number) => `${count} detected`,
+    duplicateSampleNotice: (shown: number, total: number) =>
+      `Showing ${shown} of ${total} duplicate files.`,
     largestFiles: '10 largest media files',
     itemCount: (count: number) => `${count}`,
     fileUnit: (count: number) => `${count} files`,
