@@ -23,6 +23,13 @@ export const mediaQuerySchema = z.object({
 
 export type MediaQueryInput = z.infer<typeof mediaQuerySchema>;
 
+export const randomMediaQuerySchema = z.object({
+  type: z.enum(['movie', 'series']).optional(),
+  minRating: z.coerce.number().min(0).max(10).optional(),
+});
+
+export type RandomMediaQueryInput = z.infer<typeof randomMediaQuerySchema>;
+
 export const updateMediaMetadataSchema = z.object({
   title: z.string().min(1, 'Başlık boş olamaz.').optional(),
   year: z.coerce.number().nullable().optional(),

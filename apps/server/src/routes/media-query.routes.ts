@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { mediaQuerySchema } from '@cinedrive/shared';
+import { mediaQuerySchema, randomMediaQuerySchema } from '@cinedrive/shared';
 import type { Prisma } from '@cinedrive/prisma';
 import { buildPlaybackPlan } from '../services/playback-plan.service.js';
 import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
@@ -347,13 +347,24 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
     '/random',
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
-      const type = request.query.type;
-      const minRating = request.query.minRating ? parseFloat(request.query.minRating) : undefined;
+      const parseResult = randomMediaQuerySchema.safeParse(request.query);
+      if (!parseResult.success) {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Rastgele medya filtreleri geçersiz.',
+            requestId: request.id,
+            details: parseResult.error.format(),
+          },
+        });
+      }
+
+      const { type, minRating } = parseResult.data;
 
       // The dice used to roll across every library in the database.
       const where: Prisma.MediaItemWhereInput = { ...ownedMediaFilter(request.user!.id) };
-      if (type && (type === 'movie' || type === 'series')) where.type = type;
-      if (minRating) where.voteAverage = { gte: minRating };
+      if (type) where.type = type;
+      if (minRating !== undefined) where.voteAverage = { gte: minRating };
 
       const totalCount = await fastify.prisma.mediaItem.count({ where });
       if (totalCount === 0) {
@@ -371,15 +382,16 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         where,
         skip: randomIndex,
         take: 1,
-        include: {
-          movie: true,
-          series: {
-            include: {
-              seasons: {
-                include: { episodes: true },
-              },
-            },
-          },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          year: true,
+          overview: true,
+          posterDriveFileId: true,
+          posterUrl: true,
+          voteAverage: true,
+          genres: true,
         },
       });
 
@@ -394,31 +406,12 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const userId = request.user!.id;
-      const isFavorite = await fastify.prisma.favorite.findUnique({
-        where: { userId_mediaItemId: { userId, mediaItemId: media.id } },
-      });
-
-      const progress = await fastify.prisma.playbackProgress.findFirst({
-        where: { userId, mediaItemId: media.id },
-        orderBy: { lastPlayedAt: 'desc' },
-      });
-
       const enrichedMedia = {
         ...media,
         genres: safeJsonParse<string[]>(media.genres, []),
-        cast: safeJsonParse<Array<{ name: string; character?: string; profileUrl?: string }>>(
-          media.cast,
-          [],
-        ),
-        isFavorite: !!isFavorite,
-        progress: progress || null,
         posterUrl: media.posterDriveFileId
           ? `/api/media/assets/${media.posterDriveFileId}`
           : media.posterUrl || null,
-        backdropUrl: media.backdropDriveFileId
-          ? `/api/media/assets/${media.backdropDriveFileId}`
-          : media.backdropUrl || null,
       };
 
       return reply.status(200).send({ media: enrichedMedia });
