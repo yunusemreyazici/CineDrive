@@ -16,7 +16,7 @@ Copy `.env.example` to `.env` and replace every example credential and deploymen
 | `TOKEN_ENCRYPTION_KEY`             | Exactly 64 hexadecimal characters used to encrypt Google refresh tokens.                                             |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`    | Initial administrator created on first boot.                                                                         |
 | `APP_AUTH_MODE`                    | Set to `multi-user` for administrator-managed accounts.                                                              |
-| `LIBRARY_SCAN_INTERVAL_HOURS`      | Automatic full-scan interval for all libraries; `0` disables scheduling. Interrupted scans are retried after startup. |
+| `LIBRARY_SCAN_INTERVAL_HOURS`      | Automatic scan interval for all libraries; `0` disables periodic scheduling. Interrupted scans are retried after startup. |
 | `APP_URL`, `PUBLIC_URL`, `API_URL` | Browser-visible application and API addresses.                                                                       |
 | `CORS_ORIGIN`                      | Allowed browser origin; normally the public application origin.                                                      |
 | `TRUST_PROXY`                      | Enable only behind the included Nginx or another trusted reverse proxy.                                              |
@@ -28,6 +28,8 @@ openssl rand -hex 32
 ```
 
 Never commit `.env`, OAuth secrets, encryption keys, or downloaded credential files.
+
+Scheduled scans of saved Google Drive folder sources establish a Drive Changes cursor, then skip the inventory walk when nothing changed. Changed folders still receive a full reconciliation scan so moves, deletions, and sidecar files remain consistent. Account-wide sources still use full scans because they can span multiple Shared Drives. Media metadata lookups run in a separate persistent queue after catalogue indexing, with bounded concurrency and retry backoff; queued work survives a server restart.
 
 ## Google Drive and metadata
 

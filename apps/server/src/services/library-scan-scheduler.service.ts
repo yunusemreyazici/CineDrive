@@ -9,6 +9,7 @@ export class LibraryScanSchedulerService {
   private timer?: NodeJS.Timeout;
   private stopped = false;
   private activeRun?: Promise<void>;
+  private runController?: AbortController;
   private readonly intervalMs: number;
 
   constructor(
@@ -34,22 +35,27 @@ export class LibraryScanSchedulerService {
     void this.runDueScans();
   }
 
-  public stop(): void {
+  public async stop(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    this.runController?.abort(new Error('SCAN_SCHEDULER_SHUTDOWN'));
+    await this.activeRun;
   }
 
   private runDueScans(): Promise<void> {
     if (this.stopped) return Promise.resolve();
     if (this.activeRun) return this.activeRun;
-    this.activeRun = this.scanDueLibraries().finally(() => {
+    const controller = new AbortController();
+    this.runController = controller;
+    this.activeRun = this.scanDueLibraries(controller.signal).finally(() => {
       this.activeRun = undefined;
+      if (this.runController === controller) this.runController = undefined;
     });
     return this.activeRun;
   }
 
-  private async scanDueLibraries(): Promise<void> {
+  private async scanDueLibraries(signal: AbortSignal): Promise<void> {
     try {
       const libraries = await this.prisma.library.findMany({
         orderBy: { createdAt: 'asc' },
@@ -64,7 +70,7 @@ export class LibraryScanSchedulerService {
       });
 
       for (const library of libraries) {
-        if (this.stopped) return;
+        if (this.stopped || signal.aborted) return;
         const latestScan = await this.prisma.libraryScan.findFirst({
           where: { libraryId: library.id },
           orderBy: { startedAt: 'desc' },
@@ -92,12 +98,42 @@ export class LibraryScanSchedulerService {
             where: { id: library.id },
             data: { lastScheduledScanAttemptAt: new Date() },
           });
-          const scanId =
-            library.storageType === 'local'
-              ? await this.localScan.startLocalScan(library.id)
-              : await this.driveScan.scanLibrary(library.userId, library.id);
-          await this.waitForScan(scanId);
+          if (library.storageType === 'local') {
+            const scanId = await this.localScan.startLocalScan(library.id);
+            await this.waitForScan(scanId);
+            continue;
+          }
+
+          const sources = await this.prisma.driveScanSource.findMany({
+            where: { libraryId: library.id },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          });
+          if (sources.length === 0) {
+            const scanId = await this.driveScan.scanLibrary(library.userId, library.id);
+            await this.waitForScan(scanId);
+            continue;
+          }
+
+          for (const source of sources) {
+            if (this.stopped || signal.aborted) return;
+            try {
+              const scanId = await this.driveScan.scanSourceIfChanged(
+                library.userId,
+                library.id,
+                source.id,
+                signal,
+              );
+              await this.waitForScan(scanId);
+            } catch (error) {
+              if (this.stopped || signal.aborted) return;
+              console.warn(
+                `[LibraryScanScheduler] Drive source ${source.id} was skipped (${error instanceof Error ? error.name : 'unknown error'}).`,
+              );
+            }
+          }
         } catch (error) {
+          if (this.stopped || signal.aborted) return;
           console.warn(
             `[LibraryScanScheduler] Scan could not start for library ${library.id} (${error instanceof Error ? error.name : 'unknown error'}).`,
           );

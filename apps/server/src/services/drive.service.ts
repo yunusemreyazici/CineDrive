@@ -18,6 +18,7 @@ export interface DriveFileMetadata {
 
 export interface DriveFolderInspection {
   id: string;
+  driveId?: string;
   name: string;
   path: string;
   driveName?: string;
@@ -96,6 +97,62 @@ export class GoogleDriveService {
       }
     }
     throw new Error('MAX_RETRIES_EXCEEDED');
+  }
+
+  /** Snapshot a cursor before a source scan so changes during the scan replay next time. */
+  public async getChangesStartPageToken(
+    accessToken: string,
+    driveId?: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    return this.withExponentialBackoff(async () => {
+      const drive = this.createDriveClient(accessToken);
+      const response = await drive.changes.getStartPageToken(
+        { supportsAllDrives: true, ...(driveId ? { driveId } : {}) },
+        { signal: this.requestSignal(signal) },
+      );
+      const token = response.data.startPageToken;
+      if (!token) throw new Error('DRIVE_CHANGE_TOKEN_MISSING');
+      return token;
+    });
+  }
+
+  /** Consume all pages and return the latest safe cursor plus whether any changed. */
+  public async getChangesSince(
+    accessToken: string,
+    pageToken: string,
+    driveId?: string,
+    signal?: AbortSignal,
+  ): Promise<{ hasChanges: boolean; pageToken: string }> {
+    return this.withExponentialBackoff(async () => {
+      const drive = this.createDriveClient(accessToken);
+      let nextPageToken: string | undefined = pageToken;
+      let latestPageToken: string | undefined;
+      let hasChanges = false;
+
+      do {
+        signal?.throwIfAborted();
+        const response: { data: drive_v3.Schema$ChangeList } = await drive.changes.list(
+          {
+            pageToken: nextPageToken,
+            pageSize: 1000,
+            fields: 'nextPageToken,newStartPageToken,changes(fileId,removed)',
+            includeRemoved: true,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
+            spaces: 'drive',
+            ...(driveId ? { driveId } : {}),
+          },
+          { signal: this.requestSignal(signal) },
+        );
+        if (response.data.changes?.length) hasChanges = true;
+        nextPageToken = response.data.nextPageToken || undefined;
+        if (!nextPageToken) latestPageToken = response.data.newStartPageToken || undefined;
+      } while (nextPageToken);
+
+      if (!latestPageToken) throw new Error('DRIVE_CHANGE_PAGE_TOKEN_MISSING');
+      return { hasChanges, pageToken: latestPageToken };
+    });
   }
 
   /**
@@ -189,6 +246,7 @@ export class GoogleDriveService {
     accessToken: string,
     folderId: string,
     checkForMedia = true,
+    signal?: AbortSignal,
   ): Promise<DriveFolderInspection> {
     const drive = this.createDriveClient(accessToken);
     const folder = await this.withExponentialBackoff(() =>
@@ -196,7 +254,7 @@ export class GoogleDriveService {
         fileId: folderId,
         fields: 'id,name,mimeType,parents,driveId,webViewLink,owners(displayName,emailAddress)',
         supportsAllDrives: true,
-      }),
+      }, { signal: this.requestSignal(signal) }),
     );
 
     if (folder.data.mimeType !== DRIVE_FOLDER_MIME_TYPE) {
@@ -219,7 +277,7 @@ export class GoogleDriveService {
           fileId: parentId!,
           fields: 'id,name,parents',
           supportsAllDrives: true,
-        }),
+        }, { signal: this.requestSignal(signal) }),
       );
       if (parent.data.name) names.unshift(parent.data.name);
       parentId = parent.data.parents?.[0];
@@ -228,13 +286,17 @@ export class GoogleDriveService {
     let driveName: string | undefined;
     if (folder.data.driveId) {
       const sharedDrive = await this.withExponentialBackoff(() =>
-        drive.drives.get({ driveId: folder.data.driveId!, fields: 'id,name' }),
+        drive.drives.get(
+          { driveId: folder.data.driveId!, fields: 'id,name' },
+          { signal: this.requestSignal(signal) },
+        ),
       );
       driveName = sharedDrive.data.name || undefined;
     }
 
     return {
       id: folder.data.id || folderId,
+      driveId: folder.data.driveId || undefined,
       name: folder.data.name || folderId,
       path: names.join(' / '),
       driveName,

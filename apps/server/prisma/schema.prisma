@@ -106,6 +106,7 @@ model Library {
   files              DriveFile[]
   scans              LibraryScan[]
   mediaItems         MediaItem[]
+  metadataEnrichmentJobs MetadataEnrichmentJob[]
   musicTracks        MusicTrack[]
   driveScanSources   DriveScanSource[]
   memberships        LibraryMembership[]
@@ -135,6 +136,8 @@ model DriveScanSource {
   googleConnectionId         String
   googleConnection           GoogleConnection @relation(fields: [googleConnectionId], references: [id], onDelete: Cascade)
   rootFolderId               String           @default("")
+  driveId                    String?
+  changesPageToken           String?
   folderName                 String?
   folderPath                 String?
   driveName                  String?
@@ -245,6 +248,7 @@ model MediaItem {
   playbackProgresses  PlaybackProgress[]
   watchHistories      WatchHistory[]
   favorites           Favorite[]
+  metadataEnrichmentJobs MetadataEnrichmentJob[]
 
   @@index([normalizedTitle])
   @@index([type])
@@ -265,6 +269,36 @@ model Series {
   mediaItemId String    @unique
   mediaItem   MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
   seasons     Season[]
+  metadataEnrichmentJobs MetadataEnrichmentJob[]
+}
+
+model MetadataEnrichmentJob {
+  id              String    @id @default(uuid())
+  libraryId       String
+  library         Library   @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  mediaItemId     String
+  mediaItem       MediaItem @relation(fields: [mediaItemId], references: [id], onDelete: Cascade)
+  seriesId        String?
+  series          Series?   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  title           String
+  type            String
+  year            Int?
+  refreshMedia    Boolean   @default(false)
+  refreshEpisodes Boolean   @default(false)
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  leaseToken      String?
+  nextAttemptAt   DateTime  @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([libraryId, mediaItemId])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([status, updatedAt])
+  @@index([libraryId, status, nextAttemptAt])
 }
 
 model Season {

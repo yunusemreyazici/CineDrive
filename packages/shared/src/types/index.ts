@@ -229,10 +229,20 @@ export interface LibraryDto {
   driveId?: string | null;
   lastScannedAt?: string | null;
   fileCount?: number;
+  metadataEnrichment?: MetadataEnrichmentSummaryDto;
   lastScan?: SourceScanSummaryDto | null;
   createdAt: string;
   updatedAt: string;
   accessRole?: 'owner' | 'editor' | 'listener';
+}
+
+export interface MetadataEnrichmentSummaryDto {
+  pending: number;
+  running: number;
+  retryWaiting: number;
+  nextRetryAt: string | null;
+  completed: number;
+  failed: number;
 }
 
 export interface LocalFolderValidationDto {

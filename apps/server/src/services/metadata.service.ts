@@ -30,6 +30,10 @@ export interface OnlineEpisodeMetadata {
   stillUrl: string | null;
 }
 
+export interface MetadataFetchOptions {
+  retryProviderFailures?: boolean;
+}
+
 export class MetadataService {
   private episodeCache = new Map<string, Map<string, OnlineEpisodeMetadata>>();
 
@@ -45,6 +49,7 @@ export class MetadataService {
   public async fetchShowEpisodes(
     showTitle: string,
     signal?: AbortSignal,
+    options?: MetadataFetchOptions,
   ): Promise<Map<string, OnlineEpisodeMetadata>> {
     const cleanTitle = showTitle
       .replace(/\b(19|20)\d{2}\b/g, '')
@@ -66,6 +71,9 @@ export class MetadataService {
             : AbortSignal.timeout(5000),
         },
       );
+      if (!res.ok && options?.retryProviderFailures && (res.status === 429 || res.status >= 500)) {
+        throw new Error(`METADATA_PROVIDER_HTTP_${res.status}`);
+      }
       if (res.ok) {
         const data = (await res.json()) as {
           _embedded?: {
@@ -93,6 +101,7 @@ export class MetadataService {
       }
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (options?.retryProviderFailures) throw error;
       // Ignore network errors
     }
 
@@ -112,6 +121,7 @@ export class MetadataService {
     type: 'movie' | 'series',
     userApiKey?: string,
     signal?: AbortSignal,
+    options?: MetadataFetchOptions,
   ): Promise<OnlineMetadataResult | null> {
     const apiKey = this.resolveTmdbApiKey(userApiKey);
     const cleanTitle = title
@@ -121,14 +131,14 @@ export class MetadataService {
 
     // 1. Try TMDB if API key is provided
     if (apiKey) {
-      const tmdbResult = await this.fetchTmdbMetadata(cleanTitle, type, apiKey, signal);
+      const tmdbResult = await this.fetchTmdbMetadata(cleanTitle, type, apiKey, signal, options);
       if (tmdbResult) {
         return tmdbResult;
       }
     }
 
     // 2. Fallback to TVMaze API if TMDB fails or key is missing
-    return this.fetchTvMazeMetadata(cleanTitle, signal);
+    return this.fetchTvMazeMetadata(cleanTitle, signal, options);
   }
 
   /**
@@ -139,6 +149,7 @@ export class MetadataService {
     type: 'movie' | 'series',
     apiKey: string,
     signal?: AbortSignal,
+    options?: MetadataFetchOptions,
   ): Promise<OnlineMetadataResult | null> {
     try {
       const endpoint = type === 'movie' ? 'search/movie' : 'search/tv';
@@ -151,7 +162,12 @@ export class MetadataService {
         },
       );
 
-      if (!searchRes.ok) return null;
+      if (!searchRes.ok) {
+        if (options?.retryProviderFailures && (searchRes.status === 429 || searchRes.status >= 500)) {
+          throw new Error(`METADATA_PROVIDER_HTTP_${searchRes.status}`);
+        }
+        return null;
+      }
 
       const searchData = (await searchRes.json()) as {
         results?: Array<{
@@ -184,7 +200,12 @@ export class MetadataService {
         },
       );
 
-      if (!detailRes.ok) return null;
+      if (!detailRes.ok) {
+        if (options?.retryProviderFailures && (detailRes.status === 429 || detailRes.status >= 500)) {
+          throw new Error(`METADATA_PROVIDER_HTTP_${detailRes.status}`);
+        }
+        return null;
+      }
 
       const details = (await detailRes.json()) as {
         id: number;
@@ -287,6 +308,7 @@ export class MetadataService {
       };
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (options?.retryProviderFailures) throw error;
       return null;
     }
   }
@@ -297,6 +319,7 @@ export class MetadataService {
   private async fetchTvMazeMetadata(
     cleanTitle: string,
     signal?: AbortSignal,
+    options?: MetadataFetchOptions,
   ): Promise<OnlineMetadataResult | null> {
     try {
       const res = await fetch(
@@ -307,6 +330,9 @@ export class MetadataService {
             : AbortSignal.timeout(5000),
         },
       );
+      if (!res.ok && options?.retryProviderFailures && (res.status === 429 || res.status >= 500)) {
+        throw new Error(`METADATA_PROVIDER_HTTP_${res.status}`);
+      }
       if (res.ok) {
         const data = (await res.json()) as {
           name?: string;
@@ -336,6 +362,7 @@ export class MetadataService {
       }
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (options?.retryProviderFailures) throw error;
       // Ignore network errors
     }
 

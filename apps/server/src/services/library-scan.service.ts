@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@cinedrive/prisma';
+import { randomUUID } from 'node:crypto';
 import {
   normalizeSubtitleStem,
   parseMediaFilename,
@@ -38,11 +39,45 @@ interface DriveScanTarget {
   connection: { id: string };
   rootFolderId: string;
   sourceId: string | null;
+  changesPageToken?: string;
 }
+
+const isExpiredDriveChangeToken = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    code?: unknown;
+    status?: unknown;
+    message?: unknown;
+    response?: {
+      status?: unknown;
+      data?: {
+        error?: {
+          message?: unknown;
+          errors?: Array<{ reason?: unknown }>;
+        };
+      };
+    };
+    errors?: Array<{ reason?: unknown }>;
+  };
+  const status = Number(candidate.status ?? candidate.code ?? candidate.response?.status);
+  const reasons = [
+    ...(candidate.errors || []),
+    ...(candidate.response?.data?.error?.errors || []),
+  ].map((item) => String(item.reason || '').toLowerCase());
+  if (status === 410 || reasons.some((reason) => reason.includes('pagetokenexpired'))) return true;
+  if (status !== 400) return false;
+
+  const message = [candidate.message, candidate.response?.data?.error?.message]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+  return /page\s*token.*(invalid|expired|no longer valid)|(invalid|expired).*page\s*token/.test(
+    message,
+  );
+};
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
-  private metadataEnrichment: MetadataEnrichmentService;
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
   private activeLibraryScans = new Set<string>();
@@ -53,9 +88,9 @@ export class LibraryScanService {
     private googleOAuthService: GoogleOAuthService,
     private scanLifecycle: ScanLifecycleService,
     private operationLocks: LibraryOperationLockService,
+    private metadataEnrichment: MetadataEnrichmentService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
-    this.metadataEnrichment = new MetadataEnrichmentService(prisma);
   }
 
   public isScanning(libraryId: string): boolean {
@@ -163,6 +198,159 @@ export class LibraryScanService {
       ],
       source.id,
     );
+  }
+
+  /** Scheduled scans skip the expensive inventory walk when Drive has no changes. */
+  public async scanSourceIfChanged(
+    userId: string,
+    libraryId: string,
+    sourceId: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    signal?.throwIfAborted();
+    const source = await this.prisma.driveScanSource.findFirst({
+      where: { id: sourceId, libraryId, googleConnection: { userId } },
+    });
+    if (!source) throw new Error('DRIVE_SOURCE_NOT_FOUND');
+    // Account-wide scans include shared drives, which need separate change
+    // cursors. Keep these on the safe full-scan path until each drive has its
+    // own persisted source cursor.
+    if (!source.rootFolderId.trim()) {
+      signal?.throwIfAborted();
+      return this.scanSource(userId, libraryId, sourceId);
+    }
+    if (this.activeLibraryScans.has(libraryId) || this.activeSourceScans.has(sourceId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+
+    const connection = (await this.googleOAuthService.getConnectionsInfo(userId)).find(
+      (item) => item.id === source.googleConnectionId,
+    );
+    if (!connection) throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+    const accessToken = await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+    signal?.throwIfAborted();
+
+    let driveId = source.driveId || undefined;
+    if (!driveId && source.rootFolderId) {
+      driveId = (
+        await this.driveService.inspectFolder(accessToken, source.rootFolderId, false, signal)
+      ).driveId;
+      if (driveId) {
+        await this.prisma.driveScanSource.updateMany({
+          where: { id: source.id, driveId: null },
+          data: { driveId },
+        });
+      }
+    }
+
+    let changesPageToken = source.changesPageToken || undefined;
+    if (changesPageToken) {
+      try {
+        const changes = await this.driveService.getChangesSince(
+          accessToken,
+          changesPageToken,
+          driveId,
+          signal,
+        );
+        if (!changes.hasChanges) {
+          signal?.throwIfAborted();
+          return this.completeUnchangedSourceScan(
+            libraryId,
+            source.id,
+            source.changesPageToken!,
+            changes.pageToken,
+          );
+        }
+        changesPageToken = changes.pageToken;
+      } catch (error) {
+        if (!isExpiredDriveChangeToken(error)) throw error;
+        // Google can expire a cursor. Take a fresh snapshot and reconcile the
+        // whole source; changes made during that reconciliation replay later.
+        changesPageToken = await this.driveService.getChangesStartPageToken(
+          accessToken,
+          driveId,
+          signal,
+        );
+      }
+    } else {
+      // Capture the cursor before inventory starts; later changes are picked
+      // up by the next run instead of being accidentally skipped.
+      changesPageToken = await this.driveService.getChangesStartPageToken(
+        accessToken,
+        driveId,
+        signal,
+      );
+    }
+
+    signal?.throwIfAborted();
+    return this.startScan(
+      userId,
+      libraryId,
+      [
+        {
+          connection,
+          rootFolderId: source.rootFolderId,
+          sourceId: source.id,
+          changesPageToken,
+        },
+      ],
+      source.id,
+    );
+  }
+
+  private async completeUnchangedSourceScan(
+    libraryId: string,
+    sourceId: string,
+    expectedPageToken: string,
+    latestPageToken: string,
+  ): Promise<string> {
+    const operationLock = await this.operationLocks.acquire(libraryId, 'scan');
+    try {
+      const currentSource = await this.prisma.driveScanSource.findFirst({
+        where: { id: sourceId, libraryId },
+        select: { changesPageToken: true },
+      });
+      if (currentSource?.changesPageToken !== expectedPageToken) {
+        throw new Error('SCAN_ALREADY_IN_PROGRESS');
+      }
+
+      const now = new Date();
+      const scanId = randomUUID();
+      await this.prisma.$transaction(async (tx) => {
+        const sourceUpdate = await tx.driveScanSource.updateMany({
+          where: { id: sourceId, changesPageToken: expectedPageToken },
+          data: {
+            changesPageToken: latestPageToken,
+            lastScanStatus: 'completed',
+            lastScannedAt: now,
+            lastScanDurationMs: 0,
+            lastScanAddedCount: 0,
+            lastScanUpdatedCount: 0,
+            lastScanDeletedCount: 0,
+            lastScanErrorCount: 0,
+            lastScanError: null,
+            lastScanInterruptionReason: null,
+          },
+        });
+        if (sourceUpdate.count !== 1) throw new Error('SCAN_ALREADY_IN_PROGRESS');
+        await tx.libraryScan.create({
+          data: {
+            id: scanId,
+            libraryId,
+            driveScanSourceId: sourceId,
+            status: 'completed',
+            startedAt: now,
+            completedAt: now,
+            heartbeatAt: now,
+            durationMs: 0,
+          },
+        });
+        await tx.library.update({ where: { id: libraryId }, data: { lastScannedAt: now } });
+      });
+      return scanId;
+    } finally {
+      await operationLock.release();
+    }
   }
 
   private async startScan(
@@ -336,6 +524,9 @@ export class LibraryScanService {
               lastScanErrorCount: result.errors,
               lastScanError: latestError?.errorMessage || null,
               lastScanInterruptionReason: null,
+              ...(target.changesPageToken && result.errors === 0
+                ? { changesPageToken: target.changesPageToken }
+                : {}),
             },
           });
         }
@@ -431,13 +622,6 @@ export class LibraryScanService {
       }
       allFiles.push(...files);
     };
-    const tmdbApiKey = (
-      await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { tmdbApiKey: true },
-      })
-    )?.tmdbApiKey;
-
     try {
       if (rootFolderId.trim()) {
         appendFiles(
@@ -796,7 +980,6 @@ export class LibraryScanService {
             title,
             type: 'series',
             year: year ?? existingMediaItem?.year ?? undefined,
-            userApiKey: tmdbApiKey || undefined,
             refreshMedia: shouldRefreshMetadata,
             seriesId: series.id,
             refreshEpisodes: shouldRefreshEpisodeMetadata,
@@ -809,7 +992,6 @@ export class LibraryScanService {
             title,
             type: 'movie',
             year: year ?? existingMediaItem?.year ?? undefined,
-            userApiKey: tmdbApiKey || undefined,
             refreshMedia: shouldRefreshMetadata,
           });
         }
@@ -1016,9 +1198,7 @@ export class LibraryScanService {
       deleted = result.count;
     }
 
-    await this.metadataEnrichment.enrichAfterIndexing([...pendingMetadata.values()], signal, () =>
-      this.scanLifecycle.heartbeat(scanId),
-    );
+    await this.metadataEnrichment.enqueueAfterIndexing([...pendingMetadata.values()]);
 
     return { added, updated, deleted, errors };
   }

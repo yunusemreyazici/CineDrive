@@ -16,6 +16,7 @@ import { DriveAccessService } from '../services/drive-access.service.js';
 import { ScanLifecycleService } from '../services/scan-lifecycle.service.js';
 import { LibraryOperationLockService } from '../services/library-operation-lock.service.js';
 import { LibraryScanSchedulerService } from '../services/library-scan-scheduler.service.js';
+import { MetadataEnrichmentService } from '../services/metadata-enrichment.service.js';
 import { env } from '../config/env.js';
 import type { UserDto } from '@cinedrive/shared';
 
@@ -40,6 +41,7 @@ declare module 'fastify' {
     driveAccessService: DriveAccessService;
     scanLifecycleService: ScanLifecycleService;
     libraryOperationLockService: LibraryOperationLockService;
+    metadataEnrichmentService: MetadataEnrichmentService;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -49,11 +51,13 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   const googleOAuthService = new GoogleOAuthService(fastify.prisma);
   const libraryOperationLockService = new LibraryOperationLockService(fastify.prisma);
   const scanLifecycleService = new ScanLifecycleService(fastify.prisma);
+  const metadataEnrichmentService = new MetadataEnrichmentService(fastify.prisma);
   const libraryScanService = new LibraryScanService(
     fastify.prisma,
     googleOAuthService,
     scanLifecycleService,
     libraryOperationLockService,
+    metadataEnrichmentService,
   );
   const driveService = new GoogleDriveService();
   const driveAccessService = new DriveAccessService(
@@ -68,6 +72,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
     fastify.prisma,
     scanLifecycleService,
     libraryOperationLockService,
+    metadataEnrichmentService,
   );
   const libraryScanScheduler = new LibraryScanSchedulerService(
     fastify.prisma,
@@ -95,9 +100,11 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   fastify.decorate('driveAccessService', driveAccessService);
   fastify.decorate('scanLifecycleService', scanLifecycleService);
   fastify.decorate('libraryOperationLockService', libraryOperationLockService);
-  fastify.addHook('onClose', async () => libraryScanScheduler.stop());
+  fastify.decorate('metadataEnrichmentService', metadataEnrichmentService);
   fastify.addHook('onClose', async () => {
+    await libraryScanScheduler.stop();
     await scanLifecycleService.shutdown();
+    await metadataEnrichmentService.stop();
     hlsService.shutdown();
     transcodeService.shutdown();
   });
@@ -107,6 +114,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (fastify: FastifyInstance
   await playbackService.repairDuplicateTrackingRecords();
   await scanLifecycleService.reconcileAbandonedScans({ reason: 'server_restarted' });
   scanLifecycleService.startWatchdog();
+  metadataEnrichmentService.start();
   libraryScanScheduler.start();
 
   // Attach session decorator to each request

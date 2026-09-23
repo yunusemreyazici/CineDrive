@@ -252,8 +252,29 @@ export function useLibrariesQuery() {
       }>('/libraries', { signal });
       return res.data.libraries;
     },
-    refetchInterval: (query) =>
-      query.state.data?.some((library) => library.lastScan?.status === 'running') ? 2000 : false,
+    refetchInterval: (query) => {
+      if (query.state.data?.some((library) => library.lastScan?.status === 'running')) return 2000;
+      const libraries = query.state.data || [];
+      const hasReadyMetadataJobs = libraries.some((library) => {
+        const summary = library.metadataEnrichment;
+        return (
+          (summary && summary.pending > summary.retryWaiting) ||
+          (summary?.running || 0) > 0
+        );
+      });
+      if (hasReadyMetadataJobs) return 5000;
+
+      const retryTimes = libraries
+        .map((library) => library.metadataEnrichment?.nextRetryAt)
+        .filter((value): value is string => !!value)
+        .map((value) => Date.parse(value))
+        .filter(Number.isFinite);
+      if (retryTimes.length > 0) {
+        const untilNextRetry = Math.min(...retryTimes) - Date.now();
+        return Math.max(5000, Math.min(5 * 60 * 1000, untilNextRetry + 1000));
+      }
+      return false;
+    },
   });
 }
 

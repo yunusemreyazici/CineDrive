@@ -47,6 +47,7 @@ type SourceRow = {
   typeLabel: string;
   location: string;
   fileCount: number;
+  metadataEnrichment?: LibraryDto['metadataEnrichment'];
   lastScan?: SourceScanSummaryDto | null;
   webViewLink?: string | null;
   driveSource?: DriveScanSourceDto;
@@ -126,6 +127,7 @@ export const LibrarySourceManagerSection: React.FC = () => {
         typeLabel: source.driveName || source.ownerName || t.settings.sourceManager.driveFolder,
         location: `${source.googleAccountEmail} · ${source.folderPath || source.rootFolderId || t.settings.sourceManager.entireDrive}`,
         fileCount: source.fileCount,
+        metadataEnrichment: driveLibrary?.metadataEnrichment,
         lastScan: source.lastScan,
         webViewLink: source.webViewLink,
         driveSource: source,
@@ -139,11 +141,12 @@ export const LibrarySourceManagerSection: React.FC = () => {
         typeLabel: t.settings.sourceManager.localFolder,
         location: library.localFolderPath || '',
         fileCount: library.fileCount || 0,
+        metadataEnrichment: library.metadataEnrichment,
         lastScan: library.lastScan,
         localLibrary: library,
       })),
     ],
-    [driveSources, localLibraries],
+    [driveSources, localLibraries, driveLibrary?.metadataEnrichment],
   );
 
   const runningCount = rows.filter(
@@ -304,6 +307,12 @@ export const LibrarySourceManagerSection: React.FC = () => {
                 {rows.map((row) => {
                   const rowScanning =
                     row.lastScan?.status === 'running' || scanningRows.has(row.key);
+                  const retryWaiting = row.metadataEnrichment?.retryWaiting || 0;
+                  const queuedMetadata = Math.max(
+                    0,
+                    (row.metadataEnrichment?.pending || 0) - retryWaiting,
+                  ) + (row.metadataEnrichment?.running || 0);
+                  const failedMetadata = row.metadataEnrichment?.failed || 0;
                   return (
                     <tr key={row.key} className="align-top">
                       <td className="px-4 py-3">
@@ -331,6 +340,21 @@ export const LibrarySourceManagerSection: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-300">
                         {row.fileCount}
+                        {queuedMetadata > 0 && (
+                          <p className="mt-1 whitespace-nowrap font-sans text-[11px] text-sky-400">
+                            {t.settings.sourceManager.metadataQueued(queuedMetadata)}
+                          </p>
+                        )}
+                        {retryWaiting > 0 && (
+                          <p className="mt-1 whitespace-nowrap font-sans text-[11px] text-amber-400">
+                            {t.settings.sourceManager.metadataRetryWaiting(retryWaiting)}
+                          </p>
+                        )}
+                        {failedMetadata > 0 && (
+                          <p className="mt-1 whitespace-nowrap font-sans text-[11px] text-amber-400">
+                            {t.settings.sourceManager.metadataFailed(failedMetadata)}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-xs text-zinc-300">

@@ -24,7 +24,6 @@ import {
 } from './scan-limits.js';
 
 export class LocalScanService {
-  private metadataEnrichment: MetadataEnrichmentService;
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
   private readonly activeScans = new Set<string>();
@@ -33,9 +32,9 @@ export class LocalScanService {
     private prisma: PrismaClient,
     private scanLifecycle: ScanLifecycleService,
     private operationLocks: LibraryOperationLockService,
+    private metadataEnrichment: MetadataEnrichmentService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
-    this.metadataEnrichment = new MetadataEnrichmentService(prisma);
   }
 
   /**
@@ -134,12 +133,6 @@ export class LocalScanService {
 
     try {
       await this.scanLifecycle.heartbeat(scanId, true);
-      const tmdbApiKey = (
-        await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { tmdbApiKey: true },
-        })
-      )?.tmdbApiKey;
       const allFiles = await this.readdirRecursive(
         library.localFolderPath,
         library.localFolderPath,
@@ -372,7 +365,6 @@ export class LocalScanService {
               title,
               type: 'movie',
               year: year ?? existingMediaItem?.year ?? undefined,
-              userApiKey: tmdbApiKey || undefined,
               refreshMedia: shouldRefreshMetadata,
             });
           } else {
@@ -444,7 +436,6 @@ export class LocalScanService {
               title,
               type: 'series',
               year: year ?? existingMediaItem?.year ?? undefined,
-              userApiKey: tmdbApiKey || undefined,
               refreshMedia: shouldRefreshMetadata,
               seriesId: series.id,
               refreshEpisodes: shouldRefreshEpisodeMetadata,
@@ -709,9 +700,7 @@ export class LocalScanService {
         signal.throwIfAborted();
       }
 
-      await this.metadataEnrichment.enrichAfterIndexing([...pendingMetadata.values()], signal, () =>
-        this.scanLifecycle.heartbeat(scanId),
-      );
+      await this.metadataEnrichment.enqueueAfterIndexing([...pendingMetadata.values()]);
 
       // Mark scan completed only after reconciliation succeeds. An interrupted
       // or failed walk must never make unseen files look deleted.
