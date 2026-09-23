@@ -1511,18 +1511,20 @@ export const tr = {
 
   mediaManager: {
     title: 'Veri Yönetimi & Toplu Silme',
-    subtitle: 'Veritabanındaki medyaları görün, Shift + Tıklama ile çoklu seçin ve kaldırın',
-    totalLabel: 'Toplam:',
+    subtitle:
+      'Veritabanı medyalarını arayıp sayfalar arasında gezinin. Bu sayfadaki içerikleri Shift + tıklama ile seçip kaldırın.',
+    totalLabel: 'Eşleşme:',
     totalSuffix: 'İçerik',
     shiftHintTitle: 'Shift + Tıklama İpucu:',
     shiftHintBefore: 'Bir içeriği seçtikten sonra klavyeden',
     shiftHintAfter:
-      'tuşuna basılı tutup başka bir içeriğe tıklarsanız, aradaki tüm içerikler otomatik seçilir.',
+      'tuşuna basılı tutup bu sayfadaki başka bir içeriğe tıklarsanız aradaki içerikler seçilir.',
     searchPlaceholder: 'İçerik başlığı ile ara...',
     clearSelection: 'Seçimi Kaldır',
-    selectAll: 'Tümünü Seç',
+    selectPage: 'Bu sayfayı seç',
     notFoundTitle: 'Medya Bulunamadı',
     notFoundDescription: 'Arama kriterlerinize uyan hiçbir medya bulunamadı.',
+    loadFailed: 'Medya kayıtları yüklenemedi',
     columnContent: 'İçerik',
     columnType: 'Tür',
     columnYear: 'Yıl',

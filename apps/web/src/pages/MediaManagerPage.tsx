@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Database,
@@ -12,8 +12,10 @@ import {
   ExternalLink,
   Info,
 } from 'lucide-react';
+import { MediaPagination } from '../components/common/MediaPagination';
 import { useMediaListQuery, useBatchDeleteMediaMutation } from '../hooks/useApi';
 import { EmptyState } from '../components/common/EmptyState';
+import { ErrorState } from '../components/common/ErrorState';
 import { Modal } from '../components/common/Modal';
 import {
   SettingsButton,
@@ -27,6 +29,7 @@ import { LibraryVisibilitySection } from './settings/sections/AppearanceSection'
 import { DatabaseSection } from './settings/sections/DatabaseSection';
 
 type TypeFilter = 'all' | 'movie' | 'series';
+const PAGE_SIZE = 50;
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
   { id: 'all', label: t.common.all },
@@ -36,42 +39,85 @@ const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
 
 export const MediaManagerPage: React.FC = () => {
   const navigate = useNavigate();
-  const { data: mediaData, isLoading } = useMediaListQuery(
-    { limit: 500 },
+  const [searchDraft, setSearchDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [page, setPage] = useState(1);
+  const queryInput = useMemo(
+    () => ({
+      ...(typeFilter === 'all' ? {} : { type: typeFilter }),
+      ...(search ? { search } : {}),
+      page,
+      limit: PAGE_SIZE,
+    }),
+    [typeFilter, search, page],
+  );
+  const {
+    data: mediaData,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useMediaListQuery(
+    queryInput,
     { respectVisibilityPreference: false },
   );
   const batchDeleteMutation = useBatchDeleteMediaMutation();
 
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  // Memoized so the fallback empty array does not create a new identity on
-  // every render and invalidate the filter below.
-  const allItems: MediaItemType[] = useMemo(() => mediaData?.media || [], [mediaData]);
+  const allItems: MediaItemType[] = mediaData?.media || [];
+  const filteredItems = allItems;
 
-  const filteredItems = useMemo(() => {
-    return allItems.filter((item) => {
-      const matchesType = typeFilter === 'all' || item.type === typeFilter;
-      const matchesSearch =
-        !search ||
-        item.title.toLowerCase().includes(search.toLowerCase()) ||
-        (item.originalTitle && item.originalTitle.toLowerCase().includes(search.toLowerCase()));
-      return matchesType && matchesSearch;
-    });
-  }, [allItems, typeFilter, search]);
+  useEffect(() => {
+    const nextSearch = searchDraft.trim();
+    if (nextSearch === search) return;
+    const timer = window.setTimeout(() => {
+      setSearch(nextSearch);
+      setPage(1);
+      setSelectedIds(new Set());
+      setLastClickedIndex(null);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft, search]);
+
+  useEffect(() => {
+    if (!mediaData) return;
+    const lastPage = Math.max(1, mediaData.pagination.totalPages);
+    if (page <= lastPage) return;
+    const timer = window.setTimeout(() => {
+      setPage(lastPage);
+      setSelectedIds(new Set());
+      setLastClickedIndex(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [mediaData, page]);
 
   const isAllSelected =
     filteredItems.length > 0 && filteredItems.every((item) => selectedIds.has(item.id));
 
   const handleSelectAllToggle = () => {
-    if (isAllSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredItems.map((item) => item.id)));
+    const next = new Set(selectedIds);
+    for (const item of filteredItems) {
+      if (isAllSelected) next.delete(item.id);
+      else next.add(item.id);
     }
+    setSelectedIds(next);
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    setPage(nextPage);
+    setSelectedIds(new Set());
+    setLastClickedIndex(null);
+  };
+
+  const handleTypeFilterChange = (nextType: TypeFilter) => {
+    setTypeFilter(nextType);
+    setPage(1);
+    setSelectedIds(new Set());
+    setLastClickedIndex(null);
   };
 
   /** Plain toggle — the path a keyboard uses through the row's checkbox. */
@@ -104,8 +150,13 @@ export const MediaManagerPage: React.FC = () => {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
+    const deletingWholeLastPage =
+      mediaData?.pagination.totalPages === page &&
+      allItems.length > 0 &&
+      allItems.every((item) => selectedIds.has(item.id));
     try {
       await batchDeleteMutation.mutateAsync(Array.from(selectedIds));
+      if (deletingWholeLastPage && page > 1) setPage(page - 1);
       setSelectedIds(new Set());
       setLastClickedIndex(null);
       setShowConfirmModal(false);
@@ -126,7 +177,8 @@ export const MediaManagerPage: React.FC = () => {
         width="full"
         action={
           <SettingsStatus tone="neutral">
-            {t.mediaManager.totalLabel} {allItems.length} {t.mediaManager.totalSuffix}
+            {t.mediaManager.totalLabel} {mediaData?.pagination.total || 0}{' '}
+            {t.mediaManager.totalSuffix}
           </SettingsStatus>
         }
       >
@@ -136,8 +188,8 @@ export const MediaManagerPage: React.FC = () => {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
               <input
                 type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
                 placeholder={t.mediaManager.searchPlaceholder}
                 aria-label={t.mediaManager.searchPlaceholder}
                 className={`${SETTINGS_INPUT_CLASSES} pl-9`}
@@ -151,7 +203,7 @@ export const MediaManagerPage: React.FC = () => {
                     key={filter.id}
                     type="button"
                     aria-pressed={typeFilter === filter.id}
-                    onClick={() => setTypeFilter(filter.id)}
+                    onClick={() => handleTypeFilterChange(filter.id)}
                     className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
                       typeFilter === filter.id
                         ? 'bg-zinc-800 text-zinc-100'
@@ -168,7 +220,7 @@ export const MediaManagerPage: React.FC = () => {
                 icon={isAllSelected ? CheckSquare : Square}
                 onClick={handleSelectAllToggle}
               >
-                {isAllSelected ? t.mediaManager.clearSelection : t.mediaManager.selectAll}
+                {isAllSelected ? t.mediaManager.clearSelection : t.mediaManager.selectPage}
               </SettingsButton>
             </div>
           </div>
@@ -193,6 +245,12 @@ export const MediaManagerPage: React.FC = () => {
                 <div key={i} className="h-14 animate-pulse rounded-lg bg-zinc-900/60" />
               ))}
             </div>
+          ) : isError ? (
+            <ErrorState
+              error={error}
+              title={t.mediaManager.loadFailed}
+              onRetry={() => void refetch()}
+            />
           ) : filteredItems.length === 0 ? (
             <EmptyState
               title={t.mediaManager.notFoundTitle}
@@ -318,6 +376,14 @@ export const MediaManagerPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          )}
+
+          {mediaData && (
+            <MediaPagination
+              page={page}
+              totalPages={mediaData.pagination.totalPages}
+              onPageChange={handlePageChange}
+            />
           )}
         </div>
       </SettingsCard>

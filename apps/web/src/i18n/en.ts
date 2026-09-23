@@ -1506,17 +1506,19 @@ export const en: Translations = {
 
   mediaManager: {
     title: 'Data management & bulk delete',
-    subtitle: 'Review the media in the database, multi-select with Shift + click and remove it',
-    totalLabel: 'Total:',
+    subtitle:
+      'Search and page through database media. Select items on the current page with Shift + click, then remove them.',
+    totalLabel: 'Matches:',
     totalSuffix: 'items',
     shiftHintTitle: 'Shift + click:',
     shiftHintBefore: 'After selecting an item, hold',
-    shiftHintAfter: 'and click another item to select everything in between.',
+    shiftHintAfter: 'and click another item on this page to select everything in between.',
     searchPlaceholder: 'Search by title…',
     clearSelection: 'Clear selection',
-    selectAll: 'Select all',
+    selectPage: 'Select this page',
     notFoundTitle: 'No media found',
     notFoundDescription: 'No media matches your search.',
+    loadFailed: 'Could not load media records',
     columnContent: 'Content',
     columnType: 'Type',
     columnYear: 'Year',
