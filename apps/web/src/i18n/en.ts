@@ -966,7 +966,7 @@ export const en: Translations = {
     goBack: 'Go back',
     foundCount: (count: number) => `${count}`,
     foundPrefix: 'Found',
-    foundSuffix: 'movies and series in your library',
+    foundSuffix: 'titles in your library',
     loading: 'Loading titles…',
     notFoundTitle: 'No titles found',
     notFoundDescription: (name: string) => `No title in your library matches ${name}.`,

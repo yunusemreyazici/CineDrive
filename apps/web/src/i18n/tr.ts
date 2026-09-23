@@ -967,7 +967,7 @@ export const tr = {
     goBack: 'Geri Dön',
     foundCount: (count: number) => `${count} adet`,
     foundPrefix: 'Kütüphanenizde',
-    foundSuffix: 'film ve dizi bulundu',
+    foundSuffix: 'içerik bulundu',
     loading: 'İçerikler yükleniyor...',
     notFoundTitle: 'İçerik Bulunamadı',
     notFoundDescription: (name: string) => `Kütüphanenizde ${name} için eşleşen içerik bulunamadı.`,
