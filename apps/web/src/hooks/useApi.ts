@@ -257,10 +257,7 @@ export function useLibrariesQuery() {
       const libraries = query.state.data || [];
       const hasReadyMetadataJobs = libraries.some((library) => {
         const summary = library.metadataEnrichment;
-        return (
-          (summary && summary.pending > summary.retryWaiting) ||
-          (summary?.running || 0) > 0
-        );
+        return (summary && summary.pending > summary.retryWaiting) || (summary?.running || 0) > 0;
       });
       if (hasReadyMetadataJobs) return 5000;
 
@@ -879,12 +876,20 @@ export function useUpdateProgressMutation(options?: { invalidateOnSuccess?: bool
 }
 
 // --- FAVORITES HOOKS WITH OPTIMISTIC UPDATES ---
-export function useFavoritesQuery() {
+interface FavoritesPageData {
+  favorites: MediaItemType[];
+  pagination: { total: number; page: number; limit: number; totalPages: number };
+}
+
+export function useFavoritesQuery(page: number, limit: number) {
   return useQuery({
-    queryKey: ['favorites'],
+    queryKey: ['favorites', { page, limit }],
     queryFn: async ({ signal }) => {
-      const res = await apiClient.get<{ favorites: MediaItemType[] }>('/favorites', { signal });
-      return res.data.favorites;
+      const res = await apiClient.get<FavoritesPageData>('/favorites', {
+        params: { page, limit },
+        signal,
+      });
+      return res.data;
     },
   });
 }
@@ -910,13 +915,31 @@ export function useToggleFavoriteMutation() {
       await queryClient.cancelQueries({ queryKey: ['favorites'] });
       await queryClient.cancelQueries({ queryKey: ['mediaDetail', mediaItemId] });
 
-      const previousFavorites = queryClient.getQueryData<MediaItemType[]>(['favorites']);
+      const previousFavorites = queryClient.getQueriesData<FavoritesPageData>({
+        queryKey: ['favorites'],
+      });
       const previousDetail = queryClient.getQueryData<MediaItemType>(['mediaDetail', mediaItemId]);
       const previousSummary = queryClient.getQueryData<MediaDetailType>([
         'mediaDetail',
         mediaItemId,
         'summary',
       ]);
+
+      if (isFavorite) {
+        queryClient.setQueriesData<FavoritesPageData>({ queryKey: ['favorites'] }, (old) => {
+          if (!old || !old.favorites.some((favorite) => favorite.id === mediaItemId)) return old;
+          const total = Math.max(0, old.pagination.total - 1);
+          return {
+            ...old,
+            favorites: old.favorites.filter((favorite) => favorite.id !== mediaItemId),
+            pagination: {
+              ...old.pagination,
+              total,
+              totalPages: Math.ceil(total / old.pagination.limit),
+            },
+          };
+        });
+      }
 
       // Optimistically update media detail
       if (previousDetail) {
@@ -933,9 +956,9 @@ export function useToggleFavoriteMutation() {
       return { previousFavorites, previousDetail, previousSummary };
     },
     onError: (_err, { mediaItemId }, context) => {
-      if (context?.previousFavorites) {
-        queryClient.setQueryData(['favorites'], context.previousFavorites);
-      }
+      context?.previousFavorites.forEach(([queryKey, previousData]) => {
+        queryClient.setQueryData(queryKey, previousData);
+      });
       if (context?.previousDetail) {
         queryClient.setQueryData(['mediaDetail', mediaItemId], context.previousDetail);
       }

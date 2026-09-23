@@ -418,6 +418,7 @@ model Favorite {
   createdAt   DateTime  @default(now())
 
   @@unique([userId, mediaItemId])
+  @@index([userId, createdAt, id])
 }
 
 model MusicArtwork {
