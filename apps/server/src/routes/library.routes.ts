@@ -1094,6 +1094,40 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // POST /api/libraries/:id/metadata-enrichment/retry-failed
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/metadata-enrichment/retry-failed',
+    async (request, reply) => {
+      const { id } = request.params;
+      const library = await findOwnedLibrary(id, request.user!.id);
+      if (!library) {
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const now = new Date();
+      const result = await fastify.prisma.metadataEnrichmentJob.updateMany({
+        where: { libraryId: id, status: 'failed' },
+        data: {
+          status: 'pending',
+          attempts: 0,
+          leaseToken: null,
+          nextAttemptAt: now,
+          startedAt: null,
+          completedAt: null,
+          lastError: null,
+        },
+      });
+      if (result.count > 0) fastify.metadataEnrichmentService.wake();
+      return reply.status(200).send({ retried: result.count });
+    },
+  );
+
   // POST /api/libraries/:id/scan: Trigger library scan
   fastify.post<{ Params: { id: string } }>('/:id/scan', async (request, reply) => {
     const { id } = request.params;

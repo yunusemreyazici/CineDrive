@@ -18,6 +18,7 @@ import {
   useDeleteLibraryMutation,
   useDriveScanSourcesQuery,
   useLibrariesQuery,
+  useRetryFailedMetadataMutation,
   useScanDriveSourceMutation,
   useScanLibraryMutation,
   useValidateDriveScanSourceMutation,
@@ -94,6 +95,13 @@ export const LibrarySourceManagerSection: React.FC = () => {
   const ownedLibraries = libraries.filter((library) => library.accessRole === 'owner');
   const driveLibrary = ownedLibraries.find((library) => library.storageType === 'gdrive');
   const localLibraries = ownedLibraries.filter((library) => library.storageType === 'local');
+  const librariesWithFailedMetadata = ownedLibraries.filter(
+    (library) => (library.metadataEnrichment?.failed || 0) > 0,
+  );
+  const failedMetadataCount = librariesWithFailedMetadata.reduce(
+    (total, library) => total + (library.metadataEnrichment?.failed || 0),
+    0,
+  );
   const { data: driveSources = [] } = useDriveScanSourcesQuery(driveLibrary?.id);
   const { data: scans = [] } = useAllLibraryScansQuery();
   const connections = useGoogleConnections();
@@ -105,6 +113,7 @@ export const LibrarySourceManagerSection: React.FC = () => {
   const createLibrary = useCreateLibraryMutation();
   const deleteLibrary = useDeleteLibraryMutation();
   const scanLibrary = useScanLibraryMutation();
+  const retryFailedMetadata = useRetryFailedMetadataMutation();
 
   const [driveMode, setDriveMode] = useState<'all' | 'folder'>('folder');
   const [connectionId, setConnectionId] = useState('');
@@ -118,7 +127,7 @@ export const LibrarySourceManagerSection: React.FC = () => {
 
   const rows = useMemo<SourceRow[]>(
     () => [
-      ...driveSources.map((source) => ({
+      ...driveSources.map((source, index) => ({
         key: `drive-${source.id}`,
         kind: 'drive' as const,
         id: source.id,
@@ -127,7 +136,7 @@ export const LibrarySourceManagerSection: React.FC = () => {
         typeLabel: source.driveName || source.ownerName || t.settings.sourceManager.driveFolder,
         location: `${source.googleAccountEmail} · ${source.folderPath || source.rootFolderId || t.settings.sourceManager.entireDrive}`,
         fileCount: source.fileCount,
-        metadataEnrichment: driveLibrary?.metadataEnrichment,
+        metadataEnrichment: index === 0 ? driveLibrary?.metadataEnrichment : undefined,
         lastScan: source.lastScan,
         webViewLink: source.webViewLink,
         driveSource: source,
@@ -238,6 +247,22 @@ export const LibrarySourceManagerSection: React.FC = () => {
     if (started !== results.length) toast.error(t.settings.sourceManager.scanAllFailed);
   };
 
+  const handleRetryFailedMetadata = async () => {
+    const results = await Promise.allSettled(
+      librariesWithFailedMetadata.map((library) => retryFailedMetadata.mutateAsync(library.id)),
+    );
+    const retried = results.reduce(
+      (count, result) => count + (result.status === 'fulfilled' ? result.value : 0),
+      0,
+    );
+    if (retried > 0) toast.success(t.settings.sourceManager.metadataRetryStarted(retried));
+    if (results.some((result) => result.status === 'rejected')) {
+      toast.error(t.settings.sourceManager.metadataRetryFailed);
+    } else if (retried === 0) {
+      toast.success(t.settings.sourceManager.metadataRetryNothing);
+    }
+  };
+
   const handleRemove = async () => {
     if (!removalTarget) return;
     try {
@@ -273,15 +298,29 @@ export const LibrarySourceManagerSection: React.FC = () => {
         icon={FolderOpen}
         width="full"
         action={
-          <SettingsButton
-            icon={RefreshCw}
-            onClick={handleScanAll}
-            disabled={rows.length === 0 || runningCount > 0}
-            isLoading={scanAllPending}
-            loadingLabel={t.settings.sourceManager.scanningAll}
-          >
-            {t.settings.sourceManager.scanAll}
-          </SettingsButton>
+          <div className="flex flex-wrap justify-end gap-2">
+            {failedMetadataCount > 0 && (
+              <SettingsButton
+                variant="secondary"
+                icon={RefreshCw}
+                onClick={handleRetryFailedMetadata}
+                disabled={retryFailedMetadata.isPending}
+                isLoading={retryFailedMetadata.isPending}
+                loadingLabel={t.settings.sourceManager.retryingMetadata}
+              >
+                {t.settings.sourceManager.retryFailedMetadataCount(failedMetadataCount)}
+              </SettingsButton>
+            )}
+            <SettingsButton
+              icon={RefreshCw}
+              onClick={handleScanAll}
+              disabled={rows.length === 0 || runningCount > 0}
+              isLoading={scanAllPending}
+              loadingLabel={t.settings.sourceManager.scanningAll}
+            >
+              {t.settings.sourceManager.scanAll}
+            </SettingsButton>
+          </div>
         }
       >
         {rows.length === 0 ? (

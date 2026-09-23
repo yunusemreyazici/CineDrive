@@ -45,6 +45,10 @@ export class MetadataEnrichmentService {
     void this.pump();
   }
 
+  public wake(): void {
+    if (!this.stopped) void this.pump();
+  }
+
   public async stop(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);

@@ -459,6 +459,26 @@ export function useScanLibraryMutation() {
   });
 }
 
+export function useRetryFailedMetadataMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (libraryId: string) => {
+      try {
+        const res = await apiClient.post<{ retried: number }>(
+          `/libraries/${libraryId}/metadata-enrichment/retry-failed`,
+          {},
+        );
+        return res.data.retried;
+      } catch (err) {
+        throw parseApiError(err);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['libraries'] });
+    },
+  });
+}
+
 const SCAN_POLL_INTERVAL_MS = 2000;
 
 export function useLibraryScansQuery(libraryId?: string) {
