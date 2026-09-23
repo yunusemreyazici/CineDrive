@@ -383,6 +383,7 @@ model PlaybackProgress {
   @@unique([userId, mediaItemId, trackingKey])
   @@index([userId])
   @@index([userId, mediaItemId])
+  @@index([userId, mediaItemId, lastPlayedAt])
   @@index([userId, lastPlayedAt])
 }
 

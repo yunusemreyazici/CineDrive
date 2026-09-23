@@ -298,27 +298,31 @@ export const mediaQueryRoutes: FastifyPluginAsync = async (fastify) => {
         where: { userId, mediaItemId: { in: pageItemIds } },
         select: { mediaItemId: true },
       }),
-      fastify.prisma.playbackProgress.findMany({
-        where: { userId, mediaItemId: { in: pageItemIds } },
-        orderBy: { lastPlayedAt: 'desc' },
+      fastify.prisma.mediaItem.findMany({
+        where: { id: { in: pageItemIds } },
+        select: {
+          id: true,
+          playbackProgresses: {
+            where: { userId },
+            orderBy: [{ lastPlayedAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+          },
+        },
       }),
     ]);
 
     const favoriteSet = new Set(favorites.map((f) => f.mediaItemId));
-    // The query is newest-first. Map's constructor would overwrite each
-    // media's first row with the oldest episode, so keep the first occurrence.
-    const progressMap = new Map<string, (typeof progressList)[number]>();
-    for (const progress of progressList) {
-      if (!progressMap.has(progress.mediaItemId)) {
-        progressMap.set(progress.mediaItemId, progress);
-      }
-    }
+    // A series may have a progress row for every watched episode. Fetch only
+    // its newest row above because list cards use a single aggregate progress.
+    const progressMap = new Map(
+      progressList.map((item) => [item.id, item.playbackProgresses[0] || null]),
+    );
 
     const enrichedItems = items.map((item) => ({
       ...item,
       genres: safeJsonParse<string[]>(item.genres, []),
       isFavorite: favoriteSet.has(item.id),
-      progress: progressMap.get(item.id) || null,
+      progress: progressMap.get(item.id) ?? null,
       posterUrl: item.posterDriveFileId
         ? `/api/media/assets/${item.posterDriveFileId}`
         : item.posterUrl || null,
