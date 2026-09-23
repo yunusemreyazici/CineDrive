@@ -6,11 +6,25 @@ import { MediaProbeService } from '../services/media-probe.service.js';
 import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 
 const INSIGHTS_PAGE_SIZE = 500;
+const MEDIA_HEALTH_CACHE_TTL_MS = 60_000;
+
+type MediaHealthInventory = Pick<
+  MediaHealthDto,
+  | 'totalVideos'
+  | 'analyzedVideos'
+  | 'failedVideos'
+  | 'pendingVideos'
+  | 'playback'
+  | 'codecs'
+  | 'failures'
+>;
 
 export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
   const mediaProbeService = new MediaProbeService();
   const activeReanalysis = new Set<string>();
+  const mediaHealthCache = new Map<string, { expiresAt: number; value: MediaHealthInventory }>();
+  const mediaHealthInflight = new Map<string, Promise<MediaHealthInventory>>();
 
   const summarizeAnalysisError = (error: string) => {
     const normalized = error.toLowerCase();
@@ -28,6 +42,163 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
       return 'Video akışı tespit edilemedi.';
     }
     return 'Medya teknik bilgileri okunamadı.';
+  };
+
+  const loadMediaHealthInventory = async (userId: string): Promise<MediaHealthInventory> => {
+    const where = {
+      status: 'active',
+      OR: [
+        { mimeType: { startsWith: 'video/' } },
+        { mimeType: 'application/octet-stream' },
+        { mimeType: 'application/x-matroska' },
+      ],
+      library: ownedLibraryFilter(userId),
+    };
+    const select = {
+      id: true,
+      name: true,
+      mediaContainer: true,
+      videoCodec: true,
+      videoProfile: true,
+      videoBitDepth: true,
+      audioCodec: true,
+      audioChannels: true,
+      mediaWidth: true,
+      mediaHeight: true,
+      mediaDuration: true,
+      mediaAnalyzedAt: true,
+      mediaAnalysisError: true,
+      library: { select: { name: true } },
+    } as const;
+
+    const emptyModes = (): Record<PlaybackMode, number> => ({
+      direct: 0,
+      audio: 0,
+      hls: 0,
+      full: 0,
+    });
+    const playback = { safari: emptyModes(), chromium: emptyModes() };
+    const videoCodecs = new Map<string, number>();
+    const audioCodecs = new Map<string, number>();
+    const containers = new Map<string, number>();
+    const failures: MediaHealthDto['failures'] = [];
+    let totalVideos = 0;
+    let analyzedVideos = 0;
+    let failedVideos = 0;
+    let pendingVideos = 0;
+
+    const increment = (map: Map<string, number>, value?: string | null) => {
+      const key = value?.trim().toLowerCase() || 'bilinmiyor';
+      map.set(key, (map.get(key) || 0) + 1);
+    };
+    const normalizeContainer = (value?: string | null) =>
+      value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] || value;
+
+    let cursorId: string | undefined;
+    while (true) {
+      const files = await fastify.prisma.driveFile.findMany({
+        where,
+        select,
+        orderBy: { id: 'asc' },
+        take: INSIGHTS_PAGE_SIZE,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (files.length === 0) break;
+
+      totalVideos += files.length;
+      for (const file of files) {
+        const plan = buildPlaybackPlan(file);
+        playback.safari[plan.safari]++;
+        playback.chromium[plan.chromium]++;
+        increment(videoCodecs, file.videoCodec);
+        increment(audioCodecs, file.audioCodec);
+        increment(containers, normalizeContainer(file.mediaContainer));
+
+        if (file.mediaAnalyzedAt && !file.mediaAnalysisError) analyzedVideos++;
+        if (!file.mediaAnalyzedAt) pendingVideos++;
+        if (file.mediaAnalysisError) {
+          failedVideos++;
+          if (failures.length < 25) {
+            failures.push({
+              id: file.id,
+              name: file.name,
+              libraryName: file.library.name,
+              error: summarizeAnalysisError(file.mediaAnalysisError),
+            });
+          }
+        }
+      }
+
+      cursorId = files[files.length - 1]?.id;
+      if (files.length < INSIGHTS_PAGE_SIZE) break;
+    }
+
+    const sortedDistribution = (map: Map<string, number>) =>
+      [...map.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((left, right) => right.count - left.count);
+
+    return {
+      totalVideos,
+      analyzedVideos,
+      failedVideos,
+      pendingVideos,
+      playback,
+      codecs: {
+        video: sortedDistribution(videoCodecs),
+        audio: sortedDistribution(audioCodecs),
+        containers: sortedDistribution(containers),
+      },
+      failures,
+    };
+  };
+
+  const getMediaHealthInventory = async (
+    userId: string,
+    cacheKey: string,
+  ): Promise<MediaHealthInventory> => {
+    const now = Date.now();
+    for (const [cachedKey, entry] of mediaHealthCache) {
+      if (entry.expiresAt <= now) mediaHealthCache.delete(cachedKey);
+    }
+
+    const cached = mediaHealthCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const inFlight = mediaHealthInflight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const pending = loadMediaHealthInventory(userId);
+    mediaHealthInflight.set(cacheKey, pending);
+    try {
+      const value = await pending;
+      if (mediaHealthInflight.get(cacheKey) === pending) {
+        mediaHealthInflight.delete(cacheKey);
+        mediaHealthCache.delete(cacheKey);
+        mediaHealthCache.set(cacheKey, {
+          value,
+          expiresAt: Date.now() + MEDIA_HEALTH_CACHE_TTL_MS,
+        });
+        if (mediaHealthCache.size > 128) {
+          const oldestCacheKey = mediaHealthCache.keys().next().value;
+          if (oldestCacheKey) mediaHealthCache.delete(oldestCacheKey);
+        }
+      }
+      return value;
+    } catch (error) {
+      if (mediaHealthInflight.get(cacheKey) === pending) mediaHealthInflight.delete(cacheKey);
+      throw error;
+    }
+  };
+
+  const invalidateMediaHealthInventory = (userId: string) => {
+    const userCachePrefix = `${userId}:`;
+    for (const cacheKey of mediaHealthCache.keys()) {
+      if (cacheKey.startsWith(userCachePrefix)) mediaHealthCache.delete(cacheKey);
+    }
+    for (const cacheKey of mediaHealthInflight.keys()) {
+      if (cacheKey.startsWith(userCachePrefix)) mediaHealthInflight.delete(cacheKey);
+    }
   };
 
   // GET /api/insights/storage: Analyze Drive Storage & Quota
@@ -208,98 +379,15 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/media-health', async (request, reply) => {
     const userId = request.user!.id;
-    const where = {
-        status: 'active',
-        OR: [
-          { mimeType: { startsWith: 'video/' } },
-          { mimeType: 'application/octet-stream' },
-          { mimeType: 'application/x-matroska' },
-        ],
-        library: ownedLibraryFilter(userId),
-      };
-    const select = {
-        id: true,
-        name: true,
-        mediaContainer: true,
-        videoCodec: true,
-        videoProfile: true,
-        videoBitDepth: true,
-        audioCodec: true,
-        audioChannels: true,
-        mediaWidth: true,
-        mediaHeight: true,
-        mediaDuration: true,
-        mediaAnalyzedAt: true,
-        mediaAnalysisError: true,
-        library: { select: { name: true } },
-      } as const;
-
-    const emptyModes = (): Record<PlaybackMode, number> => ({
-      direct: 0,
-      audio: 0,
-      hls: 0,
-      full: 0,
+    const accessibleLibraries = await fastify.prisma.library.findMany({
+      where: ownedLibraryFilter(userId),
+      select: { id: true },
+      orderBy: { id: 'asc' },
     });
-    const playback = { safari: emptyModes(), chromium: emptyModes() };
-    const videoCodecs = new Map<string, number>();
-    const audioCodecs = new Map<string, number>();
-    const containers = new Map<string, number>();
-    const failures: MediaHealthDto['failures'] = [];
-    let totalVideos = 0;
-    let analyzedVideos = 0;
-    let failedVideos = 0;
-    let pendingVideos = 0;
-
-    const increment = (map: Map<string, number>, value?: string | null) => {
-      const key = value?.trim().toLowerCase() || 'bilinmiyor';
-      map.set(key, (map.get(key) || 0) + 1);
-    };
-    const normalizeContainer = (value?: string | null) =>
-      value?.match(/^(mkv|mp4|m4v|mov|webm|avi|ts|m2ts|flv|wmv|3gp)/i)?.[1] || value;
-
-    let cursorId: string | undefined;
-    while (true) {
-      const files = await fastify.prisma.driveFile.findMany({
-        where,
-        select,
-        orderBy: { id: 'asc' },
-        take: INSIGHTS_PAGE_SIZE,
-        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      });
-      if (files.length === 0) break;
-
-      totalVideos += files.length;
-      for (const file of files) {
-        const plan = buildPlaybackPlan(file);
-        playback.safari[plan.safari]++;
-        playback.chromium[plan.chromium]++;
-        increment(videoCodecs, file.videoCodec);
-        increment(audioCodecs, file.audioCodec);
-        increment(containers, normalizeContainer(file.mediaContainer));
-
-        if (file.mediaAnalyzedAt && !file.mediaAnalysisError) analyzedVideos++;
-        if (!file.mediaAnalyzedAt) pendingVideos++;
-        if (file.mediaAnalysisError) {
-          failedVideos++;
-          if (failures.length < 25) {
-            failures.push({
-              id: file.id,
-              name: file.name,
-              libraryName: file.library.name,
-              error: summarizeAnalysisError(file.mediaAnalysisError),
-            });
-          }
-        }
-      }
-
-      cursorId = files[files.length - 1]?.id;
-      if (files.length < INSIGHTS_PAGE_SIZE) break;
-    }
-
-    const sortedDistribution = (map: Map<string, number>) =>
-      [...map.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort((left, right) => right.count - left.count);
+    // A changed membership set gets a separate cache key, so a revoked library
+    // cannot remain visible through a cached inventory.
+    const cacheKey = `${userId}:${accessibleLibraries.map((library) => library.id).join(',')}`;
+    const inventory = await getMediaHealthInventory(userId, cacheKey);
 
     const hlsStats = fastify.hlsService.getStats();
     const runtimeHls =
@@ -315,16 +403,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           };
 
     const response: MediaHealthDto = {
-      totalVideos,
-      analyzedVideos,
-      failedVideos,
-      pendingVideos,
-      playback,
-      codecs: {
-        video: sortedDistribution(videoCodecs),
-        audio: sortedDistribution(audioCodecs),
-        containers: sortedDistribution(containers),
-      },
+      ...inventory,
       runtime: {
         hls: runtimeHls,
         transcode: fastify.transcodeService.getStats(),
@@ -332,7 +411,6 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           includeRecent: request.user!.role === 'admin',
         }),
       },
-      failures,
     };
 
     return reply.status(200).send(response);
@@ -479,6 +557,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: driveFile.id },
           data: metadata,
         });
+        invalidateMediaHealthInventory(userId);
         return reply.status(200).send({
           success: true,
           message: 'Medya teknik bilgileri güncellendi.',
@@ -493,6 +572,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
             mediaAnalysisError: rawError,
           },
         });
+        invalidateMediaHealthInventory(userId);
         return reply.status(422).send({
           error: {
             code: 'MEDIA_ANALYSIS_FAILED',
