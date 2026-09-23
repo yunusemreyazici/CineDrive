@@ -31,14 +31,28 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
     refetch,
   } = useQuery({
     queryKey: ['randomMedia', typeFilter, minRating],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params: Record<string, string | number> = {};
       if (typeFilter !== 'all') params.type = typeFilter;
       if (minRating) params.minRating = minRating;
 
-      await new Promise((resolve) => setTimeout(resolve, DICE_ROLL_ANIMATION_MS));
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          signal.removeEventListener('abort', abort);
+          resolve();
+        }, DICE_ROLL_ANIMATION_MS);
+        const abort = () => {
+          window.clearTimeout(timeout);
+          reject(signal.reason ?? new DOMException('Request aborted', 'AbortError'));
+        };
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      });
 
-      const res = await apiClient.get<{ media: MediaItemType }>('/media/random', { params });
+      const res = await apiClient.get<{ media: MediaItemType }>('/media/random', {
+        params,
+        signal,
+      });
       return res.data.media;
     },
     enabled: isOpen,

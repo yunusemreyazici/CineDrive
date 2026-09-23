@@ -51,7 +51,8 @@ export const MediaHealthPage: React.FC = () => {
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MediaHealthDto>({
     queryKey: ['media-health'],
-    queryFn: async () => (await apiClient.get<MediaHealthDto>('/insights/media-health')).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<MediaHealthDto>('/insights/media-health', { signal })).data,
     // Runtime state refreshes every 15 seconds; the server reuses the expensive
     // per-library codec/playback inventory for up to a minute between changes.
     refetchInterval: 15_000,

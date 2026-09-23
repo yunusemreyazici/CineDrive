@@ -105,7 +105,8 @@ const BandwidthChart: React.FC<{ history: SystemMetricPointDto[] }> = ({ history
 export const SystemMetricsPanel: React.FC = () => {
   const query = useQuery<SystemMetricsDto>({
     queryKey: ['system-metrics'],
-    queryFn: async () => (await apiClient.get<SystemMetricsDto>('/system/metrics')).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<SystemMetricsDto>('/system/metrics', { signal })).data,
     refetchInterval: 60_000,
   });
 

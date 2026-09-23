@@ -40,7 +40,8 @@ export const InsightsPage: React.FC = () => {
     // Went through a bare `fetch` before, which meant no credentials handling,
     // no shared error shape and — because only `isLoading` was checked — a
     // failed request rendered as a library full of zeroes.
-    queryFn: async () => (await apiClient.get<StorageInsightsDto>('/insights/storage')).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<StorageInsightsDto>('/insights/storage', { signal })).data,
   });
 
   if (error) {
