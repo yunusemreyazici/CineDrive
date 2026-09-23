@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
 
 const fixtureDirectory = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDirectory = path.resolve(fixtureDirectory, '../../prisma/migrations');
@@ -13,7 +13,7 @@ if (!mode || !databasePath) {
   );
 }
 
-const database = new DatabaseSync(databasePath);
+const database = new Database(databasePath);
 
 const seedInitialDatabase = () => {
   database.exec(`
