@@ -5,7 +5,7 @@ import { useUiStore } from '../../stores/useUiStore';
 import { useSessionQuery, useLogoutMutation } from '../../hooks/useApi';
 import { RandomPickerModal } from '../media/RandomPickerModal';
 import { SearchDialog } from '../search/SearchDialog';
-import { t } from '../../i18n';
+import { intlLocale, t } from '../../i18n';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -21,7 +21,7 @@ export const Navbar: React.FC = () => {
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase('tr-TR') === 'k') {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase(intlLocale) === 'k') {
         event.preventDefault();
         setSearchOpen(true);
       }

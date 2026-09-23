@@ -11,7 +11,7 @@ import { ErrorState } from '../components/common/ErrorState';
 import { Modal } from '../components/common/Modal';
 import { toast } from '../stores/useToastStore';
 import { getPosterUrl } from '../utils/mediaImages';
-import { t } from '../i18n';
+import { intlLocale, t } from '../i18n';
 
 const FILTER_SELECT_CLASSES =
   'rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-200 transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
@@ -68,7 +68,7 @@ export const HistoryPage: React.FC = () => {
     if (diffDays === 1) return t.history.yesterday;
     if (diffDays < 7) return t.history.daysAgo(diffDays);
 
-    return date.toLocaleDateString('tr-TR', {
+    return date.toLocaleDateString(intlLocale, {
       day: 'numeric',
       month: 'long',
       year: 'numeric',

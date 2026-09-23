@@ -12,7 +12,7 @@ import {
   SettingsMetric,
   SettingsStatus,
 } from './settings/SettingsCard';
-import { t } from '../i18n';
+import { intlLocale, t } from '../i18n';
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -288,7 +288,7 @@ export const MediaHealthPage: React.FC = () => {
                     </td>
                     <td className="py-3 pr-4 text-xs text-zinc-400">{job.viewerCount}</td>
                     <td className="py-3 pr-4 text-xs text-zinc-400">
-                      {new Date(job.lastAccessAt).toLocaleTimeString('tr-TR')}
+                      {new Date(job.lastAccessAt).toLocaleTimeString(intlLocale)}
                     </td>
                     <td className="py-3 pl-4 text-right">
                       <SettingsButton

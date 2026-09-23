@@ -10,7 +10,7 @@ import {
   SettingsMeter,
   SettingsMetric,
 } from './settings/SettingsCard';
-import { locale, t } from '../i18n';
+import { intlLocale, t } from '../i18n';
 import { buildDailyBandwidth } from '../utils/systemMetrics';
 
 const formatBytes = (bytes: number | null): string => {
@@ -21,7 +21,7 @@ const formatBytes = (bytes: number | null): string => {
     0,
     Math.min(Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024)), units.length - 1),
   );
-  return `${(bytes / 1024 ** exponent).toLocaleString(locale, { maximumFractionDigits: 1 })} ${units[exponent]}`;
+  return `${(bytes / 1024 ** exponent).toLocaleString(intlLocale, { maximumFractionDigits: 1 })} ${units[exponent]}`;
 };
 
 const formatRate = (bytes: number | null) =>
@@ -152,7 +152,7 @@ export const SystemMetricsPanel: React.FC = () => {
               value={
                 current.cpuPercent === null
                   ? t.systemMetrics.collecting
-                  : `%${current.cpuPercent.toLocaleString(locale, { maximumFractionDigits: 1 })}`
+                  : `%${current.cpuPercent.toLocaleString(intlLocale, { maximumFractionDigits: 1 })}`
               }
               hint={t.systemMetrics.scope[scope]}
             />
@@ -197,7 +197,7 @@ export const SystemMetricsPanel: React.FC = () => {
             value={
               current.temperatureCelsius === null
                 ? t.systemMetrics.unavailable
-                : `${current.temperatureCelsius.toLocaleString(locale, { maximumFractionDigits: 1 })} °C`
+                : `${current.temperatureCelsius.toLocaleString(intlLocale, { maximumFractionDigits: 1 })} °C`
             }
             hint={t.systemMetrics.temperatureHint}
           />
@@ -229,7 +229,7 @@ export const SystemMetricsPanel: React.FC = () => {
 
         <p className="mt-5 flex items-center gap-2 text-xs text-zinc-600">
           <Thermometer className="h-3.5 w-3.5" />
-          {t.systemMetrics.sampledAt(new Date(current.recordedAt).toLocaleString(locale))}
+          {t.systemMetrics.sampledAt(new Date(current.recordedAt).toLocaleString(intlLocale))}
         </p>
       </SettingsCard>
 

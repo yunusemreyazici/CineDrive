@@ -27,6 +27,7 @@ export const getStoredLocale = (): Locale => {
 };
 
 export const locale: Locale = getStoredLocale();
+export const intlLocale = locale === 'tr' ? 'tr-TR' : 'en-US';
 
 if (typeof document !== 'undefined') {
   document.documentElement.lang = locale;
@@ -38,8 +39,8 @@ if (typeof document !== 'undefined') {
  * Several modules build their option lists at import time — the theme picker,
  * the sort dropdown, the settings tabs — so swapping the dictionary in place
  * would leave those frozen in the previous language. Reloading after a change
- * is the honest way to keep every string in one language, and it re-runs the
- * `toLocaleLowerCase('tr-TR')` style calls under the new locale too.
+ * is the honest way to keep every string in one language, and it reapplies
+ * locale-sensitive formatting under the new locale too.
  */
 export const t: Translations = DICTIONARIES[locale];
 
