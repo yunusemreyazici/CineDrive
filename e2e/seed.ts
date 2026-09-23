@@ -14,7 +14,6 @@ import {
   E2E_HLS_FILE_ID,
   E2E_HLS_CLIP_NAME,
   E2E_HLS_SECONDS,
-  schemaPath,
   e2eDatabasePath,
   e2eMediaRoot,
   e2eServerEnv,
@@ -136,7 +135,9 @@ export const seedE2EDatabase = async () => {
   fs.mkdirSync(e2eMediaRoot, { recursive: true });
   fs.mkdirSync(path.dirname(e2eDatabasePath), { recursive: true });
 
-  execFileSync('npx', ['prisma', 'db', 'push', '--schema', schemaPath], {
+  // Search depends on hand-written FTS5 migrations, which `db push` omits.
+  // Seed the same disposable schema that production uses before starting the API.
+  execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
     cwd: serverRoot,
     env: {
       ...process.env,

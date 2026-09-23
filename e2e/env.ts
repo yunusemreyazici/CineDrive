@@ -18,8 +18,6 @@ export const E2E_ADMIN_EMAIL = 'e2e@cinedrive.test';
 export const E2E_ADMIN_PASSWORD = 'e2e-smoke-test-password';
 
 export const serverRoot = path.join(repoRoot, 'apps/server');
-/** Passed explicitly so the CLI does not depend on the working directory. */
-export const schemaPath = path.join(serverRoot, 'prisma/schema.prisma');
 export const e2eDatabasePath = path.join(serverRoot, 'prisma/data/e2e.db');
 export const e2eMediaRoot = path.join(serverRoot, 'prisma/data/e2e-media');
 /** Isolate cwd-relative HLS, preview and subtitle caches from development data. */
