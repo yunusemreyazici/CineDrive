@@ -205,6 +205,69 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    const metadataEnrichmentByLibrary = new Map<
+      string,
+      {
+        pending: number;
+        running: number;
+        retryWaiting: number;
+        nextRetryAt: string | null;
+        completed: number;
+        failed: number;
+      }
+    >();
+    for (const library of libraries) {
+      metadataEnrichmentByLibrary.set(library.id, {
+        pending: 0,
+        running: 0,
+        retryWaiting: 0,
+        nextRetryAt: null,
+        completed: 0,
+        failed: 0,
+      });
+    }
+    if (libraries.length > 0) {
+      const metadataJobs = await fastify.prisma.metadataEnrichmentJob.groupBy({
+        by: ['libraryId', 'status'],
+        where: { libraryId: { in: libraries.map((library) => library.id) } },
+        _count: { _all: true },
+      });
+      for (const jobGroup of metadataJobs) {
+        const summary = metadataEnrichmentByLibrary.get(jobGroup.libraryId);
+        if (!summary) continue;
+        switch (jobGroup.status) {
+          case 'pending':
+            summary.pending = jobGroup._count._all;
+            break;
+          case 'running':
+            summary.running = jobGroup._count._all;
+            break;
+          case 'completed':
+            summary.completed = jobGroup._count._all;
+            break;
+          case 'failed':
+            summary.failed = jobGroup._count._all;
+            break;
+        }
+      }
+      const retryGroups = await fastify.prisma.metadataEnrichmentJob.groupBy({
+        by: ['libraryId'],
+        where: {
+          libraryId: { in: libraries.map((library) => library.id) },
+          status: 'pending',
+          nextAttemptAt: { gt: new Date() },
+        },
+        _count: { _all: true },
+        _min: { nextAttemptAt: true },
+      });
+      for (const retryGroup of retryGroups) {
+        const summary = metadataEnrichmentByLibrary.get(retryGroup.libraryId);
+        if (!summary) continue;
+        summary.retryWaiting = retryGroup._count._all;
+        summary.nextRetryAt = retryGroup._min.nextAttemptAt?.toISOString() || null;
+      }
+    }
+
     return reply.status(200).send({
       libraries: libraries.map(({ _count, scans, memberships, ...library }) => ({
         ...(request.user!.role === 'admin' || library.userId === userId
@@ -216,6 +279,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
             })()),
         accessRole: library.userId === userId ? 'owner' : memberships[0]?.role || 'listener',
         fileCount: _count.files,
+        metadataEnrichment: metadataEnrichmentByLibrary.get(library.id),
         lastScan: scans[0] ? serializeScanSummary(scans[0]) : null,
       })),
     });
@@ -759,6 +823,7 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
           libraryId: library.id,
           googleConnectionId: connection.id,
           rootFolderId: parsed.data.rootFolderId.trim(),
+          driveId: inspection.driveId || null,
           folderName: inspection.name,
           folderPath: inspection.path,
           driveName: inspection.driveName || null,
@@ -1028,6 +1093,40 @@ export const libraryRoutes: FastifyPluginAsync = async (fastify) => {
       await operationLock.release();
     }
   });
+
+  // POST /api/libraries/:id/metadata-enrichment/retry-failed
+  fastify.post<{ Params: { id: string } }>(
+    '/:id/metadata-enrichment/retry-failed',
+    async (request, reply) => {
+      const { id } = request.params;
+      const library = await findOwnedLibrary(id, request.user!.id);
+      if (!library) {
+        return reply.status(404).send({
+          error: {
+            code: 'LIBRARY_NOT_FOUND',
+            message: 'Kütüphane bulunamadı.',
+            requestId: request.id,
+          },
+        });
+      }
+
+      const now = new Date();
+      const result = await fastify.prisma.metadataEnrichmentJob.updateMany({
+        where: { libraryId: id, status: 'failed' },
+        data: {
+          status: 'pending',
+          attempts: 0,
+          leaseToken: null,
+          nextAttemptAt: now,
+          startedAt: null,
+          completedAt: null,
+          lastError: null,
+        },
+      });
+      if (result.count > 0) fastify.metadataEnrichmentService.wake();
+      return reply.status(200).send({ retried: result.count });
+    },
+  );
 
   // POST /api/libraries/:id/scan: Trigger library scan
   fastify.post<{ Params: { id: string } }>('/:id/scan', async (request, reply) => {

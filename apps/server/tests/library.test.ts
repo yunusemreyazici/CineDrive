@@ -302,6 +302,211 @@ describe('Library API Integration Tests', () => {
     await app.prisma.user.deleteMany({ where: { email: intruderEmail } });
   });
 
+  it('searches migrated FTS data and follows title updates', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'SearchIndexFixture', rootFolderId: 'search_index_fixture' },
+    });
+    const media = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: library.id,
+        type: 'movie',
+        title: 'Searchable Midnight Movie',
+        originalTitle: 'Nocturnal Expedition',
+        normalizedTitle: 'searchable midnight movie',
+      },
+    });
+    const otherEmail = `fts-${Date.now()}@cinedrive.test`;
+    const otherPassword = 'SearchFixturePassword123!';
+    const other = await app.prisma.user.create({
+      data: {
+        email: otherEmail,
+        name: 'Search outsider',
+        passwordHash: await app.authService.hashPassword(otherPassword),
+      },
+    });
+    const otherLibrary = await app.prisma.library.create({
+      data: { userId: other.id, name: 'OtherSearchFixture', rootFolderId: 'other_search_fixture' },
+    });
+    const otherMedia = await app.prisma.mediaItem.create({
+      data: {
+        libraryId: otherLibrary.id,
+        type: 'movie',
+        title: 'Searchable Outsider Movie',
+        normalizedTitle: 'searchable outsider movie',
+      },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const cookies = {
+      session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+    };
+
+    try {
+      const first = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Searchable',
+        cookies,
+      });
+      expect(first.statusCode).toBe(200);
+      expect(JSON.parse(first.body).media.map((item: { id: string }) => item.id)).toContain(
+        media.id,
+      );
+      expect(JSON.parse(first.body).media.map((item: { id: string }) => item.id)).not.toContain(
+        otherMedia.id,
+      );
+
+      const originalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Nocturnal',
+        cookies,
+      });
+      expect(originalTitleSearch.statusCode).toBe(200);
+      expect(
+        JSON.parse(originalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
+
+      const shortOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=No',
+        cookies,
+      });
+      expect(shortOriginalTitleSearch.statusCode).toBe(200);
+      expect(
+        JSON.parse(shortOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
+
+      const otherLogin = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { email: otherEmail, password: otherPassword },
+      });
+      const otherSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Searchable',
+        cookies: {
+          session_id: otherLogin.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+        },
+      });
+      expect(JSON.parse(otherSearch.body).media.map((item: { id: string }) => item.id)).toEqual([
+        otherMedia.id,
+      ]);
+
+      await app.prisma.mediaItem.update({
+        where: { id: media.id },
+        data: {
+          title: 'Updated Midnight Movie',
+          originalTitle: 'Hidden Voyage',
+          normalizedTitle: 'updated midnight movie',
+        },
+      });
+      const oldSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Searchable',
+        cookies,
+      });
+      const newSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Updated',
+        cookies,
+      });
+      const oldOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Nocturnal',
+        cookies,
+      });
+      const newOriginalTitleSearch = await app.inject({
+        method: 'GET',
+        url: '/api/media?search=Voyage',
+        cookies,
+      });
+      expect(JSON.parse(oldSearch.body).media.map((item: { id: string }) => item.id)).not.toContain(
+        media.id,
+      );
+      expect(JSON.parse(newSearch.body).media.map((item: { id: string }) => item.id)).toContain(
+        media.id,
+      );
+      expect(
+        JSON.parse(oldOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).not.toContain(media.id);
+      expect(
+        JSON.parse(newOriginalTitleSearch.body).media.map((item: { id: string }) => item.id),
+      ).toContain(media.id);
+    } finally {
+      await app.prisma.library.deleteMany({ where: { id: { in: [library.id, otherLibrary.id] } } });
+      await app.prisma.user.delete({ where: { id: other.id } });
+    }
+  });
+
+  it('keeps legacy favorites and random response shapes while offering compact pages', async () => {
+    const owner = await app.authService.ensureAdminUserExists();
+    const library = await app.prisma.library.create({
+      data: { userId: owner.id, name: 'LegacyMediaFixture', rootFolderId: 'legacy_media_fixture' },
+    });
+    await app.prisma.mediaItem.createMany({
+      data: Array.from({ length: 25 }, (_, index) => ({
+        libraryId: library.id,
+        type: 'movie',
+        title: `Legacy Movie ${index}`,
+        normalizedTitle: `legacy movie ${index}`,
+      })),
+    });
+    const media = await app.prisma.mediaItem.findMany({
+      where: { libraryId: library.id },
+      select: { id: true },
+    });
+    await app.prisma.favorite.createMany({
+      data: media.map((item) => ({ userId: owner.id, mediaItemId: item.id })),
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: env.ADMIN_EMAIL, password: env.ADMIN_PASSWORD },
+    });
+    const cookies = {
+      session_id: login.cookies.find((cookie) => cookie.name === 'session_id')!.value,
+    };
+
+    try {
+      const legacy = await app.inject({ method: 'GET', url: '/api/favorites', cookies });
+      const legacyBody = JSON.parse(legacy.body);
+      expect(legacy.statusCode).toBe(200);
+      expect(legacyBody.favorites).toHaveLength(25);
+      expect(legacyBody).not.toHaveProperty('pagination');
+      expect(legacyBody.favorites[0]).toHaveProperty('movie');
+      expect(legacyBody.favorites[0]).toHaveProperty('series');
+
+      const paged = await app.inject({
+        method: 'GET',
+        url: '/api/favorites?page=2&limit=10',
+        cookies,
+      });
+      const pagedBody = JSON.parse(paged.body);
+      expect(paged.statusCode).toBe(200);
+      expect(pagedBody.favorites).toHaveLength(10);
+      expect(pagedBody.pagination).toMatchObject({ total: 25, page: 2, limit: 10, totalPages: 3 });
+
+      const fullRandom = await app.inject({ method: 'GET', url: '/api/media/random', cookies });
+      const compactRandom = await app.inject({
+        method: 'GET',
+        url: '/api/media/random?compact=true',
+        cookies,
+      });
+      expect(fullRandom.statusCode).toBe(200);
+      expect(compactRandom.statusCode).toBe(200);
+      expect(JSON.parse(fullRandom.body).media).toEqual(
+        expect.objectContaining({ cast: expect.any(Array), isFavorite: expect.any(Boolean) }),
+      );
+      expect(JSON.parse(fullRandom.body).media).toHaveProperty('series');
+      expect(JSON.parse(compactRandom.body).media).not.toHaveProperty('series');
+    } finally {
+      await app.prisma.library.delete({ where: { id: library.id } });
+    }
+  });
+
   it('clearing one library leaves the other library untouched', async () => {
     const owner = await app.authService.ensureAdminUserExists();
 

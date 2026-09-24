@@ -40,7 +40,8 @@ export const InsightsPage: React.FC = () => {
     // Went through a bare `fetch` before, which meant no credentials handling,
     // no shared error shape and — because only `isLoading` was checked — a
     // failed request rendered as a library full of zeroes.
-    queryFn: async () => (await apiClient.get<StorageInsightsDto>('/insights/storage')).data,
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<StorageInsightsDto>('/insights/storage', { signal })).data,
   });
 
   if (error) {
@@ -70,6 +71,7 @@ export const InsightsPage: React.FC = () => {
     duplicates = [],
     largestFiles = [],
   } = insights || {};
+  const duplicateCount = insights?.duplicateCount ?? duplicates.length;
 
   const resolutionRows = [
     { key: 'k4', label: t.insights.resolutionLabels.k4, ...resolutions.k4 },
@@ -110,7 +112,7 @@ export const InsightsPage: React.FC = () => {
           />
           <SettingsMetric
             label={t.insights.duplicates}
-            value={t.insights.itemCount(duplicates.length)}
+            value={t.insights.itemCount(duplicateCount)}
             hint={t.insights.duplicatesHint}
           />
         </div>
@@ -145,10 +147,15 @@ export const InsightsPage: React.FC = () => {
           width="full"
           action={
             <SettingsStatus tone="warning">
-              {t.insights.duplicatesDetected(duplicates.length)}
+              {t.insights.duplicatesDetected(duplicateCount)}
             </SettingsStatus>
           }
         >
+          {duplicateCount > duplicates.length && (
+            <p className="mb-3 text-xs text-zinc-500">
+              {t.insights.duplicateSampleNotice(duplicates.length, duplicateCount)}
+            </p>
+          )}
           <ul className="divide-y divide-zinc-800/60 border-y border-zinc-800/60">
             {duplicates.map((file: DuplicateFileDto) => (
               <li

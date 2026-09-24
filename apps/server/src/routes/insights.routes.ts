@@ -1,16 +1,37 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ownedLibraryFilter, ownedMediaFilter } from '../utils/library-access.js';
-import type { MediaHealthDto } from '@cinedrive/shared';
+import type { DuplicateFileDto, MediaHealthDto } from '@cinedrive/shared';
 import { buildPlaybackPlan, type PlaybackMode } from '../services/playback-plan.service.js';
 import { MediaProbeService } from '../services/media-probe.service.js';
 import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 
 const INSIGHTS_PAGE_SIZE = 500;
+const DUPLICATE_SAMPLE_LIMIT = 100;
+const MEDIA_HEALTH_CACHE_TTL_MS = 60_000;
+
+type DuplicateGroup<T> = {
+  first: T;
+  reason: string;
+  isDuplicate: boolean;
+};
+
+type MediaHealthInventory = Pick<
+  MediaHealthDto,
+  | 'totalVideos'
+  | 'analyzedVideos'
+  | 'failedVideos'
+  | 'pendingVideos'
+  | 'playback'
+  | 'codecs'
+  | 'failures'
+>;
 
 export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
   const mediaProbeService = new MediaProbeService();
   const activeReanalysis = new Set<string>();
+  const mediaHealthCache = new Map<string, { expiresAt: number; value: MediaHealthInventory }>();
+  const mediaHealthInflight = new Map<string, Promise<MediaHealthInventory>>();
 
   const summarizeAnalysisError = (error: string) => {
     const normalized = error.toLowerCase();
@@ -30,209 +51,32 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
     return 'Medya teknik bilgileri okunamadı.';
   };
 
-  // GET /api/insights/storage: Analyze Drive Storage & Quota
-  fastify.get('/storage', async (request, reply) => {
-    const userId = request.user!.id;
+  const loadMediaHealthInventory = async (userId: string): Promise<MediaHealthInventory> => {
     const where = {
-      where: {
-        status: 'active',
-        library: ownedLibraryFilter(userId),
-      },
-      orderBy: { id: 'asc' as const },
-      take: INSIGHTS_PAGE_SIZE,
-      select: {
-        id: true,
-        name: true,
-        size: true,
-        md5Checksum: true,
-        googleDriveFileId: true,
-        library: { select: { name: true } },
-      },
+      status: 'active',
+      OR: [
+        { mimeType: { startsWith: 'video/' } },
+        { mimeType: 'application/octet-stream' },
+        { mimeType: 'application/x-matroska' },
+      ],
+      library: ownedLibraryFilter(userId),
     };
-
-    type StorageFile = Awaited<ReturnType<typeof fastify.prisma.driveFile.findMany<typeof where>>>[number];
-    let cursorId: string | undefined;
-
-    let totalFiles = 0;
-    let totalSizeBytes = 0;
-
-    const resolutionStats = {
-      k4: { count: 0, sizeBytes: 0 },
-      p1080: { count: 0, sizeBytes: 0 },
-      p720: { count: 0, sizeBytes: 0 },
-      sd: { count: 0, sizeBytes: 0 },
-    };
-
-    const nameMap = new Map<string, StorageFile[]>();
-    const md5Map = new Map<string, StorageFile[]>();
-
-    const largestFilesList: Array<{
-      id: string;
-      name: string;
-      size: number;
-      libraryName: string;
-      googleDriveFileId: string;
-    }> = [];
-
-    const addLargestFile = (file: StorageFile, sizeNum: number) => {
-      largestFilesList.push({
-        id: file.id,
-        name: file.name,
-        size: sizeNum,
-        libraryName: file.library?.name || 'Bilinmeyen',
-        googleDriveFileId: file.googleDriveFileId || '',
-      });
-      largestFilesList.sort((a, b) => b.size - a.size);
-      if (largestFilesList.length > 10) largestFilesList.pop();
-    };
-
-    while (true) {
-      const files = await fastify.prisma.driveFile.findMany({
-        ...where,
-        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      });
-      if (files.length === 0) break;
-
-      for (const file of files) {
-        totalFiles++;
-        const sizeNum = file.size ? Number(file.size) : 0;
-        totalSizeBytes += sizeNum;
-
-        // Classify resolution
-        const fileNameLower = file.name.toLowerCase();
-        if (
-          fileNameLower.includes('2160p') ||
-          fileNameLower.includes('4k') ||
-          sizeNum > 8 * 1024 * 1024 * 1024
-        ) {
-          resolutionStats.k4.count++;
-          resolutionStats.k4.sizeBytes += sizeNum;
-        } else if (
-          fileNameLower.includes('1080p') ||
-          (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)
-        ) {
-          resolutionStats.p1080.count++;
-          resolutionStats.p1080.sizeBytes += sizeNum;
-        } else if (
-          fileNameLower.includes('720p') ||
-          (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)
-        ) {
-          resolutionStats.p720.count++;
-          resolutionStats.p720.sizeBytes += sizeNum;
-        } else {
-          resolutionStats.sd.count++;
-          resolutionStats.sd.sizeBytes += sizeNum;
-        }
-
-        // Group for duplicates
-        if (file.md5Checksum) {
-          const list = md5Map.get(file.md5Checksum) || [];
-          list.push(file);
-          md5Map.set(file.md5Checksum, list);
-        }
-
-        const cleanName = fileNameLower.trim();
-        const listByName = nameMap.get(cleanName) || [];
-        listByName.push(file);
-        nameMap.set(cleanName, listByName);
-
-        addLargestFile(file, sizeNum);
-      }
-
-      cursorId = files[files.length - 1]?.id;
-      if (files.length < INSIGHTS_PAGE_SIZE) break;
-    }
-
-    // Sort largest files
-    const topLargestFiles = largestFilesList.slice(0, 10);
-
-    // Identify duplicates
-    const duplicates: Array<{
-      id: string;
-      name: string;
-      size: number;
-      libraryName: string;
-      googleDriveFileId: string;
-      reason: string;
-    }> = [];
-
-    const addedDuplicateIds = new Set<string>();
-
-    for (const [md5, list] of md5Map.entries()) {
-      if (list.length > 1) {
-        for (const item of list) {
-          if (!addedDuplicateIds.has(item.id)) {
-            addedDuplicateIds.add(item.id);
-            duplicates.push({
-              id: item.id,
-              name: item.name,
-              size: item.size ? Number(item.size) : 0,
-              libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId || '',
-              reason: `Aynı MD5 Özeti (${md5.substring(0, 8)}...)`,
-            });
-          }
-        }
-      }
-    }
-
-    for (const [, list] of nameMap.entries()) {
-      if (list.length > 1) {
-        for (const item of list) {
-          if (!addedDuplicateIds.has(item.id)) {
-            addedDuplicateIds.add(item.id);
-            duplicates.push({
-              id: item.id,
-              name: item.name,
-              size: item.size ? Number(item.size) : 0,
-              libraryName: item.library?.name || 'Bilinmeyen',
-              googleDriveFileId: item.googleDriveFileId || '',
-              reason: 'Aynı Dosya Adı',
-            });
-          }
-        }
-      }
-    }
-
-    const averageSizeBytes = totalFiles > 0 ? Math.round(totalSizeBytes / totalFiles) : 0;
-
-    return reply.status(200).send({
-      totalFiles,
-      totalSizeBytes,
-      averageSizeBytes,
-      resolutions: resolutionStats,
-      duplicates,
-      largestFiles: topLargestFiles,
-    });
-  });
-
-  fastify.get('/media-health', async (request, reply) => {
-    const userId = request.user!.id;
-    const where = {
-        status: 'active',
-        OR: [
-          { mimeType: { startsWith: 'video/' } },
-          { mimeType: 'application/octet-stream' },
-          { mimeType: 'application/x-matroska' },
-        ],
-        library: ownedLibraryFilter(userId),
-      };
     const select = {
-        id: true,
-        name: true,
-        mediaContainer: true,
-        videoCodec: true,
-        videoProfile: true,
-        videoBitDepth: true,
-        audioCodec: true,
-        audioChannels: true,
-        mediaWidth: true,
-        mediaHeight: true,
-        mediaDuration: true,
-        mediaAnalyzedAt: true,
-        mediaAnalysisError: true,
-        library: { select: { name: true } },
-      } as const;
+      id: true,
+      name: true,
+      mediaContainer: true,
+      videoCodec: true,
+      videoProfile: true,
+      videoBitDepth: true,
+      audioCodec: true,
+      audioChannels: true,
+      mediaWidth: true,
+      mediaHeight: true,
+      mediaDuration: true,
+      mediaAnalyzedAt: true,
+      mediaAnalysisError: true,
+      library: { select: { name: true } },
+    } as const;
 
     const emptyModes = (): Record<PlaybackMode, number> => ({
       direct: 0,
@@ -301,6 +145,264 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
         .map(([name, count]) => ({ name, count }))
         .sort((left, right) => right.count - left.count);
 
+    return {
+      totalVideos,
+      analyzedVideos,
+      failedVideos,
+      pendingVideos,
+      playback,
+      codecs: {
+        video: sortedDistribution(videoCodecs),
+        audio: sortedDistribution(audioCodecs),
+        containers: sortedDistribution(containers),
+      },
+      failures,
+    };
+  };
+
+  const getMediaHealthInventory = async (
+    userId: string,
+    cacheKey: string,
+  ): Promise<MediaHealthInventory> => {
+    const now = Date.now();
+    for (const [cachedKey, entry] of mediaHealthCache) {
+      if (entry.expiresAt <= now) mediaHealthCache.delete(cachedKey);
+    }
+
+    const cached = mediaHealthCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const inFlight = mediaHealthInflight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const pending = loadMediaHealthInventory(userId);
+    mediaHealthInflight.set(cacheKey, pending);
+    try {
+      const value = await pending;
+      if (mediaHealthInflight.get(cacheKey) === pending) {
+        mediaHealthInflight.delete(cacheKey);
+        mediaHealthCache.delete(cacheKey);
+        mediaHealthCache.set(cacheKey, {
+          value,
+          expiresAt: Date.now() + MEDIA_HEALTH_CACHE_TTL_MS,
+        });
+        if (mediaHealthCache.size > 128) {
+          const oldestCacheKey = mediaHealthCache.keys().next().value;
+          if (oldestCacheKey) mediaHealthCache.delete(oldestCacheKey);
+        }
+      }
+      return value;
+    } catch (error) {
+      if (mediaHealthInflight.get(cacheKey) === pending) mediaHealthInflight.delete(cacheKey);
+      throw error;
+    }
+  };
+
+  const invalidateMediaHealthInventory = (userId: string) => {
+    const userCachePrefix = `${userId}:`;
+    for (const cacheKey of mediaHealthCache.keys()) {
+      if (cacheKey.startsWith(userCachePrefix)) mediaHealthCache.delete(cacheKey);
+    }
+    for (const cacheKey of mediaHealthInflight.keys()) {
+      if (cacheKey.startsWith(userCachePrefix)) mediaHealthInflight.delete(cacheKey);
+    }
+  };
+
+  // GET /api/insights/storage: Analyze Drive Storage & Quota
+  fastify.get('/storage', async (request, reply) => {
+    const userId = request.user!.id;
+    const where = {
+      where: {
+        status: 'active',
+        library: ownedLibraryFilter(userId),
+      },
+      orderBy: { id: 'asc' as const },
+      take: INSIGHTS_PAGE_SIZE,
+      select: {
+        id: true,
+        name: true,
+        size: true,
+        md5Checksum: true,
+        googleDriveFileId: true,
+        library: { select: { name: true } },
+      },
+    };
+
+    type StorageFile = Awaited<ReturnType<typeof fastify.prisma.driveFile.findMany<typeof where>>>[number];
+    let cursorId: string | undefined;
+
+    let totalFiles = 0;
+    let totalSizeBytes = 0;
+
+    const resolutionStats = {
+      k4: { count: 0, sizeBytes: 0 },
+      p1080: { count: 0, sizeBytes: 0 },
+      p720: { count: 0, sizeBytes: 0 },
+      sd: { count: 0, sizeBytes: 0 },
+    };
+
+    const nameMap = new Map<string, DuplicateGroup<StorageFile>>();
+    const md5Map = new Map<string, DuplicateGroup<StorageFile>>();
+    const duplicateIds = new Set<string>();
+    const md5DuplicateSamples: DuplicateFileDto[] = [];
+    const nameDuplicateSamples: DuplicateFileDto[] = [];
+
+    const toDuplicateFile = (file: StorageFile, reason: string): DuplicateFileDto => ({
+      id: file.id,
+      name: file.name,
+      size: file.size ? Number(file.size) : 0,
+      libraryName: file.library?.name || 'Bilinmeyen',
+      googleDriveFileId: file.googleDriveFileId || '',
+      reason,
+    });
+
+    const recordDuplicate = (
+      file: StorageFile,
+      reason: string,
+      samples: DuplicateFileDto[],
+    ) => {
+      duplicateIds.add(file.id);
+      if (samples.length < DUPLICATE_SAMPLE_LIMIT) {
+        samples.push(toDuplicateFile(file, reason));
+      }
+    };
+
+    const observeDuplicate = (
+      groups: Map<string, DuplicateGroup<StorageFile>>,
+      key: string,
+      file: StorageFile,
+      reason: string,
+      samples: DuplicateFileDto[],
+    ) => {
+      const group = groups.get(key);
+      if (!group) {
+        groups.set(key, { first: file, reason, isDuplicate: false });
+        return;
+      }
+
+      if (!group.isDuplicate) {
+        group.isDuplicate = true;
+        recordDuplicate(group.first, group.reason, samples);
+      }
+      recordDuplicate(file, reason, samples);
+    };
+
+    const largestFilesList: Array<{
+      id: string;
+      name: string;
+      size: number;
+      libraryName: string;
+      googleDriveFileId: string;
+    }> = [];
+
+    const addLargestFile = (file: StorageFile, sizeNum: number) => {
+      largestFilesList.push({
+        id: file.id,
+        name: file.name,
+        size: sizeNum,
+        libraryName: file.library?.name || 'Bilinmeyen',
+        googleDriveFileId: file.googleDriveFileId || '',
+      });
+      largestFilesList.sort((a, b) => b.size - a.size);
+      if (largestFilesList.length > 10) largestFilesList.pop();
+    };
+
+    while (true) {
+      const files = await fastify.prisma.driveFile.findMany({
+        ...where,
+        ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      });
+      if (files.length === 0) break;
+
+      for (const file of files) {
+        totalFiles++;
+        const sizeNum = file.size ? Number(file.size) : 0;
+        totalSizeBytes += sizeNum;
+
+        // Classify resolution
+        const fileNameLower = file.name.toLowerCase();
+        if (
+          fileNameLower.includes('2160p') ||
+          fileNameLower.includes('4k') ||
+          sizeNum > 8 * 1024 * 1024 * 1024
+        ) {
+          resolutionStats.k4.count++;
+          resolutionStats.k4.sizeBytes += sizeNum;
+        } else if (
+          fileNameLower.includes('1080p') ||
+          (sizeNum > 2.5 * 1024 * 1024 * 1024 && sizeNum <= 8 * 1024 * 1024 * 1024)
+        ) {
+          resolutionStats.p1080.count++;
+          resolutionStats.p1080.sizeBytes += sizeNum;
+        } else if (
+          fileNameLower.includes('720p') ||
+          (sizeNum > 1 * 1024 * 1024 * 1024 && sizeNum <= 2.5 * 1024 * 1024 * 1024)
+        ) {
+          resolutionStats.p720.count++;
+          resolutionStats.p720.sizeBytes += sizeNum;
+        } else {
+          resolutionStats.sd.count++;
+          resolutionStats.sd.sizeBytes += sizeNum;
+        }
+
+        // Keep one representative per group and cap retained display samples.
+        // The ID set still provides an exact count across name/MD5 overlap.
+        if (file.md5Checksum) {
+          observeDuplicate(
+            md5Map,
+            file.md5Checksum,
+            file,
+            `Aynı MD5 Özeti (${file.md5Checksum.substring(0, 8)}...)`,
+            md5DuplicateSamples,
+          );
+        }
+
+        const cleanName = fileNameLower.trim();
+        observeDuplicate(nameMap, cleanName, file, 'Aynı Dosya Adı', nameDuplicateSamples);
+
+        addLargestFile(file, sizeNum);
+      }
+
+      cursorId = files[files.length - 1]?.id;
+      if (files.length < INSIGHTS_PAGE_SIZE) break;
+    }
+
+    // Sort largest files
+    const topLargestFiles = largestFilesList.slice(0, 10);
+
+    // Prefer MD5 explanations when a file matches both duplicate rules. Keep
+    // the exact total while limiting the response and retained display data.
+    const duplicateSamples = new Map<string, DuplicateFileDto>();
+    for (const sample of [...md5DuplicateSamples, ...nameDuplicateSamples]) {
+      if (duplicateSamples.size >= DUPLICATE_SAMPLE_LIMIT) break;
+      if (!duplicateSamples.has(sample.id)) duplicateSamples.set(sample.id, sample);
+    }
+
+    const averageSizeBytes = totalFiles > 0 ? Math.round(totalSizeBytes / totalFiles) : 0;
+
+    return reply.status(200).send({
+      totalFiles,
+      totalSizeBytes,
+      averageSizeBytes,
+      resolutions: resolutionStats,
+      duplicateCount: duplicateIds.size,
+      duplicates: [...duplicateSamples.values()],
+      largestFiles: topLargestFiles,
+    });
+  });
+
+  fastify.get('/media-health', async (request, reply) => {
+    const userId = request.user!.id;
+    const accessibleLibraries = await fastify.prisma.library.findMany({
+      where: ownedLibraryFilter(userId),
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+    // A changed membership set gets a separate cache key, so a revoked library
+    // cannot remain visible through a cached inventory.
+    const cacheKey = `${userId}:${accessibleLibraries.map((library) => library.id).join(',')}`;
+    const inventory = await getMediaHealthInventory(userId, cacheKey);
+
     const hlsStats = fastify.hlsService.getStats();
     const runtimeHls =
       request.user!.role === 'admin'
@@ -315,16 +417,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           };
 
     const response: MediaHealthDto = {
-      totalVideos,
-      analyzedVideos,
-      failedVideos,
-      pendingVideos,
-      playback,
-      codecs: {
-        video: sortedDistribution(videoCodecs),
-        audio: sortedDistribution(audioCodecs),
-        containers: sortedDistribution(containers),
-      },
+      ...inventory,
       runtime: {
         hls: runtimeHls,
         transcode: fastify.transcodeService.getStats(),
@@ -332,7 +425,6 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           includeRecent: request.user!.role === 'admin',
         }),
       },
-      failures,
     };
 
     return reply.status(200).send(response);
@@ -479,6 +571,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: driveFile.id },
           data: metadata,
         });
+        invalidateMediaHealthInventory(userId);
         return reply.status(200).send({
           success: true,
           message: 'Medya teknik bilgileri güncellendi.',
@@ -493,6 +586,7 @@ export const insightsRoutes: FastifyPluginAsync = async (fastify) => {
             mediaAnalysisError: rawError,
           },
         });
+        invalidateMediaHealthInventory(userId);
         return reply.status(422).send({
           error: {
             code: 'MEDIA_ANALYSIS_FAILED',

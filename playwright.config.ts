@@ -8,7 +8,6 @@ import { E2E_API_PORT, E2E_BASE_URL, E2E_WEB_PORT, e2eServerEnv } from './e2e/en
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
-  globalTeardown: './e2e/global-teardown.ts',
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
@@ -31,9 +30,9 @@ export default defineConfig({
 
   webServer: [
     {
-      // Playwright starts webServer entries before globalSetup, so seeding has
-      // to happen here — the API refuses to boot against an empty schema.
-      command: 'pnpm exec tsx e2e/seed.ts && pnpm exec tsx e2e/start-server.ts',
+      // Keep one process for Playwright to terminate. Seeding happens inside
+      // this entry point before the API starts, against a disposable database.
+      command: 'node --import tsx e2e/start-server.ts',
       port: E2E_API_PORT,
       reuseExistingServer: false,
       stdout: 'pipe',
@@ -42,7 +41,7 @@ export default defineConfig({
       env: e2eServerEnv,
     },
     {
-      command: 'pnpm --filter @cinedrive/web exec vite',
+      command: 'node apps/web/node_modules/vite/bin/vite.js apps/web --config apps/web/vite.config.ts',
       port: E2E_WEB_PORT,
       reuseExistingServer: false,
       stdout: 'pipe',

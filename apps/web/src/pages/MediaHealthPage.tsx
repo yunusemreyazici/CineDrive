@@ -12,7 +12,7 @@ import {
   SettingsMetric,
   SettingsStatus,
 } from './settings/SettingsCard';
-import { t } from '../i18n';
+import { intlLocale, t } from '../i18n';
 
 const formatBytes = (bytes: number) => {
   if (!bytes) return '0 B';
@@ -51,11 +51,10 @@ export const MediaHealthPage: React.FC = () => {
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MediaHealthDto>({
     queryKey: ['media-health'],
-    queryFn: async () => (await apiClient.get<MediaHealthDto>('/insights/media-health')).data,
-    // The endpoint scans every indexed video to build codec/playback
-    // distributions. Five-second polling multiplied that full-table work by
-    // every open settings tab; fifteen seconds keeps runtime feedback useful
-    // without turning the health panel into a permanent rescan loop.
+    queryFn: async ({ signal }) =>
+      (await apiClient.get<MediaHealthDto>('/insights/media-health', { signal })).data,
+    // Runtime state refreshes every 15 seconds; the server reuses the expensive
+    // per-library codec/playback inventory for up to a minute between changes.
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
   });
@@ -288,7 +287,7 @@ export const MediaHealthPage: React.FC = () => {
                     </td>
                     <td className="py-3 pr-4 text-xs text-zinc-400">{job.viewerCount}</td>
                     <td className="py-3 pr-4 text-xs text-zinc-400">
-                      {new Date(job.lastAccessAt).toLocaleTimeString('tr-TR')}
+                      {new Date(job.lastAccessAt).toLocaleTimeString(intlLocale)}
                     </td>
                     <td className="py-3 pl-4 text-right">
                       <SettingsButton

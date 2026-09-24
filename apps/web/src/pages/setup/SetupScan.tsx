@@ -14,9 +14,10 @@ export function SetupScan({ library, sourceId }: { library: LibraryDto; sourceId
   const driveScan = useScanDriveSourceMutation();
   const scans = useQuery({
     queryKey: ['setupScan', library.id, sourceId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const { data } = await apiClient.get<{ scans: LibraryScanType[] }>(
         `/libraries/${library.id}/scans`,
+        { signal },
       );
       const latest = data.scans.find((scan) => !sourceId || scan.driveScanSourceId === sourceId);
       if (latest || !sourceId) return latest ?? null;
@@ -24,6 +25,7 @@ export function SetupScan({ library, sourceId }: { library: LibraryDto; sourceId
       // must not be mistaken for a source that has never been scanned.
       const sources = await apiClient.get<{ sources: DriveScanSourceDto[] }>(
         `/libraries/${library.id}/drive-sources`,
+        { signal },
       );
       return sources.data.sources.find((source) => source.id === sourceId)?.lastScan ?? null;
     },

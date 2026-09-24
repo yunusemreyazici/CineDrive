@@ -131,7 +131,12 @@ export class AuthService {
 
     if (!session) return null;
 
-    if (session.expiresAt < new Date() || session.user.disabledAt) {
+    const blockedByAuthMode =
+      env.NODE_ENV !== 'test' &&
+      env.APP_AUTH_MODE === 'single-user' &&
+      session.user.role !== 'admin';
+
+    if (session.expiresAt < new Date() || session.user.disabledAt || blockedByAuthMode) {
       // Two requests can observe the same expired/disabled session. Make the
       // cleanup idempotent so the loser does not turn a normal auth failure
       // into a P2025/500 response.

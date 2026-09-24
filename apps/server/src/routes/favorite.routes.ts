@@ -1,36 +1,141 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { mediaQuerySchema } from '@cinedrive/shared';
 import { ownedMediaFilter } from '../utils/library-access.js';
+
+const favoriteMediaSelect = (userId: string) => ({
+  id: true,
+  type: true,
+  title: true,
+  originalTitle: true,
+  normalizedTitle: true,
+  year: true,
+  overview: true,
+  posterDriveFileId: true,
+  backdropDriveFileId: true,
+  posterUrl: true,
+  backdropUrl: true,
+  duration: true,
+  voteAverage: true,
+  voteCount: true,
+  genres: true,
+  trailerUrl: true,
+  contentRating: true,
+  tmdbId: true,
+  imdbId: true,
+  createdAt: true,
+  updatedAt: true,
+  playbackProgresses: {
+    where: { userId },
+    orderBy: { lastPlayedAt: 'desc' as const },
+    take: 1,
+    select: {
+      positionSeconds: true,
+      durationSeconds: true,
+      percentage: true,
+      completed: true,
+      serverRevision: true,
+    },
+  },
+});
+
+function parseGenres(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) && value.every((genre) => typeof genre === 'string') ? value : [];
+  } catch {
+    return [];
+  }
+}
 
 export const favoriteRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate);
 
   // GET /api/favorites: List user favorites
   fastify.get('/', async (request, reply) => {
-    const userId = request.user!.id;
-
-    const favorites = await fastify.prisma.favorite.findMany({
-      where: { userId, mediaItem: ownedMediaFilter(userId) },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        mediaItem: {
-          include: {
-            movie: true,
-            series: true,
-            playbackProgresses: {
-              where: { userId },
+    // Keep the unpaged response contract for existing/native clients. The web
+    // app opts into bounded pages by sending page and limit explicitly.
+    const pagingRequested =
+      typeof request.query === 'object' &&
+      request.query !== null &&
+      ('page' in request.query || 'limit' in request.query);
+    if (!pagingRequested) {
+      const userId = request.user!.id;
+      const favorites = await fastify.prisma.favorite.findMany({
+        where: { userId, mediaItem: ownedMediaFilter(userId) },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          mediaItem: {
+            include: {
+              movie: true,
+              series: true,
+              playbackProgresses: { where: { userId } },
             },
           },
         },
-      },
-    });
+      });
+      return reply.status(200).send({
+        favorites: favorites.map((favorite) => ({
+          ...favorite.mediaItem,
+          isFavorite: true,
+          progress: favorite.mediaItem.playbackProgresses[0] || null,
+        })),
+      });
+    }
+
+    const parseResult = mediaQuerySchema.pick({ page: true, limit: true }).safeParse(request.query);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Favori listeleme parametreleri geçersiz.',
+          requestId: request.id,
+          details: parseResult.error.format(),
+        },
+      });
+    }
+
+    const { page, limit } = parseResult.data;
+    const userId = request.user!.id;
+    const where = { userId, mediaItem: ownedMediaFilter(userId) };
+
+    const [favorites, total] = await Promise.all([
+      fastify.prisma.favorite.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          mediaItem: {
+            select: favoriteMediaSelect(userId),
+          },
+        },
+      }),
+      fastify.prisma.favorite.count({ where }),
+    ]);
 
     const enriched = favorites.map((f) => ({
       ...f.mediaItem,
+      genres: parseGenres(f.mediaItem.genres),
       isFavorite: true,
       progress: f.mediaItem.playbackProgresses[0] || null,
+      posterUrl: f.mediaItem.posterDriveFileId
+        ? `/api/media/assets/${f.mediaItem.posterDriveFileId}`
+        : f.mediaItem.posterUrl,
+      backdropUrl: f.mediaItem.backdropDriveFileId
+        ? `/api/media/assets/${f.mediaItem.backdropDriveFileId}`
+        : f.mediaItem.backdropUrl,
     }));
 
-    return reply.status(200).send({ favorites: enriched });
+    return reply.status(200).send({
+      favorites: enriched,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   });
 
   // POST /api/favorites/:mediaItemId: Add to favorites

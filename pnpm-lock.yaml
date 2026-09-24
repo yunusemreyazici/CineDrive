@@ -80,6 +80,9 @@ importers:
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
+      better-sqlite3:
+        specifier: 12.11.1
+        version: 12.11.1
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2

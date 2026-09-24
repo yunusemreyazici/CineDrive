@@ -6,21 +6,19 @@ import { Modal } from './common/Modal';
 import { t } from '../i18n';
 
 interface EditMetadataModalProps {
-  media: MediaItemType;
+  media: Pick<
+    MediaItemType,
+    'id' | 'title' | 'year' | 'overview' | 'posterUrl' | 'backdropUrl' | 'voteAverage'
+  >;
   isOpen: boolean;
   onClose: () => void;
 }
 
 const FIELD_CLASSES =
   'w-full rounded-xl border border-zinc-700/60 bg-zinc-800/60 px-4 py-2.5 text-sm text-white transition-all focus:border-brand-500 focus:outline-none';
-const LABEL_CLASSES =
-  'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-zinc-300';
+const LABEL_CLASSES = 'mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-zinc-300';
 
-export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({
-  media,
-  isOpen,
-  onClose,
-}) => {
+export const EditMetadataModal: React.FC<EditMetadataModalProps> = ({ media, isOpen, onClose }) => {
   const updateMutation = useUpdateMediaMetadataMutation();
   const fieldId = useId();
 

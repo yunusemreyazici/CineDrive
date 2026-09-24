@@ -6,7 +6,7 @@ import { InterfaceSection } from './settings/sections/InterfaceSection';
 import { LibrarySourcesSection } from './settings/sections/LibrarySourcesSection';
 import { ApiManagementSection } from './settings/sections/ApiManagementSection';
 import { AboutSection } from './settings/sections/AboutSection';
-import { t } from '../i18n';
+import { intlLocale, t } from '../i18n';
 import {
   SETTINGS_GROUPS,
   SETTINGS_SEARCH_ITEMS,
@@ -47,14 +47,14 @@ export const SettingsPage: React.FC = () => {
   const [settingsSearch, setSettingsSearch] = useState('');
 
   const activePane = resolvePane(searchParams.get('tab'));
-  const normalizedSearch = settingsSearch.trim().toLocaleLowerCase('tr-TR');
+  const normalizedSearch = settingsSearch.trim().toLocaleLowerCase(intlLocale);
 
   const searchResults = useMemo(
     () =>
       normalizedSearch
         ? SETTINGS_SEARCH_ITEMS.filter((item) =>
             `${item.label} ${item.description}`
-              .toLocaleLowerCase('tr-TR')
+              .toLocaleLowerCase(intlLocale)
               .includes(normalizedSearch),
           ).slice(0, MAX_SEARCH_RESULTS)
         : [],

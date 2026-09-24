@@ -133,6 +133,7 @@ describe('useMediaListQuery', () => {
     await waitFor(() =>
       expect(getSpy).toHaveBeenCalledWith('/media', {
         params: { limit: 10, hideWithoutMetadata: true },
+        signal: expect.any(AbortSignal),
       }),
     );
   });
@@ -147,6 +148,11 @@ describe('useMediaListQuery', () => {
       wrapper,
     });
 
-    await waitFor(() => expect(getSpy).toHaveBeenCalledWith('/media', { params: { limit: 10 } }));
+    await waitFor(() =>
+      expect(getSpy).toHaveBeenCalledWith('/media', {
+        params: { limit: 10 },
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 });

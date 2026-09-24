@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@cinedrive/prisma';
+import { randomUUID } from 'node:crypto';
 import {
   normalizeSubtitleStem,
   parseMediaFilename,
@@ -6,7 +7,10 @@ import {
 } from '@cinedrive/shared';
 import { GoogleDriveService, type DriveFileMetadata } from './drive.service.js';
 import { GoogleOAuthService } from './google-oauth.service.js';
-import { MetadataService } from './metadata.service.js';
+import {
+  MetadataEnrichmentService,
+  type MetadataEnrichmentTarget,
+} from './metadata-enrichment.service.js';
 import { MediaProbeService } from './media-probe.service.js';
 import { runWithConcurrency } from '../utils/concurrency.js';
 import { MusicLibraryService } from './music-library.service.js';
@@ -35,11 +39,45 @@ interface DriveScanTarget {
   connection: { id: string };
   rootFolderId: string;
   sourceId: string | null;
+  changesPageToken?: string;
 }
+
+const isExpiredDriveChangeToken = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    code?: unknown;
+    status?: unknown;
+    message?: unknown;
+    response?: {
+      status?: unknown;
+      data?: {
+        error?: {
+          message?: unknown;
+          errors?: Array<{ reason?: unknown }>;
+        };
+      };
+    };
+    errors?: Array<{ reason?: unknown }>;
+  };
+  const status = Number(candidate.status ?? candidate.code ?? candidate.response?.status);
+  const reasons = [
+    ...(candidate.errors || []),
+    ...(candidate.response?.data?.error?.errors || []),
+  ].map((item) => String(item.reason || '').toLowerCase());
+  if (status === 410 || reasons.some((reason) => reason.includes('pagetokenexpired'))) return true;
+  if (status !== 400) return false;
+
+  const message = [candidate.message, candidate.response?.data?.error?.message]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase();
+  return /page\s*token.*(invalid|expired|no longer valid)|(invalid|expired).*page\s*token/.test(
+    message,
+  );
+};
 
 export class LibraryScanService {
   private driveService = new GoogleDriveService();
-  private metadataService = new MetadataService();
   private mediaProbeService = new MediaProbeService();
   private musicLibraryService: MusicLibraryService;
   private activeLibraryScans = new Set<string>();
@@ -50,6 +88,7 @@ export class LibraryScanService {
     private googleOAuthService: GoogleOAuthService,
     private scanLifecycle: ScanLifecycleService,
     private operationLocks: LibraryOperationLockService,
+    private metadataEnrichment: MetadataEnrichmentService,
   ) {
     this.musicLibraryService = new MusicLibraryService(prisma);
   }
@@ -159,6 +198,159 @@ export class LibraryScanService {
       ],
       source.id,
     );
+  }
+
+  /** Scheduled scans skip the expensive inventory walk when Drive has no changes. */
+  public async scanSourceIfChanged(
+    userId: string,
+    libraryId: string,
+    sourceId: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    signal?.throwIfAborted();
+    const source = await this.prisma.driveScanSource.findFirst({
+      where: { id: sourceId, libraryId, googleConnection: { userId } },
+    });
+    if (!source) throw new Error('DRIVE_SOURCE_NOT_FOUND');
+    // Account-wide scans include shared drives, which need separate change
+    // cursors. Keep these on the safe full-scan path until each drive has its
+    // own persisted source cursor.
+    if (!source.rootFolderId.trim()) {
+      signal?.throwIfAborted();
+      return this.scanSource(userId, libraryId, sourceId);
+    }
+    if (this.activeLibraryScans.has(libraryId) || this.activeSourceScans.has(sourceId)) {
+      throw new Error('SCAN_ALREADY_IN_PROGRESS');
+    }
+
+    const connection = (await this.googleOAuthService.getConnectionsInfo(userId)).find(
+      (item) => item.id === source.googleConnectionId,
+    );
+    if (!connection) throw new Error('GOOGLE_ACCOUNT_NOT_CONNECTED');
+    const accessToken = await this.googleOAuthService.getValidAccessToken(userId, connection.id);
+    signal?.throwIfAborted();
+
+    let driveId = source.driveId || undefined;
+    if (!driveId && source.rootFolderId) {
+      driveId = (
+        await this.driveService.inspectFolder(accessToken, source.rootFolderId, false, signal)
+      ).driveId;
+      if (driveId) {
+        await this.prisma.driveScanSource.updateMany({
+          where: { id: source.id, driveId: null },
+          data: { driveId },
+        });
+      }
+    }
+
+    let changesPageToken = source.changesPageToken || undefined;
+    if (changesPageToken) {
+      try {
+        const changes = await this.driveService.getChangesSince(
+          accessToken,
+          changesPageToken,
+          driveId,
+          signal,
+        );
+        if (!changes.hasChanges) {
+          signal?.throwIfAborted();
+          return this.completeUnchangedSourceScan(
+            libraryId,
+            source.id,
+            source.changesPageToken!,
+            changes.pageToken,
+          );
+        }
+        changesPageToken = changes.pageToken;
+      } catch (error) {
+        if (!isExpiredDriveChangeToken(error)) throw error;
+        // Google can expire a cursor. Take a fresh snapshot and reconcile the
+        // whole source; changes made during that reconciliation replay later.
+        changesPageToken = await this.driveService.getChangesStartPageToken(
+          accessToken,
+          driveId,
+          signal,
+        );
+      }
+    } else {
+      // Capture the cursor before inventory starts; later changes are picked
+      // up by the next run instead of being accidentally skipped.
+      changesPageToken = await this.driveService.getChangesStartPageToken(
+        accessToken,
+        driveId,
+        signal,
+      );
+    }
+
+    signal?.throwIfAborted();
+    return this.startScan(
+      userId,
+      libraryId,
+      [
+        {
+          connection,
+          rootFolderId: source.rootFolderId,
+          sourceId: source.id,
+          changesPageToken,
+        },
+      ],
+      source.id,
+    );
+  }
+
+  private async completeUnchangedSourceScan(
+    libraryId: string,
+    sourceId: string,
+    expectedPageToken: string,
+    latestPageToken: string,
+  ): Promise<string> {
+    const operationLock = await this.operationLocks.acquire(libraryId, 'scan');
+    try {
+      const currentSource = await this.prisma.driveScanSource.findFirst({
+        where: { id: sourceId, libraryId },
+        select: { changesPageToken: true },
+      });
+      if (currentSource?.changesPageToken !== expectedPageToken) {
+        throw new Error('SCAN_ALREADY_IN_PROGRESS');
+      }
+
+      const now = new Date();
+      const scanId = randomUUID();
+      await this.prisma.$transaction(async (tx) => {
+        const sourceUpdate = await tx.driveScanSource.updateMany({
+          where: { id: sourceId, changesPageToken: expectedPageToken },
+          data: {
+            changesPageToken: latestPageToken,
+            lastScanStatus: 'completed',
+            lastScannedAt: now,
+            lastScanDurationMs: 0,
+            lastScanAddedCount: 0,
+            lastScanUpdatedCount: 0,
+            lastScanDeletedCount: 0,
+            lastScanErrorCount: 0,
+            lastScanError: null,
+            lastScanInterruptionReason: null,
+          },
+        });
+        if (sourceUpdate.count !== 1) throw new Error('SCAN_ALREADY_IN_PROGRESS');
+        await tx.libraryScan.create({
+          data: {
+            id: scanId,
+            libraryId,
+            driveScanSourceId: sourceId,
+            status: 'completed',
+            startedAt: now,
+            completedAt: now,
+            heartbeatAt: now,
+            durationMs: 0,
+          },
+        });
+        await tx.library.update({ where: { id: libraryId }, data: { lastScannedAt: now } });
+      });
+      return scanId;
+    } finally {
+      await operationLock.release();
+    }
   }
 
   private async startScan(
@@ -332,6 +524,9 @@ export class LibraryScanService {
               lastScanErrorCount: result.errors,
               lastScanError: latestError?.errorMessage || null,
               lastScanInterruptionReason: null,
+              ...(target.changesPageToken && result.errors === 0
+                ? { changesPageToken: target.changesPageToken }
+                : {}),
             },
           });
         }
@@ -427,13 +622,6 @@ export class LibraryScanService {
       }
       allFiles.push(...files);
     };
-    const tmdbApiKey = (
-      await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { tmdbApiKey: true },
-      })
-    )?.tmdbApiKey;
-
     try {
       if (rootFolderId.trim()) {
         appendFiles(
@@ -491,6 +679,30 @@ export class LibraryScanService {
         (file.mimeType.startsWith('audio/') || isAudioFilename(file.name)),
     );
     const lyricsFiles = allFiles.filter((file) => file.name.toLowerCase().endsWith('.lrc'));
+    const subtitlesByStem = new Map<string, DriveFileMetadata[]>();
+    for (const file of allFiles) {
+      const lowerName = file.name.toLowerCase();
+      if (!lowerName.endsWith('.vtt') && !lowerName.endsWith('.srt')) continue;
+      const stem = normalizeSubtitleStem(file.name);
+      const candidates = subtitlesByStem.get(stem) || [];
+      candidates.push(file);
+      subtitlesByStem.set(stem, candidates);
+    }
+    const lyricsByParentAndPrefix = new Map<string, DriveFileMetadata[]>();
+    for (const lyric of lyricsFiles) {
+      const parent = lyric.parents?.[0] || '';
+      const base = lyric.name.replace(/\.lrc$/i, '').toLowerCase();
+      const prefixEnds = new Set<number>([base.length]);
+      for (let dot = base.indexOf('.'); dot >= 0; dot = base.indexOf('.', dot + 1)) {
+        prefixEnds.add(dot);
+      }
+      for (const end of prefixEnds) {
+        const key = `${parent}\u0000${base.slice(0, end)}`;
+        const candidates = lyricsByParentAndPrefix.get(key) || [];
+        candidates.push(lyric);
+        lyricsByParentAndPrefix.set(key, candidates);
+      }
+    }
 
     // Codec probing reads byte ranges straight from Drive and writes only its
     // own row, so it is independent of everything else in the loop. Collected
@@ -502,6 +714,16 @@ export class LibraryScanService {
       size: string;
       fileId: string;
     }> = [];
+    const pendingMetadata = new Map<string, MetadataEnrichmentTarget>();
+    const queueMetadata = (target: MetadataEnrichmentTarget) => {
+      const existing = pendingMetadata.get(target.mediaItemId);
+      pendingMetadata.set(target.mediaItemId, {
+        ...target,
+        year: target.year ?? existing?.year,
+        refreshMedia: target.refreshMedia || existing?.refreshMedia || false,
+        refreshEpisodes: target.refreshEpisodes || existing?.refreshEpisodes || false,
+      });
+    };
 
     // 3. Process Videos across account
     for (const video of videos) {
@@ -575,46 +797,24 @@ export class LibraryScanService {
           ? parseFloat(String(video.videoMediaMetadata.durationMillis)) / 1000
           : undefined;
 
-        let onlinePosterUrl: string | null = null;
-        let onlineBackdropUrl: string | null = null;
-        let overview: string | null = null;
-        let finalYear = year;
-        let voteAverage: number | undefined;
-        let voteCount: number | undefined;
-        let genresStr: string | undefined;
-        let castStr: string | undefined;
-        let trailerUrl: string | undefined;
-        let contentRating: string | undefined;
-        let tmdbId: number | undefined;
-        let imdbId: string | undefined;
+        const onlinePosterUrl: string | null = existingMediaItem?.posterUrl || null;
+        const onlineBackdropUrl: string | null = existingMediaItem?.backdropUrl || null;
+        const overview: string | null = existingMediaItem?.overview || null;
+        const finalYear = year ?? existingMediaItem?.year ?? undefined;
+        const voteAverage = existingMediaItem?.voteAverage ?? undefined;
+        const voteCount = existingMediaItem?.voteCount ?? undefined;
+        const genresStr = existingMediaItem?.genres ?? undefined;
+        const castStr = existingMediaItem?.cast ?? undefined;
+        const trailerUrl = existingMediaItem?.trailerUrl ?? undefined;
+        const contentRating = existingMediaItem?.contentRating ?? undefined;
+        const tmdbId = existingMediaItem?.tmdbId ?? undefined;
+        const imdbId = existingMediaItem?.imdbId ?? undefined;
 
         const shouldRefreshMetadata =
           driveFile.isNew ||
           driveFile.sourceChanged ||
           !existingMediaItem ||
           !existingMediaItem.tmdbId;
-        const onlineMeta = shouldRefreshMetadata
-          ? await this.metadataService.fetchMetadata(
-              title,
-              type as 'movie' | 'series',
-              tmdbApiKey || undefined,
-            )
-          : null;
-        if (onlineMeta) {
-          onlinePosterUrl = onlineMeta.posterUrl;
-          onlineBackdropUrl = onlineMeta.backdropUrl;
-          overview = onlineMeta.overview || null;
-          if (!finalYear && onlineMeta.year) finalYear = onlineMeta.year;
-          if (onlineMeta.voteAverage !== undefined) voteAverage = onlineMeta.voteAverage;
-          if (onlineMeta.voteCount !== undefined) voteCount = onlineMeta.voteCount;
-          if (onlineMeta.genres) genresStr = JSON.stringify(onlineMeta.genres);
-          if (onlineMeta.cast) castStr = JSON.stringify(onlineMeta.cast);
-          if (onlineMeta.trailerUrl) trailerUrl = onlineMeta.trailerUrl;
-          if (onlineMeta.contentRating) contentRating = onlineMeta.contentRating;
-          if (onlineMeta.tmdbId) tmdbId = onlineMeta.tmdbId;
-          if (onlineMeta.imdbId) imdbId = onlineMeta.imdbId;
-        }
-
         // Create-first plus retry prevents a simultaneous scan of another
         // library from being re-homed through an upsert update branch.
         const mediaItem = await upsertMediaItemWithIdentity(
@@ -686,7 +886,7 @@ export class LibraryScanService {
             libraryId,
             googleConnectionId,
             driveScanSourceId,
-            allFiles,
+            subtitlesByStem,
             video,
             {
               mediaItemId: mediaItem.id,
@@ -726,18 +926,15 @@ export class LibraryScanService {
               },
             },
           });
-          const epMetaMap =
+          const shouldRefreshEpisodeMetadata =
             driveFile.isNew ||
             driveFile.sourceChanged ||
             !existingEpisode ||
-            !existingEpisode.stillUrl
-              ? await this.metadataService.fetchShowEpisodes(title)
-              : new Map();
-          const epMeta = epMetaMap.get(`${seasonNumber}x${episodeNumber}`);
+            !existingEpisode.stillUrl;
 
-          const epTitle = epMeta?.name || video.name.replace(/\.[^/.]+$/, '');
-          const epOverview = epMeta?.overview || null;
-          const epStillUrl = epMeta?.stillUrl || null;
+          const epTitle = existingEpisode?.title || video.name.replace(/\.[^/.]+$/, '');
+          const epOverview = existingEpisode?.overview || null;
+          const epStillUrl = existingEpisode?.stillUrl || null;
 
           const episode = await this.prisma.episode.upsert({
             where: {
@@ -771,12 +968,32 @@ export class LibraryScanService {
             libraryId,
             googleConnectionId,
             driveScanSourceId,
-            allFiles,
+            subtitlesByStem,
             video,
             {
               episodeId: episode.id,
             },
           );
+          queueMetadata({
+            libraryId,
+            mediaItemId: mediaItem.id,
+            title,
+            type: 'series',
+            year: year ?? existingMediaItem?.year ?? undefined,
+            refreshMedia: shouldRefreshMetadata,
+            seriesId: series.id,
+            refreshEpisodes: shouldRefreshEpisodeMetadata,
+          });
+        }
+        if (type === 'movie') {
+          queueMetadata({
+            libraryId,
+            mediaItemId: mediaItem.id,
+            title,
+            type: 'movie',
+            year: year ?? existingMediaItem?.year ?? undefined,
+            refreshMedia: shouldRefreshMetadata,
+          });
         }
       } catch (err: unknown) {
         if (signal.aborted || isScanInterruptedError(err)) throw err;
@@ -838,18 +1055,13 @@ export class LibraryScanService {
         });
         const audioBase = audio.name.replace(/\.[^/.]+$/, '').toLowerCase();
         const audioParent = audio.parents?.[0];
-        const matchingLyrics = lyricsFiles
-          .filter((candidate) => {
-            if ((candidate.parents?.[0] || null) !== (audioParent || null)) return false;
-            const lyricsBase = candidate.name.replace(/\.lrc$/i, '').toLowerCase();
-            return lyricsBase === audioBase || lyricsBase.startsWith(`${audioBase}.`);
-          })
-          .sort((left, right) => {
-            const leftExact = left.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
-            const rightExact =
-              right.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
-            return leftExact - rightExact || left.name.localeCompare(right.name);
-          })[0];
+        const matchingLyrics = (
+          lyricsByParentAndPrefix.get(`${audioParent || ''}\u0000${audioBase}`) || []
+        ).sort((left, right) => {
+          const leftExact = left.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+          const rightExact = right.name.replace(/\.lrc$/i, '').toLowerCase() === audioBase ? 0 : 1;
+          return leftExact - rightExact || left.name.localeCompare(right.name);
+        })[0];
         try {
           if (matchingLyrics) {
             await this.musicLibraryService.lyrics.syncTrackLyrics({
@@ -986,6 +1198,8 @@ export class LibraryScanService {
       deleted = result.count;
     }
 
+    await this.metadataEnrichment.enqueueAfterIndexing([...pendingMetadata.values()]);
+
     return { added, updated, deleted, errors };
   }
 
@@ -998,12 +1212,13 @@ export class LibraryScanService {
   ): Promise<DriveFileMetadata[]> {
     const files: DriveFileMetadata[] = [];
     const pendingFolderIds = [rootFolderId];
+    let nextPendingFolderIndex = 0;
     const visitedFolderIds = new Set<string>();
     const discoveredFolderIds = new Set<string>([rootFolderId]);
 
-    while (pendingFolderIds.length > 0) {
+    while (nextPendingFolderIndex < pendingFolderIds.length) {
       signal.throwIfAborted();
-      const folderId = pendingFolderIds.shift()!;
+      const folderId = pendingFolderIds[nextPendingFolderIndex++]!;
       if (visitedFolderIds.has(folderId)) continue;
       visitedFolderIds.add(folderId);
 
@@ -1121,18 +1336,16 @@ export class LibraryScanService {
     libraryId: string,
     googleConnectionId: string,
     driveScanSourceId: string | null,
-    allFiles: DriveFileMetadata[],
+    subtitlesByStem: ReadonlyMap<string, DriveFileMetadata[]>,
     video: DriveFileMetadata,
     target: { mediaItemId?: string; episodeId?: string },
   ) {
     const videoBase = normalizeSubtitleStem(video.name);
-    const subtitles = allFiles.filter(
+    const subtitles = (subtitlesByStem.get(videoBase) || []).filter(
       (f) =>
-        (f.name.toLowerCase().endsWith('.vtt') || f.name.toLowerCase().endsWith('.srt')) &&
-        normalizeSubtitleStem(f.name) === videoBase &&
-        (!video.parents?.length ||
-          !f.parents?.length ||
-          f.parents.some((parent) => video.parents?.includes(parent))),
+        !video.parents?.length ||
+        !f.parents?.length ||
+        f.parents.some((parent) => video.parents?.includes(parent)),
     );
 
     for (const sub of subtitles) {

@@ -16,6 +16,7 @@
 | `TOKEN_ENCRYPTION_KEY`             | Google yenileme belirteçlerini şifreleyen tam 64 onaltılık karakter.                                            |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`    | İlk açılışta oluşturulan yönetici.                                                                              |
 | `APP_AUTH_MODE`                    | Yönetici tarafından oluşturulan hesaplar için `multi-user` yapın.                                               |
+| `LIBRARY_SCAN_INTERVAL_HOURS`      | Tüm kütüphaneler için otomatik tarama aralığı; `0` periyodik taramayı kapatır. Kesilen tarama başlangıçta yeniden denenir. |
 | `APP_URL`, `PUBLIC_URL`, `API_URL` | Tarayıcının göreceği uygulama ve API adresleri.                                                                 |
 | `CORS_ORIGIN`                      | İzin verilen tarayıcı origin'i; normalde public uygulama origin'i.                                              |
 | `TRUST_PROXY`                      | Yalnızca dahil edilen Nginx veya başka bir güvenilir reverse proxy arkasında etkinleştirin.                     |
@@ -27,6 +28,8 @@ openssl rand -hex 32
 ```
 
 `.env`, OAuth sırları, şifreleme anahtarları veya indirilen kimlik bilgisi dosyalarını hiçbir zaman commit etmeyin.
+
+Zamanlanmış taramalar kayıtlı Google Drive klasör kaynakları için bir Changes imleci oluşturur; sonraki taramalarda değişiklik yoksa dosya envanterini dolaşmaz. Değişiklik varsa taşınan dosyaları, silmeleri ve eşlikçi altyazı/şarkı sözü dosyalarını doğru uzlaştırmak için klasörü tam tarar. Birden fazla Shared Drive'ı kapsayabildiğinden tüm hesap kaynakları tam taramayı sürdürür. Medya metadata çağrıları katalog taramasından sonra ayrı, kalıcı bir kuyrukta sınırlı eşzamanlılık ve artan bekleme süresiyle işlenir; kuyruk sunucu yeniden başlatıldığında korunur.
 
 ## Google Drive ve metadata
 

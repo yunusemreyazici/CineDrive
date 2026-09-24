@@ -21,6 +21,8 @@ export const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.boolean().default(false),
   APP_AUTH_MODE: z.enum(['single-user', 'multi-user']).default('single-user'),
+  /** Zero disables automatic scans; positive values schedule a recoverable full scan. */
+  LIBRARY_SCAN_INTERVAL_HOURS: z.coerce.number().int().min(0).max(720).default(0),
   /**
    * Language TMDB titles, summaries and genres are fetched in. It belongs to
    * the deployment rather than the viewer: the values are written into the

@@ -22,7 +22,9 @@ export const setup = () => {
   fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
   removeTestDatabase();
 
-  execFileSync('npx', ['prisma', 'db', 'push'], {
+  // Exercise the real migration path. `db push` omits the hand-written FTS5
+  // virtual table and triggers used by media search.
+  execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
     cwd: serverRoot,
     // Prisma's schema engine needs its debug path enabled inside the sandboxed
     // macOS app. Scope this workaround to the disposable test database.

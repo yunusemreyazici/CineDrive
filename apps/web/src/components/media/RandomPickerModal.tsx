@@ -31,14 +31,28 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
     refetch,
   } = useQuery({
     queryKey: ['randomMedia', typeFilter, minRating],
-    queryFn: async () => {
-      const params: Record<string, string | number> = {};
+    queryFn: async ({ signal }) => {
+      const params: Record<string, string | number> = { compact: 'true' };
       if (typeFilter !== 'all') params.type = typeFilter;
       if (minRating) params.minRating = minRating;
 
-      await new Promise((resolve) => setTimeout(resolve, DICE_ROLL_ANIMATION_MS));
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          signal.removeEventListener('abort', abort);
+          resolve();
+        }, DICE_ROLL_ANIMATION_MS);
+        const abort = () => {
+          window.clearTimeout(timeout);
+          reject(signal.reason ?? new DOMException('Request aborted', 'AbortError'));
+        };
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      });
 
-      const res = await apiClient.get<{ media: MediaItemType }>('/media/random', { params });
+      const res = await apiClient.get<{ media: MediaItemType }>('/media/random', {
+        params,
+        signal,
+      });
       return res.data.media;
     },
     enabled: isOpen,
@@ -73,7 +87,9 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               <button
                 onClick={() => setTypeFilter('all')}
                 className={`px-3 py-1.5 font-medium rounded-lg transition-all ${
-                  typeFilter === 'all' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
+                  typeFilter === 'all'
+                    ? 'bg-brand-600 text-white font-semibold'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {t.common.all}
@@ -81,7 +97,9 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               <button
                 onClick={() => setTypeFilter('movie')}
                 className={`px-3 py-1.5 font-medium rounded-lg transition-all ${
-                  typeFilter === 'movie' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
+                  typeFilter === 'movie'
+                    ? 'bg-brand-600 text-white font-semibold'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {t.common.movies}
@@ -89,7 +107,9 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               <button
                 onClick={() => setTypeFilter('series')}
                 className={`px-3 py-1.5 font-medium rounded-lg transition-all ${
-                  typeFilter === 'series' ? 'bg-brand-600 text-white font-semibold' : 'text-zinc-400 hover:text-white'
+                  typeFilter === 'series'
+                    ? 'bg-brand-600 text-white font-semibold'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {t.common.seriesPlural}
@@ -141,14 +161,14 @@ export const RandomPickerModal: React.FC<RandomPickerModalProps> = ({ isOpen, on
               {/* Media Poster */}
               <div className="w-36 md:w-44 aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800 flex-shrink-0 shadow-xl relative group">
                 {posterUrl ? (
-                  <img
-                    src={posterUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={posterUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-zinc-700">
-                    {selectedMedia.type === 'movie' ? <Film className="w-10 h-10" /> : <Tv className="w-10 h-10" />}
+                    {selectedMedia.type === 'movie' ? (
+                      <Film className="w-10 h-10" />
+                    ) : (
+                      <Tv className="w-10 h-10" />
+                    )}
                   </div>
                 )}
                 {selectedMedia.voteAverage && (
