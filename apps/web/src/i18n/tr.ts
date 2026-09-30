@@ -407,6 +407,19 @@ export const tr = {
     maintenanceDescription:
       'Eksik metadata ve kapakları bulun, yinelenen parçaları karşılaştırın ve yerel dosyalar için ReplayGain analizi çalıştırın.',
     maintenanceControlCenter: 'Kontrol Merkezi',
+    maintenanceCoverageLimited: (total: number, preview: number, limit: number) =>
+      `Sayaçlar ${total} parçayı kapsar. Listeler son güncellenen ${preview} parçadan, en fazla ${limit} kayıtlık önizlemeler gösterir.`,
+    maintenanceCoverageFull: (total: number) => `Sayaçlar ${total} parçanın tamamını kapsar.`,
+    genreReviewTitle: 'Tür Etiketlerini İncele',
+    genreReviewHint: (count: number) =>
+      `${count} parçada inceleme ipucu var; bu etiketin yanlış olduğunu kanıtlamaz. Kanıtları inceleyip açıkça düzenle. Etiketler otomatik değiştirilmez ve tür güven skoru uydurulmaz.`,
+    genreEvidence: (track: string, album: string) =>
+      `Parça etiketleri: ${track} · Albüm etiketleri: ${album}`,
+    genreReviewReasons: {
+      'album-only': 'Yalnız albüm etiketleri mevcut',
+      'broad-unlocked': 'Tek genel, kilitlenmemiş etiket',
+      'different-tags': 'Parça ve albüm etiketleri farklı',
+    },
     maintenanceDescriptionNew:
       'Görselleri, metadata kalitesini, ses analizini ve yinelenen dosyaları tek bir çalışma alanından yönetin.',
     maintenanceOverview: 'Genel Bakış',
@@ -1162,11 +1175,14 @@ export const tr = {
       deleted: (count: number) => `${count} kaldırıldı`,
       errors: (count: number) => `${count} hata`,
       metadataQueued: (count: number) => `${count} metadata güncellemesi sırada`,
-      metadataRetryWaiting: (count: number) => `${count} metadata güncellemesi yeniden denemeyi bekliyor`,
+      metadataRetryWaiting: (count: number) =>
+        `${count} metadata güncellemesi yeniden denemeyi bekliyor`,
       metadataFailed: (count: number) => `${count} metadata güncellemesi başarısız`,
-      retryFailedMetadataCount: (count: number) => `Başarısız metadata işlerini yeniden dene (${count})`,
+      retryFailedMetadataCount: (count: number) =>
+        `Başarısız metadata işlerini yeniden dene (${count})`,
       retryingMetadata: 'Yeniden denemeler kuyruğa alınıyor...',
-      metadataRetryStarted: (count: number) => `${count} metadata işi yeniden denemek üzere kuyruğa alındı`,
+      metadataRetryStarted: (count: number) =>
+        `${count} metadata işi yeniden denemek üzere kuyruğa alındı`,
       metadataRetryNothing: 'Yeniden denenecek başarısız metadata işi yok.',
       metadataRetryFailed: 'Başarısız metadata işleri yeniden kuyruğa alınamadı.',
       duration: (seconds: number) => `${seconds} sn`,

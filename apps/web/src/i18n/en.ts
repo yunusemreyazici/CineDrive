@@ -409,6 +409,18 @@ export const en: Translations = {
     maintenanceDescription:
       'Find missing artwork and metadata, compare duplicate tracks and run ReplayGain analysis for local files.',
     maintenanceControlCenter: 'Control Center',
+    maintenanceCoverageLimited: (total: number, preview: number, limit: number) =>
+      `Counts cover ${total} tracks. Lists show recent previews from ${preview} tracks, up to ${limit} entries each.`,
+    maintenanceCoverageFull: (total: number) => `Counts cover all ${total} tracks.`,
+    genreReviewTitle: 'Review Genre Tags',
+    genreReviewHint: (count: number) =>
+      `${count} tracks have review hints, not proven incorrect tags. Inspect the evidence and edit explicitly. Tags are never changed automatically; no genre confidence is inferred.`,
+    genreEvidence: (track: string, album: string) => `Track tags: ${track} · Album tags: ${album}`,
+    genreReviewReasons: {
+      'album-only': 'Only album tags are available',
+      'broad-unlocked': 'Single broad, unlocked tag',
+      'different-tags': 'Track and album tags differ',
+    },
     maintenanceDescriptionNew:
       'Manage artwork, metadata quality, audio analysis, and duplicate files from one focused workspace.',
     maintenanceOverview: 'Overview',

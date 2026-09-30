@@ -1344,6 +1344,230 @@ describe('Music library', () => {
     expect(positions.map((item) => item.position)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
+  it('prioritizes exact track titles before a full album of broad matches and keeps search bounded', async () => {
+    const query = 'Belki Alışman Lazım';
+    const original = await app.prisma.musicTrack.findUniqueOrThrow({ where: { id: trackId } });
+    await app.prisma.musicAlbum.update({
+      where: { id: original.albumId! },
+      data: { title: query, normalizedTitle: 'belki alisman lazim' },
+    });
+    await app.prisma.musicTrack.update({
+      where: { id: trackId },
+      data: {
+        title: 'Album-only first row',
+        normalizedTitle: 'album only first row',
+      },
+    });
+    const titles = [
+      ...Array.from({ length: 10 }, (_, i) => `Album-only ${i}`),
+      `${query} (Live)`,
+      `Intro: ${query}`,
+      query,
+    ];
+    const ids: string[] = [];
+    for (const [index, title] of titles.entries()) {
+      const file = await app.prisma.driveFile.create({
+        data: {
+          libraryId,
+          localFilePath: `${fixturePath}-${index}`,
+          name: `${index}.mp3`,
+          mimeType: 'audio/mpeg',
+          storageType: 'local',
+          status: 'active',
+        },
+      });
+      const track = await app.prisma.musicTrack.create({
+        data: {
+          libraryId,
+          driveFileId: file.id,
+          title,
+          normalizedTitle: title
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim(),
+          albumId: original.albumId,
+          primaryArtistId: original.primaryArtistId,
+        },
+      });
+      ids.push(track.id);
+    }
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/music/search?q=${encodeURIComponent(query)}`,
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const result = JSON.parse(response.body);
+    expect(result.tracks).toHaveLength(8);
+    expect(result.tracks.slice(0, 3).map((track: { id: string }) => track.id)).toEqual([
+      ids[12],
+      ids[10],
+      ids[11],
+    ]);
+    expect(result.albums[0].id).toBe(original.albumId);
+    expect(new Set(result.tracks.map((track: { id: string }) => track.id)).size).toBe(8);
+    const lowercase = await app.inject({
+      method: 'GET',
+      url: `/api/music/search?q=${encodeURIComponent(query.toLowerCase())}`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(lowercase.body).tracks[0].id).toBe(ids[12]);
+    const again = await app.inject({
+      method: 'GET',
+      url: `/api/music/search?q=${encodeURIComponent(query)}`,
+      cookies: { session_id: cookie },
+    });
+    expect(JSON.parse(again.body).tracks.map((track: { id: string }) => track.id)).toEqual(
+      result.tracks.map((track: { id: string }) => track.id),
+    );
+    await app.prisma.driveFile.update({
+      where: {
+        id: (await app.prisma.musicTrack.findUniqueOrThrow({ where: { id: ids[12] } })).driveFileId,
+      },
+      data: { status: 'archived' },
+    });
+    const archived = await app.inject({
+      method: 'GET',
+      url: `/api/music/search?q=${encodeURIComponent(query)}`,
+      cookies: { session_id: cookie },
+    });
+    expect(
+      JSON.parse(archived.body).tracks.some((track: { id: string }) => track.id === ids[12]),
+    ).toBe(false);
+    expect(
+      (await app.inject({ method: 'GET', url: `/api/music/search?q=${encodeURIComponent(query)}` }))
+        .statusCode,
+    ).toBe(401);
+  });
+
+  it('counts the entire active catalogue beyond the preview cap without including inactive tracks', async () => {
+    const original = await app.prisma.musicTrack.findUniqueOrThrow({ where: { id: trackId } });
+    const ids = Array.from({ length: 2003 }, () => randomUUID());
+    for (let offset = 0; offset < ids.length; offset += 250) {
+      const batch = ids.slice(offset, offset + 250);
+      await app.prisma.driveFile.createMany({
+        data: batch.map((id) => ({
+          id,
+          libraryId,
+          storageType: 'local',
+          localFilePath: `${fixturePath}-${id}`,
+          name: `${id}.mp3`,
+          mimeType: 'audio/mpeg',
+          status: id === ids[2002] ? 'archived' : 'active',
+        })),
+      });
+      await app.prisma.musicTrack.createMany({
+        data: batch.map((id) => ({
+          id,
+          libraryId,
+          driveFileId: id,
+          albumId: original.albumId,
+          primaryArtistId: original.primaryArtistId,
+          title: id === ids[0] || id === ids[2001] ? 'Cross-page duplicate' : id,
+          normalizedTitle: id,
+          duration: 120,
+          genres: '["Pop"]',
+          year: 2005,
+        })),
+      });
+    }
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/maintenance',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const report = JSON.parse(response.body);
+    expect(report.coverage).toMatchObject({
+      catalogueTracks: 2003,
+      previewTracks: 2000,
+      totalsScope: 'catalogue',
+      previewsTruncated: true,
+    });
+    expect(report.totals).toMatchObject({
+      missingArtwork: 2003,
+      missingMetadata: 2003,
+      replayGainMissing: 2002,
+      duplicates: 1,
+    });
+    expect(report.genreReview.flaggedTracks).toBe(2002);
+    expect(report.genreReview.items.length).toBeLessThanOrEqual(100);
+    expect(report.missingMetadata).toHaveLength(100);
+    expect(report.missingMetadata.some((track: { id: string }) => track.id === ids[2002])).toBe(
+      false,
+    );
+  });
+
+  it('keeps catalogue maintenance counts scoped to accessible libraries and authentication', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/music/maintenance' })).statusCode).toBe(
+      401,
+    );
+    const user = await app.authService.ensureAdminUserExists();
+    const foreignUser = await app.prisma.user.create({
+      data: {
+        email: `${randomUUID()}@maintenance.invalid`,
+        name: 'Private owner',
+      },
+    });
+    try {
+      const library = await app.prisma.library.create({
+        data: {
+          userId: foreignUser.id,
+          name: 'Private maintenance library',
+          storageType: 'local',
+          rootFolderId: '',
+        },
+      });
+      const file = await app.prisma.driveFile.create({
+        data: {
+          libraryId: library.id,
+          name: 'Private.mp3',
+          mimeType: 'audio/mpeg',
+          status: 'active',
+        },
+      });
+      const foreignTrack = await app.prisma.musicTrack.create({
+        data: {
+          libraryId: library.id,
+          driveFileId: file.id,
+          title: 'Private Genre Review',
+          normalizedTitle: 'private genre review',
+          genres: '["Pop"]',
+        },
+      });
+      const load = () =>
+        app.inject({
+          method: 'GET',
+          url: '/api/music/maintenance',
+          cookies: { session_id: cookie },
+        });
+      const privateResponse = await load();
+      expect(privateResponse.statusCode).toBe(200);
+      const privateReport = JSON.parse(privateResponse.body);
+      expect(privateReport.coverage.catalogueTracks).toBe(1);
+      expect(privateReport.totals.missingMetadata).toBe(1);
+      expect(privateReport.genreReview.flaggedTracks).toBe(0);
+      expect(
+        privateReport.missingMetadata.some((track: { id: string }) => track.id === foreignTrack.id),
+      ).toBe(false);
+      await app.prisma.libraryMembership.create({
+        data: { libraryId: library.id, userId: user.id, role: 'listener' },
+      });
+      const sharedResponse = await load();
+      expect(sharedResponse.statusCode).toBe(200);
+      expect(JSON.parse(sharedResponse.body)).toMatchObject({
+        coverage: { catalogueTracks: 2 },
+        totals: { missingMetadata: 2 },
+        genreReview: { flaggedTracks: 1 },
+      });
+    } finally {
+      // Disposable test DB only; cascading removal of this test-owned library.
+      await app.prisma.user.delete({ where: { id: foreignUser.id } });
+    }
+  });
+
   it('reports maintenance issues and applies owned bulk metadata updates', async () => {
     const report = await app.inject({
       method: 'GET',
@@ -1353,6 +1577,14 @@ describe('Music library', () => {
     expect(report.statusCode).toBe(200);
     expect(JSON.parse(report.body)).toMatchObject({
       totals: { missingArtwork: 1, missingMetadata: 1 },
+      coverage: {
+        catalogueTracks: 1,
+        previewTracks: 1,
+        totalsScope: 'catalogue',
+        previewLimit: 2000,
+        listLimit: 100,
+        previewsTruncated: false,
+      },
       missingMetadata: [expect.objectContaining({ id: trackId, confidence: expect.any(Number) })],
     });
     const updated = await app.inject({
@@ -2049,15 +2281,28 @@ describe('Music library', () => {
     const ids = [randomUUID(), randomUUID()] as const;
     const clients = [`source_${randomUUID()}`, `target_${randomUUID()}`];
     const payload = {
-      revision: 0, currentTrackId: trackId, currentQueueItemId: ids[1],
-      positionSeconds: 42, isPlaying: false, volume: 0.5,
-      shuffleEnabled: true, repeatMode: 'off',
-      queue: ids.map((id, sourceOrder) => ({ id, trackId, sourceOrder, playOrder: 1 - sourceOrder })),
+      revision: 0,
+      currentTrackId: trackId,
+      currentQueueItemId: ids[1],
+      positionSeconds: 42,
+      isPlaying: false,
+      volume: 0.5,
+      shuffleEnabled: true,
+      repeatMode: 'off',
+      queue: ids.map((id, sourceOrder) => ({
+        id,
+        trackId,
+        sourceOrder,
+        playOrder: 1 - sourceOrder,
+      })),
     };
-    const write = (clientId: string, revision: number, queue = payload.queue) => app.inject({
-      method: 'PUT', url: `/api/music/playback-state?clientId=${clientId}`,
-      cookies: { session_id: cookie }, payload: { ...payload, revision, queue },
-    });
+    const write = (clientId: string, revision: number, queue = payload.queue) =>
+      app.inject({
+        method: 'PUT',
+        url: `/api/music/playback-state?clientId=${clientId}`,
+        cookies: { session_id: cookie },
+        payload: { ...payload, revision, queue },
+      });
     for (const client of clients) expect((await write(client, 0)).statusCode).toBe(200);
     expect((await write(clients[1]!, 0)).statusCode).toBe(409);
     expect((await write(clients[1]!, 1)).statusCode).toBe(200);
@@ -2065,26 +2310,47 @@ describe('Music library', () => {
     const duplicate = payload.queue.map((entry) => ({ ...entry, id: ids[0] }));
     expect((await write(clients[1]!, 2, duplicate)).statusCode).toBe(400);
     for (const [index, clientId] of clients.entries()) {
-      const read = await app.inject({ method: 'GET',
-        url: `/api/music/playback-state?clientId=${clientId}`, cookies: { session_id: cookie } });
+      const read = await app.inject({
+        method: 'GET',
+        url: `/api/music/playback-state?clientId=${clientId}`,
+        cookies: { session_id: cookie },
+      });
       expect(read.statusCode).toBe(200);
-      expect(JSON.parse(read.body).state).toMatchObject({ revision: index + 1,
-        currentQueueItemId: ids[1], positionSeconds: 42, isPlaying: false,
+      expect(JSON.parse(read.body).state).toMatchObject({
+        revision: index + 1,
+        currentQueueItemId: ids[1],
+        positionSeconds: 42,
+        isPlaying: false,
         queue: [payload.queue[1], payload.queue[0]],
       });
     }
-    expect((await app.inject({ method: 'PUT', url: '/api/music/playback-state', payload })).statusCode).toBe(401);
-    const foreign = await app.prisma.user.create({ data: {
-      email: `${randomUUID()}@queue.invalid`, passwordHash: 'not-a-real-password', name: 'Queue test',
-    } });
+    expect(
+      (await app.inject({ method: 'PUT', url: '/api/music/playback-state', payload })).statusCode,
+    ).toBe(401);
+    const foreign = await app.prisma.user.create({
+      data: {
+        email: `${randomUUID()}@queue.invalid`,
+        passwordHash: 'not-a-real-password',
+        name: 'Queue test',
+      },
+    });
     try {
-      const state = await app.prisma.musicPlaybackState.create({ data: { userId: foreign.id, clientId: clients[0]! } });
-      await app.prisma.musicQueueItem.create({ data: { ...payload.queue[0]!, playbackStateId: state.id } });
-      const visible = await app.inject({ method: 'GET', url: `/api/music/playback-state?clientId=${clients[0]}`,
-        cookies: { session_id: cookie } });
+      const state = await app.prisma.musicPlaybackState.create({
+        data: { userId: foreign.id, clientId: clients[0]! },
+      });
+      await app.prisma.musicQueueItem.create({
+        data: { ...payload.queue[0]!, playbackStateId: state.id },
+      });
+      const visible = await app.inject({
+        method: 'GET',
+        url: `/api/music/playback-state?clientId=${clients[0]}`,
+        cookies: { session_id: cookie },
+      });
       expect(JSON.parse(visible.body).state.queue).toHaveLength(2);
       expect(JSON.parse(visible.body).state.id).not.toBe(state.id);
-    } finally { await app.prisma.user.delete({ where: { id: foreign.id } }); }
+    } finally {
+      await app.prisma.user.delete({ where: { id: foreign.id } });
+    }
   });
 
   it('keeps Connect opt-in and delivers idempotent commands only to allowed online devices', async () => {
