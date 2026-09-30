@@ -128,6 +128,33 @@ test('inventory covers every canonical lockfile package, not just installed/plat
   }
 });
 
+test('committed lockfile keeps URI and brace-expansion security patches across majors', () => {
+  // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g,
+  // GHSA-qhr7-859c-m2p7 and GHSA-6j4f-fj2g-mc7p.
+  const minimums = {
+    'fast-uri': { 2: [4, 6], 3: [1, 7], 4: [1, 4] },
+    'brace-expansion': { 1: [1, 20], 2: [1, 6], 3: [0, 8], 5: [0, 11] },
+  };
+  const inventory = lockedPackages(
+    readFileSync(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8'),
+  );
+  for (const name of Object.keys(minimums)) {
+    const entries = [...inventory].filter((entry) => entry.startsWith(`${name}@`));
+    assert.ok(entries.length > 0, `expected ${name} in the dependency inventory`);
+    for (const entry of entries) {
+      const version = entry.slice(name.length + 1);
+      assert.match(version, /^\d+\.\d+\.\d+$/, `${entry} must be a stable release`);
+      const [major, minor, patch] = version.split('.').map(Number);
+      const minimum = minimums[name][major];
+      assert.ok(minimum, `${entry} needs a reviewed security floor for its major`);
+      assert.ok(
+        minor > minimum[0] || (minor === minimum[0] && patch >= minimum[1]),
+        `${entry} is below the patched version ${major}.${minimum.join('.')}`,
+      );
+    }
+  }
+});
+
 test('OSV accepts only complete clean coverage and rejects tool errors or empty scans', () => {
   const path = '/tmp/test-lock.yaml';
   assert.deepEqual(evaluateOsv(result(report(path)), expected, path), {
