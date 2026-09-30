@@ -590,6 +590,28 @@ export interface MusicMaintenanceActionDto {
 }
 
 export interface MusicMaintenanceDto {
+  /** Deterministic review hints, not inferred genre truth/provenance/confidence.
+   * Tags change only through the existing explicit metadata-edit flow.
+   */
+  genreReview?: {
+    flaggedTracks: number;
+    items: Array<
+      MusicTrackDto & {
+        reviewReasons: Array<'album-only' | 'broad-unlocked' | 'different-tags'>;
+      }
+    >;
+  };
+  /** Counts cover the active accessible catalogue; lists are bounded recent previews.
+   * Duplicate counts represent groups, not distinct tracks or the sum of list sizes.
+   */
+  coverage?: {
+    catalogueTracks: number;
+    previewTracks: number;
+    previewLimit: number;
+    listLimit: number;
+    totalsScope: 'catalogue';
+    previewsTruncated: boolean;
+  };
   artists: Array<
     MusicArtistDto & {
       artworkSource?: string | null;

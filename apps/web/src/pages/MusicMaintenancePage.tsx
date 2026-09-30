@@ -1,4 +1,8 @@
-import type { MusicMaintenanceDto, MusicMaintenanceSuggestionDto } from '@cinedrive/shared';
+import type {
+  MusicTrackDto,
+  MusicMaintenanceDto,
+  MusicMaintenanceSuggestionDto,
+} from '@cinedrive/shared';
 import {
   Activity,
   ArrowRight,
@@ -286,7 +290,19 @@ export const MusicMaintenancePage: React.FC = () => {
   const [metadataPage, setMetadataPage] = useState(0);
   const data = query.data;
 
-  const entityTracks = useMemo(() => data?.missingMetadata || [], [data?.missingMetadata]);
+  const entityTracks = useMemo(() => {
+    const tracks = new Map<string, MusicTrackDto & { issues: string[]; confidence?: number }>();
+    for (const track of data?.missingMetadata || []) tracks.set(track.id, track);
+    for (const track of data?.genreReview?.items || []) {
+      const existing = tracks.get(track.id);
+      tracks.set(track.id, {
+        ...track,
+        confidence: existing?.confidence,
+        issues: [...new Set([...(existing?.issues || []), ...track.reviewReasons])],
+      });
+    }
+    return [...tracks.values()];
+  }, [data?.missingMetadata, data?.genreReview]);
   const artists = useMemo(() => data?.artists || [], [data?.artists]);
   const artistById = useMemo(
     () => new Map(artists.map((artist) => [artist.id, artist])),
@@ -496,6 +512,26 @@ export const MusicMaintenancePage: React.FC = () => {
                 <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-zinc-500">
                   {t.music.maintenanceDescriptionNew}
                 </p>
+                {data.coverage?.totalsScope === 'catalogue' && (
+                  <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-zinc-400">
+                    {data.coverage.previewsTruncated
+                      ? t.music.maintenanceCoverageLimited(
+                          data.coverage.catalogueTracks,
+                          data.coverage.previewTracks,
+                          data.coverage.listLimit,
+                        )
+                      : t.music.maintenanceCoverageFull(data.coverage.catalogueTracks)}
+                  </p>
+                )}
+                {!!data.genreReview?.flaggedTracks && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('metadata')}
+                    className="mt-2 text-left text-[13px] text-brand-300 underline"
+                  >
+                    {t.music.genreReviewTitle} · {data.genreReview.flaggedTracks}
+                  </button>
+                )}
               </div>
             </div>
             <button
@@ -927,6 +963,11 @@ export const MusicMaintenancePage: React.FC = () => {
                         {t.music.metadataWorkspace}
                       </h2>
                       <p className="mt-1 text-[13px] text-zinc-500">{t.music.bulkMetadataHint}</p>
+                      {!!data.genreReview?.flaggedTracks && (
+                        <p className="mt-2 max-w-2xl text-[13px] text-zinc-400">
+                          {t.music.genreReviewHint(data.genreReview.flaggedTracks)}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span aria-live="polite" className="text-xs font-medium text-zinc-500">
@@ -1073,14 +1114,26 @@ export const MusicMaintenancePage: React.FC = () => {
                                 (issue) =>
                                   t.music.metadataIssues[
                                     issue as keyof typeof t.music.metadataIssues
-                                  ] || issue,
+                                  ] ||
+                                  t.music.genreReviewReasons[
+                                    issue as keyof typeof t.music.genreReviewReasons
+                                  ] ||
+                                  issue,
                               )
                               .join(' · ')}
                           </span>
+                          <span className="block text-xs text-zinc-400">
+                            {t.music.genreEvidence(
+                              track.genres.join(', '),
+                              (track.album?.genres || []).join(', '),
+                            )}
+                          </span>
                         </span>
-                        <span className="text-xs font-black text-amber-200">
-                          {track.confidence}%
-                        </span>
+                        {track.confidence !== undefined && (
+                          <span className="text-xs font-black text-amber-200">
+                            {track.confidence}%
+                          </span>
+                        )}
                       </label>
                     ))}
                   </div>
