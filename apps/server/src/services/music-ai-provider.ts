@@ -25,6 +25,7 @@ export interface MusicAiProvider {
   generatePlaylistIntent(input: {
     prompt: string;
     catalogue: MusicCatalogueSummary;
+    locale?: 'tr' | 'en';
   }): Promise<unknown>;
   generateEditorialPlans?(input: {
     catalogue: MusicCatalogueSummary;
@@ -60,6 +61,7 @@ const completionResponseSchema = z
 export const buildMusicAiPlannerPrompt = (input: {
   prompt: string;
   catalogue: MusicCatalogueSummary;
+  locale?: 'tr' | 'en';
 }) => `You plan a playlist for a private local music catalogue.
 
 Return only the requested PlaylistIntent JSON. Never name or select songs. Never invent track-level metadata. You have no tools and cannot access databases, files, secrets, or environment variables.
@@ -68,7 +70,7 @@ Interpret the listener's language faithfully. Explicit categorical facets—lang
 
 Keep language/locality separate from genre. For example, "Türkçe rock" means language.languages=["tr"] plus genre "rock", never a made-up combined genre; "sadece Türkçe rock" makes both hard. Use ISO 639 language codes and ISO 3166-1 alpha-2 country codes. Country/scene means artist/local-scene affinity, not proof of a song's language. Do not infer language from artist names or song titles.
 
-All weights and biases are numbers from 0 to 1. targetCount defaults to 50 and must be 10-100. Keep title and subtitle concise and in the listener's language. excludedGenres and excludedArtistNames are always hard exclusions. Do not place exclusions in positive preference arrays.
+All weights and biases are numbers from 0 to 1. targetCount defaults to 50 and must be 10-100. Keep title and subtitle concise. ${input.locale ? `Write title and subtitle in ${input.locale === 'tr' ? 'Turkish' : 'English'}, the client's display language. This controls presentation only, NEVER a track-language filter.` : "Write title and subtitle in the listener's language."} excludedGenres and excludedArtistNames are always hard exclusions. Do not place exclusions in positive preference arrays.
 
 Listener request:
 ${JSON.stringify(input.prompt)}
@@ -115,6 +117,7 @@ export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
   public async generatePlaylistIntent(input: {
     prompt: string;
     catalogue: MusicCatalogueSummary;
+    locale?: 'tr' | 'en';
   }): Promise<unknown> {
     return this.generateStructured(
       buildMusicAiPlannerPrompt(input),

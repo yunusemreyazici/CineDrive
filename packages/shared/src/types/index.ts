@@ -397,8 +397,11 @@ export interface MusicPlaybackStateDto {
   currentTrackId: string | null;
   currentQueueItemId: string | null;
   positionSeconds: number;
+  volume?: number;
+  isPlaying?: boolean;
   shuffleEnabled: boolean;
   repeatMode: 'off' | 'all' | 'one';
+  playbackUpdatedAt?: string | null;
   queue: Array<{
     id: string;
     trackId: string;
@@ -406,6 +409,15 @@ export interface MusicPlaybackStateDto {
     playOrder: number;
     track: MusicTrackDto;
   }>;
+}
+
+/** Only conditional GET callers may receive an empty queue with queueUnchanged.
+ * Other metadata (favorites, album/artist edits) requires periodic full refresh.
+ */
+export interface MusicPlaybackStateResponse {
+  state: MusicPlaybackStateDto;
+  queueVersion?: string;
+  queueUnchanged?: boolean;
 }
 
 export interface MusicMixDto {
@@ -450,6 +462,7 @@ export interface ClientBootstrapDto {
     scopedDownloadGrants: boolean;
     cineMusicConnect: boolean;
     cineMusicQueueControl?: boolean;
+    cineMusicCommandLongPoll?: boolean;
     listeningTogether?: boolean;
   };
   serverTime: string;
@@ -487,6 +500,7 @@ export interface MusicPlaybackCommandDto {
     | 'setShuffle'
     | 'setRepeat'
     | 'playQueueItem'
+    | 'editQueue'
     | 'transfer';
   sourceClientIdForTransfer?: string;
   mode?: 'handoff' | 'copy';
@@ -495,6 +509,12 @@ export interface MusicPlaybackCommandDto {
   enabled?: boolean;
   repeatMode?: 'off' | 'all' | 'one';
   queueItemId?: string;
+  queueEdit?:
+    | { action: 'add'; trackIds: string[]; playNext: boolean }
+    | { action: 'remove'; itemIds: string[] }
+    | { action: 'move'; itemIds: string[]; beforeItemId: string | null }
+    | { action: 'clearUpcoming' };
+  queueTracks?: MusicTrackDto[];
   createdAt: string;
   expiresAt: string;
 }

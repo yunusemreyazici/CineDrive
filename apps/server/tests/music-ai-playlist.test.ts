@@ -272,6 +272,17 @@ describe('PlaylistIntent grounding and normalization', () => {
     expect(prompt).not.toContain('Album 999');
     expect(prompt).not.toContain('Artist 999');
   });
+
+  it('uses display locale for presentation without turning it into a track language facet', async () => {
+    const generatePlaylistIntent = vi.fn().mockResolvedValue(rawIntent());
+    const planner = new MusicAiIntentPlanner({ generatePlaylistIntent });
+    const intent = await planner.plan('night drive', catalogue, {}, 'en');
+    expect(generatePlaylistIntent).toHaveBeenCalledWith({ prompt: 'night drive', catalogue, locale: 'en' });
+    expect(intent.language.languages).toEqual([]);
+    const prompt = buildMusicAiPlannerPrompt({ prompt: 'night drive', catalogue, locale: 'en' });
+    expect(prompt).toContain('Write title and subtitle in English');
+    expect(prompt).toContain('NEVER a track-language filter');
+  });
 });
 
 const candidate = (index: number): DiscoveryCandidate => ({

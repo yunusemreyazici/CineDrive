@@ -517,8 +517,13 @@ export class MusicAiIntentPlanner {
     prompt: string,
     catalogue: MusicCatalogueSummary,
     localContext: PlaylistIntentLocalContext = {},
+    locale?: 'tr' | 'en',
   ): Promise<PlaylistIntent> {
-    const output = await this.provider.generatePlaylistIntent({ prompt, catalogue });
+    const output = await this.provider.generatePlaylistIntent({
+      prompt,
+      catalogue,
+      ...(locale ? { locale } : {}),
+    });
     const parsed = playlistIntentProviderSchema.safeParse(output);
     if (!parsed.success) throw new MusicAiProviderError('malformed-response');
     return normalizePlaylistIntent(parsed.data, catalogue, prompt, localContext);

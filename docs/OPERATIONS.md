@@ -68,6 +68,8 @@ Production migrations use `prisma migrate deploy`. Do not use `prisma db push` a
 
 For VPS source installations, rerunning `sudo bash scripts/install-vps.sh` performs these steps with additional branch, working-tree, snapshot, and readiness guards. Keep the recovery details printed by a failed run; they identify both commits and the exact pre-migration snapshot.
 
+The music queue migration `20260930000000_music_queue_scoped_identity` preserves existing queue entry IDs and source/play ordering, but scopes their database identity to each playback state. This allows a Connect destination to persist the source's entry IDs without colliding with another device. Apply this migration with the upgraded server before testing transfers; updating only CineMusic cannot repair the old server's globally unique queue IDs. Stop application writes for the migration window, retain a verified pre-upgrade snapshot, and use the upgrade commands above. Existing clients keep the same API entry IDs and require no queue remapping. After restart, check paused and playing transfers in both directions, repeated tracks and shuffle order, and confirm no queue constraint errors in the server logs.
+
 Tagged releases publish provenance-attested, keyless-signed `linux/amd64` and `linux/arm64` GHCR images plus SBOMs and immutable digest manifests. Follow [Releasing CineDrive](RELEASING.md) to verify artifacts and use `docker-compose.release.yml`.
 
 ## Rollback

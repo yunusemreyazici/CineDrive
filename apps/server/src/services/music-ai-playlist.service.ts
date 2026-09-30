@@ -405,12 +405,16 @@ const LANGUAGE_LABELS: Record<string, string> = {
   es: 'Spanish',
 };
 
-export const describeHardIntentConstraints = (intent: PlaylistIntent) => {
+export const describeHardIntentConstraints = (
+  intent: PlaylistIntent,
+  locale: 'tr' | 'en' = 'tr',
+) => {
   const constraints: string[] = [];
+  const languageLabel = (code: string) =>
+    code === 'tr' && locale === 'en' ? 'Turkish' : LANGUAGE_LABELS[code] || code;
+  const exclusion = (name: string) => (locale === 'en' ? `Except ${name}` : `${name} hariç`);
   if (intent.language.mode === 'hard')
-    constraints.push(
-      ...intent.language.languages.map((language) => LANGUAGE_LABELS[language] || language),
-    );
+    constraints.push(...intent.language.languages.map(languageLabel));
   constraints.push(
     ...intent.genres
       .filter((genre) => genre.mode === 'hard')
@@ -424,10 +428,8 @@ export const describeHardIntentConstraints = (intent: PlaylistIntent) => {
     );
   constraints.push(
     ...intent.artists.filter((artist) => artist.mode === 'hard').map((artist) => artist.name),
-    ...intent.excludedGenres.map((genre) => `${genre} hariç`),
-    ...intent.language.excludedLanguages.map(
-      (language) => `${LANGUAGE_LABELS[language] || language} hariç`,
-    ),
+    ...intent.excludedGenres.map(exclusion),
+    ...intent.language.excludedLanguages.map((language) => exclusion(languageLabel(language))),
   );
   return [...new Set(constraints)];
 };
@@ -452,13 +454,16 @@ export class MusicAiPlaylistService {
     userId: string,
     prompt: string,
     generationId: string,
+    locale?: 'tr' | 'en',
   ): Promise<MusicAiPlaylistResult> {
     if (!this.planner) throw new MusicAiProviderError('missing-api-key');
     const candidates = await loadDiscoveryCandidates(this.prisma, userId);
     const summary = buildMusicCatalogueSummary(candidates);
     const fingerprint = catalogueFingerprint(candidates);
     const cacheKey = createHash('sha256')
-      .update(`${userId}\u0000${promptKey(prompt)}\u0000${fingerprint}\u0000${generationId}`)
+      .update(
+        `${userId}\u0000${promptKey(prompt)}\u0000${fingerprint}\u0000${generationId}\u0000${locale ?? ''}`,
+      )
       .digest('base64url');
     const now = Date.now();
     for (const [key, entry] of this.intentCache)
@@ -467,15 +472,20 @@ export class MusicAiPlaylistService {
     if (!intent) {
       let planning = this.intentInflight.get(cacheKey);
       if (!planning) {
-        planning = this.planner.plan(prompt, summary, {
-          artistNames: [
-            ...new Set(
-              candidates
-                .map((candidate) => candidate.artistName)
-                .filter((name): name is string => !!name),
-            ),
-          ],
-        });
+        planning = this.planner.plan(
+          prompt,
+          summary,
+          {
+            artistNames: [
+              ...new Set(
+                candidates
+                  .map((candidate) => candidate.artistName)
+                  .filter((name): name is string => !!name),
+              ),
+            ],
+          },
+          locale,
+        );
         this.intentInflight.set(cacheKey, planning);
       }
       try {
@@ -536,7 +546,7 @@ export class MusicAiPlaylistService {
       generatedAt: new Date().toISOString(),
       requestedCount: intent.targetCount,
       matchedCount,
-      constraints: describeHardIntentConstraints(intent),
+      constraints: describeHardIntentConstraints(intent, locale),
     };
   }
 }
