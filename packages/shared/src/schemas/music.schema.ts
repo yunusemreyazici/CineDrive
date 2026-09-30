@@ -205,6 +205,17 @@ export const musicPlaybackClientQuerySchema = z.object({
   platform: z.enum(['web', 'ios', 'android', 'desktop', 'unknown']).default('unknown'),
 });
 
+export const musicPlaybackCommandPollQuerySchema = musicPlaybackClientQuerySchema
+  .pick({ clientId: true })
+  .extend({ waitMs: z.coerce.number().int().min(0).max(20_000).default(0) });
+
+export const musicPlaybackStateQuerySchema = musicPlaybackClientQuerySchema.extend({
+  knownQueueVersion: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+
 export const musicConnectHeartbeatSchema = z.object({
   connectEnabled: z.boolean(),
   remoteControlAllowed: z.boolean(),
@@ -387,6 +398,20 @@ export const musicReplayQuerySchema = z.object({
   period: z.enum(['day', 'week', 'month', 'year']).default('week'),
   year: z.coerce.number().int().min(2000).max(3000).optional(),
   timezoneOffsetMinutes: z.coerce.number().int().min(-840).max(840).default(0),
+  timeZone: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .refine((value) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Invalid IANA time zone')
+    .optional(),
 });
 
 export const musicLyricsTranslationSchema = z.object({

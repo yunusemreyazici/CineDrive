@@ -9,6 +9,16 @@ export type ReplayPeriod = 'day' | 'week' | 'month' | 'year';
 
 const MINUTE_MS = 60_000;
 const REPLAY_METADATA_BATCH_SIZE = 400;
+const REPLAY_HISTORY_BATCH_SIZE = 2_000;
+const WEEKDAYS = new Map([
+  ['Sun', 0],
+  ['Mon', 1],
+  ['Tue', 2],
+  ['Wed', 3],
+  ['Thu', 4],
+  ['Fri', 5],
+  ['Sat', 6],
+]);
 
 const replayTrackMetadataSelect = {
   id: true,
@@ -28,14 +38,75 @@ type ReplayTrackMetadata = Prisma.MusicTrackGetPayload<{
 const shiftedToLocal = (date: Date, timezoneOffsetMinutes: number) =>
   new Date(date.getTime() + timezoneOffsetMinutes * MINUTE_MS);
 
+const replayFormatter = (timeZone?: string) =>
+  timeZone
+    ? new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        weekday: 'short',
+        hourCycle: 'h23',
+      })
+    : undefined;
+
+const zonedParts = (date: Date, formatter: Intl.DateTimeFormat) => {
+  const parts = formatter.formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value;
+  return {
+    year: Number(value('year')),
+    month: Number(value('month')),
+    day: Number(value('day')),
+    hour: Number(value('hour')),
+    minute: Number(value('minute')),
+    second: Number(value('second')),
+    weekday: WEEKDAYS.get(value('weekday') || '') ?? 0,
+  };
+};
+
+const zoneOffsetMinutes = (date: Date, formatter: Intl.DateTimeFormat) => {
+  const parts = zonedParts(date, formatter);
+  const representedAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return Math.round((representedAsUtc - date.getTime()) / MINUTE_MS);
+};
+
 const localMidnightAsUtc = (
   year: number,
   month: number,
   day: number,
   timezoneOffsetMinutes: number,
-) => new Date(Date.UTC(year, month, day) - timezoneOffsetMinutes * MINUTE_MS);
+  formatter?: Intl.DateTimeFormat,
+) => {
+  const localTimestamp = Date.UTC(year, month, day);
+  if (!formatter) return new Date(localTimestamp - timezoneOffsetMinutes * MINUTE_MS);
+  let result = new Date(localTimestamp);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const next = new Date(localTimestamp - zoneOffsetMinutes(result, formatter) * MINUTE_MS);
+    if (next.getTime() === result.getTime()) break;
+    result = next;
+  }
+  return result;
+};
 
-export const replayLocalClock = (date: Date, timezoneOffsetMinutes: number) => {
+export const replayLocalClock = (date: Date, timezoneOffsetMinutes: number, timeZone?: string) =>
+  localClock(date, timezoneOffsetMinutes, replayFormatter(timeZone));
+
+const localClock = (date: Date, timezoneOffsetMinutes: number, formatter?: Intl.DateTimeFormat) => {
+  if (formatter) {
+    const parts = zonedParts(date, formatter);
+    return { hour: parts.hour, weekday: parts.weekday };
+  }
   const local = shiftedToLocal(date, timezoneOffsetMinutes);
   return { hour: local.getUTCHours(), weekday: local.getUTCDay() };
 };
@@ -45,23 +116,35 @@ export const replayPeriodRange = (
   year: number | undefined,
   timezoneOffsetMinutes: number,
   now = new Date(),
+  timeZone?: string,
+) => periodRange(period, year, timezoneOffsetMinutes, now, replayFormatter(timeZone));
+
+const periodRange = (
+  period: ReplayPeriod,
+  year: number | undefined,
+  timezoneOffsetMinutes: number,
+  now: Date,
+  formatter?: Intl.DateTimeFormat,
 ) => {
-  const localNow = shiftedToLocal(now, timezoneOffsetMinutes);
+  const localNow = formatter ? zonedParts(now, formatter) : null;
+  const currentYear = localNow?.year ?? shiftedToLocal(now, timezoneOffsetMinutes).getUTCFullYear();
   if (period === 'year') {
-    const selectedYear = year || localNow.getUTCFullYear();
+    const selectedYear = year || currentYear;
     return {
-      start: localMidnightAsUtc(selectedYear, 0, 1, timezoneOffsetMinutes),
-      end: localMidnightAsUtc(selectedYear + 1, 0, 1, timezoneOffsetMinutes),
+      start: localMidnightAsUtc(selectedYear, 0, 1, timezoneOffsetMinutes, formatter),
+      end: localMidnightAsUtc(selectedYear + 1, 0, 1, timezoneOffsetMinutes, formatter),
       year: selectedYear,
     };
   }
   if (period === 'day') {
+    const fallbackLocalNow = shiftedToLocal(now, timezoneOffsetMinutes);
     return {
       start: localMidnightAsUtc(
-        localNow.getUTCFullYear(),
-        localNow.getUTCMonth(),
-        localNow.getUTCDate(),
+        localNow?.year ?? fallbackLocalNow.getUTCFullYear(),
+        (localNow?.month ?? fallbackLocalNow.getUTCMonth() + 1) - 1,
+        localNow?.day ?? fallbackLocalNow.getUTCDate(),
         timezoneOffsetMinutes,
+        formatter,
       ),
       end: now,
       year: null,
@@ -85,22 +168,55 @@ const increment = <T>(map: Map<string, T>, key: string, create: () => T) => {
 export class MusicReplayService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  public async get(userId: string, period: ReplayPeriod, year?: number, timezoneOffsetMinutes = 0) {
+  public async get(
+    userId: string,
+    period: ReplayPeriod,
+    year?: number,
+    timezoneOffsetMinutes = 0,
+    timeZone?: string,
+  ) {
+    // Request-scoped: no formatter per history row and no unbounded global cache.
+    const formatter = replayFormatter(timeZone);
     const {
       start,
       end,
       year: selectedYear,
-    } = replayPeriodRange(period, year, timezoneOffsetMinutes);
-    const entries = await this.prisma.musicHistory.findMany({
-      where: { userId, playedAt: { gte: start, lt: end } },
-      select: {
-        trackId: true,
-        listenedSeconds: true,
-        playedAt: true,
-      },
-      orderBy: { playedAt: 'asc' },
-    });
-    const trackIds = [...new Set(entries.map((entry) => entry.trackId))];
+    } = periodRange(period, year, timezoneOffsetMinutes, new Date(), formatter);
+    const trackStats = new Map<string, { id: string; seconds: number; plays: number }>();
+    const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, seconds: 0, plays: 0 }));
+    const weekdays = Array.from({ length: 7 }, (_, day) => ({ day, seconds: 0, plays: 0 }));
+    let totalSeconds = 0;
+    let totalPlays = 0;
+    let cursor: string | undefined;
+    while (true) {
+      const entries = await this.prisma.musicHistory.findMany({
+        where: { userId, playedAt: { gte: start, lt: end } },
+        select: { id: true, trackId: true, listenedSeconds: true, playedAt: true },
+        orderBy: [{ playedAt: 'asc' }, { id: 'asc' }],
+        take: REPLAY_HISTORY_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      for (const entry of entries) {
+        const seconds = Math.max(0, entry.listenedSeconds);
+        totalSeconds += seconds;
+        totalPlays += 1;
+        const track = increment(trackStats, entry.trackId, () => ({
+          id: entry.trackId,
+          seconds: 0,
+          plays: 0,
+        }));
+        track.seconds += seconds;
+        track.plays += 1;
+        const { hour, weekday: day } = localClock(entry.playedAt, timezoneOffsetMinutes, formatter);
+        hours[hour]!.seconds += seconds;
+        hours[hour]!.plays += 1;
+        weekdays[day]!.seconds += seconds;
+        weekdays[day]!.plays += 1;
+      }
+      if (entries.length < REPLAY_HISTORY_BATCH_SIZE) break;
+      cursor = entries.at(-1)!.id;
+    }
+    const trackIds = [...trackStats.keys()];
     const trackMetadataById = new Map<string, ReplayTrackMetadata>();
     for (let offset = 0; offset < trackIds.length; offset += REPLAY_METADATA_BATCH_SIZE) {
       const metadata = await this.prisma.musicTrack.findMany({
@@ -109,7 +225,6 @@ export class MusicReplayService {
       });
       metadata.forEach((track) => trackMetadataById.set(track.id, track));
     }
-    const trackStats = new Map<string, { id: string; seconds: number; plays: number }>();
     const albumStats = new Map<
       string,
       { id: string; title: string; artworkUrl: string | null; seconds: number; plays: number }
@@ -119,20 +234,9 @@ export class MusicReplayService {
       { id: string; name: string; artworkUrl: string | null; seconds: number; plays: number }
     >();
     const genres = new Map<string, number>();
-    const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, seconds: 0, plays: 0 }));
-    const weekdays = Array.from({ length: 7 }, (_, day) => ({ day, seconds: 0, plays: 0 }));
-    let totalSeconds = 0;
-    for (const entry of entries) {
-      const metadata = trackMetadataById.get(entry.trackId);
-      const seconds = Math.max(0, entry.listenedSeconds);
-      totalSeconds += seconds;
-      const track = increment(trackStats, entry.trackId, () => ({
-        id: entry.trackId,
-        seconds: 0,
-        plays: 0,
-      }));
-      track.seconds += seconds;
-      track.plays += 1;
+    for (const track of trackStats.values()) {
+      const metadata = trackMetadataById.get(track.id);
+      const { seconds, plays } = track;
       if (metadata?.album) {
         const album = increment(albumStats, metadata.album.id, () => ({
           id: metadata.album!.id,
@@ -144,7 +248,7 @@ export class MusicReplayService {
           plays: 0,
         }));
         album.seconds += seconds;
-        album.plays += 1;
+        album.plays += plays;
       }
       if (metadata?.primaryArtist) {
         const artist = increment(artistStats, metadata.primaryArtist.id, () => ({
@@ -157,15 +261,10 @@ export class MusicReplayService {
           plays: 0,
         }));
         artist.seconds += seconds;
-        artist.plays += 1;
+        artist.plays += plays;
       }
       for (const genre of parseGenres(metadata?.genres))
         genres.set(genre, (genres.get(genre) || 0) + seconds);
-      const { hour, weekday: day } = replayLocalClock(entry.playedAt, timezoneOffsetMinutes);
-      hours[hour]!.seconds += seconds;
-      hours[hour]!.plays += 1;
-      weekdays[day]!.seconds += seconds;
-      weekdays[day]!.plays += 1;
     }
     const bySeconds = <T extends { seconds: number }>(values: Iterable<T>) =>
       [...values].sort((a, b) => b.seconds - a.seconds);
@@ -186,7 +285,7 @@ export class MusicReplayService {
       year: selectedYear,
       range: { start: start.toISOString(), end: end.toISOString() },
       totalSeconds,
-      totalPlays: entries.length,
+      totalPlays,
       uniqueTracks: trackStats.size,
       topTracks: rankedTracks.flatMap((item) => {
         const track = tracksById.get(item.id);

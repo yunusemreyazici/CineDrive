@@ -779,7 +779,7 @@ model MusicPlaybackCommand {
 }
 
 model MusicQueueItem {
-  id              String             @id @default(uuid())
+  id              String             @default(uuid())
   playbackStateId String
   playbackState   MusicPlaybackState @relation(fields: [playbackStateId], references: [id], onDelete: Cascade)
   trackId         String
@@ -787,6 +787,9 @@ model MusicQueueItem {
   sourceOrder     Int
   playOrder       Int
 
+  // A transferred queue preserves public entry IDs. Identity belongs to the
+  // destination playback state, not globally to whichever device saved first.
+  @@id([playbackStateId, id])
   @@unique([playbackStateId, sourceOrder])
   @@unique([playbackStateId, playOrder])
   @@index([trackId])

@@ -14,7 +14,11 @@ import {
   isPlaylistFilename,
 } from '../src/services/music-metadata.service';
 import { alignPlainLyrics, parseLrc } from '../src/services/music-lyrics.service';
-import { replayLocalClock, replayPeriodRange } from '../src/services/music-replay.service';
+import {
+  MusicReplayService,
+  replayLocalClock,
+  replayPeriodRange,
+} from '../src/services/music-replay.service';
 import { resolveMusicContentType } from '../src/utils/music-format';
 
 describe('Music library', () => {
@@ -121,6 +125,7 @@ describe('Music library', () => {
         deltaSyncV2: true,
         downloadManifest: true,
         localizedDiscovery: true,
+        cineMusicCommandLongPoll: true,
       },
       serverTime: expect.any(String),
     });
@@ -265,6 +270,62 @@ describe('Music library', () => {
       cookies: { session_id: cookie },
     });
     expect(unchanged.statusCode).toBe(304);
+  });
+
+  it('syncs late offline history as a bounded, user-scoped snapshot', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const initial = await app.inject({
+      method: 'GET',
+      url: '/api/music/sync?version=2',
+      cookies: { session_id: cookie },
+    });
+    const cursor = JSON.parse(initial.body).cursor;
+    const playedAt = new Date(Date.now() - 86_400_000).toISOString();
+    const eventId = randomUUID();
+    const upload = await app.inject({
+      method: 'POST',
+      url: '/api/music/history/batch',
+      cookies: { session_id: cookie },
+      payload: { events: [{ eventId, trackId, listenedSeconds: 40, playedAt }] },
+    });
+    expect(upload.statusCode).toBe(201);
+    const sync = () =>
+      app.inject({
+        method: 'GET',
+        url: `/api/music/sync?version=2&cursor=${encodeURIComponent(cursor)}`,
+        cookies: { session_id: cookie },
+      });
+    const late = JSON.parse((await sync()).body);
+    expect(late.historyIsSnapshot).toBe(true);
+    expect(late.history).toEqual([
+      expect.objectContaining({ playedAt, track: expect.objectContaining({ id: trackId }) }),
+    ]);
+
+    const other = await app.prisma.user.create({
+      data: { email: `${randomUUID()}@example.test`, name: 'Other' },
+    });
+    try {
+      const foreign = await app.prisma.musicHistory.create({
+        data: { userId: other.id, trackId, listenedSeconds: 40 },
+      });
+      await app.prisma.musicHistory.createMany({
+        data: Array.from({ length: 105 }, () => ({
+          userId: user.id,
+          trackId,
+          listenedSeconds: 40,
+          playedAt: new Date('2026-01-01T00:00:00Z'),
+        })),
+      });
+      const first = JSON.parse((await sync()).body);
+      const repeated = JSON.parse((await sync()).body);
+      expect(first.history).toHaveLength(100);
+      expect(first.history.map((entry: { id: string }) => entry.id)).not.toContain(foreign.id);
+      expect(repeated.history).toEqual(first.history);
+      const unauthorized = await app.inject({ method: 'GET', url: '/api/music/sync?version=2' });
+      expect(unauthorized.statusCode).toBe(401);
+    } finally {
+      await app.prisma.user.delete({ where: { id: other.id } });
+    }
   });
 
   it('syncs and builds discovery for libraries larger than the SQLite parameter limit', async () => {
@@ -880,6 +941,30 @@ describe('Music library', () => {
     });
   });
 
+  it('aggregates Replay history in bounded pages', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.createMany({
+      data: Array.from({ length: 2_001 }, () => ({
+        userId: user.id,
+        trackId,
+        listenedSeconds: 1,
+      })),
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/replay?period=week',
+      cookies: { session_id: cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      totalSeconds: 2_001,
+      totalPlays: 2_001,
+      uniqueTracks: 1,
+    });
+  });
+
   it('uses the client UTC offset for Replay day boundaries and local activity buckets', async () => {
     const now = new Date('2026-09-07T21:30:00.000Z');
     const range = replayPeriodRange('day', undefined, 180, now);
@@ -912,6 +997,44 @@ describe('Music library', () => {
     });
     expect(replay.hours[0]).toMatchObject({ hour: 0, seconds: 45, plays: 1 });
     expect(replay.weekdays[5]).toMatchObject({ day: 5, seconds: 45, plays: 1 });
+  });
+
+  it('uses an IANA time zone for Replay boundaries and historical DST buckets', async () => {
+    const winter = new Date('2026-01-15T05:30:00.000Z');
+    const summer = new Date('2026-07-15T04:30:00.000Z');
+    expect(replayLocalClock(winter, 0, 'America/New_York')).toEqual({ hour: 0, weekday: 4 });
+    expect(replayLocalClock(summer, 0, 'America/New_York')).toEqual({ hour: 0, weekday: 3 });
+    expect(replayPeriodRange('year', 2026, 0, summer, 'America/New_York')).toEqual({
+      start: new Date('2026-01-01T05:00:00.000Z'),
+      end: new Date('2027-01-01T05:00:00.000Z'),
+      year: 2026,
+    });
+
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.create({
+      data: { userId: user.id, trackId, listenedSeconds: 30, playedAt: summer },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/replay?period=year&year=2026&timeZone=America%2FNew_York',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const replay = JSON.parse(response.body);
+    expect(replay.range).toEqual({
+      start: '2026-01-01T05:00:00.000Z',
+      end: '2027-01-01T05:00:00.000Z',
+    });
+    expect(replay.hours[0]).toMatchObject({ seconds: 30, plays: 1 });
+  });
+
+  it('rejects invalid Replay IANA time zones', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/music/replay?period=day&timeZone=Not%2FAZone',
+      cookies: { session_id: cookie },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it('rejects unsafe Replay timezone offsets', async () => {
@@ -1767,6 +1890,110 @@ describe('Music library', () => {
     expect(stale.statusCode).toBe(409);
   });
 
+  it('conditionally reads large queues without hydrating unchanged tracks', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const state = await app.prisma.musicPlaybackState.create({
+      data: { userId: user.id, clientId: 'queue_test' },
+    });
+    const entries = Array.from({ length: 1000 }, (_, index) => ({
+      id: randomUUID(),
+      playbackStateId: state.id,
+      trackId,
+      sourceOrder: index,
+      playOrder: index,
+    }));
+    await app.prisma.musicQueueItem.createMany({ data: entries });
+    const read = (token?: string, clientId = 'queue_test') =>
+      app.inject({
+        method: 'GET',
+        url: `/api/music/playback-state?clientId=${clientId}${token ? `&knownQueueVersion=${token}` : ''}`,
+        cookies: { session_id: cookie },
+      });
+    const full = await read();
+    const initial = JSON.parse(full.body);
+    expect(initial.state.queue).toHaveLength(1000);
+    expect(initial.queueUnchanged).toBe(false);
+    expect(full.headers['cache-control']).toBe('private, no-store');
+    const hydration = vi.spyOn(app.prisma.musicTrack, 'findMany');
+    try {
+      // Position-only revisions do not invalidate the queue token.
+      await app.prisma.musicPlaybackState.update({
+        where: { id: state.id },
+        data: { revision: 2, positionSeconds: 42 },
+      });
+      const light = await read(initial.queueVersion);
+      expect(JSON.parse(light.body)).toMatchObject({
+        queueUnchanged: true,
+        state: { revision: 2, positionSeconds: 42, queue: [] },
+      });
+      expect(hydration.mock.calls.every(([args]) => !args?.include)).toBe(true);
+      expect(Buffer.byteLength(light.body)).toBeLessThan(Buffer.byteLength(full.body) / 10);
+
+      const otherClient = JSON.parse((await read(initial.queueVersion, 'other_client')).body);
+      expect(otherClient.queueUnchanged).toBe(false);
+      expect(otherClient.queueVersion).not.toBe(initial.queueVersion);
+
+      await app.prisma.musicQueueItem.delete({
+        where: { playbackStateId_id: { playbackStateId: state.id, id: entries[0]!.id } },
+      });
+      const changed = JSON.parse((await read(initial.queueVersion)).body);
+      expect(changed.queueUnchanged).toBe(false);
+      expect(changed.state.queue).toHaveLength(999);
+      expect(hydration.mock.calls.some(([args]) => !!args?.include)).toBe(true);
+
+      await app.prisma.musicTrack.update({
+        where: { id: trackId },
+        data: { title: 'Updated', updatedAt: new Date(Date.now() + 1000) },
+      });
+      const renamed = JSON.parse((await read(changed.queueVersion)).body);
+      expect(renamed.queueUnchanged).toBe(false);
+      expect(renamed.state.queue[0].track.title).toBe('Updated');
+      // Revoked visibility invalidates a hit rather than returning cached queue access.
+      await app.prisma.driveFile.updateMany({ where: { libraryId }, data: { status: 'deleted' } });
+      const hidden = JSON.parse((await read(renamed.queueVersion)).body);
+      expect(hidden.queueUnchanged).toBe(false);
+      expect(hidden.state.queue).toEqual([]);
+      expect((await read('invalid')).statusCode).toBe(400);
+      expect(
+        (await app.inject({ method: 'GET', url: '/api/music/playback-state?clientId=queue_test' }))
+          .statusCode,
+      ).toBe(401);
+    } finally {
+      hydration.mockRestore();
+    }
+  });
+
+  it('constructs one Replay formatter per request across history pages', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    await app.prisma.musicHistory.createMany({
+      data: Array.from({ length: 2001 }, (_, index) => ({
+        userId: user.id,
+        trackId,
+        listenedSeconds: 1,
+        playedAt: new Date(index % 2 ? '2026-01-15T05:30:00Z' : '2026-07-15T04:30:00Z'),
+      })),
+    });
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const formatter = vi
+      .spyOn(Intl, 'DateTimeFormat')
+      .mockImplementation(function (locales, options) {
+        return new OriginalDateTimeFormat(locales, options);
+      });
+    try {
+      const replay = await new MusicReplayService(app.prisma).get(
+        user.id,
+        'year',
+        2026,
+        0,
+        'America/New_York',
+      );
+      expect(formatter).toHaveBeenCalledTimes(1);
+      expect(replay.hours[0]).toMatchObject({ plays: 2001, seconds: 2001 });
+    } finally {
+      formatter.mockRestore();
+    }
+  });
+
   it('isolates playback queues and revisions by client', async () => {
     const firstClient = `web_${randomUUID()}`;
     const secondClient = `ios_${randomUUID()}`;
@@ -1816,6 +2043,48 @@ describe('Music library', () => {
       positionSeconds: 47,
       currentQueueItemId: secondQueueId,
     });
+  });
+
+  it('preserves transferred entry identity independently for both devices and retries safely', async () => {
+    const ids = [randomUUID(), randomUUID()] as const;
+    const clients = [`source_${randomUUID()}`, `target_${randomUUID()}`];
+    const payload = {
+      revision: 0, currentTrackId: trackId, currentQueueItemId: ids[1],
+      positionSeconds: 42, isPlaying: false, volume: 0.5,
+      shuffleEnabled: true, repeatMode: 'off',
+      queue: ids.map((id, sourceOrder) => ({ id, trackId, sourceOrder, playOrder: 1 - sourceOrder })),
+    };
+    const write = (clientId: string, revision: number, queue = payload.queue) => app.inject({
+      method: 'PUT', url: `/api/music/playback-state?clientId=${clientId}`,
+      cookies: { session_id: cookie }, payload: { ...payload, revision, queue },
+    });
+    for (const client of clients) expect((await write(client, 0)).statusCode).toBe(200);
+    expect((await write(clients[1]!, 0)).statusCode).toBe(409);
+    expect((await write(clients[1]!, 1)).statusCode).toBe(200);
+    // Duplicate IDs inside one state are invalid, not a 500 or silent omission.
+    const duplicate = payload.queue.map((entry) => ({ ...entry, id: ids[0] }));
+    expect((await write(clients[1]!, 2, duplicate)).statusCode).toBe(400);
+    for (const [index, clientId] of clients.entries()) {
+      const read = await app.inject({ method: 'GET',
+        url: `/api/music/playback-state?clientId=${clientId}`, cookies: { session_id: cookie } });
+      expect(read.statusCode).toBe(200);
+      expect(JSON.parse(read.body).state).toMatchObject({ revision: index + 1,
+        currentQueueItemId: ids[1], positionSeconds: 42, isPlaying: false,
+        queue: [payload.queue[1], payload.queue[0]],
+      });
+    }
+    expect((await app.inject({ method: 'PUT', url: '/api/music/playback-state', payload })).statusCode).toBe(401);
+    const foreign = await app.prisma.user.create({ data: {
+      email: `${randomUUID()}@queue.invalid`, passwordHash: 'not-a-real-password', name: 'Queue test',
+    } });
+    try {
+      const state = await app.prisma.musicPlaybackState.create({ data: { userId: foreign.id, clientId: clients[0]! } });
+      await app.prisma.musicQueueItem.create({ data: { ...payload.queue[0]!, playbackStateId: state.id } });
+      const visible = await app.inject({ method: 'GET', url: `/api/music/playback-state?clientId=${clients[0]}`,
+        cookies: { session_id: cookie } });
+      expect(JSON.parse(visible.body).state.queue).toHaveLength(2);
+      expect(JSON.parse(visible.body).state.id).not.toBe(state.id);
+    } finally { await app.prisma.user.delete({ where: { id: foreign.id } }); }
   });
 
   it('keeps Connect opt-in and delivers idempotent commands only to allowed online devices', async () => {
@@ -2043,6 +2312,33 @@ describe('Music library', () => {
       });
       expect(acknowledged.statusCode).toBe(200);
     }
+
+    const longPollCommandId = randomUUID();
+    const waitingForCommand = app.inject({
+      method: 'GET',
+      url: `/api/music/playback-commands?clientId=${targetClient}&waitMs=2000`,
+      cookies: { session_id: cookie },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const longPollCommand = await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-clients/${targetClient}/commands`,
+      headers: { 'x-cinemusic-client-id': sourceClient },
+      cookies: { session_id: cookie },
+      payload: { id: longPollCommandId, type: 'pause' },
+    });
+    expect(longPollCommand.statusCode).toBe(201);
+    const delivered = await waitingForCommand;
+    expect(delivered.statusCode).toBe(200);
+    expect(JSON.parse(delivered.body).commands).toEqual([
+      expect.objectContaining({ id: longPollCommandId, type: 'pause' }),
+    ]);
+    await app.inject({
+      method: 'POST',
+      url: `/api/music/playback-commands/${longPollCommandId}/ack`,
+      cookies: { session_id: cookie },
+      payload: { clientId: targetClient, status: 'completed' },
+    });
 
     const disable = await app.inject({
       method: 'POST',

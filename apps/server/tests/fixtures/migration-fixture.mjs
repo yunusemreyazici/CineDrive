@@ -73,8 +73,10 @@ const seedMusicDatabase = () => {
       VALUES ('music-lyrics', 'music-track', '[00:00.00]Legacy lyric', 'legacy.lrc', 'sidecar', 'en', 'Eski söz', 'tr', '2026-08-10T03:04:05.000Z', '2026-08-10T03:04:05.000Z');
     INSERT INTO "MusicHistory" ("id", "userId", "trackId", "listenedSeconds", "playedAt")
       VALUES ('music-history', 'music-user', 'music-track', 180, '2026-08-10T03:04:05.000Z');
-    INSERT INTO "MusicPlaybackState" ("id", "userId", "currentTrackId", "positionSeconds", "shuffleEnabled", "repeatMode", "revision", "updatedAt")
-      VALUES ('music-state', 'music-user', 'music-track', 42, false, 'all', 3, '2026-08-10T03:04:05.000Z');
+    INSERT INTO "MusicPlaybackState" ("id", "userId", "currentTrackId", "currentQueueItemId", "positionSeconds", "shuffleEnabled", "repeatMode", "revision", "updatedAt")
+      VALUES ('music-state', 'music-user', 'music-track', 'music-entry', 42, false, 'all', 3, '2026-08-10T03:04:05.000Z');
+    INSERT INTO "MusicQueueItem" ("id", "playbackStateId", "trackId", "sourceOrder", "playOrder")
+      VALUES ('music-entry', 'music-state', 'music-track', 0, 1), ('music-entry-repeat', 'music-state', 'music-track', 1, 0);
     INSERT INTO "LibraryScan" ("id", "libraryId", "status", "addedCount", "startedAt", "completedAt")
       VALUES ('music-scan', 'music-library', 'completed', 1, '2026-08-10T03:04:05.000Z', '2026-08-10T03:05:05.000Z');
     COMMIT;
@@ -246,6 +248,23 @@ const verifyMusicUpgrade = () => {
     scalar(`SELECT "clientId" FROM "MusicPlaybackState" WHERE "id" = 'music-state'`),
     'legacy',
     'Playback client backfill',
+  );
+  assertEqual(
+    scalar(`SELECT "currentQueueItemId" FROM "MusicPlaybackState" WHERE "id" = 'music-state'`),
+    'music-entry',
+    'Preserved current queue identity',
+  );
+  assertEqual(
+    scalar(`SELECT COUNT(*) FROM "MusicQueueItem" WHERE "playbackStateId" = 'music-state'`),
+    2,
+    'Preserved repeated queue track entries',
+  );
+  assertEqual(
+    scalar(
+      `SELECT "playOrder" FROM "MusicQueueItem" WHERE "playbackStateId" = 'music-state' AND "id" = 'music-entry'`,
+    ),
+    1,
+    'Preserved shuffle order',
   );
   assertEqual(
     scalar(

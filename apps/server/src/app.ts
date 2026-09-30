@@ -231,6 +231,7 @@ export const buildApp = async (
       scopedDownloadGrants: true,
       cineMusicConnect: true,
       cineMusicQueueControl: true,
+      cineMusicCommandLongPoll: true,
       listeningTogether: true,
     },
     serverTime: new Date().toISOString(),

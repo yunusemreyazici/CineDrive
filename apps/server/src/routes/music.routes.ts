@@ -26,6 +26,8 @@ import {
   musicLyricsAlignSchema,
   musicLyricsRevisionSchema,
   musicPlaybackClientQuerySchema,
+  musicPlaybackStateQuerySchema,
+  musicPlaybackCommandPollQuerySchema,
   musicConnectHeartbeatSchema,
   musicPlaybackCommandSchema,
   musicPlaybackCommandAckSchema,
@@ -40,6 +42,7 @@ import {
   updateMusicPlaylistSchema,
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
+import { loadPlaybackQueue } from '../services/music-playback-queue.service.js';
 import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
 import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
@@ -63,6 +66,7 @@ import { MusicAiEditorialService } from '../services/music-ai-editorial.service.
 import { createMusicAiProvider, MusicAiProviderError } from '../services/music-ai-provider.js';
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
+import { MusicPlaybackCommandWaiter } from '../services/music-playback-command-waiter.js';
 import {
   MusicMaintenanceService,
   audioQuality,
@@ -240,9 +244,11 @@ const albumDto = (album: {
 });
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
+  const playbackCommandWaiter = new MusicPlaybackCommandWaiter();
   const activeDirectTransfers = new Map<string, Set<AbortController>>();
   const activeDirectTransfersByUser = new Map<string, Set<AbortController>>();
   const allActiveDirectTransfers = new Set<AbortController>();
+  fastify.addHook('onClose', async () => playbackCommandWaiter.close());
 
   fastify.addHook('onSend', async (request, reply, payload) => {
     const contentType = String(reply.getHeader('content-type') || '');
@@ -292,6 +298,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     if (
       request.method !== 'GET' ||
       reply.statusCode !== 200 ||
+      String(reply.getHeader('Cache-Control') || '').includes('no-store') ||
       !contentType.includes('application/json') ||
       serializedPayload === null
     )
@@ -513,7 +520,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const historyWhere: Prisma.MusicHistoryWhereInput = {
       userId,
       track: trackWhere,
-      ...(isV2 && cursor ? { playedAt: { gt: cursor, lte: nextCursor } } : {}),
     };
     const [
       tracks,
@@ -585,7 +591,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.prisma.musicHistory.findMany({
         where: historyWhere,
         include: { track: { include: musicTrackInclude(userId) } },
-        orderBy: { playedAt: 'desc' },
+        orderBy: [{ playedAt: 'desc' }, { id: 'desc' }],
         take: 100,
       }),
       isV2 && cursor
@@ -624,6 +630,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       })),
       playlistIds: playlistIds.map((playlist) => playlist.id),
       favoriteTrackIds: favoriteTrackIds.map((favorite) => favorite.trackId),
+      // playedAt is event time, not ingestion time: an offline listen can be
+      // inserted after the cursor with an older playedAt. The bounded recent
+      // history window is authoritative even when the library arrays are deltas.
+      historyIsSnapshot: true,
       history: history.map((entry) => ({
         id: entry.id,
         playedAt: entry.playedAt.toISOString(),
@@ -713,6 +723,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         request.user!.id,
         parsed.data.prompt,
         parsed.data.generationId,
+        String(request.headers['accept-language'] || 'tr').toLowerCase().startsWith('tr') ? 'tr' : 'en',
       );
     } catch (error) {
       if (error instanceof MusicAiProviderError) {
@@ -758,6 +769,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       parsed.data.period,
       parsed.data.year,
       parsed.data.timezoneOffsetMinutes,
+      parsed.data.timeZone,
     );
   });
 
@@ -2402,61 +2414,63 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { reordered: true };
   });
 
-  fastify.get<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
-    '/playback-state',
-    async (request, reply) => {
-      const client = musicPlaybackClientQuerySchema.safeParse(request.query);
-      if (!client.success)
-        return reply.status(400).send({
-          error: {
-            code: 'INVALID_PLAYBACK_CLIENT',
-            message: 'Geçersiz oynatıcı kimliği.',
-            requestId: request.id,
-          },
-        });
-      const userId = request.user!.id;
-      const state = await fastify.prisma.musicPlaybackState.upsert({
-        where: { userId_clientId: { userId, clientId: client.data.clientId } },
-        create: {
-          userId,
-          clientId: client.data.clientId,
-          clientName: client.data.clientName,
-          platform: client.data.platform,
-        },
-        update: {
-          ...(request.query.clientName ? { clientName: client.data.clientName } : {}),
-          ...(request.query.platform ? { platform: client.data.platform } : {}),
-        },
-        include: {
-          queue: {
-            include: { track: { include: musicTrackInclude(userId) } },
-            orderBy: { playOrder: 'asc' },
-          },
+  fastify.get<{
+    Querystring: {
+      clientId?: string;
+      clientName?: string;
+      platform?: string;
+      knownQueueVersion?: string;
+    };
+  }>('/playback-state', async (request, reply) => {
+    const client = musicPlaybackStateQuerySchema.safeParse(request.query);
+    if (!client.success)
+      return reply.status(400).send({
+        error: {
+          code: 'INVALID_PLAYBACK_CLIENT',
+          message: 'Geçersiz oynatıcı kimliği.',
+          requestId: request.id,
         },
       });
-      return {
-        state: {
-          revision: state.revision,
-          clientId: state.clientId,
-          currentTrackId: state.currentTrackId,
-          currentQueueItemId: state.currentQueueItemId,
-          positionSeconds: state.positionSeconds,
-          volume: state.volume,
-          isPlaying: state.isPlaying,
-          shuffleEnabled: state.shuffleEnabled,
-          repeatMode: state.repeatMode,
-          playbackUpdatedAt: state.playbackUpdatedAt,
-          queue: state.queue.map((item) => ({
-            id: item.id,
-            trackId: item.trackId,
-            sourceOrder: item.sourceOrder,
-            playOrder: item.playOrder,
-            track: formatMusicTrack(item.track),
-          })),
-        },
-      };
-    },
-  );
+    const userId = request.user!.id;
+    const state = await fastify.prisma.musicPlaybackState.upsert({
+      where: { userId_clientId: { userId, clientId: client.data.clientId } },
+      create: {
+        userId,
+        clientId: client.data.clientId,
+        clientName: client.data.clientName,
+        platform: client.data.platform,
+      },
+      update: {
+        ...(request.query.clientName ? { clientName: client.data.clientName } : {}),
+        ...(request.query.platform ? { platform: client.data.platform } : {}),
+      },
+    });
+    const queue = await loadPlaybackQueue(
+      fastify.prisma,
+      userId,
+      state.id,
+      ownedTrackWhere(userId),
+      client.data.knownQueueVersion,
+    );
+    reply.header('Cache-Control', 'private, no-store');
+    return {
+      queueVersion: queue.queueVersion,
+      queueUnchanged: queue.queueUnchanged,
+      state: {
+        revision: state.revision,
+        clientId: state.clientId,
+        currentTrackId: state.currentTrackId,
+        currentQueueItemId: state.currentQueueItemId,
+        positionSeconds: state.positionSeconds,
+        volume: state.volume,
+        isPlaying: state.isPlaying,
+        shuffleEnabled: state.shuffleEnabled,
+        repeatMode: state.repeatMode,
+        playbackUpdatedAt: state.playbackUpdatedAt,
+        queue: queue.queue,
+      },
+    };
+  });
   fastify.put<{ Querystring: { clientId?: string; clientName?: string; platform?: string } }>(
     '/playback-state',
     async (request, reply) => {
@@ -2515,6 +2529,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         });
       const queue = parsed.data.queue.map((item) => ({ ...item, id: item.id || randomUUID() }));
       if (
+        new Set(queue.map((item) => item.id)).size !== queue.length ||
         new Set(queue.map((item) => item.sourceOrder)).size !== queue.length ||
         new Set(queue.map((item) => item.playOrder)).size !== queue.length
       )
@@ -2842,6 +2857,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           expiresAt: new Date(Date.now() + 45_000),
         },
       });
+      playbackCommandWaiter.notify(`${userId}:${request.params.clientId}`);
       return reply.status(201).send({ command: { id: command.id, status: command.status } });
     },
   );
@@ -2859,12 +2875,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { command };
   });
 
-  fastify.get<{ Querystring: { clientId?: string } }>(
+  fastify.get<{ Querystring: { clientId?: string; waitMs?: string } }>(
     '/playback-commands',
     async (request, reply) => {
-      const parsed = musicPlaybackClientQuerySchema
-        .pick({ clientId: true })
-        .safeParse(request.query);
+      const parsed = musicPlaybackCommandPollQuerySchema.safeParse(request.query);
       if (!parsed.success)
         return reply.status(400).send({
           error: {
@@ -2873,26 +2887,34 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      const now = new Date();
-      await fastify.prisma.musicPlaybackCommand.updateMany({
-        where: {
-          userId: request.user!.id,
-          targetClientId: parsed.data.clientId,
-          status: 'pending',
-          expiresAt: { lte: now },
-        },
-        data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
-      });
-      const commands = await fastify.prisma.musicPlaybackCommand.findMany({
-        where: {
-          userId: request.user!.id,
-          targetClientId: parsed.data.clientId,
-          status: 'pending',
-          expiresAt: { gt: now },
-        },
-        orderBy: { createdAt: 'asc' },
-        take: 20,
-      });
+      const userId = request.user!.id;
+      const clientId = parsed.data.clientId;
+      const readCommands = async () => {
+        const now = new Date();
+        await fastify.prisma.musicPlaybackCommand.updateMany({
+          where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { lte: now } },
+          data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
+        });
+        return fastify.prisma.musicPlaybackCommand.findMany({
+          where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { gt: now } },
+          orderBy: { createdAt: 'asc' },
+          take: 20,
+        });
+      };
+      let commands = await readCommands();
+      if (commands.length === 0 && parsed.data.waitMs > 0) {
+        const waiterKey = `${userId}:${clientId}`;
+        const waitForCommand = playbackCommandWaiter.wait(waiterKey, parsed.data.waitMs);
+        // Register the waiter before the second read so a command created in
+        // the gap between the initial query and waiting cannot be missed.
+        commands = await readCommands();
+        if (commands.length === 0) {
+          await waitForCommand;
+          commands = await readCommands();
+        } else {
+          playbackCommandWaiter.notify(waiterKey);
+        }
+      }
       const pendingCommands = commands.map((command) => {
         const payload = command.payload
           ? (JSON.parse(command.payload) as {
