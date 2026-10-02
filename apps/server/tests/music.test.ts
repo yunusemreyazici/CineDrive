@@ -2403,6 +2403,200 @@ describe('Music library', () => {
     },
   );
 
+  it.each(['completed', 'failed'] as const)(
+    'acknowledges an identical Connect result retry without rewriting completion (%s)',
+    async (status) => {
+      const user = await app.authService.ensureAdminUserExists();
+      const id = randomUUID(),
+        target = `mac_${randomUUID()}`;
+      await app.prisma.musicPlaybackCommand.create({
+        data: {
+          id,
+          userId: user.id,
+          sourceClientId: `ios_${randomUUID()}`,
+          targetClientId: target,
+          type: 'pause',
+          expiresAt: new Date(Date.now() + 45_000),
+        },
+      });
+      const payload = {
+        clientId: target,
+        status,
+        ...(status === 'failed' ? { errorMessage: 'Playback failed' } : {}),
+      };
+      const ack = () =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-commands/${id}/ack`,
+          cookies: { session_id: cookie },
+          payload,
+        });
+      expect((await ack()).statusCode).toBe(200);
+      const first = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } });
+      expect(first).toMatchObject({
+        status,
+        errorMessage: status === 'failed' ? 'Playback failed' : null,
+        completedAt: expect.any(Date),
+      });
+      expect((await ack()).statusCode).toBe(200);
+      expect(await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } })).toEqual(
+        first,
+      );
+      for (const changed of [
+        { ...payload, status: status === 'completed' ? 'failed' : 'completed' },
+        { ...payload, errorMessage: 'Changed result' },
+      ]) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/api/music/playback-commands/${id}/ack`,
+          cookies: { session_id: cookie },
+          payload: changed,
+        });
+        expect(response.statusCode).toBe(409);
+        expect(JSON.parse(response.body).error.code).toBe('COMMAND_ACK_CONFLICT');
+      }
+      expect(await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } })).toEqual(
+        first,
+      );
+    },
+  );
+
+  it('keeps Connect ACK retries scoped to the authenticated user and target device', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const foreign = await app.prisma.user.create({
+      data: {
+        name: 'ACK isolation fixture',
+        email: `${randomUUID()}@ack.invalid`,
+        passwordHash: 'fixture',
+      },
+    });
+    const target = `mac_${randomUUID()}`;
+    try {
+      for (const owner of [user.id, foreign.id]) {
+        for (const status of ['pending', 'completed']) {
+          const id = randomUUID();
+          await app.prisma.musicPlaybackCommand.create({
+            data: {
+              id,
+              userId: owner,
+              sourceClientId: `ios_${randomUUID()}`,
+              targetClientId: target,
+              type: 'pause',
+              status,
+              expiresAt: new Date(Date.now() + 45_000),
+            },
+          });
+          const before = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } });
+          const response = await app.inject({
+            method: 'POST',
+            url: `/api/music/playback-commands/${id}/ack`,
+            cookies: { session_id: cookie },
+            payload: {
+              clientId: owner === user.id ? `other_${randomUUID()}` : target,
+              status: 'completed',
+            },
+          });
+          expect(response.statusCode).toBe(404);
+          expect(
+            (
+              await app.inject({
+                method: 'POST',
+                url: `/api/music/playback-commands/${id}/ack`,
+                payload: { clientId: target, status: 'completed' },
+              })
+            ).statusCode,
+          ).toBe(401);
+          expect(
+            await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } }),
+          ).toEqual(before);
+        }
+      }
+    } finally {
+      await app.prisma.user.delete({ where: { id: foreign.id } });
+    }
+  });
+
+  it.each([true, false])(
+    'serializes concurrent Connect ACKs without overwriting results (identical=%s)',
+    async (identical) => {
+      const user = await app.authService.ensureAdminUserExists();
+      const id = randomUUID(),
+        target = `mac_${randomUUID()}`;
+      await app.prisma.musicPlaybackCommand.create({
+        data: {
+          id,
+          userId: user.id,
+          sourceClientId: `ios_${randomUUID()}`,
+          targetClientId: target,
+          type: 'pause',
+          expiresAt: new Date(Date.now() + 45_000),
+        },
+      });
+      const statuses = ['completed', identical ? 'completed' : 'failed'];
+      const responses = await Promise.all(
+        statuses.map((status) =>
+          app.inject({
+            method: 'POST',
+            url: `/api/music/playback-commands/${id}/ack`,
+            cookies: { session_id: cookie },
+            payload: { clientId: target, status },
+          }),
+        ),
+      );
+      expect(responses.map((response) => response.statusCode).sort()).toEqual(
+        identical ? [200, 200] : [200, 409],
+      );
+      const stored = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } });
+      expect(stored.status).toBe(
+        statuses[responses.findIndex((response) => response.statusCode === 200)],
+      );
+      expect(stored.completedAt).toEqual(expect.any(Date));
+    },
+  );
+
+  it('never lets a late Connect ACK replace permission revocation', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const id = randomUUID(),
+      target = `mac_${randomUUID()}`;
+    await app.prisma.musicPlaybackCommand.create({
+      data: {
+        id,
+        userId: user.id,
+        sourceClientId: `ios_${randomUUID()}`,
+        targetClientId: target,
+        type: 'play',
+        expiresAt: new Date(Date.now() + 45_000),
+      },
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${target}`,
+          cookies: { session_id: cookie },
+          payload: { connectEnabled: true, remoteControlAllowed: false, isPlaying: false },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const revoked = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } });
+    expect(revoked).toMatchObject({ status: 'failed', errorMessage: 'REMOTE_CONTROL_DISABLED' });
+    for (const status of ['completed', 'failed']) {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/api/music/playback-commands/${id}/ack`,
+            cookies: { session_id: cookie },
+            payload: { clientId: target, status },
+          })
+        ).statusCode,
+      ).toBe(409);
+    }
+    expect(await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } })).toEqual(
+      revoked,
+    );
+  });
+
   it('publishes current duplicate queue-entry identity in lightweight Connect clients', async () => {
     const target = `mac_${randomUUID()}`,
       first = randomUUID(),

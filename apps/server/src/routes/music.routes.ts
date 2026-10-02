@@ -68,6 +68,7 @@ import { MusicReplayGainService } from '../services/music-replaygain.service.js'
 import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicPlaybackCommandWaiter } from '../services/music-playback-command-waiter.js';
 import {
+  acknowledgeMusicConnectCommand,
   enqueueMusicConnectCommand,
   failPendingMusicConnectCommands,
 } from '../services/music-connect-command.service.js';
@@ -3023,22 +3024,22 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const updated = await fastify.prisma.musicPlaybackCommand.updateMany({
-      where: {
-        id: request.params.id,
-        userId: request.user!.id,
-        targetClientId: parsed.data.clientId,
-        status: 'pending',
-      },
-      data: {
-        status: parsed.data.status,
-        errorMessage: parsed.data.errorMessage,
-        completedAt: new Date(),
-      },
+    const result = await acknowledgeMusicConnectCommand(fastify.prisma, {
+      id: request.params.id,
+      userId: request.user!.id,
+      ...parsed.data,
     });
-    if (!updated.count)
+    if (result === 'missing')
       return reply.status(404).send({
         error: { code: 'COMMAND_NOT_FOUND', message: 'Komut bulunamadı.', requestId: request.id },
+      });
+    if (result === 'conflict')
+      return reply.status(409).send({
+        error: {
+          code: 'COMMAND_ACK_CONFLICT',
+          message: 'Komut sonucu zaten kaydedilmiş.',
+          requestId: request.id,
+        },
       });
     return { acknowledged: true };
   });

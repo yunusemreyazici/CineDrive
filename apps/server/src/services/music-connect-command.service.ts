@@ -1,5 +1,36 @@
 import type { Prisma, PrismaClient } from '@cinedrive/prisma';
 
+interface AcknowledgeMusicConnectCommand {
+  id: string;
+  userId: string;
+  clientId: string;
+  status: 'completed' | 'failed';
+  errorMessage?: string;
+}
+
+/** A result is immutable once stored. Accept an identical retry after a lost
+ * response, without overwriting a revocation or exposing another user's command. */
+export async function acknowledgeMusicConnectCommand(
+  prisma: PrismaClient,
+  input: AcknowledgeMusicConnectCommand,
+): Promise<'acknowledged' | 'missing' | 'conflict'> {
+  const scope = { id: input.id, userId: input.userId, targetClientId: input.clientId };
+  const errorMessage = input.errorMessage ?? null;
+  const updated = await prisma.musicPlaybackCommand.updateMany({
+    where: { ...scope, status: 'pending' },
+    data: { status: input.status, errorMessage, completedAt: new Date() },
+  });
+  if (updated.count) return 'acknowledged';
+  const existing = await prisma.musicPlaybackCommand.findFirst({
+    where: scope,
+    select: { status: true, errorMessage: true },
+  });
+  if (!existing) return 'missing';
+  return existing.status === input.status && existing.errorMessage === errorMessage
+    ? 'acknowledged'
+    : 'conflict';
+}
+
 /** Shared user/device/status scope for heartbeat revocation and device removal. */
 export function failPendingMusicConnectCommands(
   tx: Prisma.TransactionClient,
