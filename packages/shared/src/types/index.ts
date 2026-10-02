@@ -473,6 +473,7 @@ export interface MusicPlaybackClientDto {
   clientName: string | null;
   platform: string;
   currentTrackId: string | null;
+  queueItemId?: string | null;
   positionSeconds: number;
   volume: number;
   isPlaying: boolean;

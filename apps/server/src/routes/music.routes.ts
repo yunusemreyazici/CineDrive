@@ -68,6 +68,10 @@ import { MusicReplayGainService } from '../services/music-replaygain.service.js'
 import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicPlaybackCommandWaiter } from '../services/music-playback-command-waiter.js';
 import {
+  enqueueMusicConnectCommand,
+  failPendingMusicConnectCommands,
+} from '../services/music-connect-command.service.js';
+import {
   MusicMaintenanceService,
   audioQuality,
   hasMeaningfulSuggestionChange,
@@ -2697,6 +2701,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       clientName: client.clientName,
       platform: client.platform,
       currentTrackId: client.currentTrackId,
+      queueItemId: client.currentQueueItemId,
       positionSeconds: client.positionSeconds,
       volume: client.volume,
       isPlaying: client.isPlaying,
@@ -2726,33 +2731,42 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         });
       const userId = request.user!.id;
       const connectEnabled = heartbeat.data.connectEnabled;
-      const state = await fastify.prisma.musicPlaybackState.upsert({
-        where: { userId_clientId: { userId, clientId: client.data.clientId } },
-        create: {
-          userId,
-          clientId: client.data.clientId,
-          clientName: client.data.clientName,
-          platform: client.data.platform,
-          connectEnabled,
-          remoteControlAllowed: connectEnabled && heartbeat.data.remoteControlAllowed,
-          isPlaying: heartbeat.data.isPlaying,
-          lastSeenAt: new Date(),
-        },
-        update: {
-          clientName: client.data.clientName,
-          platform: client.data.platform,
-          connectEnabled,
-          remoteControlAllowed: connectEnabled && heartbeat.data.remoteControlAllowed,
-          isPlaying: heartbeat.data.isPlaying,
-          lastSeenAt: new Date(),
-        },
-      });
-      if (!connectEnabled) {
-        await fastify.prisma.musicPlaybackCommand.updateMany({
-          where: { userId, targetClientId: client.data.clientId, status: 'pending' },
-          data: { status: 'failed', errorMessage: 'CONNECT_DISABLED', completedAt: new Date() },
+      const remoteControlAllowed = connectEnabled && heartbeat.data.remoteControlAllowed;
+      // Permission and queue invalidation must commit together: a quick
+      // re-enable must not expose commands queued under the previous grant.
+      const state = await fastify.prisma.$transaction(async (tx) => {
+        const state = await tx.musicPlaybackState.upsert({
+          where: { userId_clientId: { userId, clientId: client.data.clientId } },
+          create: {
+            userId,
+            clientId: client.data.clientId,
+            clientName: client.data.clientName,
+            platform: client.data.platform,
+            connectEnabled,
+            remoteControlAllowed,
+            isPlaying: heartbeat.data.isPlaying,
+            lastSeenAt: new Date(),
+          },
+          update: {
+            clientName: client.data.clientName,
+            platform: client.data.platform,
+            connectEnabled,
+            remoteControlAllowed,
+            isPlaying: heartbeat.data.isPlaying,
+            lastSeenAt: new Date(),
+          },
         });
-      }
+        if (!remoteControlAllowed) {
+          await failPendingMusicConnectCommands(
+            tx,
+            userId,
+            client.data.clientId,
+            connectEnabled ? 'REMOTE_CONTROL_DISABLED' : 'CONNECT_DISABLED',
+          );
+        }
+        return state;
+      });
+      if (!remoteControlAllowed) playbackCommandWaiter.notify(`${userId}:${client.data.clientId}`);
       return { clientId: state.clientId, connectEnabled: state.connectEnabled };
     },
   );
@@ -2819,20 +2833,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             },
           });
       }
-      const duplicate = await fastify.prisma.musicPlaybackCommand.findUnique({
-        where: { id: parsed.data.id },
-      });
-      if (duplicate) {
-        if (duplicate.userId !== userId)
-          return reply.status(409).send({
-            error: {
-              code: 'COMMAND_ID_CONFLICT',
-              message: 'Komut kimliği kullanılıyor.',
-              requestId: request.id,
-            },
-          });
-        return { command: { id: duplicate.id, status: duplicate.status } };
-      }
       const commandPayload = {
         sourceClientId: parsed.data.sourceClientId,
         mode: parsed.data.mode,
@@ -2846,19 +2846,27 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       const payload = Object.values(commandPayload).some((value) => value !== undefined)
         ? JSON.stringify(commandPayload)
         : null;
-      const command = await fastify.prisma.musicPlaybackCommand.create({
-        data: {
-          id: parsed.data.id,
-          userId,
-          sourceClientId,
-          targetClientId: request.params.clientId,
-          type: parsed.data.type,
-          payload,
-          expiresAt: new Date(Date.now() + 45_000),
-        },
+      const result = await enqueueMusicConnectCommand(fastify.prisma, {
+        id: parsed.data.id,
+        userId,
+        sourceClientId,
+        targetClientId: request.params.clientId,
+        type: parsed.data.type,
+        payload,
       });
-      playbackCommandWaiter.notify(`${userId}:${request.params.clientId}`);
-      return reply.status(201).send({ command: { id: command.id, status: command.status } });
+      if (result.kind === 'rejected') {
+        const messages = {
+          DEVICE_CONTROL_DISABLED: 'Hedef cihaz uzaktan kontrole izin vermiyor.',
+          DEVICE_OFFLINE: 'Hedef cihaz çevrimdışı.',
+          COMMAND_ID_CONFLICT: 'Komut kimliği kullanılıyor.',
+        };
+        return reply.status(409).send({
+          error: { code: result.code, message: messages[result.code], requestId: request.id },
+        });
+      }
+      if (result.kind === 'created')
+        playbackCommandWaiter.notify(`${userId}:${request.params.clientId}`);
+      return reply.status(result.kind === 'created' ? 201 : 200).send({ command: result.command });
     },
   );
 
@@ -3010,9 +3018,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{ Params: { clientId: string } }>(
     '/playback-clients/:clientId',
     async (request, reply) => {
-      await fastify.prisma.musicPlaybackState.deleteMany({
-        where: { userId: request.user!.id, clientId: request.params.clientId },
+      const userId = request.user!.id;
+      const clientId = request.params.clientId;
+      await fastify.prisma.$transaction(async (tx) => {
+        await tx.musicPlaybackState.deleteMany({ where: { userId, clientId } });
+        await failPendingMusicConnectCommands(tx, userId, clientId, 'DEVICE_REMOVED');
       });
+      playbackCommandWaiter.notify(`${userId}:${clientId}`);
       return reply.status(204).send();
     },
   );

@@ -20,6 +20,7 @@ import {
   replayPeriodRange,
 } from '../src/services/music-replay.service';
 import { resolveMusicContentType } from '../src/utils/music-format';
+import { MusicPlaybackCommandWaiter } from '../src/services/music-playback-command-waiter';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -2085,6 +2086,382 @@ describe('Music library', () => {
       expect(JSON.parse(visible.body).state.queue).toHaveLength(2);
       expect(JSON.parse(visible.body).state.id).not.toBe(state.id);
     } finally { await app.prisma.user.delete({ where: { id: foreign.id } }); }
+  });
+
+  it.each([
+    {
+      connectEnabled: true,
+      remoteControlAllowed: false,
+      removeDevice: false,
+      error: 'REMOTE_CONTROL_DISABLED',
+    },
+    {
+      connectEnabled: false,
+      remoteControlAllowed: true,
+      removeDevice: false,
+      error: 'CONNECT_DISABLED',
+    },
+    {
+      connectEnabled: true,
+      remoteControlAllowed: true,
+      removeDevice: true,
+      error: 'DEVICE_REMOVED',
+    },
+  ])(
+    'retires pending Connect commands on revocation ($error) without replay or cross-user/device changes',
+    async ({ connectEnabled, remoteControlAllowed, removeDevice, error }) => {
+      const source = `ios_${randomUUID()}`,
+        target = `mac_${randomUUID()}`,
+        other = `mac_${randomUUID()}`;
+      const heartbeat = (clientId: string, enabled = true, allowed = true, authenticated = true) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${clientId}&platform=desktop`,
+          ...(authenticated ? { cookies: { session_id: cookie } } : {}),
+          payload: { connectEnabled: enabled, remoteControlAllowed: allowed, isPlaying: true },
+        });
+      const enqueue = (clientId: string, id: string) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/${clientId}/commands`,
+          cookies: { session_id: cookie },
+          headers: { 'x-cinemusic-client-id': source },
+          payload: { id, type: 'play' },
+        });
+      const revoke = (authenticated = true) =>
+        removeDevice
+          ? app.inject({
+              method: 'DELETE',
+              url: `/api/music/playback-clients/${target}`,
+              ...(authenticated ? { cookies: { session_id: cookie } } : {}),
+            })
+          : heartbeat(target, connectEnabled, remoteControlAllowed, authenticated);
+      const revokedStatus = removeDevice ? 204 : 200;
+      expect((await heartbeat(target)).statusCode).toBe(200);
+      expect((await heartbeat(other)).statusCode).toBe(200);
+      const pendingId = randomUUID(),
+        completedId = randomUUID(),
+        otherId = randomUUID();
+      for (const [clientId, id] of [
+        [target, pendingId],
+        [target, completedId],
+        [other, otherId],
+      ] as const) {
+        expect((await enqueue(clientId, id)).statusCode).toBe(201);
+      }
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: `/api/music/playback-commands/${completedId}/ack`,
+            cookies: { session_id: cookie },
+            payload: { clientId: target, status: 'completed' },
+          })
+        ).statusCode,
+      ).toBe(200);
+      const foreign = await app.prisma.user.create({
+        data: {
+          email: `${randomUUID()}@connect.invalid`,
+          name: 'Other Connect user',
+          passwordHash: 'fixture-not-used-for-login',
+        },
+      });
+      const foreignId = randomUUID();
+      try {
+        await app.prisma.musicPlaybackCommand.create({
+          data: {
+            id: foreignId,
+            userId: foreign.id,
+            sourceClientId: source,
+            targetClientId: target,
+            type: 'play',
+            expiresAt: new Date(Date.now() + 45_000),
+          },
+        });
+        expect((await revoke(false)).statusCode).toBe(401);
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: pendingId } }))
+            .status,
+        ).toBe('pending');
+        expect((await revoke()).statusCode).toBe(revokedStatus);
+        const status = await app.inject({
+          method: 'GET',
+          url: `/api/music/playback-commands/${pendingId}`,
+          cookies: { session_id: cookie },
+          headers: { 'x-cinemusic-client-id': source },
+        });
+        expect(status.statusCode).toBe(200);
+        expect(JSON.parse(status.body).command).toMatchObject({
+          status: 'failed',
+          errorMessage: error,
+          completedAt: expect.any(String),
+        });
+        expect((await enqueue(target, randomUUID())).statusCode).toBe(409);
+        const cancelled = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({
+          where: { id: pendingId },
+        });
+        expect((await revoke()).statusCode).toBe(revokedStatus);
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: pendingId } }))
+            .completedAt,
+        ).toEqual(cancelled.completedAt);
+        expect((await heartbeat(target)).statusCode).toBe(200);
+        const poll = await app.inject({
+          method: 'GET',
+          url: `/api/music/playback-commands?clientId=${target}`,
+          cookies: { session_id: cookie },
+        });
+        expect(JSON.parse(poll.body).commands).toEqual([]);
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: otherId } }))
+            .status,
+        ).toBe('pending');
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: foreignId } }))
+            .status,
+        ).toBe('pending');
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: completedId } }))
+            .status,
+        ).toBe('completed');
+        const freshId = randomUUID();
+        expect((await enqueue(target, freshId)).statusCode).toBe(201);
+        const fresh = await app.inject({
+          method: 'GET',
+          url: `/api/music/playback-commands?clientId=${target}`,
+          cookies: { session_id: cookie },
+        });
+        expect(JSON.parse(fresh.body).commands).toEqual([expect.objectContaining({ id: freshId })]);
+      } finally {
+        await app.prisma.user.delete({ where: { id: foreign.id } });
+      }
+    },
+  );
+
+  it.each(['permission', 'removal'])(
+    'wakes a Connect long poll on revocation (%s)',
+    async (mode) => {
+      const user = await app.authService.ensureAdminUserExists();
+      const target = `mac_${randomUUID()}`,
+        key = `${user.id}:${target}`;
+      const heartbeat = (allowed: boolean) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${target}&platform=desktop`,
+          cookies: { session_id: cookie },
+          payload: { connectEnabled: true, remoteControlAllowed: allowed, isPlaying: false },
+        });
+      expect((await heartbeat(true)).statusCode).toBe(200);
+      const wait = vi.spyOn(MusicPlaybackCommandWaiter.prototype, 'wait');
+      const notify = vi.spyOn(MusicPlaybackCommandWaiter.prototype, 'notify');
+      const pending = app
+        .inject({
+          method: 'GET',
+          url: `/api/music/playback-commands?clientId=${target}&waitMs=1000`,
+          cookies: { session_id: cookie },
+        })
+        .then((response) => response);
+      await vi.waitFor(() => expect(wait).toHaveBeenCalledWith(key, 1000));
+      if (mode === 'removal') {
+        expect(
+          (
+            await app.inject({
+              method: 'DELETE',
+              url: `/api/music/playback-clients/${target}`,
+              cookies: { session_id: cookie },
+            })
+          ).statusCode,
+        ).toBe(204);
+      } else {
+        expect((await heartbeat(false)).statusCode).toBe(200);
+      }
+      expect(notify).toHaveBeenCalledWith(key);
+      expect(JSON.parse((await pending).body).commands).toEqual([]);
+    },
+  );
+
+  it.each(['permission', 'removal'])(
+    'rolls back Connect revocation if pending-command invalidation fails (%s)',
+    async (mode) => {
+      const user = await app.authService.ensureAdminUserExists();
+      const source = `ios_${randomUUID()}`,
+        target = `mac_${randomUUID()}`,
+        id = randomUUID();
+      const heartbeat = (allowed: boolean) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${target}&platform=desktop`,
+          cookies: { session_id: cookie },
+          payload: { connectEnabled: true, remoteControlAllowed: allowed, isPlaying: true },
+        });
+      const revoke = () =>
+        mode === 'removal'
+          ? app.inject({
+              method: 'DELETE',
+              url: `/api/music/playback-clients/${target}`,
+              cookies: { session_id: cookie },
+            })
+          : heartbeat(false);
+      expect((await heartbeat(true)).statusCode).toBe(200);
+      await app.prisma.musicPlaybackCommand.create({
+        data: {
+          id,
+          userId: user.id,
+          sourceClientId: source,
+          targetClientId: target,
+          type: 'play',
+          expiresAt: new Date(Date.now() + 45_000),
+        },
+      });
+      const notify = vi.spyOn(MusicPlaybackCommandWaiter.prototype, 'notify');
+      // Static trigger in the disposable test DB injects a genuine write failure
+      // without mocking transaction internals or touching a development database.
+      await app.prisma.$executeRaw`CREATE TRIGGER test_connect_revoke_failure
+      BEFORE UPDATE ON MusicPlaybackCommand WHEN OLD.status = 'pending'
+      BEGIN SELECT RAISE(ABORT, 'fixture-command-invalidation-failed'); END`;
+      try {
+        expect((await revoke()).statusCode).toBe(500);
+        const state = await app.prisma.musicPlaybackState.findUniqueOrThrow({
+          where: { userId_clientId: { userId: user.id, clientId: target } },
+        });
+        expect(state).toMatchObject({
+          connectEnabled: true,
+          remoteControlAllowed: true,
+          isPlaying: true,
+        });
+        expect(
+          (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } })).status,
+        ).toBe('pending');
+        expect(notify).not.toHaveBeenCalled();
+      } finally {
+        await app.prisma.$executeRaw`DROP TRIGGER test_connect_revoke_failure`;
+      }
+      expect((await revoke()).statusCode).toBe(mode === 'removal' ? 204 : 200);
+      expect(
+        (await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } })).status,
+      ).toBe('failed');
+    },
+  );
+
+  it.each(['permission', 'offline', 'removal'])(
+    'rechecks Connect permission at command enqueue rather than trusting a stale lookup (%s)',
+    async (mode) => {
+      const user = await app.authService.ensureAdminUserExists();
+      const source = `ios_${randomUUID()}`,
+        target = `mac_${randomUUID()}`,
+        id = randomUUID();
+      const heartbeat = (allowed: boolean) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${target}&platform=desktop`,
+          cookies: { session_id: cookie },
+          payload: { connectEnabled: true, remoteControlAllowed: allowed, isPlaying: false },
+        });
+      expect((await heartbeat(true)).statusCode).toBe(200);
+      const oldGrant = await app.prisma.musicPlaybackState.findUniqueOrThrow({
+        where: { userId_clientId: { userId: user.id, clientId: target } },
+      });
+      if (mode === 'offline') {
+        await app.prisma.musicPlaybackState.update({
+          where: { id: oldGrant.id },
+          data: { lastSeenAt: new Date(Date.now() - 31_000) },
+        });
+      } else if (mode === 'removal') {
+        expect(
+          (
+            await app.inject({
+              method: 'DELETE',
+              url: `/api/music/playback-clients/${target}`,
+              cookies: { session_id: cookie },
+            })
+          ).statusCode,
+        ).toBe(204);
+      } else {
+        expect((await heartbeat(false)).statusCode).toBe(200);
+      }
+      // Simulate the earlier eligibility read having completed before revocation.
+      vi.spyOn(app.prisma.musicPlaybackState, 'findUnique').mockResolvedValueOnce(oldGrant);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/music/playback-clients/${target}/commands`,
+        cookies: { session_id: cookie },
+        headers: { 'x-cinemusic-client-id': source },
+        payload: { id, type: 'play' },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe(
+        mode === 'offline' ? 'DEVICE_OFFLINE' : 'DEVICE_CONTROL_DISABLED',
+      );
+      expect(await app.prisma.musicPlaybackCommand.findUnique({ where: { id } })).toBeNull();
+      expect((await heartbeat(true)).statusCode).toBe(200);
+      const poll = await app.inject({
+        method: 'GET',
+        url: `/api/music/playback-commands?clientId=${target}`,
+        cookies: { session_id: cookie },
+      });
+      expect(JSON.parse(poll.body).commands).toEqual([]);
+    },
+  );
+
+  it('publishes current duplicate queue-entry identity in lightweight Connect clients', async () => {
+    const target = `mac_${randomUUID()}`,
+      first = randomUUID(),
+      second = randomUUID();
+    const state = {
+      revision: 0,
+      currentTrackId: trackId,
+      currentQueueItemId: first,
+      positionSeconds: 42,
+      isPlaying: false,
+      volume: 0.5,
+      shuffleEnabled: false,
+      repeatMode: 'off',
+      queue: [first, second].map((id, index) => ({
+        id,
+        trackId,
+        sourceOrder: index,
+        playOrder: index,
+      })),
+    };
+    const write = (revision: number, entry: string) =>
+      app.inject({
+        method: 'PUT',
+        url: `/api/music/playback-state?clientId=${target}`,
+        cookies: { session_id: cookie },
+        payload: { ...state, revision, currentQueueItemId: entry },
+      });
+    expect((await write(0, first)).statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/music/playback-clients/heartbeat?clientId=${target}`,
+          cookies: { session_id: cookie },
+          payload: { connectEnabled: true, remoteControlAllowed: true, isPlaying: false },
+        })
+      ).statusCode,
+    ).toBe(200);
+    for (const [revision, entry] of [
+      [1, first],
+      [2, second],
+    ] as const) {
+      if (entry === second) expect((await write(revision - 1, entry)).statusCode).toBe(200);
+      const clients = await app.inject({
+        method: 'GET',
+        url: '/api/music/playback-clients',
+        cookies: { session_id: cookie },
+      });
+      expect(clients.statusCode).toBe(200);
+      expect(JSON.parse(clients.body).clients).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            clientId: target,
+            currentTrackId: trackId,
+            queueItemId: entry,
+          }),
+        ]),
+      );
+    }
   });
 
   it('keeps Connect opt-in and delivers idempotent commands only to allowed online devices', async () => {
