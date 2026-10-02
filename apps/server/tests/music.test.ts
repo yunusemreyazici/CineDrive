@@ -2464,6 +2464,81 @@ describe('Music library', () => {
     }
   });
 
+  it.each(['heartbeat', 'poll'])(
+    'negotiates conditional seek and prevents downgrade delivery (%s)', async (downgrade) => {
+      const source = `ios_${randomUUID()}`, target = `mac_${randomUUID()}`;
+      const first = randomUUID(), second = randomUUID();
+      const user = await app.authService.ensureAdminUserExists();
+      const heartbeat = (capability: boolean | undefined) => app.inject({
+        method: 'POST', url: `/api/music/playback-clients/heartbeat?clientId=${target}`,
+        cookies: { session_id: cookie },
+        payload: { connectEnabled: true, remoteControlAllowed: true, isPlaying: false,
+          ...(capability === undefined ? {} : { supportsConditionalSeek: capability }) },
+      });
+      const write = (revision: number, entry: string) => app.inject({
+        method: 'PUT', url: `/api/music/playback-state?clientId=${target}`, cookies: { session_id: cookie },
+        payload: { revision, currentTrackId: trackId, currentQueueItemId: entry, positionSeconds: 10,
+          shuffleEnabled: false, repeatMode: 'off', queue: [first, second].map((id, index) => ({ id, trackId, sourceOrder: index, playOrder: index })) },
+      });
+      const expectedPlayback = { trackId, queueItemId: first };
+      const post = (id: string, expected: typeof expectedPlayback | undefined, authenticated = true) => app.inject({
+        method: 'POST', url: `/api/music/playback-clients/${target}/commands`,
+        ...(authenticated ? { cookies: { session_id: cookie } } : {}),
+        headers: { 'x-cinemusic-client-id': source },
+        payload: { id, type: 'seek', positionSeconds: 42, ...(expected ? { expectedPlayback: expected } : {}) },
+      });
+      const poll = (capability: boolean) => app.inject({
+        method: 'GET', url: `/api/music/playback-commands?clientId=${target}${capability ? '&supportsConditionalSeek=1' : ''}`,
+        cookies: { session_id: cookie },
+      });
+      expect((await write(0, first)).statusCode).toBe(200);
+      expect((await heartbeat(undefined)).statusCode).toBe(200);
+      expect((await post(randomUUID(), expectedPlayback, false)).statusCode).toBe(401);
+      const unsupportedID = randomUUID();
+      const unsupported = await post(unsupportedID, expectedPlayback);
+      expect(unsupported.statusCode).toBe(409);
+      expect(unsupported.json().error.code).toBe('CONDITIONAL_SEEK_UNSUPPORTED');
+      expect(await app.prisma.musicPlaybackCommand.findUnique({ where: { id: unsupportedID } })).toBeNull();
+      expect((await heartbeat(true)).statusCode).toBe(200);
+      const clients = await app.inject({ method: 'GET', url: '/api/music/playback-clients', cookies: { session_id: cookie } });
+      expect(clients.json().clients).toEqual(expect.arrayContaining([expect.objectContaining({ clientId: target, supportsConditionalSeek: true })]));
+      const id = randomUUID();
+      expect((await post(id, expectedPlayback)).statusCode).toBe(201);
+      expect((await post(id, expectedPlayback)).statusCode).toBe(200);
+      const conflict = await post(id, { ...expectedPlayback, queueItemId: second });
+      expect(conflict.statusCode).toBe(409);
+      expect(conflict.json().error.code).toBe('COMMAND_ID_CONFLICT');
+      expect((await write(1, second)).statusCode).toBe(200);
+      const staleID = randomUUID();
+      const stale = await post(staleID, expectedPlayback);
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json().error.code).toBe('PLAYBACK_ITEM_CHANGED');
+      expect(await app.prisma.musicPlaybackCommand.findUnique({ where: { id: staleID } })).toBeNull();
+      const delivered = (await poll(true)).json().commands;
+      expect(delivered).toEqual([expect.objectContaining({ id, expectedPlayback })]);
+      // Receiver, not the poll's eventual consistency snapshot, has final authority.
+      const legacyID = randomUUID();
+      expect((await post(legacyID, undefined)).statusCode).toBe(201);
+      const foreign = await app.prisma.user.create({ data: { email: `${randomUUID()}@seek.invalid`, name: 'Other user', passwordHash: 'fixture-only' } });
+      const foreignID = randomUUID();
+      try {
+        await app.prisma.musicPlaybackCommand.create({ data: {
+          id: foreignID, userId: foreign.id, sourceClientId: source, targetClientId: target,
+          type: 'seek', requiresConditionalSeek: true, payload: JSON.stringify({ expectedPlayback }), expiresAt: new Date(Date.now() + 45_000),
+        } });
+        if (downgrade === 'heartbeat') expect((await heartbeat(undefined)).statusCode).toBe(200);
+        const response = await poll(false);
+        expect(response.json().commands).toEqual([expect.objectContaining({ id: legacyID })]);
+        const cancelled = await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id } });
+        expect(cancelled).toMatchObject({ userId: user.id, status: 'failed', errorMessage: 'CONDITIONAL_SEEK_UNSUPPORTED' });
+        expect(cancelled.completedAt).not.toBeNull();
+        expect((await app.prisma.musicPlaybackCommand.findUniqueOrThrow({ where: { id: foreignID } })).status).toBe('pending');
+        expect((await heartbeat(true)).statusCode).toBe(200);
+        expect((await poll(true)).json().commands).toEqual([expect.objectContaining({ id: legacyID })]);
+      } finally { await app.prisma.user.delete({ where: { id: foreign.id } }); }
+    },
+  );
+
   it('keeps Connect opt-in and delivers idempotent commands only to allowed online devices', async () => {
     const sourceClient = `ios_${randomUUID()}`;
     const targetClient = `desktop_${randomUUID()}`;

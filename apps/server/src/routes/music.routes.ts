@@ -2702,6 +2702,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       platform: client.platform,
       currentTrackId: client.currentTrackId,
       queueItemId: client.currentQueueItemId,
+      supportsConditionalSeek: client.supportsConditionalSeek,
       positionSeconds: client.positionSeconds,
       volume: client.volume,
       isPlaying: client.isPlaying,
@@ -2734,6 +2735,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       const remoteControlAllowed = connectEnabled && heartbeat.data.remoteControlAllowed;
       // Permission and queue invalidation must commit together: a quick
       // re-enable must not expose commands queued under the previous grant.
+      let invalidatedConditionalCommands = 0;
       const state = await fastify.prisma.$transaction(async (tx) => {
         const state = await tx.musicPlaybackState.upsert({
           where: { userId_clientId: { userId, clientId: client.data.clientId } },
@@ -2744,6 +2746,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             platform: client.data.platform,
             connectEnabled,
             remoteControlAllowed,
+            supportsConditionalSeek: heartbeat.data.supportsConditionalSeek,
             isPlaying: heartbeat.data.isPlaying,
             lastSeenAt: new Date(),
           },
@@ -2752,6 +2755,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             platform: client.data.platform,
             connectEnabled,
             remoteControlAllowed,
+            supportsConditionalSeek: heartbeat.data.supportsConditionalSeek,
             isPlaying: heartbeat.data.isPlaying,
             lastSeenAt: new Date(),
           },
@@ -2763,10 +2767,16 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             client.data.clientId,
             connectEnabled ? 'REMOTE_CONTROL_DISABLED' : 'CONNECT_DISABLED',
           );
+        } else if (!heartbeat.data.supportsConditionalSeek) {
+          const failed = await failPendingMusicConnectCommands(
+            tx, userId, client.data.clientId, 'CONDITIONAL_SEEK_UNSUPPORTED',
+          );
+          invalidatedConditionalCommands = failed.count;
         }
         return state;
       });
-      if (!remoteControlAllowed) playbackCommandWaiter.notify(`${userId}:${client.data.clientId}`);
+      if (!remoteControlAllowed || invalidatedConditionalCommands > 0)
+        playbackCommandWaiter.notify(`${userId}:${client.data.clientId}`);
       return { clientId: state.clientId, connectEnabled: state.connectEnabled };
     },
   );
@@ -2842,6 +2852,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         repeatMode: parsed.data.repeatMode,
         queueItemId: parsed.data.queueItemId,
         queueEdit: parsed.data.queueEdit,
+        expectedPlayback: parsed.data.expectedPlayback,
       };
       const payload = Object.values(commandPayload).some((value) => value !== undefined)
         ? JSON.stringify(commandPayload)
@@ -2853,12 +2864,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         targetClientId: request.params.clientId,
         type: parsed.data.type,
         payload,
+        expectedPlayback: parsed.data.expectedPlayback,
       });
       if (result.kind === 'rejected') {
         const messages = {
           DEVICE_CONTROL_DISABLED: 'Hedef cihaz uzaktan kontrole izin vermiyor.',
           DEVICE_OFFLINE: 'Hedef cihaz çevrimdışı.',
           COMMAND_ID_CONFLICT: 'Komut kimliği kullanılıyor.',
+          CONDITIONAL_SEEK_UNSUPPORTED: 'Hedef cihaz güvenli parça konumlandırmayı desteklemiyor.',
+          PLAYBACK_ITEM_CHANGED: 'Hedef cihazda çalan parça değişti.',
         };
         return reply.status(409).send({
           error: { code: result.code, message: messages[result.code], requestId: request.id },
@@ -2903,11 +2917,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { lte: now } },
           data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
         });
-        return fastify.prisma.musicPlaybackCommand.findMany({
+        const pending = await fastify.prisma.musicPlaybackCommand.findMany({
           where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { gt: now } },
           orderBy: { createdAt: 'asc' },
           take: 20,
         });
+        // Require capability on the poll itself: an older binary can poll
+        // before its first heartbeat overwrites a previous binary's capability.
+        if (
+          !parsed.data.supportsConditionalSeek &&
+          pending.some((command) => command.requiresConditionalSeek)
+        ) {
+          await failPendingMusicConnectCommands(
+            fastify.prisma, userId, clientId, 'CONDITIONAL_SEEK_UNSUPPORTED',
+          );
+          return pending.filter((command) => !command.requiresConditionalSeek);
+        }
+        return pending;
       };
       let commands = await readCommands();
       if (commands.length === 0 && parsed.data.waitMs > 0) {
@@ -2933,6 +2959,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
               enabled?: boolean;
               repeatMode?: string;
               queueItemId?: string;
+              expectedPlayback?: { trackId: string; queueItemId: string };
               queueEdit?: { action: string; trackIds?: string[] };
             })
           : {};
@@ -2948,6 +2975,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           enabled: payload.enabled,
           repeatMode: payload.repeatMode,
           queueItemId: payload.queueItemId,
+          expectedPlayback: payload.expectedPlayback,
           queueEdit: payload.queueEdit,
           createdAt: command.createdAt,
           expiresAt: command.expiresAt,

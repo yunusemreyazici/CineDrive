@@ -289,13 +289,65 @@ const verifyFtsUpgrade = () => {
   );
 };
 
+const seedConnectDatabase = () => {
+  seedMusicDatabase();
+  database.exec(`
+    INSERT INTO "MusicLyricsTranslation" ("id", "lyricsId", "language", "content", "provider", "createdAt", "updatedAt")
+      VALUES ('connect-translation', 'music-lyrics', 'tr', 'Eski söz', 'manual', '2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z');
+    INSERT INTO "LibraryMembership" ("id", "libraryId", "userId", "role", "createdAt", "updatedAt")
+      VALUES ('connect-membership', 'music-library', 'music-user', 'owner', '2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z');
+    UPDATE "MusicPlaybackState" SET "connectEnabled" = true, "remoteControlAllowed" = true
+      WHERE "id" = 'music-state';
+    INSERT INTO "MusicPlaybackCommand" ("id", "userId", "sourceClientId", "targetClientId", "type", "payload", "status", "createdAt", "expiresAt")
+      VALUES ('legacy-command', 'music-user', 'source-ios', 'legacy', 'seek', '{"positionSeconds":42}', 'pending', '2026-09-24T00:00:00.000Z', '2030-01-01T00:00:00.000Z');
+  `);
+};
+
+const verifyConnectUpgrade = () => {
+  verifyMusicUpgrade();
+  assertEqual(
+    scalar(`SELECT "supportsConditionalSeek" FROM "MusicPlaybackState" WHERE "id" = 'music-state'`),
+    0,
+    'Old receiver capability defaults false',
+  );
+  assertEqual(
+    scalar(`SELECT "connectEnabled" FROM "MusicPlaybackState" WHERE "id" = 'music-state'`),
+    1,
+    'Connect permission preserved',
+  );
+  assertEqual(
+    scalar(`SELECT "remoteControlAllowed" FROM "MusicPlaybackState" WHERE "id" = 'music-state'`),
+    1,
+    'Remote permission preserved',
+  );
+  assertEqual(
+    scalar(
+      `SELECT "requiresConditionalSeek" FROM "MusicPlaybackCommand" WHERE "id" = 'legacy-command'`,
+    ),
+    0,
+    'Old pending command remains legacy',
+  );
+  assertEqual(
+    scalar(`SELECT "payload" FROM "MusicPlaybackCommand" WHERE "id" = 'legacy-command'`),
+    '{"positionSeconds":42}',
+    'Old pending payload preserved',
+  );
+  assertEqual(
+    scalar(`SELECT "status" FROM "MusicPlaybackCommand" WHERE "id" = 'legacy-command'`),
+    'pending',
+    'Old pending status preserved',
+  );
+};
+
 try {
   if (mode === 'seed-initial') seedInitialDatabase();
   else if (mode === 'seed-music') seedMusicDatabase();
   else if (mode === 'seed-fts') seedFtsDatabase();
+  else if (mode === 'seed-connect') seedConnectDatabase();
   else if (mode === 'verify-initial') verifyInitialUpgrade();
   else if (mode === 'verify-music') verifyMusicUpgrade();
   else if (mode === 'verify-fts') verifyFtsUpgrade();
+  else if (mode === 'verify-connect') verifyConnectUpgrade();
   else throw new Error(`Unknown migration fixture mode: ${mode}`);
 } finally {
   database.close();

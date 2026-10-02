@@ -5,10 +5,19 @@ export function failPendingMusicConnectCommands(
   tx: Prisma.TransactionClient,
   userId: string,
   clientId: string,
-  reason: 'REMOTE_CONTROL_DISABLED' | 'CONNECT_DISABLED' | 'DEVICE_REMOVED',
+  reason:
+    | 'REMOTE_CONTROL_DISABLED'
+    | 'CONNECT_DISABLED'
+    | 'DEVICE_REMOVED'
+    | 'CONDITIONAL_SEEK_UNSUPPORTED',
 ) {
   return tx.musicPlaybackCommand.updateMany({
-    where: { userId, targetClientId: clientId, status: 'pending' },
+    where: {
+      userId,
+      targetClientId: clientId,
+      status: 'pending',
+      ...(reason === 'CONDITIONAL_SEEK_UNSUPPORTED' ? { requiresConditionalSeek: true } : {}),
+    },
     data: { status: 'failed', errorMessage: reason, completedAt: new Date() },
   });
 }
@@ -20,10 +29,19 @@ interface EnqueueMusicConnectCommand {
   targetClientId: string;
   type: string;
   payload: string | null;
+  expectedPlayback?: { trackId: string; queueItemId: string };
 }
 
 type EnqueueResult =
-  | { kind: 'rejected'; code: 'DEVICE_CONTROL_DISABLED' | 'DEVICE_OFFLINE' | 'COMMAND_ID_CONFLICT' }
+  | {
+      kind: 'rejected';
+      code:
+        | 'DEVICE_CONTROL_DISABLED'
+        | 'DEVICE_OFFLINE'
+        | 'COMMAND_ID_CONFLICT'
+        | 'CONDITIONAL_SEEK_UNSUPPORTED'
+        | 'PLAYBACK_ITEM_CHANGED';
+    }
   | { kind: 'created' | 'existing'; command: { id: string; status: string } };
 
 /** Serialize the final permission read and enqueue against heartbeat revocation.
@@ -35,7 +53,14 @@ export async function enqueueMusicConnectCommand(
   return prisma.$transaction(async (tx) => {
     const target = await tx.musicPlaybackState.findUnique({
       where: { userId_clientId: { userId: input.userId, clientId: input.targetClientId } },
-      select: { connectEnabled: true, remoteControlAllowed: true, lastSeenAt: true },
+      select: {
+        connectEnabled: true,
+        remoteControlAllowed: true,
+        lastSeenAt: true,
+        supportsConditionalSeek: true,
+        currentTrackId: true,
+        currentQueueItemId: true,
+      },
     });
     if (!target?.connectEnabled || !target.remoteControlAllowed) {
       return { kind: 'rejected', code: 'DEVICE_CONTROL_DISABLED' };
@@ -47,10 +72,34 @@ export async function enqueueMusicConnectCommand(
     if (duplicate) {
       if (duplicate.userId !== input.userId)
         return { kind: 'rejected', code: 'COMMAND_ID_CONFLICT' };
+      if (
+        input.expectedPlayback &&
+        (!duplicate.requiresConditionalSeek ||
+          duplicate.payload !== input.payload ||
+          duplicate.targetClientId !== input.targetClientId ||
+          duplicate.type !== input.type)
+      ) {
+        return { kind: 'rejected', code: 'COMMAND_ID_CONFLICT' };
+      }
       return { kind: 'existing', command: { id: duplicate.id, status: duplicate.status } };
     }
+    if (input.expectedPlayback) {
+      if (!target.supportsConditionalSeek)
+        return { kind: 'rejected', code: 'CONDITIONAL_SEEK_UNSUPPORTED' };
+      if (
+        target.currentTrackId !== input.expectedPlayback.trackId ||
+        target.currentQueueItemId !== input.expectedPlayback.queueItemId
+      ) {
+        return { kind: 'rejected', code: 'PLAYBACK_ITEM_CHANGED' };
+      }
+    }
+    const { expectedPlayback, ...data } = input;
     const command = await tx.musicPlaybackCommand.create({
-      data: { ...input, expiresAt: new Date(Date.now() + 45_000) },
+      data: {
+        ...data,
+        requiresConditionalSeek: !!expectedPlayback,
+        expiresAt: new Date(Date.now() + 45_000),
+      },
       select: { id: true, status: true },
     });
     return { kind: 'created', command };

@@ -463,6 +463,7 @@ export interface ClientBootstrapDto {
     cineMusicConnect: boolean;
     cineMusicQueueControl?: boolean;
     cineMusicCommandLongPoll?: boolean;
+    cineMusicConditionalSeek?: boolean;
     listeningTogether?: boolean;
   };
   serverTime: string;
@@ -474,6 +475,7 @@ export interface MusicPlaybackClientDto {
   platform: string;
   currentTrackId: string | null;
   queueItemId?: string | null;
+  supportsConditionalSeek?: boolean;
   positionSeconds: number;
   volume: number;
   isPlaying: boolean;
@@ -510,6 +512,7 @@ export interface MusicPlaybackCommandDto {
   enabled?: boolean;
   repeatMode?: 'off' | 'all' | 'one';
   queueItemId?: string;
+  expectedPlayback?: { trackId: string; queueItemId: string };
   queueEdit?:
     | { action: 'add'; trackIds: string[]; playNext: boolean }
     | { action: 'remove'; itemIds: string[] }

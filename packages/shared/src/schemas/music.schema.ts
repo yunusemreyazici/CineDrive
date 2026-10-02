@@ -207,7 +207,13 @@ export const musicPlaybackClientQuerySchema = z.object({
 
 export const musicPlaybackCommandPollQuerySchema = musicPlaybackClientQuerySchema
   .pick({ clientId: true })
-  .extend({ waitMs: z.coerce.number().int().min(0).max(20_000).default(0) });
+  .extend({
+    waitMs: z.coerce.number().int().min(0).max(20_000).default(0),
+    supportsConditionalSeek: z
+      .enum(['0', '1'])
+      .default('0')
+      .transform((value) => value === '1'),
+  });
 
 export const musicPlaybackStateQuerySchema = musicPlaybackClientQuerySchema.extend({
   knownQueueVersion: z
@@ -220,7 +226,15 @@ export const musicConnectHeartbeatSchema = z.object({
   connectEnabled: z.boolean(),
   remoteControlAllowed: z.boolean(),
   isPlaying: z.boolean(),
+  supportsConditionalSeek: z.boolean().default(false),
 });
+
+export const musicExpectedPlaybackSchema = z
+  .object({
+    trackId: z.string().uuid(),
+    queueItemId: z.string().uuid(),
+  })
+  .strict();
 
 export const musicQueueEditSchema = z.discriminatedUnion('action', [
   z.object({
@@ -265,8 +279,15 @@ export const musicPlaybackCommandSchema = z
     repeatMode: z.enum(['off', 'all', 'one']).optional(),
     queueItemId: z.string().uuid().optional(),
     queueEdit: musicQueueEditSchema.optional(),
+    expectedPlayback: musicExpectedPlaybackSchema.optional(),
   })
   .superRefine((value, context) => {
+    if (value.expectedPlayback && value.type !== 'seek') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Playback preconditions are only supported for seek.',
+      });
+    }
     if (value.type === 'editQueue' && !value.queueEdit) {
       context.addIssue({ code: 'custom', message: 'Queue edits require an operation.' });
     }
