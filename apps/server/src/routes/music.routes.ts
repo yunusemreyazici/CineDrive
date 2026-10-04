@@ -78,6 +78,13 @@ import {
   hasMeaningfulSuggestionChange,
 } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
+import { searchMusic } from '../services/music-search.service.js';
+import { maintenanceGenreReviewReasons } from '../services/music-maintenance-genres.js';
+import {
+  loadMusicMaintenanceSummary,
+  maintenanceDuplicateKey,
+  maintenanceMetadataIssues,
+} from '../services/music-maintenance-summary.service.js';
 import { MusicLanguageEnrichmentService } from '../services/music-language-enrichment.service.js';
 import { normalizeMusicLanguageCode } from '../services/music-language-evidence.js';
 import { env } from '../config/env.js';
@@ -841,15 +848,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { name: 'asc' },
     });
     const missingArtwork = tracks.filter((track) => !track.artworkUrl);
+    const genreReviewItems = tracks
+      .map((track) => ({
+        ...track,
+        reviewReasons: maintenanceGenreReviewReasons({
+          genres: track.genres,
+          albumGenres: track.album?.genres || [],
+          metadataLocked: track.metadataLocked,
+        }),
+      }))
+      .filter((track) => track.reviewReasons.length > 0);
     const missingMetadata = tracks
       .map((track) => {
-        const issues: string[] = [];
-        if (!track.primaryArtist || /^bilinmeyen|^unknown/i.test(track.primaryArtist.name))
-          issues.push('artist');
-        if (!track.album || /^bilinmeyen|^unknown/i.test(track.album.title)) issues.push('album');
-        if (!track.year) issues.push('year');
-        if (!track.genres.length) issues.push('genres');
-        if (!track.musicbrainzRecordingId) issues.push('musicbrainz');
+        const issues = maintenanceMetadataIssues(track);
         const confidence = track.metadataLocked
           ? 100
           : Math.max(10, 100 - issues.length * 16 - (track.musicbrainzRecordingId ? 0 : 8));
@@ -858,8 +869,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((track) => track.issues.length > 0);
     const duplicateMap = new Map<string, typeof tracks>();
     tracks.forEach((track) => {
-      const durationBucket = Math.round((track.duration || 0) / 2) * 2;
-      const key = `${normalizeMusicName(track.title)}|${normalizeMusicName(track.primaryArtist?.name || '')}|${durationBucket}`;
+      const key = maintenanceDuplicateKey(track);
       const group = duplicateMap.get(key) || [];
       group.push(track);
       duplicateMap.set(key, group);
@@ -873,7 +883,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const replayGainMissing = tracks.filter(
       (track) => track.audio?.replayGainTrackDb == null && track.audio?.replayGainAlbumDb == null,
     );
-    const [rawSuggestions, actions, storedFingerprints, fingerprintCapability] = await Promise.all([
+    const [rawSuggestions, actions, summary, fingerprintCapability] = await Promise.all([
       fastify.prisma.musicMaintenanceSuggestion.findMany({
         where: { userId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
@@ -884,9 +894,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { createdAt: 'desc' },
         take: 50,
       }),
-      fastify.prisma.musicFingerprint.findMany({ where: { track: ownedTrackWhere(userId) } }),
+      loadMusicMaintenanceSummary(
+        fastify.prisma,
+        ownedTrackWhere(userId),
+        new Set(tracks.map((track) => track.id)),
+      ),
       fingerprintService.capability(userId),
     ]);
+    const storedFingerprints = summary.previewFingerprints;
     const seenSuggestions = new Set<string>();
     const suggestions = rawSuggestions.filter((suggestion) => {
       const key = `${suggestion.targetType}:${suggestion.targetId}:${suggestion.kind}`;
@@ -969,10 +984,29 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       fingerprintCandidates: fingerprintCandidates.slice(0, 100),
       fingerprints: {
         ...fingerprintCapability,
-        total: storedFingerprints.length,
-        analyzed: storedFingerprints.filter((item) => item.status === 'analyzed').length,
-        identified: storedFingerprints.filter((item) => Boolean(item.acoustidId)).length,
-        failed: storedFingerprints.filter((item) => item.status === 'failed').length,
+        ...summary.fingerprints,
+      },
+      genreReview: {
+        flaggedTracks: summary.genreReviewTracks,
+        items: genreReviewItems.slice(0, 100),
+      },
+      coverage: {
+        catalogueTracks: summary.catalogueTracks,
+        previewTracks: tracks.length,
+        previewLimit: 2000,
+        listLimit: 100,
+        totalsScope: 'catalogue',
+        previewsTruncated:
+          tracks.length < summary.catalogueTracks ||
+          [
+            missingArtwork,
+            missingMetadata,
+            duplicates,
+            acousticDuplicates,
+            replayGainMissing,
+            fingerprintCandidates,
+            genreReviewItems,
+          ].some((items) => items.length > 100),
       },
       suggestions: suggestions.map((item) => ({
         ...item,
@@ -992,11 +1026,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       })),
       totals: {
         missingArtistArtwork: maintenanceArtists.filter((artist) => !artist.artworkId).length,
-        missingArtwork: missingArtwork.length,
-        missingMetadata: missingMetadata.length,
-        duplicates: duplicates.length,
-        acousticDuplicates: acousticDuplicates.length,
-        replayGainMissing: replayGainMissing.length,
+        ...summary.totals,
       },
     };
   });
@@ -1827,48 +1857,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const trackWhere = ownedTrackWhere(userId);
     const q = String((request.query as { q?: string }).q || '').trim();
     if (!q) return { tracks: [], albums: [], artists: [] };
-    const [tracks, albums, artists] = await Promise.all([
-      fastify.prisma.musicTrack.findMany({
-        where: {
-          ...trackWhere,
-          OR: [
-            { title: { contains: q } },
-            { primaryArtist: { name: { contains: q } } },
-            { album: { title: { contains: q } } },
-          ],
-        },
-        include: musicTrackInclude(userId),
-        take: 8,
-      }),
-      fastify.prisma.musicAlbum.findMany({
-        where: {
-          tracks: { some: trackWhere },
-          OR: [{ title: { contains: q } }, { artist: { name: { contains: q } } }],
-        },
-        include: {
-          artwork: { select: { id: true } },
-          artist: true,
-          _count: { select: { tracks: { where: trackWhere } } },
-        },
-        take: 6,
-      }),
-      fastify.prisma.musicArtist.findMany({
-        where: {
-          name: { contains: q },
-          trackCredits: { some: { track: trackWhere } },
-        },
-        include: {
-          _count: {
-            select: {
-              albums: { where: { tracks: { some: trackWhere } } },
-              trackCredits: { where: { track: trackWhere } },
-            },
-          },
-          artwork: { select: { id: true } },
-        },
-        take: 6,
-      }),
-    ]);
+    const { tracks, albums, artists } = await searchMusic(fastify.prisma, userId, trackWhere, q);
     return {
       tracks: tracks.map(formatMusicTrack),
       albums: albums.map(albumDto),
