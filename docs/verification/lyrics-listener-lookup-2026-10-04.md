@@ -32,6 +32,31 @@ internal `sourceType` in the public DTO. The assertion now uses the existing
 public `sourceName`, while checking `sourceType` directly in the test database.
 No public field was added or permission assertion removed to make it pass.
 
+## PR integration and security verification
+
+PR #108 includes the earlier Connect permission-revocation, conditional-seek
+and immutable-acknowledgement fixes. Current `main` was merged without dropping
+the search-ranking and catalogue-maintenance changes from #105.
+
+The first CI run failed npm audit and the server image scan on four high-severity
+Fastify 5.12.1 advisories: GHSA-667r-xxjv-c9mm, GHSA-p68q-wchp-6fh7,
+GHSA-hwr6-493r-vm6h and GHSA-9q9j-q6p8-xq58. Updated the server dependency and
+lockfile to the patched 5.x release, Fastify 5.12.5. No audit exception, severity
+threshold change or workflow bypass was added.
+
+- `pnpm audit:ci`: passed using npm audit.
+- `MUSIC_AI_API_KEY='' pnpm test`: 585 tests passed (server 409, web 146,
+  shared 30), including migration and authorization regressions.
+- `pnpm typecheck`, `pnpm lint`, `pnpm build`: passed with Fastify 5.12.5.
+- `pnpm ci:test`: 24 tests passed; `pnpm docs:check` and
+  `pnpm release:check`: passed.
+- `git diff --check`: passed.
+
+The included Connect migration adds two boolean columns with false defaults.
+Back up the database and apply pending migrations through the existing deploy
+workflow before starting the updated server. No production deployment was made
+as part of this PR preparation.
+
 No migration or CineMusic client change is required; existing lookup envelopes
 and status values are preserved. This is a local code change, not a production
 deployment. Production lookup still depends on LRCLIB actually having the track.
