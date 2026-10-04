@@ -110,6 +110,12 @@ describe('production database migrations', () => {
     ['video', '20260101000000_init', 'seed-initial', 'verify-initial'],
     ['music', '20260809040000_music_discovery_lyrics_tools', 'seed-music', 'verify-music'],
     [
+      'Connect',
+      '20260923050000_playback_progress_latest_media_index',
+      'seed-connect',
+      'verify-connect',
+    ],
+    [
       'indexed media',
       '20260923050000_playback_progress_latest_media_index',
       'seed-fts',

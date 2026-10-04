@@ -69,6 +69,91 @@ const provider = (fetchImpl: typeof fetch, timeoutMs = 10_000) =>
   });
 
 describe('Music AI provider', () => {
+  it('honors provider Retry-After across manual and editorial calls without further lookups', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(
+        async () => new Response('', { status: 429, headers: { 'Retry-After': '120' } }),
+      );
+      const instance = provider(fetchImpl as typeof fetch);
+      await expect(
+        instance.generatePlaylistIntent({ prompt: 'rock', catalogue }),
+      ).rejects.toMatchObject({ failure: 'rate-limited', retryAfterSeconds: 120 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(
+        instance.generatePlaylistIntent({ prompt: 'pop', catalogue }),
+      ).rejects.toMatchObject({ retryAfterSeconds: 110 });
+      await expect(
+        instance.generateEditorialPlans({
+          catalogue,
+          profile: {
+            totalTrackCount: 10_000,
+            favoriteTrackCount: 0,
+            playedTrackCount: 0,
+            unheardTrackCount: 10_000,
+            underplayedTrackCount: 10_000,
+            meaningfulHistoryCount: 0,
+            genres: [],
+            decades: [],
+            languages: [],
+          },
+          locale: 'en',
+          editionDate: '2026-10-04',
+        }),
+      ).rejects.toMatchObject({ retryAfterSeconds: 110 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(110_000);
+      await expect(
+        instance.generatePlaylistIntent({ prompt: 'rock', catalogue }),
+      ).rejects.toMatchObject({ failure: 'rate-limited' });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['invalid', '-3', 'Infinity', ''])(
+    'safely defaults invalid Retry-After %s',
+    async (value) => {
+      await expect(
+        provider(
+          vi.fn(
+            async () =>
+              new Response('', {
+                status: 429,
+                headers: { 'Retry-After': value },
+              }),
+          ) as typeof fetch,
+        ).generatePlaylistIntent({ prompt: 'rock', catalogue }),
+      ).rejects.toMatchObject({ retryAfterSeconds: 60 });
+    },
+  );
+
+  it('supports Retry-After dates and clamps excessive waits', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-04T12:00:00Z'));
+      for (const [value, seconds] of [
+        ['Sun, 04 Oct 2026 12:02:00 GMT', 120],
+        ['999999999', 86_400],
+      ] as const) {
+        await expect(
+          provider(
+            vi.fn(
+              async () =>
+                new Response('', {
+                  status: 429,
+                  headers: { 'Retry-After': value },
+                }),
+            ) as typeof fetch,
+          ).generatePlaylistIntent({ prompt: 'rock', catalogue }),
+        ).rejects.toMatchObject({ retryAfterSeconds: seconds });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('parses a valid structured response without sending catalogue track metadata', async () => {
     const fetchImpl = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -277,7 +362,11 @@ describe('PlaylistIntent grounding and normalization', () => {
     const generatePlaylistIntent = vi.fn().mockResolvedValue(rawIntent());
     const planner = new MusicAiIntentPlanner({ generatePlaylistIntent });
     const intent = await planner.plan('night drive', catalogue, {}, 'en');
-    expect(generatePlaylistIntent).toHaveBeenCalledWith({ prompt: 'night drive', catalogue, locale: 'en' });
+    expect(generatePlaylistIntent).toHaveBeenCalledWith({
+      prompt: 'night drive',
+      catalogue,
+      locale: 'en',
+    });
     expect(intent.language.languages).toEqual([]);
     const prompt = buildMusicAiPlannerPrompt({ prompt: 'night drive', catalogue, locale: 'en' });
     expect(prompt).toContain('Write title and subtitle in English');
