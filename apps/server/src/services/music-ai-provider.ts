@@ -42,6 +42,7 @@ export class MusicAiProviderError extends Error {
   constructor(
     public readonly failure: MusicAiProviderFailure,
     public readonly upstreamStatus?: number,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(`Music AI provider failure: ${failure}`);
     this.name = 'MusicAiProviderError';
@@ -109,6 +110,7 @@ export interface OpenAiCompatibleMusicProviderOptions {
 
 export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
   private readonly fetchImpl: typeof fetch;
+  private rateLimitedUntil = 0;
 
   constructor(private readonly options: OpenAiCompatibleMusicProviderOptions) {
     this.fetchImpl = options.fetchImpl || fetch;
@@ -147,6 +149,8 @@ export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
     schemaName: string,
     maxCompletionTokens: number,
   ): Promise<unknown> {
+    const remainingSeconds = Math.ceil((this.rateLimitedUntil - Date.now()) / 1_000);
+    if (remainingSeconds > 0) throw new MusicAiProviderError('rate-limited', 429, remainingSeconds);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeoutMs);
     timer.unref?.();
@@ -179,8 +183,21 @@ export class OpenAiCompatibleMusicProvider implements MusicAiProvider {
         },
       );
       if (!response.ok) {
-        if (response.status === 429)
-          throw new MusicAiProviderError('rate-limited', response.status);
+        if (response.status === 429) {
+          const rawRetryAfter = response.headers.get('retry-after');
+          const numeric = rawRetryAfter?.trim() ? Number(rawRetryAfter) : NaN;
+          const date = rawRetryAfter ? Date.parse(rawRetryAfter) : NaN;
+          const seconds = Number.isFinite(numeric) ? numeric : (date - Date.now()) / 1_000;
+          const retryAfterSeconds =
+            Number.isFinite(seconds) && seconds >= 0
+              ? Math.min(86_400, Math.max(1, Math.ceil(seconds)))
+              : 60;
+          this.rateLimitedUntil = Math.max(
+            this.rateLimitedUntil,
+            Date.now() + retryAfterSeconds * 1_000,
+          );
+          throw new MusicAiProviderError('rate-limited', response.status, retryAfterSeconds);
+        }
         throw new MusicAiProviderError('upstream', response.status);
       }
       let payload: unknown;

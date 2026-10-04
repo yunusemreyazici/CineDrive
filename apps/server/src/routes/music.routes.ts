@@ -728,11 +728,16 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         request.user!.id,
         parsed.data.prompt,
         parsed.data.generationId,
-        String(request.headers['accept-language'] || 'tr').toLowerCase().startsWith('tr') ? 'tr' : 'en',
+        String(request.headers['accept-language'] || 'tr')
+          .toLowerCase()
+          .startsWith('tr')
+          ? 'tr'
+          : 'en',
       );
     } catch (error) {
       if (error instanceof MusicAiProviderError) {
-        if (error.failure === 'rate-limited') reply.header('Retry-After', '5');
+        if (error.failure === 'rate-limited')
+          reply.header('Retry-After', String(error.retryAfterSeconds ?? 60));
         request.log.warn(
           { event: 'music_ai_unavailable', failure: error.failure, userId: request.user!.id },
           'Music AI playlist planning unavailable',
@@ -3144,7 +3149,9 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post<{ Params: { id: string } }>('/tracks/:id/lyrics/lookup', async (request, reply) => {
     const track = await fastify.prisma.musicTrack.findFirst({
-      where: { id: request.params.id, ...manageableTrackWhere(request.user!.id) },
+      // Automatic lookup only fills the provider cache for an accessible track.
+      // User-supplied lyrics, translations and sidecar writes stay editor-only.
+      where: { id: request.params.id, ...ownedTrackWhere(request.user!.id) },
       include: {
         lyrics: {
           include: { translations: true, revisions: { orderBy: { createdAt: 'desc' }, take: 20 } },

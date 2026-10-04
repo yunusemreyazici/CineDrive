@@ -21,6 +21,8 @@ import {
 } from '../src/services/music-replay.service';
 import { resolveMusicContentType } from '../src/utils/music-format';
 import { MusicPlaybackCommandWaiter } from '../src/services/music-playback-command-waiter';
+import { MusicAiPlaylistService } from '../src/services/music-ai-playlist.service';
+import { MusicAiProviderError } from '../src/services/music-ai-provider';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -172,6 +174,23 @@ describe('Music library', () => {
       });
       expect(discovery.statusCode).toBe(200);
     }
+  });
+
+  it('returns the bounded provider cooldown without exposing provider details', async () => {
+    vi.spyOn(MusicAiPlaylistService.prototype, 'generate').mockRejectedValueOnce(
+      new MusicAiProviderError('rate-limited', 429, 120),
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/music/discovery/ai',
+      cookies: { session_id: cookie },
+      payload: { prompt: 'rock', generationId: 'cooldown-regression' },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('120');
+    expect(JSON.parse(response.body).error.code).toBe('MUSIC_AI_UNAVAILABLE');
+    expect(response.body).not.toContain('rate-limited');
+    expect(response.body).not.toContain('apiKey');
   });
 
   it('cleans numbered music filenames', () => {
@@ -1448,6 +1467,163 @@ describe('Music library', () => {
         },
       ],
     });
+  });
+
+  it.each(['owner', 'editor', 'listener', 'unrelated', 'unauthenticated'] as const)(
+    'scopes automatic lyrics cache filling to accessible libraries (%s)',
+    async (role) => {
+      const title = `Lyrics access ${randomUUID()}`;
+      await app.prisma.musicTrack.update({ where: { id: trackId }, data: { title } });
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 245,
+              trackName: title,
+              artistName: 'Test Artist',
+              albumName: 'Test Album',
+              duration: 120,
+              instrumental: false,
+              plainLyrics: 'Provider fixture lyrics',
+              syncedLyrics: '[00:01.00]Provider fixture lyrics',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      );
+      let userId: string | undefined;
+      let sessionCookie = role === 'owner' ? cookie : undefined;
+      try {
+        if (role !== 'owner' && role !== 'unauthenticated') {
+          const password = 'LyricsAccessFixture123!';
+          const user = await app.prisma.user.create({
+            data: {
+              email: `lyrics-${randomUUID()}@cinedrive.test`,
+              name: 'Lyrics access fixture',
+              passwordHash: await app.authService.hashPassword(password),
+            },
+          });
+          userId = user.id;
+          if (role !== 'unrelated')
+            await app.prisma.libraryMembership.create({
+              data: { libraryId, userId: user.id, role },
+            });
+          const login = await app.inject({
+            method: 'POST',
+            url: '/api/auth/login',
+            payload: { email: user.email, password },
+          });
+          sessionCookie = login.cookies.find((entry) => entry.name === 'session_id')!.value;
+        }
+        const auth = sessionCookie ? { cookies: { session_id: sessionCookie } } : {};
+        const allowed = role === 'owner' || role === 'editor' || role === 'listener';
+        const deniedStatus = role === 'unauthenticated' ? 401 : 404;
+        const url = `/api/music/tracks/${trackId}/lyrics`;
+        const response = await app.inject({ method: 'POST', url: `${url}/lookup`, ...auth });
+        expect(response.statusCode).toBe(allowed ? 200 : deniedStatus);
+        if (!allowed) {
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(await app.prisma.musicLyrics.findUnique({ where: { trackId } })).toBeNull();
+          const read = await app.inject({ method: 'GET', url, ...auth });
+          expect(read.statusCode).toBe(deniedStatus);
+          return;
+        }
+        expect(response.json()).toMatchObject({
+          lookupStatus: 'found',
+          lyrics: {
+            trackId,
+            sourceName: 'LRCLIB #245',
+            lines: [{ timeMs: 1000, text: 'Provider fixture lyrics' }],
+          },
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect((await app.inject({ method: 'GET', url, ...auth })).json().lyrics.trackId).toBe(
+          trackId,
+        );
+        // Client-provided content must not turn automatic cache lookup into editing.
+        const cached = await app.inject({
+          method: 'POST',
+          url: `${url}/lookup`,
+          ...auth,
+          payload: { content: 'Attempted overwrite', sourceName: 'manual.lrc' },
+        });
+        expect(cached.json().lookupStatus).toBe('existing');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(await app.prisma.musicLyrics.findUnique({ where: { trackId } })).toMatchObject({
+          content: '[00:01.00]Provider fixture lyrics',
+          sourceType: 'lrclib',
+        });
+
+        const edit = await app.inject({
+          method: 'PUT',
+          url,
+          ...auth,
+          payload: { content: '[00:02.00]Manual fixture lyrics', sourceName: 'manual.lrc' },
+        });
+        expect(edit.statusCode).toBe(role === 'listener' ? 404 : 200);
+        if (role === 'listener') {
+          const translation = await app.inject({
+            method: 'PUT',
+            url: `${url}/translations/en`,
+            ...auth,
+            payload: { content: 'Translation fixture' },
+          });
+          expect(translation.statusCode).toBe(404);
+          const autoTranslation = await app.inject({
+            method: 'POST',
+            url: `${url}/translations/auto`,
+            ...auth,
+            payload: { language: 'en' },
+          });
+          expect(autoTranslation.statusCode).toBe(404);
+          expect(
+            (await app.inject({ method: 'POST', url: `${url}/sidecar`, ...auth })).statusCode,
+          ).toBe(404);
+          expect((await app.inject({ method: 'DELETE', url, ...auth })).statusCode).toBe(404);
+          expect(await app.prisma.musicLyrics.findUnique({ where: { trackId } })).toMatchObject({
+            content: '[00:01.00]Provider fixture lyrics',
+            sourceType: 'lrclib',
+          });
+          await app.prisma.libraryMembership.delete({
+            where: { libraryId_userId: { libraryId, userId: userId! } },
+          });
+          expect((await app.inject({ method: 'GET', url, ...auth })).statusCode).toBe(404);
+          expect(
+            (await app.inject({ method: 'POST', url: `${url}/lookup`, ...auth })).statusCode,
+          ).toBe(404);
+          expect(fetchMock).toHaveBeenCalledTimes(1);
+        } else {
+          expect((await app.inject({ method: 'DELETE', url, ...auth })).statusCode).toBe(204);
+        }
+      } finally {
+        if (userId) await app.prisma.user.delete({ where: { id: userId } });
+      }
+    },
+  );
+
+  it('does not look up lyrics for inactive or missing tracks even for the owner', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('Provider must not be called'));
+    await app.prisma.driveFile.update({
+      where: {
+        id: (
+          await app.prisma.musicTrack.findUniqueOrThrow({
+            where: { id: trackId },
+            select: { driveFileId: true },
+          })
+        ).driveFileId,
+      },
+      data: { status: 'missing' },
+    });
+    for (const id of [trackId, randomUUID()]) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/music/tracks/${id}/lyrics/lookup`,
+        cookies: { session_id: cookie },
+      });
+      expect(response.statusCode).toBe(404);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('finds, validates, and caches lyrics automatically from LRCLIB', async () => {
