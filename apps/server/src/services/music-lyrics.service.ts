@@ -38,10 +38,7 @@ export interface OnlineLyricsLookupInput {
 export type OnlineLyricsLookupResult =
   | {
       status: 'found';
-      lyrics: Omit<
-        Awaited<ReturnType<MusicLyricsService['syncTrackLyrics']>>,
-        'languageEvidence'
-      >;
+      lyrics: Omit<Awaited<ReturnType<MusicLyricsService['syncTrackLyrics']>>, 'languageEvidence'>;
       languageResolved: boolean;
     }
   | { status: 'not_found' };
@@ -119,7 +116,10 @@ const fetchLrclib = async (
       signal: AbortSignal.timeout(12_000),
     });
     onProviderResponse?.(response.status);
-    if ((response.status === 429 || response.status >= 500) && attempt < MAX_PROVIDER_ATTEMPTS - 1) {
+    if (
+      (response.status === 429 || response.status >= 500) &&
+      attempt < MAX_PROVIDER_ATTEMPTS - 1
+    ) {
       const backoff = Math.min(8_000, 500 * 2 ** attempt);
       await wait(
         response.status === 429
@@ -184,8 +184,7 @@ export const findOnlineLyrics = async (input: OnlineLyricsLookupInput) => {
   if (cached && cached.expiresAt > Date.now()) return cached.result;
   const result = await scheduleProviderRequest(() => requestLrclib(input));
   onlineLookupCache.set(cacheKey, {
-    expiresAt:
-      Date.now() + (result === null ? NOT_FOUND_LOOKUP_CACHE_TTL_MS : LOOKUP_CACHE_TTL_MS),
+    expiresAt: Date.now() + (result === null ? NOT_FOUND_LOOKUP_CACHE_TTL_MS : LOOKUP_CACHE_TTL_MS),
     result,
   });
   return result;
@@ -226,14 +225,18 @@ export const parseLrc = (input: string): ParsedLrc => {
     const rawText = line.replace(TIMESTAMP_PATTERN, '').trim();
     const wordMatches = [...rawText.matchAll(WORD_TIMESTAMP_PATTERN)];
     const text = rawText.replace(WORD_TIMESTAMP_PATTERN, '').trim();
-    const words = wordMatches.map((match, index) => ({
-      timeMs:
-        Number(match[1]) * 60_000 +
-        Number(match[2]) * 1000 +
-        fractionToMilliseconds(match[3]) +
-        offsetMs,
-      text: rawText.slice((match.index || 0) + match[0].length, wordMatches[index + 1]?.index).trim(),
-    })).filter((word) => word.text);
+    const words = wordMatches
+      .map((match, index) => ({
+        timeMs:
+          Number(match[1]) * 60_000 +
+          Number(match[2]) * 1000 +
+          fractionToMilliseconds(match[3]) +
+          offsetMs,
+        text: rawText
+          .slice((match.index || 0) + match[0].length, wordMatches[index + 1]?.index)
+          .trim(),
+      }))
+      .filter((word) => word.text);
     if (!timestamps.length) {
       plainLines.push({ timeMs: null, text });
       return;
@@ -273,11 +276,15 @@ export const alignPlainLyrics = (
   leadInMs = 1000,
   endPaddingMs = 5000,
 ) => {
-  const lines = parseLrc(input).lines.map((line) => line.text.trim()).filter(Boolean);
+  const lines = parseLrc(input)
+    .lines.map((line) => line.text.trim())
+    .filter(Boolean);
   if (!lines.length) return '';
   const available = Math.max(1000, durationSeconds * 1000 - leadInMs - endPaddingMs);
   const step = lines.length === 1 ? 0 : available / (lines.length - 1);
-  return lines.map((line, index) => `${formatTimestamp(leadInMs + index * step)} ${line}`).join('\n');
+  return lines
+    .map((line, index) => `${formatTimestamp(leadInMs + index * step)} ${line}`)
+    .join('\n');
 };
 
 const translateLine = async (text: string, source: string, target: string) => {
@@ -312,6 +319,50 @@ export class MusicLyricsService {
 
   constructor(private readonly prisma: PrismaClient) {
     this.languageEnrichment = new MusicLanguageEnrichmentService(prisma);
+  }
+
+  public async applyRevision(trackId: string, revisionId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.musicLyricsRevision.updateMany({
+        where: { id: revisionId, status: 'pending', lyrics: { trackId } },
+        data: { status: 'applied', appliedAt: new Date() },
+      });
+      if (claimed.count !== 1) throw new Error('REVISION_NOT_FOUND');
+      const revision = await tx.musicLyricsRevision.findUniqueOrThrow({
+        where: { id: revisionId },
+      });
+      const previous = await tx.musicLyrics.findUniqueOrThrow({ where: { trackId } });
+      const content = revision.content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+      const parsed = parseLrc(content);
+      const language = normalizeMusicLanguageCode(
+        inferLyricsLanguage(revision.sourceName, parsed.metadata.la),
+      );
+      await tx.musicLyricsRevision.create({
+        data: {
+          lyricsId: previous.id,
+          sourceName: `Yedek · ${previous.sourceName}`,
+          content: previous.content,
+          status: 'backup',
+          appliedAt: new Date(),
+        },
+      });
+      const lyrics = await tx.musicLyrics.update({
+        where: { id: previous.id },
+        data: {
+          content,
+          sourceName: revision.sourceName,
+          sourceType: 'community',
+          language,
+          isSynced: parsed.isSynced,
+          offsetMs: parsed.offsetMs,
+        },
+      });
+      await this.languageEnrichment.enrichTrackFromLyrics(trackId, lyrics, tx);
+    });
+    return this.prisma.musicLyrics.findUniqueOrThrow({
+      where: { trackId },
+      include: { translations: true, revisions: { orderBy: { createdAt: 'desc' }, take: 20 } },
+    });
   }
 
   public async syncTrackLyrics(options: {
@@ -412,16 +463,29 @@ export class MusicLyricsService {
     const normalizedTarget = targetLanguage.split('-')[0]!;
     for (let index = 0; index < parsed.lines.length; index += 4) {
       const batch = parsed.lines.slice(index, index + 4);
-      const results = await Promise.all(batch.map((line) => line.text ? translateLine(line.text, sourceLanguage, normalizedTarget) : Promise.resolve('')));
+      const results = await Promise.all(
+        batch.map((line) =>
+          line.text
+            ? translateLine(line.text, sourceLanguage, normalizedTarget)
+            : Promise.resolve(''),
+        ),
+      );
       results.forEach((text, batchIndex) => {
         const line = batch[batchIndex]!;
-        translated[index + batchIndex] = line.timeMs === null ? text : `${formatTimestamp(line.timeMs)} ${text}`;
+        translated[index + batchIndex] =
+          line.timeMs === null ? text : `${formatTimestamp(line.timeMs)} ${text}`;
       });
     }
     const content = translated.join('\n');
     return this.prisma.musicLyricsTranslation.upsert({
       where: { lyricsId_language: { lyricsId: lyrics.id, language: targetLanguage } },
-      create: { lyricsId: lyrics.id, language: targetLanguage, content, provider: 'libretranslate', isMachine: true },
+      create: {
+        lyricsId: lyrics.id,
+        language: targetLanguage,
+        content,
+        provider: 'libretranslate',
+        isMachine: true,
+      },
       update: { content, provider: 'libretranslate', isMachine: true },
     });
   }

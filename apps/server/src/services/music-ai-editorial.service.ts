@@ -8,7 +8,7 @@ import {
   type PlaylistIntent,
   type PlaylistIntentProviderOutput,
 } from '@cinedrive/shared';
-import { accessibleLibraryFilter } from '../utils/library-access.js';
+import { readableMusicTrackFilter } from '../utils/library-access.js';
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../utils/music-format.js';
 import { loadDiscoveryCandidates, type DiscoveryCandidate } from './music-discovery-candidates.js';
 import { normalizeGenre } from './music-discovery.service.js';
@@ -20,12 +20,12 @@ import type {
   MusicEditorialListenerProfile,
 } from './music-ai-provider.js';
 import {
-  catalogueFingerprint,
   selectAiPlaylistCandidates,
   type AiPlaylistHistoryEntry,
 } from './music-ai-playlist.service.js';
 
 const HISTORY_LIMIT = 2_000;
+const MAX_CACHED_EDITIONS = 128;
 const EDITORIAL_SLOTS: MusicEditorialSlot[] = [
   'daily',
   'rediscovery',
@@ -302,7 +302,92 @@ export class MusicAiEditorialService {
   ) {}
 
   public async getEdition(userId: string, locale: 'tr' | 'en'): Promise<MusicEditorialEditionDto> {
+    const now = this.clock();
+    for (const [key, entry] of this.cache) {
+      if (entry.expiresAt <= now.getTime()) this.cache.delete(key);
+    }
     const candidates = await loadDiscoveryCandidates(this.prisma, userId);
+    // Catalogue/access changes invalidate an edition; listening and favorite
+    // signals do not regenerate today's plans on every visit.
+    const catalogueRevision = createHash('sha256');
+    for (const candidate of candidates) {
+      // Queue bookkeeping also touches updatedAt. Fingerprint actual catalogue
+      // features, not that timestamp or mutable listening/favorite signals.
+      catalogueRevision.update(
+        JSON.stringify([
+          candidate.id,
+          candidate.title,
+          candidate.artistId,
+          candidate.artistName,
+          candidate.albumId,
+          candidate.albumTitle,
+          candidate.year,
+          candidate.albumYear,
+          candidate.genres,
+          candidate.albumGenres,
+          candidate.duration,
+          candidate.languageCode,
+          candidate.languageSource,
+          candidate.languageConfidence,
+          candidate.createdAt.getTime(),
+        ]),
+      );
+    }
+    const editionDate = now.toISOString().slice(0, 10);
+    const key = `${userId}:${locale}:${editionDate}:${catalogueRevision.digest('base64url')}`;
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > now.getTime()) {
+      const hydrated = await findMusicTracksByIdsWithRelations(
+        this.prisma,
+        userId,
+        cached.value.mixes.flatMap((mix) => mix.tracks.map((track) => track.id)),
+        readableMusicTrackFilter(userId),
+      );
+      const tracksById = new Map(hydrated.map(formatMusicTrack).map((track) => [track.id, track]));
+      return {
+        ...cached.value,
+        mixes: cached.value.mixes.map((mix) => {
+          const tracks = mix.tracks.flatMap((track) => {
+            const current = tracksById.get(track.id);
+            return current ? [current] : [];
+          });
+          return {
+            ...mix,
+            tracks,
+            trackCount: tracks.length,
+            artworkUrls: [
+              ...new Set(
+                tracks.map((track) => track.artworkUrl).filter((url): url is string => !!url),
+              ),
+            ].slice(0, 4),
+          };
+        }),
+      };
+    }
+    let pending = this.inflight.get(key);
+    if (!pending) {
+      pending = this.planEdition(userId, locale, editionDate, now, candidates);
+      this.inflight.set(key, pending);
+    }
+    try {
+      const value = await pending;
+      this.cache.set(key, { expiresAt: new Date(value.expiresAt).getTime(), value });
+      while (this.cache.size > MAX_CACHED_EDITIONS) {
+        this.cache.delete(this.cache.keys().next().value!);
+      }
+      return value;
+    } finally {
+      this.inflight.delete(key);
+    }
+  }
+
+  private async planEdition(
+    userId: string,
+    locale: 'tr' | 'en',
+    editionDate: string,
+    now: Date,
+    candidates: DiscoveryCandidate[],
+  ) {
     const history = await this.prisma.musicHistory.findMany({
       where: { userId },
       orderBy: { playedAt: 'desc' },
@@ -314,38 +399,18 @@ export class MusicAiEditorialService {
         track: { select: { duration: true } },
       },
     });
-    const now = this.clock();
-    const editionDate = now.toISOString().slice(0, 10);
     const summary = buildMusicCatalogueSummary(candidates);
     const profile = buildEditorialListenerProfile(candidates, history);
-    const profileFingerprint = createHash('sha256')
-      .update(JSON.stringify(profile))
-      .digest('base64url')
-      .slice(0, 16);
-    const key = `${userId}:${locale}:${editionDate}:${catalogueFingerprint(candidates)}:${profileFingerprint}`;
-    const cached = this.cache.get(key);
-    if (cached && cached.expiresAt > now.getTime()) return cached.value;
-    let pending = this.inflight.get(key);
-    if (!pending) {
-      pending = this.generateEdition(
-        userId,
-        locale,
-        editionDate,
-        now,
-        candidates,
-        history,
-        summary,
-        profile,
-      );
-      this.inflight.set(key, pending);
-    }
-    try {
-      const value = await pending;
-      this.cache.set(key, { expiresAt: new Date(value.expiresAt).getTime(), value });
-      return value;
-    } finally {
-      this.inflight.delete(key);
-    }
+    return this.generateEdition(
+      userId,
+      locale,
+      editionDate,
+      now,
+      candidates,
+      history,
+      summary,
+      profile,
+    );
   }
 
   private async generateEdition(
@@ -381,9 +446,12 @@ export class MusicAiEditorialService {
     const selectedIds = selections.flatMap((selection) =>
       selection.candidates.map((candidate) => candidate.id),
     );
-    const hydrated = await findMusicTracksByIdsWithRelations(this.prisma, userId, selectedIds, {
-      library: accessibleLibraryFilter(userId),
-    });
+    const hydrated = await findMusicTracksByIdsWithRelations(
+      this.prisma,
+      userId,
+      selectedIds,
+      readableMusicTrackFilter(userId),
+    );
     const tracksById = new Map(hydrated.map(formatMusicTrack).map((track) => [track.id, track]));
     const mixes = selections.map((selection, index) => {
       const tracks = selection.candidates.flatMap((candidate) => {

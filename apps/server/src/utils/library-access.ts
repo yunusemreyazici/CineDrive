@@ -18,14 +18,17 @@ export const accessibleLibraryFilter = (userId: string): Prisma.LibraryWhereInpu
 
 /** Libraries whose catalogue/settings the user may change. */
 export const manageableLibraryFilter = (userId: string): Prisma.LibraryWhereInput => ({
-  OR: [
-    { userId },
-    { memberships: { some: { userId, role: { in: ['owner', 'editor'] } } } },
-  ],
+  OR: [{ userId }, { memberships: { some: { userId, role: { in: ['owner', 'editor'] } } } }],
 });
 
 /** Backwards-compatible name used by read paths throughout the server. */
 export const ownedLibraryFilter = accessibleLibraryFilter;
+
+/** A catalogue item must be accessible and backed by an active file to play. */
+export const readableMusicTrackFilter = (userId: string): Prisma.MusicTrackWhereInput => ({
+  library: accessibleLibraryFilter(userId),
+  driveFile: { status: 'active' },
+});
 
 /** Same rule, expressed for queries that filter `DriveFile` by its library. */
 export const ownedDriveFileFilter = (userId: string): Prisma.DriveFileWhereInput => ({

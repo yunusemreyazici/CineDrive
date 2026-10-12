@@ -37,7 +37,8 @@ const key = (member: Listener) => `${member.userId}:${member.clientId}`;
 /** Live rooms are intentionally ephemeral: restart ends them, reconnect does not. */
 export class ListeningSessionService {
   private rooms = new Map<string, Room>();
-  private tail: Promise<unknown> = Promise.resolve();
+  private tails = new Map<string, Promise<void>>();
+  private closed = false;
   onChange: (id: string) => void = () => {};
   constructor(
     private canRead: (userId: string, ids: string[]) => Promise<boolean>,
@@ -46,10 +47,20 @@ export class ListeningSessionService {
 
   // Serialize validation + mutation, including async permission checks. A stale
   // client never overwrites a simultaneous edit from the other participant.
-  private serial<T>(work: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(work);
-    this.tail = result.catch(() => {});
+  private serial<T>(scope: string, work: () => Promise<T>): Promise<T> {
+    const result = (this.tails.get(scope) ?? Promise.resolve()).then(work);
+    const tail = result.then(
+      () => {},
+      () => {},
+    );
+    this.tails.set(scope, tail);
+    void tail.then(() => {
+      if (this.tails.get(scope) === tail) this.tails.delete(scope);
+    });
     return result;
+  }
+  private assertCurrent(room: Room) {
+    if (this.rooms.get(room.id) !== room) throw listenError(404, 'Dinleme oturumu sona erdi.');
   }
   private requireRoom(id: string, member: Listener): Room {
     this.sweep();
@@ -91,12 +102,17 @@ export class ListeningSessionService {
     }
   }
   create(member: Listener, ids: string[], index: number, position: number, playing: boolean) {
-    return this.serial(async () => {
+    return this.serial(`user:${member.userId}`, async () => {
       this.sweep();
       this.ensureFree(member);
       if (this.rooms.size >= 500)
         throw listenError(503, 'Dinleme oturumları dolu. Daha sonra tekrar dene.');
       await this.checkTracks([member], ids);
+      if (this.closed) throw listenError(503, 'Dinleme oturumları kapatıldı.');
+      this.sweep();
+      this.ensureFree(member);
+      if (this.rooms.size >= 500)
+        throw listenError(503, 'Dinleme oturumları dolu. Daha sonra tekrar dene.');
       const room: Room = {
         id: randomUUID(),
         code: randomBytes(8).toString('hex').toUpperCase(),
@@ -120,58 +136,65 @@ export class ListeningSessionService {
     });
   }
   join(member: Listener, code: string) {
-    return this.serial(async () => {
+    return this.serial(`user:${member.userId}`, async () => {
       this.sweep();
       const room = [...this.rooms.values()].find((r) => r.code === code);
       if (!room) throw listenError(404, 'Davet geçersiz veya süresi dolmuş.');
-      if (room.members.some((m) => key(m) === key(member))) return room.id;
-      this.ensureFree(member);
-      if (room.members.length >= 2)
-        throw listenError(409, 'Bu oturum iki kişilik ve şu anda dolu.');
-      await this.checkTracks(
-        [...room.members, member],
-        room.queue.map((e) => e.trackId),
-      );
-      this.prepare(room, room.playing || room.wantsPlay);
-      room.members.push(member);
-      this.changed(room);
-      return room.id;
+      return this.serial(`room:${room.id}`, async () => {
+        this.assertCurrent(room);
+        if (room.code !== code) throw listenError(404, 'Davet geçersiz veya süresi dolmuş.');
+        if (room.members.some((m) => key(m) === key(member))) return room.id;
+        this.ensureFree(member);
+        if (room.members.length >= 2)
+          throw listenError(409, 'Bu oturum iki kişilik ve şu anda dolu.');
+        await this.checkTracks(
+          [...room.members, member],
+          room.queue.map((e) => e.trackId),
+        );
+        this.assertCurrent(room);
+        this.prepare(room, room.playing || room.wantsPlay);
+        room.members.push(member);
+        this.changed(room);
+        return room.id;
+      });
     });
   }
   async read(id: string, member: Listener) {
-    const room = this.requireRoom(id, member);
-    // Revalidate membership access after library permissions or files change.
-    await this.checkTracks(
-      [member],
-      room.queue.map((e) => e.trackId),
-    );
-    if (this.rooms.get(id) !== room || !room.members.some((m) => key(m) === key(member))) {
-      throw listenError(404, 'Dinleme oturumu sona erdi.');
-    }
-    room.touchedAt = this.now();
-    return {
-      id: room.id,
-      revision: room.revision,
-      epoch: room.epoch,
-      hostUserId: room.hostUserId,
-      members: room.members.map((m) => ({
-        ...m,
-        ready: room.ready.has(key(m)),
-        online: (room.connections.get(key(m)) ?? 0) > 0,
-      })),
-      queue: room.queue.map((entry) => ({ ...entry })),
-      index: room.index,
-      position: room.position,
-      playing: room.playing,
-      preparing: room.wantsPlay && !room.playing,
-      startAt: room.startAt,
-      serverTime: this.now(),
-      // Only the host can obtain/share the invitation.
-      inviteCode: room.hostUserId === member.userId ? room.code : null,
-    };
+    return this.serial(`room:${id}`, async () => {
+      const room = this.requireRoom(id, member);
+      // Revalidate membership access after library permissions or files change.
+      await this.checkTracks(
+        [member],
+        room.queue.map((e) => e.trackId),
+      );
+      if (this.rooms.get(id) !== room || !room.members.some((m) => key(m) === key(member))) {
+        throw listenError(404, 'Dinleme oturumu sona erdi.');
+      }
+      room.touchedAt = this.now();
+      return {
+        id: room.id,
+        revision: room.revision,
+        epoch: room.epoch,
+        hostUserId: room.hostUserId,
+        members: room.members.map((m) => ({
+          ...m,
+          ready: room.ready.has(key(m)),
+          online: (room.connections.get(key(m)) ?? 0) > 0,
+        })),
+        queue: room.queue.map((entry) => ({ ...entry })),
+        index: room.index,
+        position: room.position,
+        playing: room.playing,
+        preparing: room.wantsPlay && !room.playing,
+        startAt: room.startAt,
+        serverTime: this.now(),
+        // Only the host can obtain/share the invitation.
+        inviteCode: room.hostUserId === member.userId ? room.code : null,
+      };
+    });
   }
   ready(id: string, member: Listener, epoch: number) {
-    return this.serial(async () => {
+    return this.serial(`room:${id}`, async () => {
       const room = this.requireRoom(id, member);
       if (room.epoch !== epoch) throw listenError(409, 'Oynatma durumu değişti. Yeniden eşitle.');
       if (room.ready.has(key(member))) return;
@@ -185,7 +208,7 @@ export class ListeningSessionService {
     });
   }
   mutate(id: string, member: Listener, input: ListenAction) {
-    return this.serial(async () => {
+    return this.serial(`room:${id}`, async () => {
       const room = this.requireRoom(id, member);
       if (room.revision !== input.revision)
         throw listenError(409, 'Kuyruk değişti. Güncel durumla tekrar dene.');
@@ -199,6 +222,7 @@ export class ListeningSessionService {
         case 'add': {
           const ids = input.trackIds ?? [];
           await this.checkTracks(room.members, [...room.queue.map((e) => e.trackId), ...ids]);
+          this.assertCurrent(room);
           room.queue.splice(
             input.playNext ? room.index + 1 : room.queue.length,
             0,
@@ -209,6 +233,7 @@ export class ListeningSessionService {
         case 'replace': {
           const ids = input.trackIds ?? [];
           await this.checkTracks(room.members, ids);
+          this.assertCurrent(room);
           room.queue = ids.map((trackId) => ({ id: randomUUID(), trackId }));
           room.index = Math.max(0, Math.min(input.index ?? 0, ids.length - 1));
           this.prepare(room, true, input.position ?? 0);
@@ -246,7 +271,7 @@ export class ListeningSessionService {
     });
   }
   leave(id: string, member: Listener) {
-    return this.serial(async () => {
+    return this.serial(`room:${id}`, async () => {
       const room = this.requireRoom(id, member);
       room.members = room.members.filter((m) => key(m) !== key(member));
       if (!room.members.length) {
@@ -285,6 +310,7 @@ export class ListeningSessionService {
     }
   }
   close() {
+    this.closed = true;
     this.rooms.clear();
   }
 }

@@ -43,7 +43,10 @@ import {
 } from '@cinedrive/shared';
 import { resolveRangeRequest } from '../utils/http-range.js';
 import { loadPlaybackQueue } from '../services/music-playback-queue.service.js';
-import { resolveSafeLocalFile } from '../services/local-folder-validation.js';
+import {
+  resolveSafeLocalFile,
+  writeSafeLyricsSidecar,
+} from '../services/local-folder-validation.js';
 import { presentMusicMixForNativeClient } from '../utils/music-presentation.js';
 import {
   formatMusicArtist,
@@ -67,6 +70,7 @@ import { createMusicAiProvider, MusicAiProviderError } from '../services/music-a
 import { MusicReplayGainService } from '../services/music-replaygain.service.js';
 import { MusicReplayService } from '../services/music-replay.service.js';
 import { MusicPlaybackCommandWaiter } from '../services/music-playback-command-waiter.js';
+import { MusicConnectMaintenanceService } from '../services/music-connect-maintenance.service.js';
 import {
   acknowledgeMusicConnectCommand,
   enqueueMusicConnectCommand,
@@ -257,10 +261,19 @@ const albumDto = (album: {
 
 export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const playbackCommandWaiter = new MusicPlaybackCommandWaiter();
+  const connectMaintenance = new MusicConnectMaintenanceService(fastify.prisma, undefined, () =>
+    fastify.log.warn('Connect command cleanup failed; next scheduled batch will retry'),
+  );
   const activeDirectTransfers = new Map<string, Set<AbortController>>();
   const activeDirectTransfersByUser = new Map<string, Set<AbortController>>();
   const allActiveDirectTransfers = new Set<AbortController>();
-  fastify.addHook('onClose', async () => playbackCommandWaiter.close());
+  fastify.addHook('onReady', async () => {
+    if (env.NODE_ENV !== 'test') connectMaintenance.start();
+  });
+  fastify.addHook('preClose', async () => {
+    playbackCommandWaiter.close();
+    await connectMaintenance.stop();
+  });
 
   fastify.addHook('onSend', async (request, reply, payload) => {
     const contentType = String(reply.getHeader('content-type') || '');
@@ -2764,7 +2777,10 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           );
         } else if (!heartbeat.data.supportsConditionalSeek) {
           const failed = await failPendingMusicConnectCommands(
-            tx, userId, client.data.clientId, 'CONDITIONAL_SEEK_UNSUPPORTED',
+            tx,
+            userId,
+            client.data.clientId,
+            'CONDITIONAL_SEEK_UNSUPPORTED',
           );
           invalidatedConditionalCommands = failed.count;
         }
@@ -2881,10 +2897,32 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get<{ Params: { id: string } }>('/playback-commands/:id', async (request, reply) => {
     const clientId = request.headers['x-cinemusic-client-id']?.toString();
-    const command = await fastify.prisma.musicPlaybackCommand.findFirst({
-      where: { id: request.params.id, userId: request.user!.id, sourceClientId: clientId || '' },
-      select: { id: true, status: true, errorMessage: true, completedAt: true, expiresAt: true },
-    });
+    const scope = {
+      id: request.params.id,
+      userId: request.user!.id,
+      sourceClientId: clientId || '',
+    };
+    const now = new Date();
+    const query = {
+      where: scope,
+      select: {
+        id: true,
+        status: true,
+        errorMessage: true,
+        completedAt: true,
+        expiresAt: true,
+      } as const,
+    };
+    let command = await fastify.prisma.musicPlaybackCommand.findFirst(query);
+    if (command?.status === 'pending' && command.expiresAt <= now) {
+      await fastify.prisma.musicPlaybackCommand.updateMany({
+        where: { ...scope, status: 'pending', expiresAt: { lte: now } },
+        data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
+      });
+      // An ACK can race expiry. Read its actual immutable result, don't invent
+      // a failure or take a writer lock on every ordinary status poll.
+      command = await fastify.prisma.musicPlaybackCommand.findFirst(query);
+    }
     if (!command)
       return reply.status(404).send({
         error: { code: 'COMMAND_NOT_FOUND', message: 'Komut bulunamadı.', requestId: request.id },
@@ -2906,105 +2944,132 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         });
       const userId = request.user!.id;
       const clientId = parsed.data.clientId;
-      const readCommands = async () => {
-        const now = new Date();
-        await fastify.prisma.musicPlaybackCommand.updateMany({
-          where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { lte: now } },
-          data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
-        });
-        const pending = await fastify.prisma.musicPlaybackCommand.findMany({
-          where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { gt: now } },
-          orderBy: { createdAt: 'asc' },
-          take: 20,
-        });
-        // Require capability on the poll itself: an older binary can poll
-        // before its first heartbeat overwrites a previous binary's capability.
-        if (
-          !parsed.data.supportsConditionalSeek &&
-          pending.some((command) => command.requiresConditionalSeek)
-        ) {
-          await failPendingMusicConnectCommands(
-            fastify.prisma, userId, clientId, 'CONDITIONAL_SEEK_UNSUPPORTED',
-          );
-          return pending.filter((command) => !command.requiresConditionalSeek);
-        }
-        return pending;
+      const disconnected = new AbortController();
+      const onAbort = () => disconnected.abort();
+      const onClose = () => {
+        if (!reply.raw.writableEnded) disconnected.abort();
       };
-      let commands = await readCommands();
-      if (commands.length === 0 && parsed.data.waitMs > 0) {
-        const waiterKey = `${userId}:${clientId}`;
-        const waitForCommand = playbackCommandWaiter.wait(waiterKey, parsed.data.waitMs);
-        // Register the waiter before the second read so a command created in
-        // the gap between the initial query and waiting cannot be missed.
-        commands = await readCommands();
-        if (commands.length === 0) {
-          await waitForCommand;
-          commands = await readCommands();
-        } else {
-          playbackCommandWaiter.notify(waiterKey);
-        }
-      }
-      const pendingCommands = commands.map((command) => {
-        const payload = command.payload
-          ? (JSON.parse(command.payload) as {
-              sourceClientId?: string;
-              mode?: string;
-              positionSeconds?: number;
-              volume?: number;
-              enabled?: boolean;
-              repeatMode?: string;
-              queueItemId?: string;
-              expectedPlayback?: { trackId: string; queueItemId: string };
-              queueEdit?: { action: string; trackIds?: string[] };
-            })
-          : {};
-        return {
-          id: command.id,
-          sourceClientId: command.sourceClientId,
-          targetClientId: command.targetClientId,
-          type: command.type,
-          sourceClientIdForTransfer: payload.sourceClientId,
-          mode: payload.mode,
-          positionSeconds: payload.positionSeconds,
-          volume: payload.volume,
-          enabled: payload.enabled,
-          repeatMode: payload.repeatMode,
-          queueItemId: payload.queueItemId,
-          expectedPlayback: payload.expectedPlayback,
-          queueEdit: payload.queueEdit,
-          createdAt: command.createdAt,
-          expiresAt: command.expiresAt,
+      request.raw.once('aborted', onAbort);
+      reply.raw.once('close', onClose);
+      if (request.raw.aborted || reply.raw.destroyed) disconnected.abort();
+      try {
+        if (disconnected.signal.aborted) return;
+        const readCommands = async () => {
+          if (disconnected.signal.aborted) return [];
+          const now = new Date();
+          await fastify.prisma.musicPlaybackCommand.updateMany({
+            where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { lte: now } },
+            data: { status: 'failed', errorMessage: 'COMMAND_EXPIRED', completedAt: now },
+          });
+          if (disconnected.signal.aborted) return [];
+          const pending = await fastify.prisma.musicPlaybackCommand.findMany({
+            where: { userId, targetClientId: clientId, status: 'pending', expiresAt: { gt: now } },
+            orderBy: { createdAt: 'asc' },
+            take: 20,
+          });
+          // Require capability on the poll itself: an older binary can poll
+          // before its first heartbeat overwrites a previous binary's capability.
+          if (
+            !parsed.data.supportsConditionalSeek &&
+            pending.some((command) => command.requiresConditionalSeek)
+          ) {
+            await failPendingMusicConnectCommands(
+              fastify.prisma,
+              userId,
+              clientId,
+              'CONDITIONAL_SEEK_UNSUPPORTED',
+            );
+            return pending.filter((command) => !command.requiresConditionalSeek);
+          }
+          return pending;
         };
-      });
-      // Resolve metadata once per poll instead of one client request per added track.
-      const trackIds = [
-        ...new Set(
-          pendingCommands.flatMap((command) =>
-            command.type === 'editQueue' && command.queueEdit?.action === 'add'
-              ? (command.queueEdit.trackIds ?? [])
-              : [],
+        let commands = await readCommands();
+        if (disconnected.signal.aborted) return;
+        if (commands.length === 0 && parsed.data.waitMs > 0) {
+          const waiterKey = `${userId}:${clientId}`;
+          const waitForCommand = playbackCommandWaiter.wait(
+            waiterKey,
+            parsed.data.waitMs,
+            disconnected.signal,
+          );
+          // Register the waiter before the second read so a command created in
+          // the gap between the initial query and waiting cannot be missed.
+          commands = await readCommands();
+          if (commands.length === 0) {
+            const result = await waitForCommand;
+            if (result === 'aborted') return;
+            commands = result === 'closed' ? [] : await readCommands();
+          } else {
+            playbackCommandWaiter.notify(waiterKey);
+          }
+        }
+        if (disconnected.signal.aborted) return;
+        const pendingCommands = commands.map((command) => {
+          const payload = command.payload
+            ? (JSON.parse(command.payload) as {
+                sourceClientId?: string;
+                mode?: string;
+                positionSeconds?: number;
+                volume?: number;
+                enabled?: boolean;
+                repeatMode?: string;
+                queueItemId?: string;
+                expectedPlayback?: { trackId: string; queueItemId: string };
+                queueEdit?: { action: string; trackIds?: string[] };
+              })
+            : {};
+          return {
+            id: command.id,
+            sourceClientId: command.sourceClientId,
+            targetClientId: command.targetClientId,
+            type: command.type,
+            sourceClientIdForTransfer: payload.sourceClientId,
+            mode: payload.mode,
+            positionSeconds: payload.positionSeconds,
+            volume: payload.volume,
+            enabled: payload.enabled,
+            repeatMode: payload.repeatMode,
+            queueItemId: payload.queueItemId,
+            expectedPlayback: payload.expectedPlayback,
+            queueEdit: payload.queueEdit,
+            createdAt: command.createdAt,
+            expiresAt: command.expiresAt,
+          };
+        });
+        // Resolve metadata once per poll instead of one client request per added track.
+        const trackIds = [
+          ...new Set(
+            pendingCommands.flatMap((command) =>
+              command.type === 'editQueue' && command.queueEdit?.action === 'add'
+                ? (command.queueEdit.trackIds ?? [])
+                : [],
+            ),
           ),
-        ),
-      ];
-      const tracks = trackIds.length
-        ? await fastify.prisma.musicTrack.findMany({
-            where: { id: { in: trackIds }, ...ownedTrackWhere(request.user!.id) },
-            include: musicTrackInclude(request.user!.id),
-          })
-        : [];
-      const tracksById = new Map(tracks.map((track) => [track.id, formatMusicTrack(track)]));
-      return {
-        commands: pendingCommands.map((command) => ({
-          ...command,
-          ...(command.type === 'editQueue' && command.queueEdit?.action === 'add'
-            ? {
-                queueTracks: [...new Set(command.queueEdit.trackIds ?? [])].flatMap((id) =>
-                  tracksById.has(id) ? [tracksById.get(id)!] : [],
-                ),
-              }
-            : {}),
-        })),
-      };
+        ];
+        const tracks = trackIds.length
+          ? await fastify.prisma.musicTrack.findMany({
+              where: { id: { in: trackIds }, ...ownedTrackWhere(request.user!.id) },
+              include: musicTrackInclude(request.user!.id),
+            })
+          : [];
+        const tracksById = new Map(tracks.map((track) => [track.id, formatMusicTrack(track)]));
+        return {
+          commands: pendingCommands.map((command) => ({
+            ...command,
+            ...(command.type === 'editQueue' && command.queueEdit?.action === 'add'
+              ? {
+                  queueTracks: [...new Set(command.queueEdit.trackIds ?? [])].flatMap((id) =>
+                    tracksById.has(id) ? [tracksById.get(id)!] : [],
+                  ),
+                }
+              : {}),
+          })),
+        };
+      } finally {
+        disconnected.abort();
+        request.raw.removeListener('aborted', onAbort);
+        reply.raw.removeListener('close', onClose);
+      }
     },
   );
 
@@ -3376,10 +3441,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      const revision = await fastify.prisma.musicLyricsRevision.findFirst({
-        where: { id: request.params.revisionId, lyricsId: track.lyrics.id, status: 'pending' },
-      });
-      if (!revision)
+      try {
+        const lyrics = await lyricsService.applyRevision(
+          request.params.id,
+          request.params.revisionId,
+        );
+        return { lyrics: formatLyrics(lyrics) };
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'REVISION_NOT_FOUND') throw error;
         return reply.status(404).send({
           error: {
             code: 'REVISION_NOT_FOUND',
@@ -3387,36 +3456,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      await fastify.prisma.$transaction([
-        fastify.prisma.musicLyricsRevision.create({
-          data: {
-            lyricsId: track.lyrics.id,
-            sourceName: `Yedek · ${track.lyrics.sourceName}`,
-            content: track.lyrics.content,
-            status: 'backup',
-            appliedAt: new Date(),
-          },
-        }),
-        fastify.prisma.musicLyrics.update({
-          where: { id: track.lyrics.id },
-          data: {
-            content: revision.content,
-            sourceName: revision.sourceName,
-            sourceType: 'community',
-            isSynced: parseLrc(revision.content).isSynced,
-            offsetMs: parseLrc(revision.content).offsetMs,
-          },
-        }),
-        fastify.prisma.musicLyricsRevision.update({
-          where: { id: revision.id },
-          data: { status: 'applied', appliedAt: new Date() },
-        }),
-      ]);
-      const lyrics = await fastify.prisma.musicLyrics.findUniqueOrThrow({
-        where: { id: track.lyrics.id },
-        include: { translations: true, revisions: { orderBy: { createdAt: 'desc' }, take: 20 } },
-      });
-      return { lyrics: formatLyrics(lyrics) };
+      }
     },
   );
 
@@ -3466,27 +3506,31 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    let safeLocalFilePath: string;
+    let sidecarName: string;
     try {
-      safeLocalFilePath = await resolveSafeLocalFile(
+      sidecarName = await writeSafeLyricsSidecar(
         track.driveFile.library.localFolderPath,
         track.driveFile.localFilePath,
+        track.lyrics.content,
       );
-    } catch {
-      return reply.status(404).send({
+    } catch (error) {
+      const unavailable =
+        error instanceof Error &&
+        (['LOCAL_FILE_UNAVAILABLE', 'LOCAL_FOLDER_UNSAFE'].includes(error.message) ||
+          ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''));
+      return reply.status(unavailable ? 404 : 409).send({
         error: {
-          code: 'LOCAL_FILE_NOT_FOUND',
-          message: 'Yerel dosya diskte bulunamadı.',
+          code: unavailable ? 'LOCAL_FILE_NOT_FOUND' : 'LYRICS_SIDECAR_WRITE_FAILED',
+          message: unavailable
+            ? 'Yerel dosya diskte bulunamadı.'
+            : 'Şarkı sözü dosyası güvenli şekilde yazılamadı.',
           requestId: request.id,
         },
       });
     }
-    const parsedPath = path.parse(safeLocalFilePath);
-    const lrcPath = path.join(parsedPath.dir, `${parsedPath.name}.lrc`);
-    await fs.promises.writeFile(lrcPath, track.lyrics.content, 'utf8');
     // Keep the response field for existing clients, but never disclose the
     // server's absolute filesystem layout.
-    return { path: path.basename(lrcPath) };
+    return { path: sidecarName };
   });
 
   fastify.delete<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {

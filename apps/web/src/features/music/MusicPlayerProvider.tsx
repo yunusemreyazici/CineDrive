@@ -9,6 +9,9 @@ import React, {
 } from 'react';
 import type { MusicTrackDto } from '@cinedrive/shared';
 import { ApiRequestError, apiClient } from '../../api/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSessionQuery } from '../../hooks/useApi';
+import { MusicListeningSession, type MusicListeningEvent } from './musicListeningHistory';
 import {
   fetchMusicPlaybackState,
   fetchTrackRadio,
@@ -82,13 +85,15 @@ const makeId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`;
+const makeHistoryId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+        const value = Math.floor(Math.random() * 16);
+        return (character === 'x' ? value : (value & 3) | 8).toString(16);
+      });
 
-const sourceForTrack = (
-  track: MusicTrackDto,
-  clientId: string,
-  transcode = false,
-  start = 0,
-) => {
+const sourceForTrack = (track: MusicTrackDto, clientId: string, transcode = false, start = 0) => {
   const params = new URLSearchParams({ clientId });
   if (transcode) {
     params.set('transcode', '1');
@@ -110,12 +115,21 @@ const playbackClientIdentity = () => {
   }
   return {
     clientId: clientId || makeId(),
-    clientName: typeof navigator === 'undefined' ? 'Web player' : `Web · ${navigator.platform || 'Browser'}`,
+    clientName:
+      typeof navigator === 'undefined' ? 'Web player' : `Web · ${navigator.platform || 'Browser'}`,
     platform: 'web' as const,
   };
 };
 
 export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const { data: session } = useSessionQuery();
+  const queryClient = useQueryClient();
+  const historyOwner = session?.authenticated ? (session.user?.id ?? null) : null;
+  const historyOwnerRef = useRef(historyOwner);
+  const historyGenerationRef = useRef(0);
+  const listeningSessionsRef = useRef(new Map<string, MusicListeningSession>());
+  const pendingHistoryRef = useRef(new Map<string, MusicListeningEvent>());
+  const historyUploadRef = useRef(false);
   const audioRefs = useRef<[HTMLAudioElement | null, HTMLAudioElement | null]>([null, null]);
   const slotEntryIdsRef = useRef<[string | null, string | null]>([null, null]);
   const activeSlotRef = useRef<0 | 1>(0);
@@ -128,8 +142,6 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const syncConflictRef = useRef(false);
   const queueGenerationRef = useRef(0);
   const radioExtensionInFlightRef = useRef<Promise<MusicQueueEntry | null> | null>(null);
-  const historyRecordedRef = useRef(new Set<string>());
-  const historyPendingRef = useRef(new Set<string>());
   const pendingPlayRef = useRef(false);
   const restoredPositionRef = useRef(0);
   const transitionTimerRef = useRef<number | null>(null);
@@ -185,6 +197,94 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     const id = slotEntryIdsRef.current[slot];
     return queueRef.current.find((entry) => entry.id === id) || null;
   }, []);
+
+  const uploadHistory = useCallback(() => {
+    const owner = historyOwnerRef.current;
+    const generation = historyGenerationRef.current;
+    const currentSession = queryClient.getQueryData<{
+      authenticated: boolean;
+      user?: { id: string };
+    }>(['session']);
+    if (
+      !owner ||
+      !currentSession?.authenticated ||
+      currentSession.user?.id !== owner ||
+      historyUploadRef.current ||
+      pendingHistoryRef.current.size === 0
+    )
+      return;
+    const events = [...pendingHistoryRef.current.values()].slice(0, 100);
+    historyUploadRef.current = true;
+    void apiClient
+      .post<{ acceptedEventIds: string[]; rejectedEventIds: string[] }>('/music/history/batch', {
+        events,
+      })
+      .then(({ data }) => {
+        if (historyOwnerRef.current !== owner || historyGenerationRef.current !== generation)
+          return;
+        for (const id of [...data.acceptedEventIds, ...data.rejectedEventIds])
+          pendingHistoryRef.current.delete(id);
+      })
+      .catch(() => {
+        /* Retain identical event IDs for a later retry. */
+      })
+      .finally(() => {
+        if (historyOwnerRef.current === owner && historyGenerationRef.current === generation)
+          historyUploadRef.current = false;
+      });
+  }, [queryClient]);
+
+  const sampleHistory = useCallback(
+    (slot: 0 | 1, audio: HTMLAudioElement) => {
+      const entry = entryForSlot(slot);
+      if (!entry || !historyOwnerRef.current) return;
+      let listening = listeningSessionsRef.current.get(entry.id);
+      if (!listening) {
+        listening = new MusicListeningSession(makeHistoryId(), entry.trackId, entry.track.duration);
+        listeningSessionsRef.current.set(entry.id, listening);
+      }
+      listening.sample(
+        audio.currentTime,
+        performance.now() / 1000,
+        !audio.paused && !audio.seeking && audio.readyState >= 3,
+      );
+    },
+    [entryForSlot],
+  );
+
+  const finalizeHistory = useCallback(
+    (entryId: string | null | undefined) => {
+      if (!entryId) return;
+      const listening = listeningSessionsRef.current.get(entryId);
+      const event = listening?.finalize();
+      listeningSessionsRef.current.delete(entryId);
+      if (event) {
+        // Bounded in-memory retry queue, scoped to this authenticated account.
+        if (pendingHistoryRef.current.size >= 500)
+          pendingHistoryRef.current.delete(pendingHistoryRef.current.keys().next().value!);
+        pendingHistoryRef.current.set(event.eventId, event);
+        uploadHistory();
+      }
+    },
+    [uploadHistory],
+  );
+
+  useEffect(() => {
+    if (historyOwnerRef.current === historyOwner) return;
+    historyOwnerRef.current = historyOwner;
+    historyGenerationRef.current++;
+    listeningSessionsRef.current.clear();
+    pendingHistoryRef.current.clear();
+    historyUploadRef.current = false;
+  }, [historyOwner]);
+  useEffect(() => {
+    const listeningSessions = listeningSessionsRef.current;
+    const timer = window.setInterval(uploadHistory, 30_000);
+    return () => {
+      window.clearInterval(timer);
+      for (const id of [...listeningSessions.keys()]) finalizeHistory(id);
+    };
+  }, [uploadHistory, finalizeHistory]);
 
   const applySlotGain = useCallback(
     (slot: 0 | 1, track: MusicTrackDto | null, fade = 1, rampSeconds = 0) => {
@@ -407,7 +507,12 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     }
     const slot = activeSlotRef.current;
     const audio = audioRefs.current[slot];
-    const source = sourceForTrack(currentEntry.track, playbackClient.clientId, transcode, transcodeStart);
+    const source = sourceForTrack(
+      currentEntry.track,
+      playbackClient.clientId,
+      transcode,
+      transcodeStart,
+    );
     if (!audio) return;
     if (slotEntryIdsRef.current[slot] !== currentEntry.id || audio.getAttribute('src') !== source) {
       audioRefs.current.forEach((element, index) => {
@@ -432,7 +537,15 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) startPlayback();
     else audio.addEventListener('loadedmetadata', startPlayback, { once: true });
     return () => audio.removeEventListener('loadedmetadata', startPlayback);
-  }, [applySlotGain, currentEntry, ensureAudioGraph, loadSlot, playbackClient.clientId, transcode, transcodeStart]);
+  }, [
+    applySlotGain,
+    currentEntry,
+    ensureAudioGraph,
+    loadSlot,
+    playbackClient.clientId,
+    transcode,
+    transcodeStart,
+  ]);
 
   const getNextEntry = useCallback(
     (entryId = currentQueueItemIdRef.current) => {
@@ -482,6 +595,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       const oldAudio = audioRefs.current[oldSlot];
       const newAudio = audioRefs.current[newSlot];
       if (!newAudio || slotEntryIdsRef.current[newSlot] !== entry.id) return false;
+      if (oldAudio) sampleHistory(oldSlot, oldAudio);
+      finalizeHistory(slotEntryIdsRef.current[oldSlot]);
       clearTransition();
       ensureAudioGraph();
       newAudio.currentTime = 0;
@@ -507,16 +622,25 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setTranscode(false);
       setTranscodeStart(0);
       pendingPlayRef.current = false;
-      historyRecordedRef.current.delete(entry.id);
-      historyPendingRef.current.delete(entry.id);
       return true;
     },
-    [applySlotGain, clearTransition, ensureAudioGraph, entryForSlot],
+    [
+      applySlotGain,
+      clearTransition,
+      ensureAudioGraph,
+      entryForSlot,
+      sampleHistory,
+      finalizeHistory,
+    ],
   );
 
   const selectEntry = useCallback(
     (entry: MusicQueueEntry, autoPlay = true) => {
       clearTransition();
+      const oldSlot = activeSlotRef.current;
+      const oldAudio = audioRefs.current[oldSlot];
+      if (oldAudio) sampleHistory(oldSlot, oldAudio);
+      finalizeHistory(slotEntryIdsRef.current[oldSlot]);
       audioRefs.current.forEach((audio) => audio?.pause());
       setCurrentQueueItemId(entry.id);
       setPosition(0);
@@ -525,10 +649,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setTranscode(requiresMusicTranscode(entry.track));
       setTranscodeStart(0);
       pendingPlayRef.current = autoPlay;
-      historyRecordedRef.current.delete(entry.id);
-      historyPendingRef.current.delete(entry.id);
     },
-    [clearTransition],
+    [clearTransition, sampleHistory, finalizeHistory],
   );
 
   const next = useCallback(() => {
@@ -682,6 +804,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     (seconds: number) => {
       clearTransition();
       const audio = audioRefs.current[activeSlotRef.current];
+      if (audio) sampleHistory(activeSlotRef.current, audio);
+      const entry = entryForSlot(activeSlotRef.current);
+      if (entry) listeningSessionsRef.current.get(entry.id)?.discontinuity();
       if (transcode) {
         pendingPlayRef.current = isPlaying;
         setTranscodeStart(seconds);
@@ -689,7 +814,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setPosition(seconds);
       void syncRef.current();
     },
-    [clearTransition, isPlaying, transcode],
+    [clearTransition, isPlaying, transcode, sampleHistory, entryForSlot],
   );
 
   const setVolume = useCallback((nextVolume: number) => {
@@ -758,31 +883,13 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     [],
   );
 
-  const recordMusicHistory = useCallback((entry: MusicQueueEntry, listenedSeconds: number) => {
-    if (historyRecordedRef.current.has(entry.id) || historyPendingRef.current.has(entry.id)) return;
-    historyPendingRef.current.add(entry.id);
-    void apiClient
-      .post('/music/history', { trackId: entry.trackId, listenedSeconds })
-      .then(() => historyRecordedRef.current.add(entry.id))
-      .catch(() => {})
-      .finally(() => historyPendingRef.current.delete(entry.id));
-  }, []);
-
   const handleTimeUpdate = useCallback(
     (slot: 0 | 1, audio: HTMLAudioElement) => {
       if (slot !== activeSlotRef.current) return;
       const seconds = logicalMusicPosition(audio.currentTime, transcode, transcodeStart);
       setPosition(seconds);
       const entry = entryForSlot(slot);
-      const historyThreshold = Math.min(30, entry?.track.duration || audio.duration || 30);
-      if (
-        entry &&
-        !historyRecordedRef.current.has(entry.id) &&
-        !historyPendingRef.current.has(entry.id) &&
-        seconds + 0.5 >= historyThreshold
-      ) {
-        recordMusicHistory(entry, seconds);
-      }
+      sampleHistory(slot, audio);
       const fade = audioSettings.crossfadeSeconds;
       if (!transitioning && fade >= 5 && repeatMode !== 'one' && Number.isFinite(audio.duration)) {
         const remaining = audio.duration - audio.currentTime;
@@ -795,7 +902,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       audioSettings.crossfadeSeconds,
       entryForSlot,
       getNextEntry,
-      recordMusicHistory,
+      sampleHistory,
       repeatMode,
       switchToPrepared,
       transcode,
@@ -810,8 +917,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       const audio = audioRefs.current[slot];
       const entry = entryForSlot(slot);
       if (audio && entry) {
-        const listenedSeconds = logicalMusicPosition(audio.currentTime, transcode, transcodeStart);
-        recordMusicHistory(entry, Math.max(entry.track.duration || 0, listenedSeconds));
+        sampleHistory(slot, audio);
+        finalizeHistory(entry.id);
       }
       if (repeatMode === 'one' && audio) {
         if (transcode && transcodeStart > 0) {
@@ -846,7 +953,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       extendQueueWithRadio,
       getNextEntry,
       next,
-      recordMusicHistory,
+      sampleHistory,
+      finalizeHistory,
       repeatMode,
       selectEntry,
       switchToPrepared,
@@ -936,7 +1044,20 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
           setIsPlaying(true);
         }
       }}
+      onPlaying={(event) => {
+        if (slot === activeSlotRef.current) sampleHistory(slot, event.currentTarget);
+      }}
+      onWaiting={() => {
+        const entry = entryForSlot(slot);
+        if (entry) listeningSessionsRef.current.get(entry.id)?.discontinuity();
+      }}
+      onSeeking={() => {
+        const entry = entryForSlot(slot);
+        if (entry) listeningSessionsRef.current.get(entry.id)?.discontinuity();
+      }}
       onPause={() => {
+        const entry = entryForSlot(slot);
+        if (entry) listeningSessionsRef.current.get(entry.id)?.discontinuity();
         if (slot === activeSlotRef.current && !transitioning) {
           setIsPlaying(false);
           void syncRef.current();
@@ -965,7 +1086,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         };
         console.error('[MusicPlayer] music_stream_error', {
           side: 'web_client',
-          code: mediaError ? errorCodes[mediaError.code] || `MEDIA_ERROR_${mediaError.code}` : 'MEDIA_ERROR_UNKNOWN',
+          code: mediaError
+            ? errorCodes[mediaError.code] || `MEDIA_ERROR_${mediaError.code}`
+            : 'MEDIA_ERROR_UNKNOWN',
           trackId: currentTrack?.id,
           clientId: playbackClient.clientId,
           transcode,

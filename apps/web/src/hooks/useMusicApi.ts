@@ -91,12 +91,14 @@ export const useMusicAiPlaylistMutation = () =>
 
 export const useMusicReplayQuery = (period: 'day' | 'week' | 'month' | 'year', year?: number) => {
   const timezoneOffsetMinutes = -new Date().getTimezoneOffset();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return useQuery({
-    queryKey: ['music', 'replay', period, year, timezoneOffsetMinutes],
-    queryFn: async () =>
+    queryKey: ['music', 'replay', period, year, timezoneOffsetMinutes, timeZone],
+    queryFn: async ({ signal }) =>
       (
         await apiClient.get<MusicReplayDto>('/music/replay', {
-          params: { period, timezoneOffsetMinutes, ...(year ? { year } : {}) },
+          params: { period, timezoneOffsetMinutes, timeZone, ...(year ? { year } : {}) },
+          signal,
         })
       ).data,
     placeholderData: (previous) => previous,

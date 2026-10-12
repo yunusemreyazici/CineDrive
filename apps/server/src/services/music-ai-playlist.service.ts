@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@cinedrive/prisma';
 import type { MusicMixDto, MusicTrackDto, PlaylistIntent } from '@cinedrive/shared';
-import { accessibleLibraryFilter } from '../utils/library-access.js';
+import { readableMusicTrackFilter } from '../utils/library-access.js';
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../utils/music-format.js';
 import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
 import {
@@ -515,7 +515,7 @@ export class MusicAiPlaylistService {
       this.prisma,
       userId,
       selected.map((candidate) => candidate.id),
-      { library: accessibleLibraryFilter(userId) },
+      readableMusicTrackFilter(userId),
     );
     const tracksById = new Map(hydrated.map(formatMusicTrack).map((track) => [track.id, track]));
     const tracks = selected.flatMap((candidate) => {

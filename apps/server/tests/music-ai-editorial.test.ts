@@ -1,7 +1,9 @@
 import type { PlaylistIntentProviderOutput } from '@cinedrive/shared';
+import type { PrismaClient } from '@cinedrive/prisma';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiscoveryCandidate } from '../src/services/music-discovery-candidates';
 import {
+  MusicAiEditorialService,
   buildEditorialListenerProfile,
   buildLocalEditorialPlans,
   normalizeEditorialPlans,
@@ -65,6 +67,89 @@ const candidate = (index: number): DiscoveryCandidate => ({
 });
 
 describe('Music AI editorial planning', () => {
+  const cacheFixture = () => {
+    let playCount = 0,
+      accessible = true;
+    let updatedAt = new Date('2026-01-01T00:00:00Z');
+    let now = new Date('2026-10-12T10:00:00Z');
+    const history = vi.fn().mockResolvedValue([]);
+    const provider = {
+      generatePlaylistIntent: vi.fn(),
+      generateEditorialPlans: vi.fn().mockResolvedValue({}),
+    };
+    const pool = Array.from({ length: 20 }, (_, index) => candidate(index));
+    const prisma = {
+      musicHistory: { findMany: history },
+      musicTrack: {
+        findMany: async (args: { include?: unknown }) =>
+          args.include || !accessible
+            ? []
+            : pool.map((item) => ({
+                ...item,
+                updatedAt,
+                primaryArtistId: item.artistId,
+                genres: JSON.stringify(item.genres),
+                primaryArtist: { name: item.artistName, artwork: null },
+                album: { title: item.albumTitle, year: item.albumYear, genres: '[]' },
+                favorites: [],
+                _count: { history: playCount },
+              })),
+      },
+    } as unknown as PrismaClient;
+    return {
+      service: new MusicAiEditorialService(prisma, provider, () => now),
+      provider,
+      history,
+      listen: () => {
+        playCount++;
+      },
+      touchQueueStatus: () => {
+        updatedAt = new Date('2026-10-12T10:00:00Z');
+      },
+      revoke: () => {
+        accessible = false;
+      },
+      nextDay: () => {
+        now = new Date('2026-10-13T10:00:00Z');
+      },
+    };
+  };
+  it('keeps todays plans after listening without reloading history or calling the provider', async () => {
+    const fixture = cacheFixture();
+    const first = await fixture.service.getEdition('user', 'tr');
+    fixture.listen();
+    fixture.touchQueueStatus();
+    const repeated = await fixture.service.getEdition('user', 'tr');
+    expect(repeated.generatedAt).toBe(first.generatedAt);
+    expect(fixture.provider.generateEditorialPlans).toHaveBeenCalledTimes(1);
+    expect(fixture.history).toHaveBeenCalledTimes(1);
+    fixture.nextDay();
+    await fixture.service.getEdition('user', 'tr');
+    expect(fixture.provider.generateEditorialPlans).toHaveBeenCalledTimes(2);
+  });
+  it('revalidates access and regenerates after catalogue membership changes', async () => {
+    const fixture = cacheFixture();
+    await fixture.service.getEdition('user', 'tr');
+    fixture.revoke();
+    const revoked = await fixture.service.getEdition('user', 'tr');
+    expect(revoked.mixes.every((mix) => mix.tracks.length === 0)).toBe(true);
+    expect(fixture.provider.generateEditorialPlans).toHaveBeenCalledTimes(2);
+  });
+  it('deduplicates concurrent generation and bounds/evicts expired cache entries', async () => {
+    const fixture = cacheFixture();
+    await Promise.all([
+      fixture.service.getEdition('user', 'tr'),
+      fixture.service.getEdition('user', 'tr'),
+    ]);
+    expect(fixture.provider.generateEditorialPlans).toHaveBeenCalledTimes(1);
+    for (let index = 0; index < 130; index++)
+      await fixture.service.getEdition(`user-${index}`, 'tr');
+    const cache = (fixture.service as unknown as { cache: Map<string, unknown> }).cache;
+    expect(cache.size).toBe(128);
+    fixture.nextDay();
+    await fixture.service.getEdition('user', 'tr');
+    expect(cache.size).toBe(1);
+  });
   it('builds a bounded aggregate profile without media identities for a 10k catalogue', () => {
     const candidates = Array.from({ length: 10_000 }, (_, index) => candidate(index));
     const profile = buildEditorialListenerProfile(candidates, []);

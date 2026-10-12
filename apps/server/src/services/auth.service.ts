@@ -175,26 +175,26 @@ export class AuthService {
 
     const newPasswordHash = await this.hashPassword(newPasswordPlain);
 
-    const updatedUser = await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash: newPasswordHash },
-    });
-
-    // Clear old sessions for security
-    await this.prisma.session.deleteMany({
-      where: { userId },
-    });
-
-    // Create fresh new session
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + SESSION_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
-
-    await this.prisma.session.create({
-      data: {
-        userId,
-        token: sessionToken,
-        expiresAt,
-      },
+    // Argon2 stays outside the writer lock. The conditional write also rejects
+    // a concurrent password reset/disable that happened while hashing.
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.user.updateMany({
+        where: {
+          id: userId,
+          passwordHash: user.passwordHash,
+          disabledAt: null,
+          ...(env.NODE_ENV !== 'test' && env.APP_AUTH_MODE === 'single-user'
+            ? { role: 'admin' }
+            : {}),
+        },
+        data: { passwordHash: newPasswordHash },
+      });
+      if (changed.count !== 1) throw new Error('INVALID_CURRENT_PASSWORD');
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.session.create({ data: { userId, token: sessionToken, expiresAt } });
+      return tx.user.findUniqueOrThrow({ where: { id: userId } });
     });
 
     return {

@@ -1,5 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import { TEST_DATABASE_URL } from './tests/test-database.js';
+import { createTestDatabase } from './tests/test-database.js';
+
+// Created once per invocation; global setup reads this same resolved env value,
+// rather than independently deriving a filename in another process.
+const { databaseUrl } = createTestDatabase();
 
 export default defineConfig({
   test: {
@@ -11,7 +15,7 @@ export default defineConfig({
     // over the repository .env that env.ts loads.
     env: {
       NODE_ENV: 'test',
-      DATABASE_URL: TEST_DATABASE_URL,
+      DATABASE_URL: databaseUrl,
     },
     globalSetup: './tests/globalSetup.ts',
     // Every test file talks to the same SQLite file and clears rows in its
