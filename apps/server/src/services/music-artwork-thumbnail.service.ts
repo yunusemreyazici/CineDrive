@@ -17,6 +17,8 @@ export type MusicArtworkVariant = keyof typeof musicArtworkVariantSpecs;
 type VariantSpec = (typeof musicArtworkVariantSpecs)[MusicArtworkVariant];
 type LegacyOptions = { width?: number; height?: number; quality?: number };
 type ArtworkRenderer = (source: Buffer, spec: VariantSpec) => Promise<Buffer | null>;
+type ArtworkSource = Buffer | (() => Promise<Buffer | null>);
+type RenderWork = { priority: 'foreground' | 'background' };
 
 const defaultCacheDirectory = path.resolve(process.cwd(), 'data', 'music_artwork_cache');
 
@@ -33,10 +35,13 @@ export const nearestMusicArtworkVariant = (options: LegacyOptions): MusicArtwork
 
 export class MusicArtworkThumbnailService {
   private readonly cache = new Map<string, Buffer>();
-  private readonly inFlight = new Map<string, Promise<Buffer | null>>();
+  private readonly inFlight = new Map<
+    string,
+    { promise: Promise<Buffer | null>; work: RenderWork }
+  >();
   private readonly cacheDirectory: string;
   private activeRenders = 0;
-  private readonly renderWaiters: Array<() => void> = [];
+  private readonly renderWaiters: Array<{ resume: () => void; work: RenderWork }> = [];
 
   public constructor(
     private readonly maxConcurrentRenders = MAX_CONCURRENT_RENDERS,
@@ -48,8 +53,9 @@ export class MusicArtworkThumbnailService {
 
   public async thumbnail(
     checksum: string,
-    source: Buffer,
+    source: ArtworkSource,
     variantOrOptions: MusicArtworkVariant | LegacyOptions = 'small',
+    priority: RenderWork['priority'] = 'foreground',
   ): Promise<Buffer | null> {
     const requestedVariant =
       typeof variantOrOptions === 'string'
@@ -67,35 +73,51 @@ export class MusicArtworkThumbnailService {
       return cached;
     }
 
+    const existing = this.inFlight.get(cacheKey);
+    if (existing) {
+      if (priority === 'foreground') existing.work.priority = 'foreground';
+      return existing.promise;
+    }
+
+    const work = { priority };
+    const pending = this.readOrRender(checksum, variant, source, work).finally(() =>
+      this.inFlight.delete(cacheKey),
+    );
+    this.inFlight.set(cacheKey, { promise: pending, work });
+    return pending;
+  }
+
+  private async readOrRender(
+    checksum: string,
+    variant: MusicArtworkVariant,
+    source: ArtworkSource,
+    work: RenderWork,
+  ): Promise<Buffer | null> {
+    const cacheKey = `${checksum}:${variant}`;
     const diskPath = this.variantPath(checksum, variant);
     const diskCached = await fs.readFile(diskPath).catch(() => null);
     if (diskCached) {
       this.remember(cacheKey, diskCached);
       return diskCached;
     }
-
-    const existing = this.inFlight.get(cacheKey);
-    if (existing) return existing;
-
-    const spec = musicArtworkVariantSpecs[variant];
-    const pending = this.withRenderSlot(
-      () => this.renderer?.(source, spec) ?? this.render(source, spec),
-    )
-      .then(async (result) => {
-        if (!result) return null;
-        await this.persist(diskPath, result).catch(() => undefined);
-        this.remember(cacheKey, result);
-        return result;
-      })
-      .finally(() => this.inFlight.delete(cacheKey));
-    this.inFlight.set(cacheKey, pending);
-    return pending;
+    // Acquire a slot before loading the original: queued requests retain only
+    // their loader, not a large database blob. RAM/disk hits never invoke it.
+    const result = await this.withRenderSlot(async () => {
+      const bytes = typeof source === 'function' ? await source() : source;
+      if (!bytes) return null;
+      const spec = musicArtworkVariantSpecs[variant];
+      return this.renderer ? this.renderer(bytes, spec) : this.render(bytes, spec);
+    }, work);
+    if (!result) return null;
+    await this.persist(diskPath, result).catch(() => undefined);
+    this.remember(cacheKey, result);
+    return result;
   }
 
   public async prewarm(checksum: string, source: Buffer): Promise<void> {
     await Promise.all(
       (Object.keys(musicArtworkVariantSpecs) as MusicArtworkVariant[]).map((variant) =>
-        this.thumbnail(checksum, source, variant),
+        this.thumbnail(checksum, source, variant, 'background'),
       ),
     );
   }
@@ -149,8 +171,8 @@ export class MusicArtworkThumbnailService {
     }
   }
 
-  private async withRenderSlot<T>(operation: () => Promise<T>): Promise<T> {
-    await this.acquireRenderSlot();
+  private async withRenderSlot<T>(operation: () => Promise<T>, work: RenderWork): Promise<T> {
+    await this.acquireRenderSlot(work);
     try {
       return await operation();
     } finally {
@@ -158,22 +180,28 @@ export class MusicArtworkThumbnailService {
     }
   }
 
-  private acquireRenderSlot(): Promise<void> {
+  private acquireRenderSlot(work: RenderWork): Promise<void> {
     if (this.activeRenders < this.maxConcurrentRenders) {
       this.activeRenders += 1;
       return Promise.resolve();
     }
     return new Promise((resolve) => {
-      this.renderWaiters.push(() => {
-        this.activeRenders += 1;
-        resolve();
+      this.renderWaiters.push({
+        work,
+        resume: () => {
+          this.activeRenders += 1;
+          resolve();
+        },
       });
     });
   }
 
   private releaseRenderSlot() {
     this.activeRenders = Math.max(0, this.activeRenders - 1);
-    this.renderWaiters.shift()?.();
+    const foreground = this.renderWaiters.findIndex(
+      (waiter) => waiter.work.priority === 'foreground',
+    );
+    this.renderWaiters.splice(foreground < 0 ? 0 : foreground, 1)[0]?.resume();
   }
 }
 

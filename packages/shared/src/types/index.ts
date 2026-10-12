@@ -331,6 +331,18 @@ export interface MusicTrackCreditDto {
   source: 'tag' | 'musicbrainz' | 'manual' | string;
 }
 
+export interface MusicLyricsSearchMatchDto {
+  track: MusicTrackDto;
+  excerpt: string;
+}
+
+export interface MusicSearchDto {
+  tracks: MusicTrackDto[];
+  albums: MusicAlbumDto[];
+  artists: MusicArtistDto[];
+  lyricsMatches?: MusicLyricsSearchMatchDto[];
+}
+
 export interface MusicTrackDto {
   id: string;
   title: string;

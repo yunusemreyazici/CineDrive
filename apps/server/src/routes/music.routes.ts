@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@cinedrive/prisma';
+import type { MusicSearchDto } from '@cinedrive/shared';
 import {
   addMusicPlaylistItemSchema,
   addMusicPlaylistItemsSchema,
@@ -83,6 +84,7 @@ import {
 } from '../services/music-maintenance.service.js';
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
 import { searchMusic } from '../services/music-search.service.js';
+import { backfillLyricsSearch, searchLyrics } from '../services/music-lyrics-search.service.js';
 import { maintenanceGenreReviewReasons } from '../services/music-maintenance-genres.js';
 import {
   loadMusicMaintenanceSummary,
@@ -268,6 +270,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const activeDirectTransfersByUser = new Map<string, Set<AbortController>>();
   const allActiveDirectTransfers = new Set<AbortController>();
   fastify.addHook('onReady', async () => {
+    await backfillLyricsSearch(fastify.prisma);
     if (env.NODE_ENV !== 'test') connectMaintenance.start();
   });
   fastify.addHook('preClose', async () => {
@@ -1869,13 +1872,20 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = request.user!.id;
     const trackWhere = ownedTrackWhere(userId);
     const q = String((request.query as { q?: string }).q || '').trim();
-    if (!q) return { tracks: [], albums: [], artists: [] };
-    const { tracks, albums, artists } = await searchMusic(fastify.prisma, userId, trackWhere, q);
+    if (!q) return { tracks: [], albums: [], artists: [], lyricsMatches: [] };
+    const [{ tracks, albums, artists }, lyricsMatches] = await Promise.all([
+      searchMusic(fastify.prisma, userId, trackWhere, q),
+      searchLyrics(fastify.prisma, userId, q),
+    ]);
     return {
       tracks: tracks.map(formatMusicTrack),
       albums: albums.map(albumDto),
       artists: artists.map(formatMusicArtist),
-    };
+      lyricsMatches: lyricsMatches.map(({ track, excerpt }) => ({
+        track: formatMusicTrack(track),
+        excerpt,
+      })),
+    } satisfies MusicSearchDto;
   });
 
   fastify.get('/favorites', async (request) => {
@@ -3127,19 +3137,29 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       quality?: string;
     };
   }>('/artwork/:id', async (request, reply) => {
-    const artwork = await fastify.prisma.musicArtwork.findFirst({
-      where: {
-        id: request.params.id,
-        OR: [
-          { tracks: { some: ownedTrackWhere(request.user!.id) } },
-          { albums: { some: { tracks: { some: ownedTrackWhere(request.user!.id) } } } },
-          {
-            artists: {
-              some: { trackCredits: { some: { track: ownedTrackWhere(request.user!.id) } } },
-            },
+    const requestedWidth = Number(request.query.width || 0);
+    const requestedHeight = Number(request.query.height || 0);
+    const shouldResize =
+      !!request.query.variant ||
+      request.query.thumbnail === '1' ||
+      (Number.isFinite(requestedWidth) && requestedWidth > 0) ||
+      (Number.isFinite(requestedHeight) && requestedHeight > 0);
+    const includeSource = !shouldResize && !request.headers['if-none-match'];
+    const artworkWhere = {
+      id: request.params.id,
+      OR: [
+        { tracks: { some: ownedTrackWhere(request.user!.id) } },
+        { albums: { some: { tracks: { some: ownedTrackWhere(request.user!.id) } } } },
+        {
+          artists: {
+            some: { trackCredits: { some: { track: ownedTrackWhere(request.user!.id) } } },
           },
-        ],
-      },
+        },
+      ],
+    };
+    const artwork = await fastify.prisma.musicArtwork.findFirst({
+      where: artworkWhere,
+      select: { checksum: true, mimeType: true, data: includeSource },
     });
     if (!artwork)
       return reply.status(404).send({
@@ -3158,13 +3178,6 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     }
-    const requestedWidth = Number(request.query.width || 0);
-    const requestedHeight = Number(request.query.height || 0);
-    const shouldResize =
-      !!request.query.variant ||
-      request.query.thumbnail === '1' ||
-      (Number.isFinite(requestedWidth) && requestedWidth > 0) ||
-      (Number.isFinite(requestedHeight) && requestedHeight > 0);
     const variant =
       request.query.variant && isMusicArtworkVariant(request.query.variant)
         ? request.query.variant
@@ -3173,15 +3186,39 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     const etag = `"${artwork.checksum}-${responseVariant}"`;
     if (request.headers['if-none-match'] === etag)
       return reply.header('ETag', etag).status(304).send();
-    const source = Buffer.from(artwork.data);
+    let sourcePromise: Promise<Buffer | null> | undefined;
+    const loadSource = () => {
+      sourcePromise ??= (async () => {
+        const source = includeSource
+          ? artwork
+          : await fastify.prisma.musicArtwork.findFirst({
+              // Recheck access/version when loading after a cache miss.
+              where: { ...artworkWhere, checksum: artwork.checksum },
+              select: { data: true },
+            });
+        const data = source?.data;
+        return data ? Buffer.from(data.buffer, data.byteOffset, data.byteLength) : null;
+      })();
+      return sourcePromise;
+    };
     const thumbnail = shouldResize
-      ? await musicArtworkThumbnails.thumbnail(artwork.checksum, source, variant)
+      ? await musicArtworkThumbnails.thumbnail(artwork.checksum, loadSource, variant)
       : null;
+    const body = thumbnail ?? (await loadSource());
+    if (!body) {
+      return reply.status(404).send({
+        error: {
+          code: 'ARTWORK_NOT_FOUND',
+          message: 'Kapak görseli bulunamadı.',
+          requestId: request.id,
+        },
+      });
+    }
     reply
       .header('Content-Type', thumbnail ? 'image/jpeg' : artwork.mimeType)
       .header('ETag', etag)
       .header('Cache-Control', 'private, max-age=31536000, immutable');
-    return reply.send(thumbnail ?? source);
+    return reply.send(body);
   });
 
   fastify.get<{ Params: { id: string } }>('/tracks/:id/lyrics', async (request, reply) => {

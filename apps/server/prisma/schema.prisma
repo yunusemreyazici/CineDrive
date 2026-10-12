@@ -592,6 +592,7 @@ model MusicLyrics {
   trackId           String                   @unique
   track             MusicTrack               @relation(fields: [trackId], references: [id], onDelete: Cascade)
   content           String
+  searchText        String?
   translatedContent String?
   romanizedContent  String?
   sourceName        String
