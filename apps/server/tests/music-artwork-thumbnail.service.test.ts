@@ -2,9 +2,51 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 import { MusicArtworkThumbnailService } from '../src/services/music-artwork-thumbnail.service';
 
 describe('MusicArtworkThumbnailService', () => {
+  it.each(['png', 'jpeg', 'webp', 'svg'] as const)(
+    'renders real %s artwork with the production image pipeline',
+    async (format) => {
+      const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-render-test-'));
+      try {
+        const source =
+          format === 'svg'
+            ? Buffer.from(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#336699"/></svg>',
+              )
+            : await sharp({
+                create: { width: 400, height: 300, channels: 3, background: '#336699' },
+              })
+                .toFormat(format)
+                .toBuffer();
+        const service = new MusicArtworkThumbnailService(1, undefined, cacheDirectory);
+        const rendered = await service.thumbnail(`fixture-${format}`, source, 'row');
+        expect(rendered).not.toBeNull();
+        const metadata = await sharp(rendered!).metadata();
+        expect(metadata).toMatchObject({ format: 'jpeg', width: 192, height: 144 });
+        const restarted = new MusicArtworkThumbnailService(1, undefined, cacheDirectory);
+        expect(await restarted.thumbnail(`fixture-${format}`, Buffer.from('invalid'), 'row')).toEqual(
+          rendered,
+        );
+      } finally {
+        await fs.rm(cacheDirectory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('returns no thumbnail for invalid image bytes', async () => {
+    const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-render-test-'));
+    try {
+      const service = new MusicArtworkThumbnailService(1, undefined, cacheDirectory);
+      expect(await service.thumbnail('invalid', Buffer.from('not an image'), 'row')).toBeNull();
+      expect(await fs.readdir(cacheDirectory)).toEqual([]);
+    } finally {
+      await fs.rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
   it('caches each requested artwork size as a separate variant', async () => {
     const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-cache-test-'));
     let renders = 0;
