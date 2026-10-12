@@ -104,11 +104,11 @@ export async function enqueueMusicConnectCommand(
       if (duplicate.userId !== input.userId)
         return { kind: 'rejected', code: 'COMMAND_ID_CONFLICT' };
       if (
-        input.expectedPlayback &&
-        (!duplicate.requiresConditionalSeek ||
-          duplicate.payload !== input.payload ||
-          duplicate.targetClientId !== input.targetClientId ||
-          duplicate.type !== input.type)
+        duplicate.sourceClientId !== input.sourceClientId ||
+        duplicate.targetClientId !== input.targetClientId ||
+        duplicate.type !== input.type ||
+        duplicate.payload !== input.payload ||
+        duplicate.requiresConditionalSeek !== !!input.expectedPlayback
       ) {
         return { kind: 'rejected', code: 'COMMAND_ID_CONFLICT' };
       }

@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@cinedrive/prisma';
-import { accessibleLibraryFilter } from '../utils/library-access.js';
+import { readableMusicTrackFilter } from '../utils/library-access.js';
 import { parseGenres } from '../utils/music-format.js';
 
 export const DISCOVERY_CANDIDATE_PAGE_SIZE = 400;
@@ -43,7 +43,7 @@ export const loadDiscoveryCandidates = async (
 
   while (true) {
     const rows = await prisma.musicTrack.findMany({
-      where: { library: accessibleLibraryFilter(userId) },
+      where: readableMusicTrackFilter(userId),
       orderBy: { id: 'asc' },
       take: DISCOVERY_CANDIDATE_PAGE_SIZE,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

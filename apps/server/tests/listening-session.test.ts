@@ -25,6 +25,36 @@ const fixture = async () => {
   };
 };
 describe('Listen together synchronization', () => {
+  it('does not block unrelated users while another rooms permission check waits', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = new ListeningSessionService(async (user) => {
+      if (user === host.userId) await gate;
+      return true;
+    });
+    const held = service.create(host, ['one'], 0, 0, false);
+    try {
+      const independent = await service.create(stranger, ['two'], 0, 0, false);
+      expect((await service.read(independent, stranger)).queue[0]!.trackId).toBe('two');
+    } finally {
+      release();
+      await held;
+      service.close();
+    }
+  });
+  it('prevents concurrent create/join from assigning one user to two rooms', async () => {
+    const service = new ListeningSessionService(async () => true);
+    const room = await service.create(host, ['one'], 0, 0, false);
+    const invitation = (await service.read(room, host)).inviteCode!;
+    const results = await Promise.allSettled([
+      service.join(guest, invitation),
+      service.create(guest, ['two'], 0, 0, false),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
+    service.close();
+  });
   it('waits for both devices and schedules a shared future start', async () => {
     const { service, id, tick } = await fixture();
     const state = await service.read(id, host);

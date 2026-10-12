@@ -32,9 +32,7 @@ export interface BackgroundLyricsLookupService {
     album: string;
     duration: number;
     onProviderResponse?: (status: number) => void;
-  }): Promise<
-    { status: 'found'; languageResolved?: boolean } | { status: 'not_found' }
-  >;
+  }): Promise<{ status: 'found'; languageResolved?: boolean } | { status: 'not_found' }>;
 }
 
 export const MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE = 25;
@@ -90,10 +88,7 @@ export class MusicLanguageEnrichmentService {
     private readonly lyricsLookup?: BackgroundLyricsLookupService,
   ) {}
 
-  public enrichUser(
-    userId: string,
-    options: { batchSize?: number; maxBatches?: number } = {},
-  ) {
+  public enrichUser(userId: string, options: { batchSize?: number; maxBatches?: number } = {}) {
     return this.runExclusive(`user:${userId}`, { library: { userId } }, options);
   }
 
@@ -335,7 +330,9 @@ export class MusicLanguageEnrichmentService {
         orderBy: { id: 'asc' },
         take: Math.min(
           MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE,
-          maxTracks === undefined ? MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE : maxTracks - providerTracksChecked,
+          maxTracks === undefined
+            ? MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE
+            : maxTracks - providerTracksChecked,
         ),
         select: {
           id: true,
@@ -466,6 +463,7 @@ export class MusicLanguageEnrichmentService {
   public async enrichTrackFromLyrics(
     trackId: string,
     lyrics: { language?: string | null; content: string; sourceType: string },
+    writer: Prisma.TransactionClient = this.prisma,
   ) {
     const evidence = resolveTrackLanguageEvidence({
       lyricsLanguage: lyrics.language,
@@ -473,7 +471,7 @@ export class MusicLanguageEnrichmentService {
       lyricsSourceType: lyrics.sourceType,
     });
     if (!evidence.language) {
-      await this.prisma.musicTrack.updateMany({
+      await writer.musicTrack.updateMany({
         where: { id: trackId, ...nonManualLanguageWhere },
         data: {
           languageCode: null,
@@ -488,7 +486,7 @@ export class MusicLanguageEnrichmentService {
       });
       return evidence;
     }
-    await this.persistEvidence(trackId, evidence);
+    await this.persistEvidence(trackId, evidence, writer);
     return evidence;
   }
 
@@ -519,9 +517,14 @@ export class MusicLanguageEnrichmentService {
     ]);
   }
 
-  private async persistEvidence(trackId: string, evidence: TrackLanguageEvidence) {
-    await this.prisma.musicTrack.updateMany({
-      where: evidence.source === 'manual' ? { id: trackId } : { id: trackId, ...nonManualLanguageWhere },
+  private async persistEvidence(
+    trackId: string,
+    evidence: TrackLanguageEvidence,
+    writer: Prisma.TransactionClient = this.prisma,
+  ) {
+    await writer.musicTrack.updateMany({
+      where:
+        evidence.source === 'manual' ? { id: trackId } : { id: trackId, ...nonManualLanguageWhere },
       data: {
         languageCode: evidence.language,
         languageSource: evidence.source,

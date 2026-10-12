@@ -9,6 +9,7 @@ import {
   resolveLocalFolder,
   resolveSafeLocalFile,
   validateLocalFolder,
+  writeSafeLyricsSidecar,
 } from '../src/services/local-folder-validation';
 
 describe('local folder access validation', () => {
@@ -179,6 +180,85 @@ describe('local folder access validation', () => {
     } finally {
       await fs.rm(outsideDirectory, { recursive: true, force: true });
       await fs.rm(symlinkPath, { force: true });
+    }
+  });
+
+  it('creates and atomically replaces regular lyrics sidecars', async () => {
+    const media = path.join(directory, 'sidecar.mp3');
+    await fs.writeFile(media, 'fixture');
+    expect(await writeSafeLyricsSidecar(directory, media, 'first')).toBe('sidecar.lrc');
+    expect(await writeSafeLyricsSidecar(directory, media, 'second')).toBe('sidecar.lrc');
+    expect(await fs.readFile(path.join(directory, 'sidecar.lrc'), 'utf8')).toBe('second');
+    expect(
+      (await fs.readdir(directory)).filter((name) => name.startsWith('.cinedrive-lyrics-')),
+    ).toEqual([]);
+  });
+
+  it('rejects existing, dangling and in-root sidecar symlinks without touching their targets', async () => {
+    const other = await fs.mkdtemp(path.join(os.tmpdir(), 'cinedrive-sidecar-outside-'));
+    const media = path.join(directory, 'linked.mp3');
+    const sidecar = path.join(directory, 'linked.lrc');
+    const outside = path.join(other, 'outside.lrc');
+    const inside = path.join(directory, 'inside.lrc');
+    try {
+      await fs.writeFile(media, 'fixture');
+      await fs.writeFile(outside, 'unchanged');
+      await fs.writeFile(inside, 'unchanged');
+      for (const target of [outside, inside, path.join(other, 'missing.lrc')]) {
+        await fs.symlink(target, sidecar);
+        await expect(writeSafeLyricsSidecar(directory, media, 'new')).rejects.toThrow(
+          'LOCAL_SIDECAR_UNSAFE',
+        );
+        expect((await fs.lstat(sidecar)).isSymbolicLink()).toBe(true);
+        await fs.unlink(sidecar);
+      }
+      expect(await fs.readFile(outside, 'utf8')).toBe('unchanged');
+      expect(await fs.readFile(inside, 'utf8')).toBe('unchanged');
+      await expect(fs.stat(path.join(other, 'missing.lrc'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
+      await fs.rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it('does not follow a sidecar symlink inserted just before publication', async () => {
+    const media = path.join(directory, 'raced.mp3');
+    const target = path.join(directory, 'raced.lrc');
+    const victim = path.join(directory, 'victim.lrc');
+    await fs.writeFile(media, 'fixture');
+    await fs.writeFile(victim, 'unchanged');
+    const rename = fs.rename.bind(fs);
+    const spy = vi.spyOn(fs, 'rename').mockImplementationOnce(async (source, destination) => {
+      await fs.symlink(victim, target);
+      return rename(source, destination);
+    });
+    try {
+      await writeSafeLyricsSidecar(directory, media, 'safe');
+      expect(await fs.readFile(victim, 'utf8')).toBe('unchanged');
+      expect(await fs.readFile(target, 'utf8')).toBe('safe');
+      expect((await fs.lstat(target)).isSymbolicLink()).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('keeps the existing sidecar and removes the temporary file on publication failure', async () => {
+    const media = path.join(directory, 'failure.mp3');
+    const sidecar = path.join(directory, 'failure.lrc');
+    await fs.writeFile(media, 'fixture');
+    await fs.writeFile(sidecar, 'original');
+    const spy = vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('injected'));
+    try {
+      await expect(writeSafeLyricsSidecar(directory, media, 'replacement')).rejects.toThrow(
+        'injected',
+      );
+      expect(await fs.readFile(sidecar, 'utf8')).toBe('original');
+      expect(
+        (await fs.readdir(directory)).filter((name) => name.startsWith('.cinedrive-lyrics-')),
+      ).toEqual([]);
+    } finally {
+      spy.mockRestore();
     }
   });
 });

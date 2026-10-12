@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@cinedrive/prisma';
+import { readableMusicTrackFilter } from '../utils/library-access.js';
 import {
   findMusicTracksByIdsWithRelations,
   formatMusicTrack,
@@ -220,7 +221,10 @@ export class MusicReplayService {
     const trackMetadataById = new Map<string, ReplayTrackMetadata>();
     for (let offset = 0; offset < trackIds.length; offset += REPLAY_METADATA_BATCH_SIZE) {
       const metadata = await this.prisma.musicTrack.findMany({
-        where: { id: { in: trackIds.slice(offset, offset + REPLAY_METADATA_BATCH_SIZE) } },
+        where: {
+          ...readableMusicTrackFilter(userId),
+          id: { in: trackIds.slice(offset, offset + REPLAY_METADATA_BATCH_SIZE) },
+        },
         select: replayTrackMetadataSelect,
       });
       metadata.forEach((track) => trackMetadataById.set(track.id, track));
@@ -268,14 +272,14 @@ export class MusicReplayService {
     }
     const bySeconds = <T extends { seconds: number }>(values: Iterable<T>) =>
       [...values].sort((a, b) => b.seconds - a.seconds);
-    const rankedTracks = bySeconds(trackStats.values()).slice(0, 10);
+    const rankedTracks = bySeconds(trackStats.values())
+      .filter((track) => trackMetadataById.has(track.id))
+      .slice(0, 10);
     const hydratedTracks = await findMusicTracksByIdsWithRelations(
       this.prisma,
       userId,
       rankedTracks.map((item) => item.id),
-      {
-        library: { OR: [{ userId }, { memberships: { some: { userId } } }] },
-      },
+      readableMusicTrackFilter(userId),
     );
     const tracksById = new Map(
       hydratedTracks.map(formatMusicTrack).map((track) => [track.id, track]),

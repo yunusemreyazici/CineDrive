@@ -47,7 +47,7 @@ export const musicTrackInclude = (userId: string) =>
     },
     credits: { orderBy: { position: 'asc' as const } },
     favorites: { where: { userId }, select: { id: true } },
-    _count: { select: { history: true } },
+    _count: { select: { history: { where: { userId } } } },
     driveFile: {
       select: {
         name: true,

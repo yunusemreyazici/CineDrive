@@ -5,7 +5,7 @@ import type {
   MusicMixDto,
   MusicTrackDto,
 } from '@cinedrive/shared';
-import { accessibleLibraryFilter } from '../utils/library-access.js';
+import { readableMusicTrackFilter } from '../utils/library-access.js';
 import {
   findMusicTracksByIdsWithRelations,
   formatMusicTrack,
@@ -802,9 +802,12 @@ export class MusicDiscoveryService {
     );
     if (playbackState?.currentTrackId) selectedIds.push(playbackState.currentTrackId);
 
-    const hydrated = await findMusicTracksByIdsWithRelations(this.prisma, userId, selectedIds, {
-      library: accessibleLibraryFilter(userId),
-    });
+    const hydrated = await findMusicTracksByIdsWithRelations(
+      this.prisma,
+      userId,
+      selectedIds,
+      readableMusicTrackFilter(userId),
+    );
     const tracksById = new Map(hydrated.map(formatMusicTrack).map((track) => [track.id, track]));
 
     const unfinishedAlbums = unfinishedAlbumCandidates.flatMap((album) => {
@@ -930,7 +933,7 @@ export class MusicDiscoveryService {
       this.prisma,
       userId,
       selected.map((candidate) => candidate.id),
-      { library: accessibleLibraryFilter(userId) },
+      readableMusicTrackFilter(userId),
     );
     return mix(
       `radio-${seedId}`,
@@ -956,8 +959,8 @@ export class MusicDiscoveryService {
         where: {
           id: artistId,
           OR: [
-            { trackCredits: { some: { track: { library: accessibleLibraryFilter(userId) } } } },
-            { albumTracks: { some: { library: accessibleLibraryFilter(userId) } } },
+            { trackCredits: { some: { track: readableMusicTrackFilter(userId) } } },
+            { albumTracks: { some: readableMusicTrackFilter(userId) } },
           ],
         },
         select: { name: true },

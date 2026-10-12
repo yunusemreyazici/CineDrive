@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { LocalFolderValidationDto } from '@cinedrive/shared';
 
 const protectedSystemRoots = [
@@ -100,6 +101,51 @@ export async function resolveSafeLocalFile(
   if (!libraryRoot) throw new Error('LOCAL_FILE_UNAVAILABLE');
   const resolvedRoot = await resolveLocalFolder(libraryRoot);
   return resolveSafePathWithinRoot(resolvedRoot, storedPath);
+}
+
+/** Replace a sidecar atomically, never opening the destination for writing.
+ * Renaming a private sibling file replaces a raced-in symlink rather than
+ * following it. Existing symlinks (including dangling ones) are rejected. */
+export async function writeSafeLyricsSidecar(
+  libraryRoot: string | null | undefined,
+  mediaFilePath: string | null | undefined,
+  content: string,
+): Promise<string> {
+  const media = await resolveSafeLocalFile(libraryRoot, mediaFilePath);
+  const parent = path.dirname(media);
+  const target = path.join(parent, `${path.parse(media).name}.lrc`);
+  const existing = await fs.lstat(target).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    throw new Error('LOCAL_SIDECAR_UNSAFE');
+  }
+  const temporary = path.join(parent, `.cinedrive-lyrics-${randomUUID()}.tmp`);
+  const handle = await fs.open(
+    temporary,
+    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+    existing ? existing.mode & 0o777 : 0o644,
+  );
+  try {
+    await handle.writeFile(content, 'utf8');
+    await handle.sync();
+    await handle.close();
+    // Revalidate the source/root after the asynchronous write before publish.
+    if (
+      (await resolveSafeLocalFile(libraryRoot, mediaFilePath)) !== media ||
+      (await fs.realpath(parent)) !== parent
+    ) {
+      throw new Error('LOCAL_SIDECAR_UNSAFE');
+    }
+    await fs.rename(temporary, target);
+  } finally {
+    await handle.close().catch(() => {});
+    await fs.unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+  }
+  return path.basename(target);
 }
 
 /** A shallow accessibility check, not a scan or a promise that every child is readable. */
