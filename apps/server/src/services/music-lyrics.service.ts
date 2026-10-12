@@ -4,6 +4,8 @@ import type { MusicLyricsLineDto } from '@cinedrive/shared';
 import { env } from '../config/env.js';
 import { MusicLanguageEnrichmentService } from './music-language-enrichment.service.js';
 import { normalizeMusicLanguageCode } from './music-language-evidence.js';
+import { BoundedTtlCache } from '../utils/bounded-ttl-cache.js';
+import { normalizeLyricsSearch } from '../utils/music-lyrics-search.js';
 
 const MAX_LYRICS_BYTES = 1024 * 1024;
 const TIMESTAMP_PATTERN = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
@@ -43,7 +45,21 @@ export type OnlineLyricsLookupResult =
     }
   | { status: 'not_found' };
 
-const onlineLookupCache = new Map<string, { expiresAt: number; result: LrclibLyrics | null }>();
+const onlineLookupCache = new BoundedTtlCache<LrclibLyrics | null>(
+  512,
+  8 * 1024 * 1024,
+  LOOKUP_CACHE_TTL_MS,
+  (result) =>
+    result
+      ? 64 +
+        2 *
+          (result.trackName.length +
+            result.artistName.length +
+            result.albumName.length +
+            (result.plainLyrics?.length ?? 0) +
+            (result.syncedLyrics?.length ?? 0))
+      : 4,
+);
 let providerQueue: Promise<void> = Promise.resolve();
 let nextProviderRequestAt = 0;
 
@@ -181,12 +197,13 @@ export const findOnlineLyrics = async (input: OnlineLyricsLookupInput) => {
     .map(normalizeSignaturePart)
     .join('|');
   const cached = onlineLookupCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.result;
+  if (cached !== undefined) return cached;
   const result = await scheduleProviderRequest(() => requestLrclib(input));
-  onlineLookupCache.set(cacheKey, {
-    expiresAt: Date.now() + (result === null ? NOT_FOUND_LOOKUP_CACHE_TTL_MS : LOOKUP_CACHE_TTL_MS),
+  onlineLookupCache.set(
+    cacheKey,
     result,
-  });
+    result === null ? NOT_FOUND_LOOKUP_CACHE_TTL_MS : LOOKUP_CACHE_TTL_MS,
+  );
   return result;
 };
 
@@ -350,6 +367,7 @@ export class MusicLyricsService {
         where: { id: previous.id },
         data: {
           content,
+          searchText: normalizeLyricsSearch(parsed.lines.map((line) => line.text).join('\n')),
           sourceName: revision.sourceName,
           sourceType: 'community',
           language,
@@ -398,6 +416,7 @@ export class MusicLyricsService {
       create: {
         trackId: options.trackId,
         content: normalizedContent,
+        searchText: normalizeLyricsSearch(parsed.lines.map((line) => line.text).join('\n')),
         translatedContent,
         romanizedContent,
         sourceName: options.sourceName,
@@ -409,6 +428,7 @@ export class MusicLyricsService {
       },
       update: {
         content: normalizedContent,
+        searchText: normalizeLyricsSearch(parsed.lines.map((line) => line.text).join('\n')),
         translatedContent,
         romanizedContent,
         sourceName: options.sourceName,

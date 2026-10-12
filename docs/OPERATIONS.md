@@ -68,6 +68,31 @@ Production migrations use `prisma migrate deploy`. Do not use `prisma db push` a
 
 For VPS source installations, rerunning `sudo bash scripts/install-vps.sh` performs these steps with additional branch, working-tree, snapshot, and readiness guards. Keep the recovery details printed by a failed run; they identify both commits and the exact pre-migration snapshot.
 
+### Music lyrics search
+
+Migration `20261013000000_music_lyrics_search` adds derived `MusicLyrics.searchText`
+and the SQLite FTS5 index/triggers. Use `prisma migrate deploy`, not `db push`:
+Prisma's schema alone cannot create the virtual index. Existing original lyrics,
+timing offsets, translations and revisions are preserved. No provider/key is needed.
+
+On server readiness, missing search text is backfilled in batches of ten rows,
+with parsing outside short write transactions and an event-loop yield between
+batches. The first upgraded startup can take longer; wait for readiness before
+sending traffic. Completed rows are persisted, so an interrupted backfill resumes
+on restart. New imports, provider cache fills, manual edits and applied revisions
+update the index automatically. Search never starts a provider lookup.
+
+The additive `/api/music/search?q=...` field `lyricsMatches` contains up to eight
+accessible active tracks with short original-language excerpts. Lyrics queries
+require at least three normalized characters, cap raw queries at 200 characters
+and twelve terms, match literal
+word prefixes with all terms required, and prefer the complete phrase. Only
+original lyrics are indexed; translations and revision backups are not searched.
+Older clients ignore the new field. CineMusic's initial support is online only;
+offline metadata search remains unchanged.
+
+### Music queue identity
+
 The music queue migration `20260930000000_music_queue_scoped_identity` preserves existing queue entry IDs and source/play ordering, but scopes their database identity to each playback state. This allows a Connect destination to persist the source's entry IDs without colliding with another device. Apply this migration with the upgraded server before testing transfers; updating only CineMusic cannot repair the old server's globally unique queue IDs. Stop application writes for the migration window, retain a verified pre-upgrade snapshot, and use the upgrade commands above. Existing clients keep the same API entry IDs and require no queue remapping. After restart, check paused and playing transfers in both directions, repeated tracks and shuffle order, and confirm no queue constraint errors in the server logs.
 
 Tagged releases publish provenance-attested, keyless-signed `linux/amd64` and `linux/arm64` GHCR images plus SBOMs and immutable digest manifests. Follow [Releasing CineDrive](RELEASING.md) to verify artifacts and use `docker-compose.release.yml`.

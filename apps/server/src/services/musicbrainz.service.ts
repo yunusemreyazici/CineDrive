@@ -1,4 +1,5 @@
 import { htmlToPlainText } from '@cinedrive/shared';
+import { BoundedTtlCache } from '../utils/bounded-ttl-cache.js';
 
 const MUSICBRAINZ_BASE = 'https://musicbrainz.org/ws/2';
 const COVER_ART_BASE = 'https://coverartarchive.org';
@@ -9,6 +10,18 @@ const DEEZER_API = 'https://api.deezer.com';
 const MIN_REQUEST_INTERVAL_MS = 1000;
 const MAX_ARTWORK_BYTES = 2 * 1024 * 1024;
 const MAX_ARTIST_IMAGE_BYTES = 8 * 1024 * 1024;
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const NOT_FOUND_CACHE_TTL_MS = 15 * 60 * 1000;
+
+const metadataWeight = (value: object | string | null): number => {
+  if (value && typeof value === 'object' && 'artwork' in value && value.artwork) {
+    const { artwork, ...metadata } = value as { artwork: { mimeType: string; data: Buffer } };
+    return (
+      artwork.data.byteLength + artwork.mimeType.length * 2 + JSON.stringify(metadata).length * 2
+    );
+  }
+  return JSON.stringify(value).length * 2;
+};
 
 const normalize = (value: string) =>
   value
@@ -131,12 +144,42 @@ interface RecordingResult {
 export class MusicBrainzService {
   private chain = Promise.resolve();
   private lastRequestAt = 0;
-  private cache = new Map<string, MusicBrainzAlbumMetadata | null>();
-  private recordingCache = new Map<string, MusicBrainzRecordingMetadata | null>();
-  private artistArtworkCache = new Map<string, MusicBrainzArtistArtwork | null>();
-  private artistDeezerIdCache = new Map<string, string>();
-  private artistDiscoveryArtworkCache = new Map<string, MusicBrainzArtistArtwork | null>();
-  private artistIdentityCache = new Map<string, MusicBrainzArtistIdentity | null>();
+  private cache = new BoundedTtlCache<MusicBrainzAlbumMetadata | null>(
+    128,
+    8 * 1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
+  private recordingCache = new BoundedTtlCache<MusicBrainzRecordingMetadata | null>(
+    1024,
+    2 * 1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
+  private artistArtworkCache = new BoundedTtlCache<MusicBrainzArtistArtwork | null>(
+    32,
+    8 * 1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
+  private artistDeezerIdCache = new BoundedTtlCache<string>(
+    512,
+    1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
+  private artistDiscoveryArtworkCache = new BoundedTtlCache<MusicBrainzArtistArtwork | null>(
+    32,
+    8 * 1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
+  private artistIdentityCache = new BoundedTtlCache<MusicBrainzArtistIdentity | null>(
+    512,
+    1024 * 1024,
+    CACHE_TTL_MS,
+    metadataWeight,
+  );
 
   public enrichAlbum(artist: string, album: string) {
     if (process.env.MUSIC_METADATA_ONLINE === 'false') return Promise.resolve(null);
@@ -146,7 +189,7 @@ export class MusicBrainzService {
     const task = this.chain.then(() => this.fetchAlbum(artist, album)).catch(() => null);
     this.chain = task.then(() => undefined);
     return task.then((result) => {
-      this.cache.set(key, result);
+      this.cache.set(key, result, result ? CACHE_TTL_MS : NOT_FOUND_CACHE_TTL_MS);
       return result;
     });
   }
@@ -165,7 +208,7 @@ export class MusicBrainzService {
     const task = this.chain.then(() => this.fetchRecording(input)).catch(() => null);
     this.chain = task.then(() => undefined);
     return task.then((result) => {
-      this.recordingCache.set(key, result);
+      this.recordingCache.set(key, result, result ? CACHE_TTL_MS : NOT_FOUND_CACHE_TTL_MS);
       return result;
     });
   }
@@ -217,7 +260,7 @@ export class MusicBrainzService {
     const task = this.chain.then(() => this.fetchArtistIdentity(name)).catch(() => null);
     this.chain = task.then(() => undefined);
     return task.then((result) => {
-      this.artistIdentityCache.set(key, result);
+      this.artistIdentityCache.set(key, result, result ? CACHE_TTL_MS : NOT_FOUND_CACHE_TTL_MS);
       return result;
     });
   }

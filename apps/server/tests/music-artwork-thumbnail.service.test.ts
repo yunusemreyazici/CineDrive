@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +6,100 @@ import sharp from 'sharp';
 import { MusicArtworkThumbnailService } from '../src/services/music-artwork-thumbnail.service';
 
 describe('MusicArtworkThumbnailService', () => {
+  it('loads an original once for concurrent misses, and never for RAM/disk hits', async () => {
+    const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-lazy-test-'));
+    const renderer = vi.fn(async (source: Buffer) => source);
+    const load = vi.fn(async () => Buffer.from('thumbnail'));
+    const read = vi.spyOn(fs, 'readFile');
+    try {
+      const service = new MusicArtworkThumbnailService(2, renderer, cacheDirectory);
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => service.thumbnail('same', load, 'row')),
+      );
+      expect(results.every((result) => result?.toString() === 'thumbnail')).toBe(true);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(renderer).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      await service.thumbnail('same', load, 'row');
+      expect(read).toHaveBeenCalledTimes(1);
+      const restarted = new MusicArtworkThumbnailService(2, renderer, cacheDirectory);
+      await restarted.thumbnail('same', load, 'row');
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(renderer).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+      await fs.rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not retain queued originals and promotes visible requests over prewarming', async () => {
+    const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-priority-test-'));
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const order: string[] = [];
+    const service = new MusicArtworkThumbnailService(
+      1,
+      async (source) => {
+        order.push(source.toString());
+        if (source.toString() === 'active') await blocked;
+        return source;
+      },
+      cacheDirectory,
+    );
+    const load = (name: string) => vi.fn(async () => Buffer.from(name));
+    const background = load('background');
+    const promoted = load('promoted');
+    const visible = load('visible');
+    const pending: Promise<Buffer | null>[] = [];
+    try {
+      pending.push(service.thumbnail('active', Buffer.from('active'), 'row'));
+      await vi.waitFor(() => expect(order).toEqual(['active']));
+      pending.push(service.thumbnail('background', background, 'row', 'background'));
+      pending.push(service.thumbnail('promoted', promoted, 'row', 'background'));
+      // Wait for both disk misses to enter the queue, without opening a render slot.
+      await vi.waitFor(() =>
+        expect((service as unknown as { renderWaiters: unknown[] }).renderWaiters).toHaveLength(2),
+      );
+      pending.push(service.thumbnail('promoted', promoted, 'row'));
+      pending.push(service.thumbnail('visible', visible, 'row'));
+      await vi.waitFor(() =>
+        expect((service as unknown as { renderWaiters: unknown[] }).renderWaiters).toHaveLength(3),
+      );
+      expect(background).not.toHaveBeenCalled();
+      expect(promoted).not.toHaveBeenCalled();
+      expect(visible).not.toHaveBeenCalled();
+      release();
+      await Promise.all(pending);
+      expect(order).toEqual(['active', 'promoted', 'visible', 'background']);
+      expect(promoted).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await Promise.allSettled(pending);
+      await fs.rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('cleans up failed or missing lazy sources so later requests can retry', async () => {
+    const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'music-artwork-retry-test-'));
+    try {
+      const service = new MusicArtworkThumbnailService(1, async (source) => source, cacheDirectory);
+      await expect(
+        service.thumbnail('retry', async () => {
+          throw new Error('database unavailable');
+        }),
+      ).rejects.toThrow('database unavailable');
+      expect(await service.thumbnail('retry', async () => null)).toBeNull();
+      expect(await service.thumbnail('retry', async () => Buffer.from('recovered'))).toEqual(
+        Buffer.from('recovered'),
+      );
+    } finally {
+      await fs.rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
   it.each(['png', 'jpeg', 'webp', 'svg'] as const)(
     'renders real %s artwork with the production image pipeline',
     async (format) => {
@@ -27,9 +121,9 @@ describe('MusicArtworkThumbnailService', () => {
         const metadata = await sharp(rendered!).metadata();
         expect(metadata).toMatchObject({ format: 'jpeg', width: 192, height: 144 });
         const restarted = new MusicArtworkThumbnailService(1, undefined, cacheDirectory);
-        expect(await restarted.thumbnail(`fixture-${format}`, Buffer.from('invalid'), 'row')).toEqual(
-          rendered,
-        );
+        expect(
+          await restarted.thumbnail(`fixture-${format}`, Buffer.from('invalid'), 'row'),
+        ).toEqual(rendered);
       } finally {
         await fs.rm(cacheDirectory, { recursive: true, force: true });
       }

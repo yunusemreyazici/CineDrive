@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDatabaseBackup, restoreDatabaseBackup } from '../src/lib/database-backup.js';
 import { serverRoot } from './test-database.js';
+import { createPrismaClient } from '../src/lib/prisma-client.js';
+import { backfillLyricsSearch, searchLyrics } from '../src/services/music-lyrics-search.service.js';
 
 const migrationsRoot = path.join(serverRoot, 'prisma/migrations');
 const schemaPath = path.join(serverRoot, 'prisma/schema.prisma');
@@ -91,7 +93,7 @@ const verifyNoSchemaDrift = (databaseUrl: string) => {
   // Prisma cannot model SQLite FTS5 virtual/shadow tables. Their intentional
   // presence is the only accepted difference from schema.prisma.
   const withoutFtsTables = drift.replace(
-    /-- DropTable\s+PRAGMA foreign_keys=off;\s+DROP TABLE "MediaItemSearch(?:_(?:config|data|docsize|idx))?";\s+PRAGMA foreign_keys=on;\s*/g,
+    /-- DropTable\s+PRAGMA foreign_keys=off;\s+DROP TABLE "(?:MediaItemSearch|MusicLyricsSearch)(?:_(?:config|data|docsize|idx))?";\s+PRAGMA foreign_keys=on;\s*/g,
     '',
   );
   expect(withoutFtsTables.trim()).toBe('');
@@ -106,6 +108,39 @@ afterEach(async () => {
 });
 
 describe('production database migrations', () => {
+  it('upgrades existing synchronized lyrics through migrate deploy and backfills search without rewriting them', async () => {
+    const { databasePath, databaseUrl } = await createHistoricalDatabase(
+      '20260809040000_music_discovery_lyrics_tools',
+      'seed-music',
+    );
+    deployCurrentMigrations(databaseUrl);
+    verifyFixture('verify-music', databasePath);
+    const prisma = createPrismaClient(databaseUrl);
+    try {
+      const before = await prisma.musicLyrics.findUniqueOrThrow({ where: { id: 'music-lyrics' } });
+      expect(before.searchText).toBeNull();
+      await backfillLyricsSearch(prisma);
+      const after = await prisma.musicLyrics.findUniqueOrThrow({ where: { id: before.id } });
+      expect(after).toMatchObject({
+        content: before.content,
+        isSynced: before.isSynced,
+        offsetMs: before.offsetMs,
+        sourceType: before.sourceType,
+        updatedAt: before.updatedAt,
+      });
+      expect(after.searchText).toBeTruthy();
+      const matches = await searchLyrics(prisma, 'music-user', after.searchText!);
+      expect(matches.map((match) => match.track.id)).toContain(before.trackId);
+      await backfillLyricsSearch(prisma);
+      expect(
+        (await prisma.musicLyrics.findUniqueOrThrow({ where: { id: before.id } })).searchText,
+      ).toBe(after.searchText);
+    } finally {
+      await prisma.$disconnect();
+    }
+    verifyNoSchemaDrift(databaseUrl);
+  }, 30_000);
+
   it.each([
     ['video', '20260101000000_init', 'seed-initial', 'verify-initial'],
     ['music', '20260809040000_music_discovery_lyrics_tools', 'seed-music', 'verify-music'],

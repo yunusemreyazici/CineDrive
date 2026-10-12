@@ -16,6 +16,26 @@ Bu rehber kurulum sonrasındaki güvenlik önlemlerini kapsar. Önce [Kurulum](I
 
 Başlangıç kontrolleri, SQLite yanıt verene kadar `503` döndüren `/api/ready` yolunu kullanır. `/api/health` yalnızca process canlılığını bildirir. Çalışan bir process, veritabanının hazır olduğunu tek başına kanıtlamaz.
 
+## Şarkı sözleriyle arama
+
+`20261013000000_music_lyrics_search` migration'ı, türetilmiş
+`MusicLyrics.searchText` alanını ve SQLite FTS5 indeks/trigger'larını ekler.
+`prisma migrate deploy` kullanın; `db push` sanal indeksi oluşturmaz. Orijinal
+sözler, senkronizasyon/offset, çeviriler ve revision'lar korunur. API key gerekmez.
+
+İlk açılışta eski sözler onarlı partilerle, kısa transaction'lar ve aralarında
+event-loop yield ile indekslenir. İlk yükseltme açılışı daha uzun sürebilir;
+trafik vermeden readiness'i bekleyin. Tamamlanan kayıtlar kalıcıdır; kesilirse
+bir sonraki açılışta kalanlar işlenir. Yeni içe aktarma, provider'dan kaydedilen
+sözler, manuel düzenleme ve uygulanan revision indeksi günceller.
+**Arama sırasında provider veya AI çağrısı yapılmaz.**
+
+`/api/music/search` yanıtına geriye uyumlu `lyricsMatches` eklenir: en fazla sekiz
+erişilebilir/aktif parça ve kısa orijinal söz alıntısı. En az üç normalize karakter
+gerekir; ham sorgu 200 karakter ve 12 kelimeyle sınırlandırılır. Kelime öneklerinin tümü aranır, tam ifade
+önceliklidir. Çeviriler/yedek revision'lar indekslenmez. CineMusic'in ilk desteği
+online'dır; offline isim/sanatçı/albüm araması değişmez.
+
 ## Loglar ve runtime sağlığı
 
 Docker logları:

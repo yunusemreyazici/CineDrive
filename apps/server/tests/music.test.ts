@@ -29,6 +29,7 @@ import { loadDiscoveryCandidates } from '../src/services/music-discovery-candida
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../src/utils/music-format';
 import { readableMusicTrackFilter } from '../src/utils/library-access';
 import { MusicAiEditorialService } from '../src/services/music-ai-editorial.service';
+import { musicArtworkThumbnails } from '../src/services/music-artwork-thumbnail.service';
 
 describe('Music library', () => {
   let app: FastifyInstance;
@@ -121,6 +122,117 @@ describe('Music library', () => {
     await app.close();
     fs.rmSync(fixturePath, { force: true });
     fs.rmSync(fixturePath.replace(/\.mp3$/i, '.lrc'), { force: true });
+  });
+
+  it('does not load original artwork bytes for thumbnail cache hits or conditional requests', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const artwork = await app.prisma.musicArtwork.create({
+      data: {
+        userId: user.id,
+        mimeType: 'image/png',
+        data: new Uint8Array([1, 2, 3]),
+        checksum: randomUUID(),
+      },
+    });
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { artworkId: artwork.id } });
+    const lookup = vi.spyOn(app.prisma.musicArtwork, 'findFirst');
+    const thumbnail = vi
+      .spyOn(musicArtworkThumbnails, 'thumbnail')
+      .mockResolvedValue(Buffer.from('cached-jpeg'));
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/music/artwork/${artwork.id}?variant=row`,
+        cookies: { session_id: cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('cached-jpeg');
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(lookup.mock.calls[0]?.[0]).toMatchObject({
+        select: { checksum: true, mimeType: true, data: false },
+      });
+      expect(thumbnail.mock.calls[0]?.[1]).toBeTypeOf('function');
+      lookup.mockClear();
+      thumbnail.mockClear();
+      const conditional = await app.inject({
+        method: 'GET',
+        url: `/api/music/artwork/${artwork.id}?variant=row`,
+        cookies: { session_id: cookie },
+        headers: { 'if-none-match': response.headers.etag! },
+      });
+      expect(conditional.statusCode).toBe(304);
+      expect(lookup.mock.calls[0]?.[0]).toMatchObject({ select: { data: false } });
+      expect(thumbnail).not.toHaveBeenCalled();
+    } finally {
+      await app.prisma.musicTrack.update({ where: { id: trackId }, data: { artworkId: null } });
+      await app.prisma.musicArtwork.delete({ where: { id: artwork.id } });
+    }
+  });
+
+  it('preserves original/legacy artwork, ETags, fallback and authorization on lazy misses', async () => {
+    const user = await app.authService.ensureAdminUserExists();
+    const original = Buffer.from('original-image');
+    const artwork = await app.prisma.musicArtwork.create({
+      data: { userId: user.id, mimeType: 'image/png', data: original, checksum: randomUUID() },
+    });
+    await app.prisma.musicTrack.update({ where: { id: trackId }, data: { artworkId: artwork.id } });
+    const lookup = vi.spyOn(app.prisma.musicArtwork, 'findFirst');
+    const thumbnail = vi.spyOn(musicArtworkThumbnails, 'thumbnail');
+    const request = (suffix = '', headers = {}) =>
+      app.inject({
+        method: 'GET',
+        url: `/api/music/artwork/${artwork.id}${suffix}`,
+        cookies: { session_id: cookie },
+        headers,
+      });
+    try {
+      const full = await request();
+      expect(full.statusCode).toBe(200);
+      expect(full.rawPayload).toEqual(original);
+      expect(full.headers['content-type']).toBe('image/png');
+      expect(full.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(lookup.mock.calls[0]?.[0]).toMatchObject({ select: { data: true } });
+      expect(thumbnail).not.toHaveBeenCalled();
+      lookup.mockClear();
+      expect((await request('', { 'if-none-match': full.headers.etag! })).statusCode).toBe(304);
+      expect(lookup.mock.calls[0]?.[0]).toMatchObject({ select: { data: false } });
+      lookup.mockClear();
+      thumbnail.mockImplementation(async (_checksum, source) => {
+        expect(typeof source).toBe('function');
+        if (typeof source === 'function') {
+          expect(await source()).toEqual(original);
+          expect(await source()).toEqual(original);
+        }
+        return null;
+      });
+      const fallback = await request('?thumbnail=1&width=256&height=256');
+      expect(fallback.statusCode).toBe(200);
+      expect(fallback.rawPayload).toEqual(original);
+      expect(fallback.headers['content-type']).toBe('image/png');
+      expect(fallback.headers.etag).toBe(`"${artwork.checksum}-small"`);
+      expect(lookup).toHaveBeenCalledTimes(2);
+      expect(lookup.mock.calls[1]?.[0]).toMatchObject({
+        where: { checksum: artwork.checksum, OR: expect.any(Array) },
+        select: { data: true },
+      });
+      expect((await request('?variant=invalid')).statusCode).toBe(400);
+      expect(
+        (await app.inject({ method: 'GET', url: `/api/music/artwork/${artwork.id}?variant=row` }))
+          .statusCode,
+      ).toBe(401);
+      thumbnail.mockImplementation(async (_checksum, source) => {
+        await app.prisma.musicTrack.update({ where: { id: trackId }, data: { artworkId: null } });
+        return typeof source === 'function' ? source() : source;
+      });
+      expect((await request('?variant=row')).statusCode).toBe(404);
+      thumbnail.mockClear();
+      expect((await request('?variant=row')).statusCode).toBe(404);
+      expect(thumbnail).not.toHaveBeenCalled();
+    } finally {
+      await app.prisma.musicTrack.update({ where: { id: trackId }, data: { artworkId: null } });
+      await app.prisma.musicArtwork.delete({ where: { id: artwork.id } });
+    }
   });
 
   it('publishes the native client capability contract without authentication', async () => {
