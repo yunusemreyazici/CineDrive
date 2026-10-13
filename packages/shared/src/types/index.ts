@@ -477,8 +477,13 @@ export interface ClientBootstrapDto {
     cineMusicCommandLongPoll?: boolean;
     cineMusicConditionalSeek?: boolean;
     listeningTogether?: boolean;
+    listeningSessionRecovery?: boolean;
   };
   serverTime: string;
+}
+
+export interface ListeningSessionLookupDto {
+  sessionId: string | null;
 }
 
 export interface MusicPlaybackClientDto {

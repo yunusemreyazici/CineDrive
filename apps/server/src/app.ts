@@ -234,6 +234,7 @@ export const buildApp = async (
       cineMusicCommandLongPoll: true,
       cineMusicConditionalSeek: true,
       listeningTogether: true,
+      listeningSessionRecovery: true,
     },
     serverTime: new Date().toISOString(),
   }));

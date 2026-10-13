@@ -85,6 +85,71 @@ describe('Listening session HTTP and WebSocket', () => {
     expect(response.statusCode).toBe(200);
     return response.json().session;
   };
+  it('advertises recovery and requires authentication and a valid device identity', async () => {
+    const capabilities = await app.inject('/api/client-bootstrap');
+    expect(capabilities.json().features.listeningSessionRecovery).toBe(true);
+    expect(
+      (await app.inject('/api/music/listening-sessions/current?clientId=phone')).statusCode,
+    ).toBe(401);
+    const invalid = await app.inject({
+      url: '/api/music/listening-sessions/current?clientId=invalid%20device',
+      cookies: cookies(hostCookie),
+    });
+    expect(invalid.statusCode).toBe(400);
+    const empty = await app.inject({
+      url: '/api/music/listening-sessions/current?clientId=phone',
+      cookies: cookies(guestCookie),
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ sessionId: null });
+    expect(empty.headers['cache-control']).toBe('private, no-store');
+  });
+  it('recovers an orphaned member without exposing tracks or taking over another account/device', async () => {
+    const session = await create();
+    await app.prisma.libraryMembership.create({ data: { libraryId, userId: guestId } });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/music/listening-sessions/join',
+          cookies: cookies(guestCookie),
+          payload: { clientId: 'phone', code: session.inviteCode },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const lookup = (cookie: string, client: string) =>
+      app.inject({
+        url: `/api/music/listening-sessions/current?clientId=${client}`,
+        cookies: cookies(cookie),
+      });
+    expect((await lookup(guestCookie, 'phone')).json()).toEqual({ sessionId: session.id });
+    expect((await lookup(hostCookie, 'mac')).json()).toEqual({ sessionId: session.id });
+    expect((await lookup(hostCookie, 'phone')).json()).toEqual({ sessionId: null });
+    expect((await lookup(guestCookie, 'other-phone')).json()).toEqual({ sessionId: null });
+    await app.prisma.libraryMembership.deleteMany({ where: { libraryId, userId: guestId } });
+    // Identity-only recovery allows departure without granting revoked audio access.
+    expect((await lookup(guestCookie, 'phone')).json()).toEqual({ sessionId: session.id });
+    expect(
+      (
+        await app.inject({
+          url: `/api/music/listening-sessions/${session.id}?clientId=phone`,
+          cookies: cookies(guestCookie),
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/music/listening-sessions/${session.id}/leave`,
+          cookies: cookies(guestCookie),
+          payload: { clientId: 'phone' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await lookup(guestCookie, 'phone')).json()).toEqual({ sessionId: null });
+    expect((await lookup(hostCookie, 'mac')).json()).toEqual({ sessionId: session.id });
+  });
   it('requires authentication and validates input, with a separate rate bucket', async () => {
     expect(rateLimitBucket('/api/music/listening-sessions/room/events')).toBe('connect');
     const denied = await app.inject({

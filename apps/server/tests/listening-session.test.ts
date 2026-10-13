@@ -25,6 +25,19 @@ const fixture = async () => {
   };
 };
 describe('Listen together synchronization', () => {
+  it('recovers only exact account/device membership, including after host departure, and expires stale identities', async () => {
+    const { service, id, tick } = await fixture();
+    expect(service.current(host)).toBe(id);
+    expect(service.current(guest)).toBe(id);
+    expect(service.current({ ...guest, clientId: 'another-phone' })).toBeNull();
+    expect(service.current({ ...stranger, clientId: guest.clientId })).toBeNull();
+    await service.leave(id, host);
+    expect(service.current(host)).toBeNull();
+    expect(service.current(guest)).toBe(id);
+    tick(31 * 60_000);
+    expect(service.current(guest)).toBeNull();
+    service.close();
+  });
   it('does not block unrelated users while another rooms permission check waits', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

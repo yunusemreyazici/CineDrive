@@ -101,6 +101,18 @@ export class ListeningSessionService {
       throw listenError(409, 'Önce mevcut birlikte dinleme oturumundan ayrıl.');
     }
   }
+  /** Recovery never transfers membership from another account or device. Only
+   * return an identity so a member can leave even after track access is revoked.
+   * Hydration still goes through read() and its full access checks.
+   */
+  current(member: Listener): string | null {
+    this.sweep();
+    return (
+      [...this.rooms.values()].find((room) =>
+        room.members.some((candidate) => key(candidate) === key(member)),
+      )?.id ?? null
+    );
+  }
   create(member: Listener, ids: string[], index: number, position: number, playing: boolean) {
     return this.serial(`user:${member.userId}`, async () => {
       this.sweep();
