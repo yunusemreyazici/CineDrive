@@ -7,6 +7,32 @@ import {
 } from '../src/services/scan-lifecycle.service.js';
 
 describe('scan lifecycle lease loss', () => {
+  it('drains execution even after interruption removed active status, and handles rejections', async () => {
+    const prisma = {
+      libraryScan: { findUnique: vi.fn().mockResolvedValue(null) },
+    } as unknown as PrismaClient;
+    const lifecycle = new ScanLifecycleService(prisma);
+    let reject!: (error: Error) => void;
+    const work = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    lifecycle.register('scan-draining', 'library-1');
+    lifecycle.trackExecution('scan-draining', work);
+    lifecycle.finish('scan-draining');
+    let stopped = false;
+    const shutdown = lifecycle.shutdown().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    expect(() => lifecycle.register('late-scan', 'library-1')).toThrow(
+      'SCAN_SERVICE_SHUTTING_DOWN',
+    );
+    reject(new Error('fixture cleanup failure'));
+    await shutdown;
+    expect(stopped).toBe(true);
+    await lifecycle.shutdown();
+  });
   it('does not refresh the SQLite lease for every scan item', async () => {
     const leaseHeartbeat = vi.fn().mockResolvedValue(true);
     const scanHeartbeat = vi.fn().mockResolvedValue({ count: 1 });
@@ -17,9 +43,7 @@ describe('scan lifecycle lease loss', () => {
     lifecycle.register('scan-1', 'library-1', [], undefined, leaseHeartbeat);
 
     await lifecycle.heartbeat('scan-1', true);
-    await Promise.all(
-      Array.from({ length: 1_000 }, () => lifecycle.heartbeat('scan-1')),
-    );
+    await Promise.all(Array.from({ length: 1_000 }, () => lifecycle.heartbeat('scan-1')));
 
     expect(leaseHeartbeat).toHaveBeenCalledOnce();
     expect(scanHeartbeat).toHaveBeenCalledOnce();
