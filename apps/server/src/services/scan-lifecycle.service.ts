@@ -39,6 +39,8 @@ const WATCHDOG_TIMEOUT_MS = 120_000;
  */
 export class ScanLifecycleService {
   private readonly activeScans = new Map<string, ActiveScan>();
+  private readonly executions = new Map<string, Promise<void>>();
+  private shuttingDown = false;
   private watchdogTimer?: NodeJS.Timeout;
 
   constructor(private readonly prisma: PrismaClient) {}
@@ -50,6 +52,7 @@ export class ScanLifecycleService {
     onInterrupted?: () => void,
     onHeartbeat?: () => Promise<boolean>,
   ): AbortSignal {
+    if (this.shuttingDown) throw new Error('SCAN_SERVICE_SHUTTING_DOWN');
     const controller = new AbortController();
     const now = Date.now();
     this.activeScans.set(scanId, {
@@ -87,10 +90,7 @@ export class ScanLifecycleService {
     const now = Date.now();
     active.lastHeartbeatAt = now;
     const monotonicNow = performance.now();
-    if (
-      !force &&
-      monotonicNow - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS
-    ) {
+    if (!force && monotonicNow - active.lastPersistedHeartbeatAt < HEARTBEAT_PERSIST_INTERVAL_MS) {
       // The signal check above is intentionally the hot path for every item.
       // Lease extension and the LibraryScan status write happen periodically.
       return;
@@ -140,6 +140,21 @@ export class ScanLifecycleService {
     this.activeScans.delete(scanId);
   }
 
+  /** Keep execution (including its token-scoped lease release) separate from
+   * active status: interruption removes the latter before pending I/O drains.
+   */
+  public trackExecution(scanId: string, work: Promise<unknown>): void {
+    const drained = work
+      .then(
+        () => undefined,
+        () => undefined, // Scan services record errors; tracking must not reject.
+      )
+      .finally(() => {
+        this.executions.delete(scanId);
+      });
+    this.executions.set(scanId, drained);
+  }
+
   public async reconcileAbandonedScans(
     options: {
       userId?: string;
@@ -166,10 +181,17 @@ export class ScanLifecycleService {
   }
 
   public async shutdown(): Promise<void> {
+    this.shuttingDown = true;
     if (this.watchdogTimer) clearInterval(this.watchdogTimer);
     this.watchdogTimer = undefined;
     const scanIds = Array.from(this.activeScans.keys());
-    await Promise.all(scanIds.map((scanId) => this.interruptScan(scanId, 'server_shutdown')));
+    try {
+      await Promise.all(scanIds.map((scanId) => this.interruptScan(scanId, 'server_shutdown')));
+    } finally {
+      // Never disconnect Prisma or free a lease while aborted code can still
+      // write. Draining also covers scans already interrupted by the watchdog.
+      await Promise.all(this.executions.values());
+    }
   }
 
   private async interruptStalledScans(): Promise<void> {

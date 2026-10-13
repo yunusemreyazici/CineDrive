@@ -93,6 +93,7 @@ import {
   maintenanceMetadataIssues,
 } from '../services/music-maintenance-summary.service.js';
 import { MusicLanguageEnrichmentService } from '../services/music-language-enrichment.service.js';
+import { MusicLyricsEnrichmentWorker } from '../services/music-lyrics-enrichment-worker.service.js';
 import { normalizeMusicLanguageCode } from '../services/music-language-evidence.js';
 import { env } from '../config/env.js';
 import {
@@ -429,6 +430,31 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     fastify.prisma,
     env.NODE_ENV === 'test' ? undefined : lyricsService,
   );
+  const missingLyricsWorker = new MusicLyricsEnrichmentWorker(
+    async (signal) => {
+      const result = await languageEnrichmentService.enrichMissingCatalogueLyrics(signal);
+      if (result.providerLookups)
+        fastify.log.info(
+          {
+            checked: result.providerLookups,
+            found: result.lyricsFetched,
+            notFound: result.lyricsNotFound,
+            failed: result.lyricsFailed,
+            http429: result.providerHttp429,
+            http5xx: result.providerHttp5xx,
+          },
+          'Missing lyrics maintenance batch completed',
+        );
+    },
+    env.MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES * 60_000,
+    () => fastify.log.warn('Missing lyrics maintenance failed; will retry in background'),
+  );
+  fastify.addHook('onListen', async () => {
+    if (env.NODE_ENV !== 'test') missingLyricsWorker.start();
+  });
+  fastify.addHook('preClose', async () => {
+    await missingLyricsWorker.stop();
+  });
   const fingerprintService = new MusicFingerprintService(fastify.prisma);
   fastify.addHook('preHandler', async (request, reply) => {
     if (!request.user && (request.method === 'GET' || request.method === 'HEAD')) {

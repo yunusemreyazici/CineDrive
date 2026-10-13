@@ -93,7 +93,13 @@ export class LocalScanService {
         () => operationLock.heartbeat(),
       );
 
-      void this.executeLocalScan(libraryId, library.userId, resolvedFolder, scan.id, signal)
+      const execution = this.executeLocalScan(
+        libraryId,
+        library.userId,
+        resolvedFolder,
+        scan.id,
+        signal,
+      )
         .catch(() => {
           // Failures are already recorded on the scan row for the UI to read.
         })
@@ -102,6 +108,7 @@ export class LocalScanService {
           this.activeScans.delete(libraryId);
           await operationLock.release();
         });
+      this.scanLifecycle.trackExecution(scan.id, execution);
 
       handedOff = true;
       return scan.id;

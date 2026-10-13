@@ -417,7 +417,7 @@ export class LibraryScanService {
       );
 
       // Launch scan execution asynchronously in background.
-      this.executeScanAsync(
+      const execution = this.executeScanAsync(
         userId,
         libraryId,
         scan.id,
@@ -426,6 +426,7 @@ export class LibraryScanService {
         operationLock,
         exclusiveSourceId,
       ).catch(() => {});
+      this.scanLifecycle.trackExecution(scan.id, execution);
       handedOff = true;
       return scan.id;
     } catch (error) {
