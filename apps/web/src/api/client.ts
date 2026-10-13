@@ -139,6 +139,30 @@ export function parseApiError(error: unknown): FormattedApiError {
     };
   }
 
+  // Mutations already normalize errors before throwing them. Toasts and pages
+  // can normalize again without replacing the server's message/code with a
+  // generic error; accept only the complete, well-typed internal shape.
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const candidate = error as Partial<FormattedApiError>;
+    if (
+      typeof candidate.code === 'string' &&
+      candidate.code.trim().length > 0 &&
+      typeof candidate.message === 'string' &&
+      candidate.message.trim().length > 0 &&
+      typeof candidate.status === 'number' &&
+      Number.isInteger(candidate.status) &&
+      candidate.status >= 0 &&
+      candidate.status <= 599 &&
+      (candidate.requestId === undefined || typeof candidate.requestId === 'string')
+    )
+      return {
+        code: candidate.code,
+        message: candidate.message,
+        status: candidate.status,
+        ...(candidate.requestId === undefined ? {} : { requestId: candidate.requestId }),
+      };
+  }
+
   return {
     code: 'UNKNOWN_ERROR',
     message: error instanceof Error ? error.message : t.errors.unexpected,
