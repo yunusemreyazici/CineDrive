@@ -31,6 +31,7 @@ Base path: `/api/music/listening-sessions`.
 | --------- | --------------- | --------------------------------------------------------------- |
 | POST      | `/`             | `clientId`, `trackIds`, optional `index`, `position`, `playing` |
 | POST      | `/join`         | `clientId`, `code`                                              |
+| GET       | `/current`      | query `clientId`; identity-only `sessionId` or null              |
 | GET       | `/:id`          | query `clientId`                                                |
 | POST      | `/:id/commands` | `clientId`, `revision`, `action`, action-specific fields        |
 | POST      | `/:id/ready`    | `clientId`, `epoch`                                             |
@@ -80,6 +81,33 @@ room/event store. No production deployment is performed by adding this code.
 The app persists only an owner/server/client-scoped room ID for reconnect. A
 revoked session or removed library permission is not a way to continue streaming:
 normal authenticated music endpoints continue enforcing access independently.
+
+## Lost-session recovery
+
+`features.listeningSessionRecovery` advertises the additive `/current` lookup.
+It returns only an active room identity for the exact authenticated account **and**
+client ID. A different client ID on the same account returns null; the lookup
+never transfers membership. Another account cannot find it by guessing the
+client ID. Responses are `private, no-store`
+and contain no invitation, participant, queue or track data. With no membership,
+the response is `{ "sessionId": null }`. Track hydration and streaming continue
+to require the existing room/library access checks. The identity lookup still
+lets an existing member leave after track permissions have been revoked.
+
+The companion client gates new admission until its owner/session preparation is
+ready. On bootstrap it can repair a missing room key before restoring the normal
+snapshot, readiness acknowledgement and WebSocket. If admission fails after a
+server-side join or encounters an existing membership, recovery exposes explicit
+resynchronize/leave actions rather than silently joining a different room.
+
+Leaving exits shared playback locally immediately. A failed HTTP leave retains
+an account/device-scoped cleanup marker; retry or the next activation finishes
+that departure without resuming shared audio. No automatic forced exit, invite
+rotation, server restart or room reset is used as a recovery workaround. Old
+clients ignore the new flag; new clients do not call `/current` on old servers.
+No migration or new environment variable is required. Deploy server and client
+updates through the usual flow, then verify invitation, restart and offline-leave
+recovery with two separate QA accounts.
 
 ## Invitation links (companion CineMusic client)
 

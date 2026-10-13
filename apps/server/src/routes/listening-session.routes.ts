@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import type { ListeningSessionLookupDto } from '@cinedrive/shared';
 import {
   ListeningSessionService,
   listenError,
@@ -107,6 +108,11 @@ export const listeningSessionRoutes: FastifyPluginAsync = async (app) => {
       return payload(await service.join(who, body.code), who);
     },
   );
+  app.get<{ Reply: ListeningSessionLookupDto }>('/current', async (req, reply) => {
+    const query = memberBody.parse(req.query);
+    reply.header('Cache-Control', 'private, no-store');
+    return { sessionId: service.current(member(req, query.clientId)) };
+  });
   app.get('/:id', async (req) => {
     const query = memberBody.parse(req.query);
     return payload(roomId(req), member(req, query.clientId));
