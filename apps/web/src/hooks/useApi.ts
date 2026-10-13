@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, parseApiError } from '../api/client';
+import {
+  useInfiniteQuery,
+  useQuery,
+  useMutation,
+  useQueryClient,
+  queryOptions,
+} from '@tanstack/react-query';
+import { ApiRequestError, apiClient, parseApiError } from '../api/client';
+import { t } from '../i18n';
 import type {
   LoginInput,
   UserDto,
@@ -28,8 +35,8 @@ import type {
 import { useUiStore } from '../stores/useUiStore';
 
 // --- AUTH HOOKS ---
-export function useSessionQuery() {
-  return useQuery({
+const sessionQueryOptions = () =>
+  queryOptions({
     queryKey: ['session'],
     queryFn: async ({ signal }) => {
       const res = await apiClient.get<{
@@ -42,6 +49,9 @@ export function useSessionQuery() {
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: false,
   });
+
+export function useSessionQuery() {
+  return useQuery(sessionQueryOptions());
 }
 
 export function useUsersQuery(enabled = true) {
@@ -136,10 +146,15 @@ export function useLoginMutation() {
       // that parses it; converting it here and parsing the plain object again
       // hid useful server errors behind the generic "unexpected" message.
       const res = await apiClient.post<{ user: UserDto }>('/auth/login', data);
+      // Navigation must see the new cookie-backed session, not a cached
+      // anonymous result. Cancel pre-login reads before forcing verification:
+      // otherwise they can overwrite the new session or be reused by fetchQuery.
+      await queryClient.cancelQueries({ queryKey: ['session'], exact: true });
+      const session = await queryClient.fetchQuery({ ...sessionQueryOptions(), staleTime: 0 });
+      if (!session.authenticated || session.user?.id !== res.data.user.id) {
+        throw new ApiRequestError(401, null, t.auth.sessionNotEstablished);
+      }
       return res.data.user;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['session'] });
     },
   });
 }

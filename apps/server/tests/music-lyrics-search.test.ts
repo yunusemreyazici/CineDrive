@@ -251,4 +251,48 @@ describe('local indexed lyrics search', () => {
     expect(update).not.toHaveBeenCalled();
     expect(http).not.toHaveBeenCalled();
   });
+
+  it('does no database work when stopped before starting', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const find = vi.spyOn(app.prisma.musicLyrics, 'findMany');
+    const transaction = vi.spyOn(app.prisma, '$transaction');
+    await backfillLyricsSearch(app.prisma, controller.signal);
+    expect(find).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('stops after an in-flight read without writing and resumes persisted pending lyrics', async () => {
+    const http = fetch();
+    const track = await createTrack(libraryId);
+    const original = await app.prisma.musicLyrics.create({
+      data: { trackId: track.id, content: '[00:01]Eski sözlerin ışığı', sourceName: 'old.lrc' },
+    });
+    const controller = new AbortController();
+    const findMany = app.prisma.musicLyrics.findMany.bind(app.prisma.musicLyrics);
+    const find = vi.spyOn(app.prisma.musicLyrics, 'findMany').mockImplementationOnce((async (
+      args: Parameters<typeof findMany>[0],
+    ) => {
+      const result = await findMany(args);
+      controller.abort();
+      return result;
+    }) as typeof app.prisma.musicLyrics.findMany);
+    const transaction = vi.spyOn(app.prisma, '$transaction');
+    await backfillLyricsSearch(app.prisma, controller.signal);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(
+      (await app.prisma.musicLyrics.findUniqueOrThrow({ where: { id: original.id } })).searchText,
+    ).toBeNull();
+    find.mockRestore();
+    await backfillLyricsSearch(app.prisma);
+    expect(
+      await app.prisma.musicLyrics.findUniqueOrThrow({ where: { id: original.id } }),
+    ).toMatchObject({
+      content: original.content,
+      updatedAt: original.updatedAt,
+      searchText: 'eski sozlerin isigi',
+    });
+    expect((await search('eski sozlerin')).json().lyricsMatches).toHaveLength(1);
+    expect(http).not.toHaveBeenCalled();
+  });
 });

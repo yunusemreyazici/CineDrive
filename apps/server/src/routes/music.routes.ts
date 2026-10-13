@@ -85,6 +85,7 @@ import {
 import { MusicFingerprintService } from '../services/music-fingerprint.service.js';
 import { searchMusic } from '../services/music-search.service.js';
 import { backfillLyricsSearch, searchLyrics } from '../services/music-lyrics-search.service.js';
+import { MusicLyricsSearchBackfillService } from '../services/music-lyrics-search-backfill.service.js';
 import { maintenanceGenreReviewReasons } from '../services/music-maintenance-genres.js';
 import {
   loadMusicMaintenanceSummary,
@@ -266,16 +267,26 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   const connectMaintenance = new MusicConnectMaintenanceService(fastify.prisma, undefined, () =>
     fastify.log.warn('Connect command cleanup failed; next scheduled batch will retry'),
   );
+  const lyricsBackfill = new MusicLyricsSearchBackfillService(
+    (signal) => {
+      fastify.log.info('Lyrics search background backfill started');
+      return backfillLyricsSearch(fastify.prisma, signal);
+    },
+    () => fastify.log.info('Lyrics search background backfill completed'),
+    () => fastify.log.warn('Lyrics search backfill failed; will retry in background'),
+  );
   const activeDirectTransfers = new Map<string, Set<AbortController>>();
   const activeDirectTransfersByUser = new Map<string, Set<AbortController>>();
   const allActiveDirectTransfers = new Set<AbortController>();
   fastify.addHook('onReady', async () => {
-    await backfillLyricsSearch(fastify.prisma);
     if (env.NODE_ENV !== 'test') connectMaintenance.start();
+  });
+  fastify.addHook('onListen', async () => {
+    lyricsBackfill.start();
   });
   fastify.addHook('preClose', async () => {
     playbackCommandWaiter.close();
-    await connectMaintenance.stop();
+    await Promise.all([connectMaintenance.stop(), lyricsBackfill.stop()]);
   });
 
   fastify.addHook('onSend', async (request, reply, payload) => {

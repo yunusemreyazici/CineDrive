@@ -44,6 +44,7 @@ export const tr = {
     signIn: 'Giriş Yap',
     signingIn: 'Giriş Yapılıyor...',
     signInFailed: 'Giriş Başarısız',
+    sessionNotEstablished: 'Oturum doğrulanamadı. Lütfen tekrar giriş yapın.',
     showPassword: 'Parolayı göster',
     hidePassword: 'Parolayı gizle',
     verifyingSession: 'Oturum Doğrulanıyor...',

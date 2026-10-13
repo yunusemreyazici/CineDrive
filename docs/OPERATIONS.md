@@ -75,12 +75,17 @@ and the SQLite FTS5 index/triggers. Use `prisma migrate deploy`, not `db push`:
 Prisma's schema alone cannot create the virtual index. Existing original lyrics,
 timing offsets, translations and revisions are preserved. No provider/key is needed.
 
-On server readiness, missing search text is backfilled in batches of ten rows,
-with parsing outside short write transactions and an event-loop yield between
-batches. The first upgraded startup can take longer; wait for readiness before
-sending traffic. Completed rows are persisted, so an interrupted backfill resumes
-on restart. New imports, provider cache fills, manual edits and applied revisions
-update the index automatically. Search never starts a provider lookup.
+After the server starts listening, one background worker backfills missing search
+text in batches of ten rows, with parsing outside short write transactions and an
+event-loop yield between batches. Startup and readiness do not wait for the lyrics
+index: core APIs remain available, but old lyrics matches appear progressively
+until the worker completes. Completed rows are persisted, so interrupted work
+resumes on restart. A failed worker retries after 30 seconds with exponential
+backoff capped at five minutes; it does not stop the server. Shutdown cancels
+scheduled work and drains the current short batch before disconnecting SQLite.
+Logs report background start/completion and generic retry failures, never lyrics.
+New imports, provider cache fills, manual edits and applied revisions update the
+index automatically. Search never starts a provider lookup.
 
 The additive `/api/music/search?q=...` field `lyricsMatches` contains up to eight
 accessible active tracks with short original-language excerpts. Lyrics queries

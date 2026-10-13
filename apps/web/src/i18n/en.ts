@@ -45,6 +45,7 @@ export const en: Translations = {
     signIn: 'Sign in',
     signingIn: 'Signing in…',
     signInFailed: 'Sign-in failed',
+    sessionNotEstablished: 'Your session could not be verified. Please sign in again.',
     showPassword: 'Show password',
     hidePassword: 'Hide password',
     verifyingSession: 'Verifying session…',

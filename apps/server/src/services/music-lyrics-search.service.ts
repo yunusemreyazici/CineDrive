@@ -10,19 +10,23 @@ import {
 import { parseLrc } from './music-lyrics.service.js';
 import { collectMusicSearchIds } from './music-search.service.js';
 
-/** Resumable, provider-free startup backfill. At most ten original lyrics blobs
+/** Resumable, provider-free backfill. At most ten original lyrics blobs
  * are resident per batch; compare content to avoid overwriting a concurrent edit.
+ * Stop between batches, letting an already-started short transaction finish.
  */
-export const backfillLyricsSearch = async (prisma: PrismaClient): Promise<void> => {
+export const backfillLyricsSearch = async (
+  prisma: PrismaClient,
+  signal?: AbortSignal,
+): Promise<void> => {
   let cursor: string | undefined;
-  while (true) {
+  while (!signal?.aborted) {
     const rows = await prisma.musicLyrics.findMany({
       where: { searchText: null, ...(cursor ? { id: { gt: cursor } } : {}) },
       select: { id: true, content: true },
       orderBy: { id: 'asc' },
       take: 10,
     });
-    if (!rows.length) return;
+    if (!rows.length || signal?.aborted) return;
     const documents = rows.map((row) => ({
       ...row,
       searchText: normalizeLyricsSearch(
