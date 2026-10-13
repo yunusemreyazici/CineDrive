@@ -37,6 +37,12 @@ with at most eight hydrated results and 182 Unicode characters per excerpt.
 
 ## Deployment
 
+Startup follow-up: the initially awaited readiness backfill was replaced by a
+non-blocking post-listen worker after a production timeout. See
+[startup recovery](music-lyrics-background-startup-2026-10-13.md) for the updated
+lifecycle, retry and shutdown behavior. The paragraph below records the original
+verification/deployment approach, not the current startup requirement.
+
 Use the supported `prisma migrate deploy` path before starting this server; do not
 use `db push`. First startup may wait longer for existing lyrics to be indexed.
 Subsequent startup only backfills rows with null derived text. FTS tables are

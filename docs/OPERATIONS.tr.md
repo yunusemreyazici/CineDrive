@@ -23,11 +23,16 @@ Başlangıç kontrolleri, SQLite yanıt verene kadar `503` döndüren `/api/read
 `prisma migrate deploy` kullanın; `db push` sanal indeksi oluşturmaz. Orijinal
 sözler, senkronizasyon/offset, çeviriler ve revision'lar korunur. API key gerekmez.
 
-İlk açılışta eski sözler onarlı partilerle, kısa transaction'lar ve aralarında
-event-loop yield ile indekslenir. İlk yükseltme açılışı daha uzun sürebilir;
-trafik vermeden readiness'i bekleyin. Tamamlanan kayıtlar kalıcıdır; kesilirse
-bir sonraki açılışta kalanlar işlenir. Yeni içe aktarma, provider'dan kaydedilen
-sözler, manuel düzenleme ve uygulanan revision indeksi günceller.
+Sunucu dinlemeye başladıktan sonra tek bir background worker, eski sözleri onarlı
+partilerle, kısa transaction'lar ve aralarında event-loop yield ile indeksler.
+Açılış/readiness söz indeksinin tamamlanmasını beklemez; temel API'ler kullanılabilir,
+eski söz eşleşmeleri iş tamamlanana kadar aşamalı görünür. Tamamlanan kayıtlar
+kalıcıdır; kesilirse bir sonraki açılışta kalanlar işlenir. Geçici hatalarda worker
+30 saniyeden başlayarak, en fazla beş dakikaya çıkan exponential backoff ile yeniden
+dener; sunucuyu durdurmaz. Kapanışta bekleyen iş iptal edilir, mevcut kısa parti
+SQLite bağlantısı kapatılmadan bitirilir. Başlangıç/bitiş ve genel retry hataları
+loglanır; söz içeriği loglanmaz. Yeni içe aktarma, provider'dan kaydedilen sözler,
+manuel düzenleme ve uygulanan revision indeksi günceller.
 **Arama sırasında provider veya AI çağrısı yapılmaz.**
 
 `/api/music/search` yanıtına geriye uyumlu `lyricsMatches` eklenir: en fazla sekiz
