@@ -426,18 +426,23 @@ export class MusicLyricsService {
         isSynced: parsed.isSynced,
         offsetMs: parsed.offsetMs,
       },
-      update: {
-        content: normalizedContent,
-        searchText: normalizeLyricsSearch(parsed.lines.map((line) => line.text).join('\n')),
-        translatedContent,
-        romanizedContent,
-        sourceName: options.sourceName,
-        sourceType: options.sourceType || 'sidecar',
-        language,
-        translationLang: options.translationLanguage,
-        isSynced: parsed.isSynced,
-        offsetMs: parsed.offsetMs,
-      },
+      // Provider maintenance must never overwrite lyrics saved while its
+      // network lookup was pending (manual, sidecar or another worker).
+      update:
+        options.sourceType === 'lrclib'
+          ? {}
+          : {
+              content: normalizedContent,
+              searchText: normalizeLyricsSearch(parsed.lines.map((line) => line.text).join('\n')),
+              translatedContent,
+              romanizedContent,
+              sourceName: options.sourceName,
+              sourceType: options.sourceType || 'sidecar',
+              language,
+              translationLang: options.translationLanguage,
+              isSynced: parsed.isSynced,
+              offsetMs: parsed.offsetMs,
+            },
     });
     const languageEvidence = await this.languageEnrichment.enrichTrackFromLyrics(lyrics.trackId, {
       language: lyrics.language,

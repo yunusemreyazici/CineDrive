@@ -23,6 +23,8 @@ export const envSchema = z.object({
   APP_AUTH_MODE: z.enum(['single-user', 'multi-user']).default('single-user'),
   /** Zero disables automatic scans; positive values schedule a recoverable full scan. */
   LIBRARY_SCAN_INTERVAL_HOURS: z.coerce.number().int().min(0).max(720).default(0),
+  /** Zero disables provider lookups; each interval processes at most 25 tracks. */
+  MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1440).default(5),
   /**
    * Language TMDB titles, summaries and genres are fetched in. It belongs to
    * the deployment rather than the viewer: the values are written into the

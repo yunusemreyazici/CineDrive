@@ -74,6 +74,23 @@ const trackSelect = {
   album: { select: { genres: true } },
 } satisfies Prisma.MusicTrackSelect;
 
+const emptyResult = (): MusicLanguageEnrichmentResult => ({
+  processed: 0,
+  updated: 0,
+  known: 0,
+  unknown: 0,
+  batches: 0,
+  lyricsChecked: 0,
+  lyricsFetched: 0,
+  lyricsNotFound: 0,
+  lyricsFailed: 0,
+  providerLookups: 0,
+  providerHttp429: 0,
+  providerHttp5xx: 0,
+  languagesResolvedThisRun: 0,
+  version: MUSIC_LANGUAGE_DETECTION_VERSION,
+});
+
 export const selectDeterministicPilotIds = (ids: string[], maxTracks: number): string[] => {
   if (ids.length <= maxTracks) return [...ids];
   return Array.from({ length: maxTracks }, (_, index) => {
@@ -133,6 +150,20 @@ export class MusicLanguageEnrichmentService {
     return this.runExclusive(`library:${libraryId}`, { libraryId }, options);
   }
 
+  /** Internal maintenance: one bounded batch of missing lyrics, regardless of
+   * language, sharing durable leases/retry state with manual enrichment. */
+  public async enrichMissingCatalogueLyrics(signal: AbortSignal) {
+    const result = emptyResult();
+    if (this.lyricsLookup && !signal.aborted)
+      await this.enrichMissingLyrics(
+        { library: { user: { disabledAt: null } } },
+        result,
+        MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE,
+        { catalogue: true, signal },
+      );
+    return result;
+  }
+
   private runExclusive(
     key: string,
     scope: Prisma.MusicTrackWhereInput,
@@ -151,22 +182,7 @@ export class MusicLanguageEnrichmentService {
   ): Promise<MusicLanguageEnrichmentResult> {
     const batchSize = Math.max(25, Math.min(250, options.batchSize || MUSIC_LANGUAGE_BATCH_SIZE));
     const maxBatches = Math.max(1, Math.min(1000, options.maxBatches || 1000));
-    const result: MusicLanguageEnrichmentResult = {
-      processed: 0,
-      updated: 0,
-      known: 0,
-      unknown: 0,
-      batches: 0,
-      lyricsChecked: 0,
-      lyricsFetched: 0,
-      lyricsNotFound: 0,
-      lyricsFailed: 0,
-      providerLookups: 0,
-      providerHttp429: 0,
-      providerHttp5xx: 0,
-      languagesResolvedThisRun: 0,
-      version: MUSIC_LANGUAGE_DETECTION_VERSION,
-    };
+    const result = emptyResult();
 
     while (result.batches < maxBatches) {
       const tracks = await this.prisma.musicTrack.findMany({
@@ -282,17 +298,21 @@ export class MusicLanguageEnrichmentService {
     scope: Prisma.MusicTrackWhereInput,
     result: MusicLanguageEnrichmentResult,
     maxTracks?: number,
+    options: { catalogue?: boolean; signal?: AbortSignal } = {},
   ) {
     const lookup = this.lyricsLookup!;
     let providerTracksChecked = 0;
     const pilotIds =
-      maxTracks === undefined ? null : await this.loadDeterministicPilotIds(scope, maxTracks);
+      maxTracks === undefined || options.catalogue
+        ? null
+        : await this.loadDeterministicPilotIds(scope, maxTracks);
     let pilotOffset = 0;
     while (
       pilotIds === null
         ? maxTracks === undefined || providerTracksChecked < maxTracks
         : pilotOffset < pilotIds.length
     ) {
+      if (options.signal?.aborted) break;
       const now = new Date();
       const staleLease = new Date(now.getTime() - LYRICS_LOOKUP_LEASE_MS);
       const pilotBatchIds = pilotIds?.slice(
@@ -300,33 +320,34 @@ export class MusicLanguageEnrichmentService {
         pilotOffset + MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE,
       );
       if (pilotBatchIds) pilotOffset += pilotBatchIds.length;
+      const eligible: Prisma.MusicTrackWhereInput = {
+        AND: [
+          scope,
+          ...(options.catalogue ? [] : [nonManualLanguageWhere]),
+          ...(pilotBatchIds ? [{ id: { in: pilotBatchIds } }] : []),
+          {
+            OR: [
+              { lyricsEnrichmentStatus: null },
+              {
+                lyricsEnrichmentStatus: { in: ['failed', 'not_found'] },
+                lyricsEnrichmentRetryAt: { lte: now },
+              },
+              {
+                lyricsEnrichmentStatus: 'processing',
+                lyricsEnrichmentUpdatedAt: { lt: staleLease },
+              },
+            ],
+          },
+        ],
+        ...(options.catalogue ? {} : { languageCode: null }),
+        driveFile: { status: 'active' },
+        lyrics: { is: null },
+        primaryArtist: { isNot: null },
+        album: { isNot: null },
+        duration: { gt: 0 },
+      };
       const tracks = await this.prisma.musicTrack.findMany({
-        where: {
-          AND: [
-            scope,
-            nonManualLanguageWhere,
-            ...(pilotBatchIds ? [{ id: { in: pilotBatchIds } }] : []),
-            {
-              OR: [
-                { lyricsEnrichmentStatus: null },
-                {
-                  lyricsEnrichmentStatus: { in: ['failed', 'not_found'] },
-                  lyricsEnrichmentRetryAt: { lte: now },
-                },
-                {
-                  lyricsEnrichmentStatus: 'processing',
-                  lyricsEnrichmentUpdatedAt: { lt: staleLease },
-                },
-              ],
-            },
-          ],
-          languageCode: null,
-          driveFile: { status: 'active' },
-          lyrics: { is: null },
-          primaryArtist: { isNot: null },
-          album: { isNot: null },
-          duration: { gt: 0 },
-        },
+        where: eligible,
         orderBy: { id: 'asc' },
         take: Math.min(
           MUSIC_LYRICS_ENRICHMENT_BATCH_SIZE,
@@ -348,17 +369,19 @@ export class MusicLanguageEnrichmentService {
         break;
       }
 
-      await this.prisma.musicTrack.updateMany({
-        where: { id: { in: tracks.map((track) => track.id) }, ...nonManualLanguageWhere },
-        data: { lyricsEnrichmentStatus: 'processing', lyricsEnrichmentUpdatedAt: now },
-      });
-
       let cursor = 0;
       const workers = Array.from(
         { length: Math.min(MUSIC_LYRICS_ENRICHMENT_CONCURRENCY, tracks.length) },
         async () => {
           while (cursor < tracks.length) {
+            if (options.signal?.aborted) return;
             const track = tracks[cursor++]!;
+            // Claim one row atomically; no transaction spans provider I/O.
+            const claimed = await this.prisma.musicTrack.updateMany({
+              where: { AND: [eligible, { id: track.id }] },
+              data: { lyricsEnrichmentStatus: 'processing', lyricsEnrichmentUpdatedAt: now },
+            });
+            if (!claimed.count) continue;
             providerTracksChecked += 1;
             result.providerLookups += 1;
             const attempt = track.lyricsEnrichmentAttempts + 1;
@@ -379,7 +402,7 @@ export class MusicLanguageEnrichmentService {
                 result.lyricsFetched += 1;
                 if (lookupResult.languageResolved) result.languagesResolvedThisRun += 1;
                 await this.prisma.musicTrack.updateMany({
-                  where: { id: track.id, ...nonManualLanguageWhere },
+                  where: { id: track.id, ...(options.catalogue ? {} : nonManualLanguageWhere) },
                   data: {
                     lyricsEnrichmentStatus: 'found',
                     lyricsEnrichmentAttempts: attempt,
@@ -390,7 +413,7 @@ export class MusicLanguageEnrichmentService {
               } else {
                 result.lyricsNotFound += 1;
                 await this.prisma.musicTrack.updateMany({
-                  where: { id: track.id, ...nonManualLanguageWhere },
+                  where: { id: track.id, ...(options.catalogue ? {} : nonManualLanguageWhere) },
                   data: {
                     lyricsEnrichmentStatus: 'not_found',
                     lyricsEnrichmentAttempts: attempt,
@@ -403,7 +426,7 @@ export class MusicLanguageEnrichmentService {
               result.lyricsFailed += 1;
               const retryMs = Math.min(24 * 60 * 60 * 1000, 60_000 * 5 ** Math.min(attempt - 1, 5));
               await this.prisma.musicTrack.updateMany({
-                where: { id: track.id, ...nonManualLanguageWhere },
+                where: { id: track.id, ...(options.catalogue ? {} : nonManualLanguageWhere) },
                 data: {
                   lyricsEnrichmentStatus: 'failed',
                   lyricsEnrichmentAttempts: attempt,
@@ -416,6 +439,7 @@ export class MusicLanguageEnrichmentService {
         },
       );
       await Promise.all(workers);
+      if (options.catalogue) break;
     }
   }
 
