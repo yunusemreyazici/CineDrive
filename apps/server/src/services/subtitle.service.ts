@@ -17,9 +17,10 @@ export class SubtitleService {
   constructor(
     private prisma: PrismaClient,
     private driveAccessService: DriveAccessService,
+    private readonly cacheDirectory = CACHE_DIR,
   ) {
     // Ensure cache directory exists on startup
-    fs.mkdir(CACHE_DIR, { recursive: true }).catch(() => {});
+    fs.mkdir(this.cacheDirectory, { recursive: true }).catch(() => {});
   }
 
   /**
@@ -67,12 +68,16 @@ export class SubtitleService {
     // 3. Generate safe SHA-256 cache filename (prevents Path Traversal)
     const modifiedTime = track.driveFile.modifiedTime?.toISOString() || '1970';
     const checksum = track.driveFile.md5Checksum || 'nochecksum';
+    // Local tracks have no Google ID. Hashing `null` made unrelated local
+    // files (potentially in different users' libraries) share one cache entry.
+    // Never read that ambiguous legacy key; remote/synthetic keys stay intact.
+    const cacheIdentity = track.driveFile.googleDriveFileId || `local:${track.driveFile.id}`;
     const createCachePath = (version: 'v1' | 'v2') => {
       const cacheHash = crypto
         .createHash('sha256')
-        .update(`${track.driveFile.googleDriveFileId}_${modifiedTime}_${checksum}_${version}`)
+        .update(`${cacheIdentity}_${modifiedTime}_${checksum}_${version}`)
         .digest('hex');
-      return path.join(CACHE_DIR, `${cacheHash}.vtt`);
+      return path.join(this.cacheDirectory, `${cacheHash}.vtt`);
     };
     const cacheFilePath = createCachePath('v2');
 
@@ -105,7 +110,7 @@ export class SubtitleService {
         // root check because their path is persisted in the database.
         try {
           localFilePath = await resolveSafePathWithinRoot(
-            CACHE_DIR,
+            this.cacheDirectory,
             track.driveFile.localFilePath,
           );
         } catch {
