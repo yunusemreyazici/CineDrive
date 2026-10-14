@@ -111,11 +111,11 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, layout = 'grid' }) 
   }
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-800/50 bg-zinc-900/40 transition-all duration-300 hover:-translate-y-1 hover:border-brand-500/40 hover:shadow-xl hover:shadow-brand-500/5">
+    <article className="cd-poster group relative flex flex-col transition-all duration-300 hover:-translate-y-1">
       {stretchedLink}
 
       {/* Poster Image Container */}
-      <div className="relative aspect-[2/3] w-full overflow-hidden bg-zinc-900">
+      <div className="cd-poster-art relative aspect-[2/3] w-full overflow-hidden bg-zinc-900">
         {posterUrl ? (
           <img
             src={posterUrl}
@@ -189,7 +189,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, layout = 'grid' }) 
       </div>
 
       {/* Info Container */}
-      <div className="p-3.5">
+      <div className="cd-poster-copy">
         <h4 className="line-clamp-1 text-sm font-semibold text-zinc-100 transition-colors group-hover:text-brand-400">
           {media.title}
         </h4>

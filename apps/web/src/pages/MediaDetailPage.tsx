@@ -143,7 +143,7 @@ export const MediaDetailPage: React.FC = () => {
   return (
     <div className="space-y-10">
       {/* Top Hero Banner */}
-      <div className="relative w-full rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 shadow-2xl p-6 md:p-10 flex flex-col md:flex-row gap-8 items-end md:items-center min-h-[420px]">
+      <div className="cd-detail-hero relative w-full p-6 md:p-12 flex flex-col md:flex-row gap-8 items-start md:items-center min-h-[440px]">
         {/* Backdrop & Gradients */}
         {backdropUrl && (
           <img
@@ -174,7 +174,7 @@ export const MediaDetailPage: React.FC = () => {
         </div>
 
         {/* Details Text Container */}
-        <div className="relative z-10 flex-1">
+        <div className="relative z-10 min-w-0 flex-1">
           {/* Metadata Badges (Type, Year, Duration, Rating, Content Rating) */}
           {/*
             One line of facts, one treatment. These were three different badge
@@ -209,7 +209,7 @@ export const MediaDetailPage: React.FC = () => {
             )}
           </div>
 
-          <h1 className="text-3xl md:text-5xl font-extrabold text-white tracking-tight font-display mb-1">
+          <h1 className="text-4xl md:text-6xl font-medium text-white tracking-[-0.04em] font-display mb-3 break-words">
             {media.title}
           </h1>
 
@@ -261,7 +261,7 @@ export const MediaDetailPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => navigate(`/watch/${media.id}`)}
-              className="flex items-center gap-2.5 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              className="cd-primary"
             >
               <Play className="h-5 w-5 fill-current" />
               {media.progress && media.progress.percentage > 0
@@ -381,19 +381,19 @@ export const MediaDetailPage: React.FC = () => {
       {/* Series Seasons & Episodes Section */}
       {media.type === 'series' && seasons.length > 0 && (
         <div className="space-y-6 pt-4">
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 pb-4">
             <h3 className="text-xl font-bold font-display text-white">
               {t.mediaDetail.seasonsAndEpisodes}
             </h3>
 
             {/* Season Selector Tabs */}
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1">
               {seasons.map((season) => (
                 <button
                   key={season.id}
                   onClick={() => setSelectedSeasonId(season.id)}
                   aria-pressed={currentSeason?.id === season.id}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                  className={`shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
                     currentSeason?.id === season.id
                       ? 'bg-brand-600 text-white shadow-md'
                       : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
@@ -426,9 +426,9 @@ export const MediaDetailPage: React.FC = () => {
                     to={`/watch/${media.id}/${episode.id}`}
                     className="group flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/70 hover:border-brand-500/50 rounded-2xl transition-all gap-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                   >
-                    <div className="flex items-start md:items-center gap-4 flex-1 min-w-0">
+                    <div className="flex w-full items-start md:items-center gap-4 flex-1 min-w-0">
                       {/* Episode Thumbnail */}
-                      <div className="relative w-36 md:w-44 aspect-video bg-zinc-800 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-700/40">
+                      <div className="relative w-24 sm:w-36 md:w-44 aspect-video bg-zinc-800 rounded-xl overflow-hidden flex-shrink-0 border border-zinc-700/40">
                         {episode.stillUrl ? (
                           <img
                             src={episode.stillUrl}
@@ -462,7 +462,7 @@ export const MediaDetailPage: React.FC = () => {
                               ? `0${episode.episodeNumber}`
                               : episode.episodeNumber}
                           </span>
-                          <h4 className="text-base font-bold text-zinc-100 group-hover:text-brand-300 transition-colors truncate">
+                          <h4 className="min-w-0 break-words text-sm md:text-base font-semibold text-zinc-100 group-hover:text-brand-300 transition-colors">
                             {episode.title}
                           </h4>
                           {isWatched && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}

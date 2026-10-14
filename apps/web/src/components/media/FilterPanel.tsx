@@ -11,7 +11,7 @@ import {
 } from './filterState';
 
 const SELECT_CLASSES =
-  'w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
+  'cd-field w-full px-3 py-2 text-sm transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
 
 const LABEL_CLASSES = 'block text-[13px] font-medium text-zinc-400';
 
@@ -30,7 +30,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
   const hasActiveFilters = activeFilters(filters).length > 0;
 
   return (
-    <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4">
+    <div className="cd-filter">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
           <label htmlFor={`${fieldId}-sort`} className={LABEL_CLASSES}>

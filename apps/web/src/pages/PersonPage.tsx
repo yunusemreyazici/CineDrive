@@ -76,8 +76,8 @@ export const PersonPage: React.FC = () => {
   return (
     <div className="space-y-8 pb-20">
       {/* Header Banner */}
-      <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-3xl p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 backdrop-blur-xl">
-        <div className="flex items-center gap-4">
+      <div className="cd-music-hero p-6 md:p-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="flex min-w-0 items-center gap-4">
           <button
             onClick={() => navigate(-1)}
             className="p-3 bg-zinc-800/80 hover:bg-zinc-700 text-white rounded-2xl transition-colors"
@@ -90,8 +90,8 @@ export const PersonPage: React.FC = () => {
             <User className="w-8 h-8" />
           </div>
 
-          <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white font-display">
+          <div className="min-w-0">
+            <h1 className="break-words text-3xl md:text-4xl font-medium text-white font-display">
               {displayName}
             </h1>
             <p className="text-xs text-zinc-400 mt-1">

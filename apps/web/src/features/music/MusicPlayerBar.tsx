@@ -199,7 +199,7 @@ export const MusicPlayerBar: React.FC = () => {
         </aside>
       )}
       {drawer !== 'nowPlaying' && !(drawer === 'audio' && audioReturnDrawer === 'nowPlaying') && (
-        <div className="fixed bottom-0 left-0 right-0 z-[60] isolate overflow-hidden border-t border-white/10 bg-[#0a0b0d]/90 px-3 py-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.35)] backdrop-blur-2xl lg:left-[var(--app-sidebar-offset,220px)]">
+        <div className="cd-player-dock fixed bottom-3 left-3 right-3 z-[60] isolate overflow-hidden px-3 py-3 backdrop-blur-xl lg:left-[calc(var(--app-sidebar-offset,240px)+16px)] lg:right-4">
           {track.artworkUrl && (
             <img
               src={track.artworkUrl}
@@ -213,8 +213,8 @@ export const MusicPlayerBar: React.FC = () => {
               backgroundImage: `linear-gradient(100deg, rgb(${palette.primary} / .32), transparent 42%, rgb(${palette.secondary} / .18))`,
             }}
           />
-          <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-r from-black/75 via-[#0a0b0d]/85 to-black/75" />
-          <div className="mx-auto grid max-w-[1600px] grid-cols-[1fr_auto] items-center gap-3 md:grid-cols-[minmax(210px,1fr)_minmax(300px,2fr)_minmax(190px,1fr)]">
+          <div className="pointer-events-none absolute inset-0 -z-10 bg-zinc-900/80" />
+          <div className="mx-auto grid max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 md:grid-cols-[minmax(0,1fr)_minmax(180px,1.2fr)_auto]">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={() => setDrawer('nowPlaying')}

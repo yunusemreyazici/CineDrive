@@ -200,7 +200,7 @@ export const MusicSidebar: React.FC = () => {
         aria-label={t.music.musicNavigation}
         aria-hidden={!isDesktop && !mobileMusicOpen ? true : undefined}
         inert={!isDesktop && !mobileMusicOpen ? true : undefined}
-        className={`fixed bottom-0 left-0 top-0 z-[65] flex w-[min(320px,calc(100vw-32px))] flex-col border-r border-white/[0.06] bg-[#0b0c0e]/98 shadow-[24px_0_70px_rgba(0,0,0,.32)] backdrop-blur-xl transition-[left,transform] duration-300 lg:left-[var(--app-sidebar-offset,220px)] lg:z-30 lg:w-[272px] lg:translate-x-0 lg:bg-[#0b0c0e]/95 ${
+        className={`cd-music-nav fixed bottom-0 left-0 top-0 z-[65] flex w-[min(320px,calc(100vw-32px))] flex-col border-r backdrop-blur-xl transition-[left,transform] duration-300 lg:left-[var(--app-sidebar-offset,80px)] lg:z-30 lg:w-[240px] lg:translate-x-0 ${
           mobileMusicOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -246,7 +246,7 @@ export const MusicSidebar: React.FC = () => {
           </form>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-5 [scrollbar-color:rgb(63_63_70)_transparent] [scrollbar-width:thin]">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-3 py-5 pb-36 [scrollbar-color:rgb(63_63_70)_transparent] [scrollbar-width:thin]">
           <MusicNavSection
             title={t.music.discover}
             items={discoveryItems}

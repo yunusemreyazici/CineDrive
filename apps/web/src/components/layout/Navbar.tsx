@@ -65,7 +65,7 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-[72px] w-full items-center justify-between gap-4 border-b border-white/[0.06] bg-[#070809]/90 px-4 backdrop-blur-xl md:px-6">
+    <header className="cd-topbar sticky top-0 z-40 flex h-[80px] w-full items-center justify-between gap-4 border-b px-4 backdrop-blur-xl md:px-8">
       <div className="flex shrink-0 items-center">
         <button
           onClick={() => {
@@ -86,7 +86,7 @@ export const Navbar: React.FC = () => {
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
-        className="hidden h-10 w-full max-w-xl items-center gap-3 rounded-xl border border-white/[0.08] bg-[#111214] px-3.5 text-sm text-zinc-500 transition-colors hover:border-white/[0.14] hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:flex"
+        className="hidden h-11 w-full max-w-lg items-center gap-3 rounded-full border border-white/10 bg-zinc-900 px-5 text-xs text-zinc-400 transition-colors hover:border-white/25 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:flex"
       >
         <Search className="h-4 w-4 shrink-0" />
         <span className="flex-1 text-left">{t.nav.searchPlaceholder}</span>
@@ -110,7 +110,7 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setShowRandomModal(true)}
-          className="flex items-center gap-2 rounded-xl border border-brand-400/25 bg-brand-600 px-3.5 py-2 text-xs font-semibold text-white shadow-[0_8px_24px_hsl(var(--brand-900)/0.28)] transition-all hover:bg-brand-500"
+          className="cd-pill-link shrink-0"
           // The label text is hidden below `md`, which would otherwise leave
           // the button named only by its tooltip on small screens.
           aria-label={t.nav.randomPickLabel}

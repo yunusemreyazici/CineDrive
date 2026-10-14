@@ -4,6 +4,7 @@ import { PlaylistDestinationModal } from '../components/music/PlaylistDestinatio
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useMusicFavoritesQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
+import { MusicCollectionState } from '../components/music/MusicCollectionState';
 
 export const MusicLikedPage: React.FC = () => {
   const query = useMusicFavoritesQuery();
@@ -17,7 +18,7 @@ export const MusicLikedPage: React.FC = () => {
         isOpen={playlistOpen}
         onClose={() => setPlaylistOpen(false)}
       />
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="cd-page-heading justify-between">
         <h1 className="font-display text-3xl font-extrabold">{t.music.liked}</h1>
         {tracks.length > 0 && (
           <button
@@ -30,7 +31,14 @@ export const MusicLikedPage: React.FC = () => {
           </button>
         )}
       </header>
-      {query.data && <MusicTrackList tracks={query.data} />}
+      <MusicCollectionState
+        loading={query.isLoading}
+        error={query.error}
+        empty={!tracks.length}
+        onRetry={() => void query.refetch()}
+      >
+        <MusicTrackList tracks={tracks} />
+      </MusicCollectionState>
     </div>
   );
 };

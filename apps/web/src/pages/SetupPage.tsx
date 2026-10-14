@@ -119,7 +119,7 @@ function SetupWorkspace() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-10">
-      <header>
+      <header className="cd-page-heading">
         <h1 ref={heading} tabIndex={-1} className="font-display text-3xl font-bold text-white">
           {c.title}
         </h1>
@@ -136,7 +136,7 @@ function SetupWorkspace() {
           </li>
         ))}
       </ol>
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-5 sm:p-8">
+      <section className="cd-utility">
         {libraries.isPending ||
         (libraryId && !savedLibrary && libraries.isFetching) ||
         (libraryId &&

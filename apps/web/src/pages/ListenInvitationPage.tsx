@@ -59,7 +59,7 @@ export function ListenInvitationPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-6 py-12 text-zinc-100">
-      <section className="w-full max-w-lg space-y-6 rounded-3xl border border-white/10 bg-zinc-900 p-8 shadow-xl">
+      <section className="cd-utility w-full max-w-lg space-y-6">
         <p className="text-sm font-semibold tracking-wide text-brand-400">CineMusic</p>
         <h1 className="text-3xl font-bold">{valid ? text.title : text.invalid}</h1>
         {!valid ? (

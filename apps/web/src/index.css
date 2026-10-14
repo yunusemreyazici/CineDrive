@@ -1,22 +1,38 @@
 @import 'tailwindcss';
+@import './styles/cinema.css';
 
 @config '../tailwind.config.js';
 
+/* Shared ink palette: films, music and administration use the same surfaces. */
+@theme {
+  --color-zinc-950: #0b1015;
+  --color-zinc-900: #141c24;
+  --color-zinc-800: #25303b;
+  --color-zinc-700: #3c4a57;
+  --color-zinc-600: #7b8997;
+  --color-zinc-500: #94a1ae;
+  --color-zinc-400: #aeb8c2;
+  --color-zinc-300: #c7ced5;
+  --color-zinc-200: #dce1e6;
+  --color-zinc-100: #f3f2ee;
+}
+
 @layer base {
   :root {
-    --brand-50: 187 100% 97%;
-    --brand-100: 187 94% 90%;
-    --brand-400: 187 86% 53%;
-    --brand-500: 189 100% 42%;
-    --brand-600: 190 100% 36%;
-    --brand-700: 191 93% 30%;
-    --brand-900: 194 76% 18%;
-    --media-background: #070809;
-    --media-surface: #111214;
-    --media-surface-hover: #181a1d;
-    --media-border: rgb(255 255 255 / 0.08);
-    --media-text-primary: #f5f5f5;
-    --media-text-secondary: #979ba3;
+    color-scheme: dark;
+    --brand-50: 39 90% 96%;
+    --brand-100: 38 78% 89%;
+    --brand-400: 36 72% 72%;
+    --brand-500: 34 67% 58%;
+    --brand-600: 29 62% 36%;
+    --brand-700: 28 65% 29%;
+    --brand-900: 25 50% 15%;
+    --media-background: #0b1015;
+    --media-surface: #141c24;
+    --media-surface-hover: #1c2630;
+    --media-border: rgb(190 207 220 / 0.12);
+    --media-text-primary: #f3f2ee;
+    --media-text-secondary: #aeb8c2;
   }
 
   [data-theme='neon'] {
@@ -84,6 +100,26 @@
   body {
     @apply bg-zinc-950 text-zinc-100 antialiased font-sans selection:bg-brand-500 selection:text-white transition-colors duration-300;
     background-color: var(--media-background);
+  }
+
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--brand-400));
+    outline-offset: 4px;
+  }
+
+  button:not(:disabled),
+  select {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  html {
+    scroll-padding-top: 6rem;
+  }
+  ::selection {
+    background: hsl(var(--brand-700));
+    color: white;
   }
 
   [data-theme='neon'] body {

@@ -499,7 +499,7 @@ export const MusicMaintenancePage: React.FC = () => {
   return (
     <div className="pb-32">
       <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/25">
-        <header className="p-4 md:px-7 md:py-6">
+        <header className="cd-page-heading p-5 md:px-7 md:py-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <span className="rounded-xl border border-brand-500/20 bg-brand-500/10 p-2.5 text-brand-400">

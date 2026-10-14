@@ -146,10 +146,8 @@ export const MusicMixesPage: React.FC = () => {
 
   return (
     <div className="space-y-9 pb-32">
-      <section className="relative isolate overflow-hidden rounded-[24px] border border-white/[0.09] bg-gradient-to-br from-[#24113a] via-[#10131a] to-[#07191b] px-5 py-7 shadow-[0_28px_80px_rgba(0,0,0,.32)] sm:px-8 sm:py-9">
-        <div className="pointer-events-none absolute -right-20 -top-32 -z-10 h-96 w-96 rounded-full bg-fuchsia-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-36 left-1/3 -z-10 h-80 w-80 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="grid items-center gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <section className="cd-music-hero relative isolate overflow-hidden px-6 py-8 sm:px-9 sm:py-10">
+        <div className="grid items-center gap-7 2xl:grid-cols-[minmax(0,1fr)_320px]">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] text-white/70">
               <Sparkles className="h-3.5 w-3.5 text-fuchsia-300" /> {t.music.personalRadio}
@@ -236,7 +234,7 @@ export const MusicMixesPage: React.FC = () => {
       </section>
 
       {aiStatus.data?.enabled && (
-        <section className="overflow-hidden rounded-3xl border border-fuchsia-300/15 bg-gradient-to-br from-fuchsia-950/35 via-[#101116] to-cyan-950/25 p-5 sm:p-7">
+        <section className="cd-filter overflow-hidden p-5 sm:p-7">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-fuchsia-300/10 text-fuchsia-200">
               <Sparkles className="h-5 w-5" />

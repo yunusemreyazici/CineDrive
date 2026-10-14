@@ -117,7 +117,7 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
   return (
     <aside
       aria-label={t.music.lyrics}
-      className="fixed inset-0 z-[80] isolate flex flex-col overflow-hidden bg-[#090a0b] shadow-2xl"
+      className="cd-player-panel fixed inset-0 z-[80] isolate flex flex-col overflow-hidden shadow-2xl"
     >
       {track?.artworkUrl && (
         <img
@@ -126,7 +126,7 @@ export const MusicLyricsPanel: React.FC<Props> = ({ trackId, position, onSeek, o
           className="pointer-events-none absolute inset-[-15%] -z-20 h-[130%] w-[130%] scale-110 object-cover opacity-35 blur-[110px] saturate-150"
         />
       )}
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-black/35 via-[#090a0b]/75 to-[#070809]" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-zinc-950/50 via-zinc-950/80 to-zinc-950" />
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 backdrop-blur-xl sm:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <div className="rounded-full bg-white/10 p-2">

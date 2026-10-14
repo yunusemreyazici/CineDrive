@@ -44,18 +44,21 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4 md:p-8">
-      {/* Glow background effects */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="relative w-full max-w-md bg-zinc-900/60 border border-zinc-800/80 rounded-3xl p-8 backdrop-blur-xl shadow-2xl">
+    <div className="cd-auth">
+      <aside className="cd-auth-story">
+        <div className="flex items-center gap-3 font-display text-xl font-semibold"><Film className="h-8 w-8 text-brand-400" />CineDrive</div>
+        <div>
+          <h2 className="font-display">{t.design.authTitle}</h2>
+          <p className="relative mt-6 max-w-sm text-sm leading-7 text-zinc-300">{t.design.authDescription}</p>
+        </div>
+        <footer className="cd-eyebrow">{t.design.privateLibrary}</footer>
+      </aside>
+      <div className="cd-auth-form">
         {/* App Logo & Title */}
-        <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-brand-600/20 border border-brand-500/30 text-brand-500 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-brand-500/10">
-            <Film className="w-7 h-7" />
-          </div>
-          <h1 className="text-2xl font-bold font-display text-white tracking-tight">CineDrive</h1>
-          <p className="text-xs text-zinc-400 mt-1">{t.auth.appTagline}</p>
+        <div className="mb-9">
+          <p className="cd-eyebrow mb-3">{t.auth.signIn}</p>
+          <h1 className="text-3xl font-medium font-display text-white tracking-tight">{t.design.signInTitle}</h1>
+          <p className="text-sm text-zinc-400 mt-3">{t.design.signInDescription}</p>
         </div>
 
         {/*
@@ -148,7 +151,7 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={loginMutation.isPending}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 disabled:opacity-50"
+            className="cd-primary w-full mt-3"
           >
             {loginMutation.isPending ? (
               <>

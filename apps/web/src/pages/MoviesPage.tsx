@@ -54,7 +54,7 @@ export const MoviesPage: React.FC = () => {
     <div className="space-y-8">
       {/* Same header shape as the library, which is what this page is a
           pre-filtered view of. */}
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="cd-page-heading">
         <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
           {t.movies.title}
         </h2>

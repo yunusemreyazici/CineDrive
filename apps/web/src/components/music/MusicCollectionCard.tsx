@@ -22,7 +22,7 @@ export const MusicCollectionCard: React.FC<Props> = ({
 }) => (
   <Link
     to={href}
-    className={`group block min-w-0 rounded-2xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${compact ? '' : 'p-1'}`}
+    className={`cd-music-card group block min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 ${compact ? 'cd-music-card-compact' : ''}`}
   >
     <div
       className={`relative mb-3 aspect-square overflow-hidden border border-white/[0.07] bg-gradient-to-br from-zinc-800 to-zinc-950 shadow-[0_18px_45px_rgba(0,0,0,.28)] ${
@@ -33,6 +33,8 @@ export const MusicCollectionCard: React.FC<Props> = ({
         <img
           src={artworkUrl}
           alt=""
+          loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
         />
       ) : (

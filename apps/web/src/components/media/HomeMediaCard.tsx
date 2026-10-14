@@ -34,8 +34,8 @@ export const HomeMediaCard: React.FC<HomeMediaCardProps> = ({ media }) => {
       >
         <span className="sr-only">{t.mediaCard.openDetails(formatMediaTitle(media.title))}</span>
       </Link>
-      <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-[#111214] shadow-[0_14px_32px_rgba(0,0,0,0.18)] transition duration-300 group-hover:scale-[1.02] group-hover:bg-[#181a1d] group-hover:shadow-[0_18px_42px_rgba(0,0,0,0.32)]">
-        <div className="relative aspect-[2/3] overflow-hidden bg-zinc-900">
+      <div className="cd-poster transition duration-300">
+        <div className="cd-poster-art relative aspect-[2/3] overflow-hidden bg-zinc-900">
           {imageUrl ? (
             <img
               src={imageUrl}
@@ -92,7 +92,7 @@ export const HomeMediaCard: React.FC<HomeMediaCardProps> = ({ media }) => {
           ) : null}
         </div>
 
-        <div className="px-3 py-2.5">
+        <div className="cd-poster-copy">
           <h3 className="truncate text-xs font-semibold text-zinc-100 transition-colors group-hover:text-white md:text-sm">
             {formatMediaTitle(media.title)}
           </h3>

@@ -170,7 +170,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
+    <div className="fixed inset-0 z-[90] flex items-start justify-center p-4 pt-[10vh]">
       <button
         type="button"
         aria-label={t.common.close}
@@ -182,7 +182,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
         role="dialog"
         aria-modal="true"
         aria-label={t.search.dialogLabel}
-        className="relative w-full max-w-xl overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+        className="cd-dialog relative w-full max-w-2xl overflow-hidden border"
       >
         <div className="flex items-center gap-3 border-b border-zinc-800 px-4">
           <Search className="h-4 w-4 shrink-0 text-zinc-500" />
@@ -201,7 +201,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t.search.placeholder}
-            className="h-12 flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none"
+            className="h-16 min-w-0 flex-1 bg-transparent text-base text-zinc-100 placeholder-zinc-500 focus:outline-none"
           />
           {(isFetching || musicQuery.isFetching) && (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-500" />

@@ -37,7 +37,7 @@ export const ContinueWatchingCard: React.FC<ContinueWatchingCardProps> = ({ item
     : `/watch/${media.id}`;
 
   return (
-    <div className="group relative flex w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#111214] transition duration-300 hover:scale-[1.025] hover:bg-[#181a1d] hover:shadow-[0_18px_42px_rgba(0,0,0,0.35)]">
+    <div className="cd-resume group relative flex shrink-0 snap-start flex-col overflow-hidden border transition duration-300 hover:border-brand-400/40">
       {/* The card resumes playback, but it also carries dismiss and detail
           buttons, so the link is stretched instead of wrapping them. */}
       <Link

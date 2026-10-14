@@ -168,7 +168,7 @@ export const MusicPlaylistPage: React.FC = () => {
         isOpen={addToAnotherOpen}
         onClose={() => setAddToAnotherOpen(false)}
       />
-      <header className="relative isolate overflow-hidden rounded-[30px] border border-white/[.07] bg-gradient-to-br from-violet-950/80 via-zinc-950 to-cyan-950/45 p-6 sm:p-8">
+      <header className="cd-music-detail relative isolate overflow-hidden">
         {artworkUrls[0] && (
           <img
             src={artworkUrls[0]}
@@ -206,7 +206,7 @@ export const MusicPlaylistPage: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-[0.2em] text-white/45">
               {t.music.playlist}
             </p>
-            <h1 className="mt-2 text-balance font-display text-4xl font-black tracking-tight sm:text-6xl">
+            <h1 className="mt-2 break-words text-balance font-display text-4xl font-medium tracking-tight xl:text-5xl">
               {query.data.name}
             </h1>
             {query.data.description && (

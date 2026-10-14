@@ -60,7 +60,7 @@ const ArrivalTile: React.FC<{
   <Link
     to={item.href}
     aria-label={t.music.openAlbum(item.title)}
-    className="group block min-w-0 flex-[1_0_112px] rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:min-w-0 xl:basis-[calc((100%-5.25rem)/8)]"
+    className="group block w-[160px] min-w-0 shrink-0 rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 xl:w-[180px]"
   >
     <span className="relative block aspect-square overflow-hidden rounded-[10px] border border-white/[0.08] bg-[#121417] shadow-[0_12px_28px_rgba(0,0,0,.2)]">
       {item.artworkUrl ? (
@@ -163,7 +163,7 @@ export const MusicPage: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <header className="relative -top-1 hidden pt-1 sm:block">
+      <header className="cd-page-heading">
         <h1 className="font-display text-3xl font-extrabold tracking-[-0.035em] text-white">
           {t.music.title}
         </h1>
@@ -172,7 +172,7 @@ export const MusicPage: React.FC = () => {
 
       <section
         aria-labelledby="music-spotlight-title"
-        className="relative mt-4 overflow-hidden rounded-[12px] border border-white/[0.09] bg-[#0c0e10] p-4 shadow-[0_20px_55px_rgba(0,0,0,.22)]"
+        className="cd-music-hero relative mt-7 overflow-hidden p-6 md:p-9"
       >
         {spotlightTrack?.artworkUrl && (
           <img
@@ -181,12 +181,12 @@ export const MusicPage: React.FC = () => {
             className="pointer-events-none absolute -right-20 -top-40 h-[520px] w-[520px] scale-125 object-cover opacity-[0.08] blur-3xl"
           />
         )}
-        <div className="relative grid items-center gap-6 md:grid-cols-[250px_minmax(0,1fr)] md:gap-8">
+        <div className="relative grid items-center gap-6 sm:grid-cols-[minmax(0,.7fr)_minmax(0,1fr)] md:gap-9">
           {spotlightTrack?.album ? (
             <Link
               to={`/music/albums/${spotlightTrack.album.id}`}
               aria-label={t.music.openAlbum(spotlightTrack.album.title)}
-              className="group aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 md:h-[218px] md:aspect-auto"
+              className="group aspect-square w-full max-w-[280px] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
             >
               {spotlightTrack.artworkUrl ? (
                 <img
@@ -205,7 +205,7 @@ export const MusicPage: React.FC = () => {
               type="button"
               onClick={playSpotlight}
               aria-label={spotlightTrack ? t.music.playTrack(spotlightTrack.title) : t.music.play}
-              className="group aspect-square overflow-hidden rounded-[10px] border border-white/[0.1] bg-[#131519] shadow-[0_18px_45px_rgba(0,0,0,.36)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 md:h-[218px] md:aspect-auto"
+              className="group aspect-square w-full max-w-[280px] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
             >
               {spotlightTrack?.artworkUrl ? (
                 <img
@@ -305,7 +305,7 @@ export const MusicPage: React.FC = () => {
       </section>
 
       {!!arrivals.length && (
-        <section className="mt-4 space-y-3">
+        <section className="mt-9 space-y-4">
           <SectionHeading title={t.music.newArrivals} href="/music/albums" />
           <div className="relative">
             <div
@@ -331,7 +331,7 @@ export const MusicPage: React.FC = () => {
       )}
 
       {!!listeningTracks.length && (
-        <section className="mt-4 space-y-3">
+        <section className="mt-9 space-y-4">
           <SectionHeading title={t.music.recentlyPlayed} href="/music/history" />
           <MusicTrackList tracks={listeningTracks} homeLayout />
         </section>

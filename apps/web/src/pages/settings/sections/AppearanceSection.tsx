@@ -17,7 +17,7 @@ import { LOCALES, locale, setLocale, t, type Locale } from '../../../i18n';
  * control — it only changed the page background.
  */
 const THEMES: Array<{ id: ThemeType; name: string; desc: string; accentClass: string }> = [
-  { id: 'default', ...t.settings.appearance.themes.default, accentClass: 'bg-cyan-500' },
+  { id: 'default', ...t.settings.appearance.themes.default, accentClass: 'bg-[#dcad72]' },
   { id: 'neon', ...t.settings.appearance.themes.neon, accentClass: 'bg-purple-500' },
   { id: 'emerald', ...t.settings.appearance.themes.emerald, accentClass: 'bg-emerald-500' },
   { id: 'amber', ...t.settings.appearance.themes.amber, accentClass: 'bg-amber-500' },
