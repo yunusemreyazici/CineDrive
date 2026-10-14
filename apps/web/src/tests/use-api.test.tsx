@@ -3,10 +3,127 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { ApiRequestError, apiClient, parseApiError } from '../api/client';
-import { useLoginMutation, useToggleFavoriteMutation, useMediaListQuery } from '../hooks/useApi';
+import {
+  useLoginMutation,
+  useToggleFavoriteMutation,
+  useMediaListQuery,
+  useSeasonEpisodesQuery,
+} from '../hooks/useApi';
 import { useUiStore } from '../stores/useUiStore';
 import { createTestQueryClient } from './helpers/renderWithProviders';
 import type { MediaItemType } from '../types/media';
+
+describe('useSeasonEpisodesQuery', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('fetches episodes from the authenticated media-prefixed route, not the missing root route', async () => {
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const episodes = [{ id: 'episode-1', seasonId: 'season-1', episodeNumber: 1, title: 'Pilot' }];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(input).toBe('/api/media/seasons/season-1/episodes');
+      expect(init?.credentials).toBe('include');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return new Response(JSON.stringify({ episodes }), { status: 200 });
+    });
+    const { result, unmount } = renderHook(() => useSeasonEpisodesQuery('season-1'), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(episodes);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    unmount();
+    queryClient.clear();
+  });
+
+  it('does not request episodes without a season', () => {
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const { result, unmount } = renderHook(() => useSeasonEpisodesQuery(), { wrapper });
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(fetch).not.toHaveBeenCalled();
+    unmount();
+    queryClient.clear();
+  });
+
+  it('cancels the previous season request and ignores its late answer', async () => {
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    let firstSignal: AbortSignal | undefined;
+    let complete!: (response: Response) => void;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (input === '/api/media/seasons/season-1/episodes') {
+        firstSignal = init?.signal as AbortSignal;
+        return new Promise<Response>((resolve) => {
+          complete = resolve;
+        });
+      }
+      expect(input).toBe('/api/media/seasons/season-2/episodes');
+      return new Response(JSON.stringify({ episodes: [{ id: 'episode-2' }] }), { status: 200 });
+    });
+    const { result, rerender, unmount } = renderHook(
+      ({ season }) => useSeasonEpisodesQuery(season),
+      { wrapper, initialProps: { season: 'season-1' } },
+    );
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    rerender({ season: 'season-2' });
+    await waitFor(() => expect(result.current.data).toEqual([{ id: 'episode-2' }]));
+    expect(firstSignal?.aborted).toBe(true);
+    await act(async () => {
+      complete(
+        new Response(JSON.stringify({ episodes: [{ id: 'stale-episode' }] }), { status: 200 }),
+      );
+    });
+    expect(result.current.data).toEqual([{ id: 'episode-2' }]);
+    unmount();
+    queryClient.clear();
+  });
+
+  it('keeps server errors readable and retries the same correct endpoint', async () => {
+    const queryClient = createTestQueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'TEMPORARY_FAILURE',
+              message: 'Bölümler geçici olarak yüklenemedi.',
+              requestId: 'episodes-retry',
+            },
+          }),
+          { status: 503 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ episodes: [] }), { status: 200 }));
+    const { result, unmount } = renderHook(() => useSeasonEpisodesQuery('season-1'), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(parseApiError(result.current.error)).toMatchObject({
+      status: 503,
+      code: 'TEMPORARY_FAILURE',
+      requestId: 'episodes-retry',
+    });
+    await act(async () => {
+      await result.current.refetch();
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+    expect(fetch.mock.calls.map(([input]) => input)).toEqual([
+      '/api/media/seasons/season-1/episodes',
+      '/api/media/seasons/season-1/episodes',
+    ]);
+    unmount();
+    queryClient.clear();
+  });
+});
 
 describe('useLoginMutation', () => {
   afterEach(() => vi.restoreAllMocks());

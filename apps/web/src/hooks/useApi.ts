@@ -764,7 +764,7 @@ export function useSeasonEpisodesQuery(seasonId?: string) {
     queryFn: async ({ signal }) => {
       if (!seasonId) return [];
       const res = await apiClient.get<{ episodes: EpisodeType[] }>(
-        `/seasons/${seasonId}/episodes`,
+        `/media/seasons/${seasonId}/episodes`,
         { signal },
       );
       return res.data.episodes;
