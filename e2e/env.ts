@@ -50,6 +50,7 @@ export const e2eServerEnv = {
   HLS_CACHE_MAX_BYTES: String(64 * 1024 * 1024),
   // Keep the suite off the network: metadata lookups would otherwise call TMDB.
   TMDB_API_KEY: '',
+  MUSIC_AI_API_KEY: '',
   // envSchema requires these. The suite never reaches Google — the fixture
   // library is local — but the server refuses to start without them, and CI
   // has no repository .env to fall back on.

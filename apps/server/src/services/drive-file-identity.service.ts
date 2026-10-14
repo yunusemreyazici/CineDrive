@@ -4,9 +4,9 @@ export const isUniqueConstraintError = (error: unknown): boolean =>
   error instanceof Error && /unique constraint|already exists/i.test(error.message);
 
 /**
- * Create first so a concurrent scan cannot use Prisma's upsert update branch
- * to move an existing DriveFile into another library. A unique-key race is
- * retried as an update only after the winner is re-read and ownership checked.
+ * Existing rows use a library-scoped update: rescans should not issue one
+ * failed INSERT per file. New rows still use create-first with a checked race
+ * fallback, never an upsert branch that can rehome another library's file.
  */
 export const createOrUpdateDriveFileForLibrary = async (
   prisma: PrismaClient,
@@ -15,6 +15,20 @@ export const createOrUpdateDriveFileForLibrary = async (
   create: Prisma.DriveFileUncheckedCreateInput,
   update: Prisma.DriveFileUncheckedUpdateInput,
 ) => {
+  const updateExisting = async (existing: { id: string; libraryId: string }) => {
+    if (existing.libraryId !== libraryId) throw new Error('DRIVE_FILE_LIBRARY_CONFLICT');
+    return {
+      // Repeat ownership in the atomic write: even a replacement between the
+      // read and write cannot move a record into this library.
+      record: await prisma.driveFile.update({
+        where: { id: existing.id, libraryId },
+        data: { ...update, libraryId },
+      }),
+      created: false,
+    };
+  };
+  const existing = await prisma.driveFile.findUnique({ where });
+  if (existing) return updateExisting(existing);
   try {
     return {
       record: await prisma.driveFile.create({ data: create }),
@@ -25,11 +39,6 @@ export const createOrUpdateDriveFileForLibrary = async (
 
     const existing = await prisma.driveFile.findUnique({ where });
     if (!existing) throw error;
-    if (existing.libraryId !== libraryId) throw new Error('DRIVE_FILE_LIBRARY_CONFLICT');
-
-    return {
-      record: await prisma.driveFile.update({ where: { id: existing.id }, data: update }),
-      created: false,
-    };
+    return updateExisting(existing);
   }
 };

@@ -24,7 +24,10 @@ describe('cross-library identity races', () => {
     const prisma = {
       driveFile: {
         create: vi.fn().mockRejectedValue(new Error('Unique constraint failed on localFilePath')),
-        findUnique: vi.fn().mockResolvedValue({ id: 'winner', libraryId: 'library-a' }),
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 'winner', libraryId: 'library-a' }),
         update: vi.fn(),
       },
     } as unknown as PrismaClient;
@@ -38,6 +41,111 @@ describe('cross-library identity races', () => {
         driveFileUpdate,
       ),
     ).rejects.toThrow('DRIVE_FILE_LIBRARY_CONFLICT');
+    expect(prisma.driveFile.update).not.toHaveBeenCalled();
+  });
+
+  it('updates a 10k rescan without failed inserts and keeps ownership in each write', async () => {
+    const prisma = {
+      driveFile: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'existing', libraryId: 'library-b' }),
+        update: vi.fn().mockResolvedValue({ id: 'existing', libraryId: 'library-b' }),
+        create: vi.fn(),
+      },
+    } as unknown as PrismaClient;
+    for (let i = 0; i < 10_000; i++) {
+      expect(
+        await createOrUpdateDriveFileForLibrary(
+          prisma,
+          { localFilePath: '/media/movie.mkv' },
+          'library-b',
+          driveFileCreate,
+          driveFileUpdate,
+        ),
+      ).toMatchObject({ created: false });
+    }
+    expect(prisma.driveFile.create).not.toHaveBeenCalled();
+    expect(prisma.driveFile.update).toHaveBeenCalledTimes(10_000);
+    expect(prisma.driveFile.update).toHaveBeenLastCalledWith({
+      where: { id: 'existing', libraryId: 'library-b' },
+      data: driveFileUpdate,
+    });
+  });
+
+  it('rejects an already indexed foreign file without insert or update', async () => {
+    const prisma = {
+      driveFile: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'foreign', libraryId: 'library-a' }),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    } as unknown as PrismaClient;
+    await expect(
+      createOrUpdateDriveFileForLibrary(
+        prisma,
+        { localFilePath: '/media/movie.mkv' },
+        'library-b',
+        driveFileCreate,
+        driveFileUpdate,
+      ),
+    ).rejects.toThrow('DRIVE_FILE_LIBRARY_CONFLICT');
+    expect(prisma.driveFile.create).not.toHaveBeenCalled();
+    expect(prisma.driveFile.update).not.toHaveBeenCalled();
+  });
+
+  it('creates genuinely new files and reuses an owned winner of a unique race', async () => {
+    const prisma = {
+      driveFile: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'created', libraryId: 'library-b' }),
+        update: vi.fn().mockResolvedValue({ id: 'winner', libraryId: 'library-b' }),
+      },
+    } as unknown as PrismaClient;
+    expect(
+      await createOrUpdateDriveFileForLibrary(
+        prisma,
+        { localFilePath: '/media/movie.mkv' },
+        'library-b',
+        driveFileCreate,
+        driveFileUpdate,
+      ),
+    ).toMatchObject({ created: true });
+    vi.mocked(prisma.driveFile.findUnique)
+      .mockReset()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'winner', libraryId: 'library-b' } as never);
+    vi.mocked(prisma.driveFile.create).mockRejectedValue(new Error('Unique constraint failed'));
+    expect(
+      await createOrUpdateDriveFileForLibrary(
+        prisma,
+        { localFilePath: '/media/movie.mkv' },
+        'library-b',
+        driveFileCreate,
+        driveFileUpdate,
+      ),
+    ).toMatchObject({ created: false });
+    expect(prisma.driveFile.update).toHaveBeenCalledWith({
+      where: { id: 'winner', libraryId: 'library-b' },
+      data: driveFileUpdate,
+    });
+  });
+
+  it('does not mask database failures as uniqueness races', async () => {
+    const prisma = {
+      driveFile: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue(new Error('SQLITE_BUSY')),
+        update: vi.fn(),
+      },
+    } as unknown as PrismaClient;
+    await expect(
+      createOrUpdateDriveFileForLibrary(
+        prisma,
+        { localFilePath: '/media/movie.mkv' },
+        'library-b',
+        driveFileCreate,
+        driveFileUpdate,
+      ),
+    ).rejects.toThrow('SQLITE_BUSY');
     expect(prisma.driveFile.update).not.toHaveBeenCalled();
   });
 

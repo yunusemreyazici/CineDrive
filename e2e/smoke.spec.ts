@@ -119,12 +119,62 @@ test.describe('CineDrive smoke', () => {
 
     await expect(page).toHaveURL(/\/media\/e2e_movie_smoke$/);
     await expect(page.getByRole('heading', { name: 'Smoke Test Movie', level: 1 })).toBeVisible();
-    await expect(page.getByRole('button', { name: tr.mediaDetail.play, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: tr.mediaDetail.play, exact: true }),
+    ).toBeVisible();
   });
 
   test('plays and advances real media through the streaming endpoint', async ({ page }) => {
     await openMovie(page);
     await expectPlaybackAdvance(page);
+  });
+
+  test('loads real series episodes and switches seasons without root-route 404s', async ({
+    page,
+  }) => {
+    await signIn(page);
+    const episodeResponse = page.waitForResponse((response) =>
+      /\/api\/media\/seasons\/[^/]+\/episodes$/.test(response.url()),
+    );
+    await page.goto('/media/e2e_series_smoke');
+    expect((await episodeResponse).status()).toBe(200);
+    await expect(page.getByRole('heading', { name: 'Season 1 Fixture Episode' })).toBeVisible();
+    const nextResponse = page.waitForResponse((response) =>
+      /\/api\/media\/seasons\/[^/]+\/episodes$/.test(response.url()),
+    );
+    await page.getByRole('button', { name: tr.mediaDetail.season(2), exact: true }).click();
+    expect((await nextResponse).status()).toBe(200);
+    await expect(page.getByRole('heading', { name: 'Season 2 Fixture Episode' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Season 1 Fixture Episode' })).toBeHidden();
+  });
+
+  test('clears watch history without breaking the infinite-query page', async ({ page }) => {
+    await signIn(page);
+    expect((await page.request.delete('/api/playback/e2e_movie_smoke')).status()).toBe(200);
+    expect(
+      (
+        await page.request.put('/api/playback/progress', {
+          data: {
+            mediaItemId: 'e2e_movie_smoke',
+            positionSeconds: 25,
+            durationSeconds: 90,
+          },
+        })
+      ).status(),
+    ).toBe(200);
+    await page.goto('/history');
+    await expect(page.getByText('Smoke Test Movie').first()).toBeVisible();
+    await page.getByRole('button', { name: tr.history.clearAll, exact: true }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: tr.history.clearAll, exact: true })
+      .click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(page.getByRole('heading', { name: tr.history.title, exact: true })).toBeVisible();
+    await expect(page.getByText('Smoke Test Movie')).toBeHidden();
+    const history = await page.request.get('/api/history');
+    expect(history.status()).toBe(200);
+    expect((await history.json()).pagination.total).toBe(0);
   });
 
   test('seeks forward and backward through the timeline and continues playing', async ({

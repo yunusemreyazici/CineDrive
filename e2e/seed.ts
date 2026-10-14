@@ -227,6 +227,37 @@ export const seedE2EDatabase = async () => {
       data: { mediaItemId: mediaItem.id, driveFileId: driveFile.id },
     });
 
+    // Real series detail contract: summary loads seasons, episodes are fetched
+    // separately under /api/media/seasons/:id/episodes. Reuse the local clip
+    // only as fixture media; no remote metadata or provider request is needed.
+    const seriesMedia = await prisma.mediaItem.create({
+      data: {
+        id: 'e2e_series_smoke',
+        libraryId: library.id,
+        type: 'series',
+        title: 'Smoke Test Series',
+        normalizedTitle: 'smoke test series',
+        year: 2024,
+        tmdbId: 999003,
+      },
+    });
+    const series = await prisma.series.create({ data: { mediaItemId: seriesMedia.id } });
+    for (const seasonNumber of [1, 2]) {
+      const season = await prisma.season.create({ data: { seriesId: series.id, seasonNumber } });
+      await prisma.episode.create({
+        data: {
+          seriesId: series.id,
+          seasonId: season.id,
+          mediaItemId: seriesMedia.id,
+          driveFileId: driveFile.id,
+          seasonNumber,
+          episodeNumber: 1,
+          title: `Season ${seasonNumber} Fixture Episode`,
+          duration: CLIP_SECONDS,
+        },
+      });
+    }
+
     const hlsFile = await prisma.driveFile.create({
       data: {
         id: E2E_HLS_FILE_ID,
