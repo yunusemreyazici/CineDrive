@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Film, Headphones } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FeaturedHero } from '../components/media/FeaturedHero';
 import { HomeMediaCard } from '../components/media/HomeMediaCard';
@@ -60,7 +60,7 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-4">
-        <h2 className="font-display text-lg font-bold tracking-tight text-white md:text-xl">
+        <h2 className="cd-section-title font-display text-white">
           {title}
         </h2>
         <Link
@@ -78,7 +78,7 @@ const HomeSection: React.FC<HomeSectionProps> = ({ title, href, items, layout = 
           ))}
         </div>
       ) : (
-        <div className="scrollbar-none flex snap-x gap-3 overflow-x-auto pb-2">
+        <div className="scrollbar-none flex snap-x gap-5 overflow-x-auto pb-2">
           {items.slice(0, 12).map((media) => (
             <div key={media.id} className="w-[150px] shrink-0 snap-start sm:w-[170px] xl:w-[185px]">
               <HomeMediaCard media={media} />
@@ -171,7 +171,18 @@ export const HomePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-10 pb-8">
+      <header className="cd-masthead">
+        <div>
+          <p className="cd-eyebrow">{t.design.collection}</p>
+          <h1 className="font-display">{t.design.homeTitle}</h1>
+          <p>{t.design.homeDescription}</p>
+        </div>
+        <div className="flex gap-2">
+          <Link to="/library" className="cd-pill-link"><Film className="h-4 w-4" />{t.design.watch}</Link>
+          <Link to="/music" className="cd-pill-link"><Headphones className="h-4 w-4" />{t.design.listen}</Link>
+        </div>
+      </header>
       <FeaturedHomeHero candidates={featuredCandidates} />
 
       {continueWatching && continueWatching.length > 0 && (

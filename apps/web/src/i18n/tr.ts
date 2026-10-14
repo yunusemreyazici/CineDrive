@@ -6,6 +6,20 @@
  * the sentence actually needs.
  */
 export const tr = {
+  design: {
+    skipToContent: 'İçeriğe geç',
+    collection: 'Kişisel koleksiyonun',
+    homeTitle: 'İyi hikâyelerin yeri.',
+    homeDescription: 'Yarım kalan bir hikâyeye dön. Ya da yenisine başla.',
+    watch: 'İzle',
+    listen: 'Dinle',
+    featured: 'Şimdi keşfet',
+    signInTitle: 'Tekrar hoş geldin.',
+    signInDescription: 'Koleksiyonuna kaldığın yerden devam et.',
+    authTitle: 'Senin filmlerin. Senin müziğin. Senin dünyan.',
+    authDescription: 'Sevdiğin hikâyeler ve sesler, tek bir yerde.',
+    privateLibrary: 'CineDrive · Kişisel medya kütüphanesi',
+  },
   common: {
     cancel: 'İptal',
     close: 'Kapat',
@@ -1104,7 +1118,7 @@ export const tr = {
       description: 'Arayüz renk stilini özelleştirin',
       groupLabel: 'Renk teması',
       themes: {
-        default: { name: 'CineDrive Cyan', desc: 'Modern medya merkezi' },
+        default: { name: 'CineDrive Cinema', desc: 'Koyu mürekkep ve sıcak altın tonları' },
         neon: { name: 'Cyberpunk Neon', desc: 'Mor ve pembe vurgular' },
         emerald: { name: 'Emerald Green', desc: 'Derin zümrüt yeşili' },
         amber: { name: 'Amber Sunset', desc: 'Sıcak turuncu ve kehribar' },

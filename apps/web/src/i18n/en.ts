@@ -8,6 +8,20 @@ import type { Translations } from './tr';
  * label discovered at runtime.
  */
 export const en: Translations = {
+  design: {
+    skipToContent: 'Skip to content',
+    collection: 'Your personal collection',
+    homeTitle: 'A home for good stories.',
+    homeDescription: 'Return to a story you started. Or find your next one.',
+    watch: 'Watch',
+    listen: 'Listen',
+    featured: 'In the spotlight',
+    signInTitle: 'Welcome back.',
+    signInDescription: 'Pick up where you left off.',
+    authTitle: 'Your films. Your music. Your world.',
+    authDescription: 'The stories and sounds you love, all in one place.',
+    privateLibrary: 'CineDrive · Your personal media library',
+  },
   common: {
     cancel: 'Cancel',
     close: 'Close',
@@ -1100,7 +1114,7 @@ export const en: Translations = {
       description: 'Customise the interface colour style',
       groupLabel: 'Colour theme',
       themes: {
-        default: { name: 'CineDrive Cyan', desc: 'Modern media centre' },
+        default: { name: 'CineDrive Cinema', desc: 'Dark ink and warm gold' },
         neon: { name: 'Cyberpunk Neon', desc: 'Purple and pink accents' },
         emerald: { name: 'Emerald Green', desc: 'Deep emerald green' },
         amber: { name: 'Amber Sunset', desc: 'Warm orange and amber' },

@@ -89,7 +89,7 @@ export const HistoryPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="cd-page-heading">
         <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
           {t.history.title}
         </h2>

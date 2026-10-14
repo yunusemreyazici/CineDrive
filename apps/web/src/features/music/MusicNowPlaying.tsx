@@ -67,7 +67,7 @@ export const MusicNowPlaying: React.FC<Props> = ({
       role="dialog"
       aria-modal="true"
       aria-label={t.music.nowPlaying}
-      className="fixed inset-0 z-[90] isolate overflow-y-auto bg-[#08090a] text-white"
+      className="cd-player-panel fixed inset-0 z-[90] isolate overflow-y-auto text-white"
       style={{
         backgroundImage: `radial-gradient(circle at 18% 12%, rgb(${palette.primary} / .58), transparent 44%), radial-gradient(circle at 88% 78%, rgb(${palette.secondary} / .3), transparent 48%), linear-gradient(145deg, rgb(${palette.primary} / .18), #070809 65%)`,
       }}
@@ -79,7 +79,7 @@ export const MusicNowPlaying: React.FC<Props> = ({
           className="pointer-events-none absolute inset-[-12%] -z-20 h-[124%] w-[124%] scale-110 object-cover opacity-45 blur-[90px] saturate-125"
         />
       )}
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-black/25 via-[#090a0c]/60 to-[#070809]" />
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-zinc-950/40 via-zinc-950/80 to-zinc-950" />
 
       <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col px-5 pb-8 pt-4 sm:px-8 lg:px-12">
         <header className="flex items-center justify-between">
@@ -121,7 +121,7 @@ export const MusicNowPlaying: React.FC<Props> = ({
           <div className="mx-auto w-full max-w-xl md:mx-0">
             <div className="flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <h1 className="truncate font-display text-2xl font-bold tracking-tight sm:text-4xl">
+                <h1 className="text-balance font-display text-2xl font-medium tracking-tight sm:text-4xl">
                   {track.title}
                 </h1>
                 {track.primaryArtist && (

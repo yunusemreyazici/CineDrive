@@ -141,7 +141,7 @@ export const Modal: React.FC<ModalProps> = ({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className={`relative my-auto flex w-full ${SIZE_CLASSES[size]} flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 shadow-2xl animate-scale-up`}
+        className={`cd-dialog relative my-auto flex w-full ${SIZE_CLASSES[size]} flex-col overflow-hidden border animate-scale-up`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-zinc-800/80 bg-zinc-900/60 px-6 py-4">
           <div className="flex min-w-0 items-center gap-3">

@@ -126,7 +126,7 @@ export const MusicMixCard: React.FC<{
   if (compact && landscape) {
     const MoodIcon = moodVisual.icon;
     return (
-      <article className="group flex h-12 min-w-0 items-center rounded-[11px] border border-white/[0.1] bg-[#0c0e10] shadow-[0_10px_28px_rgba(0,0,0,.18)] transition hover:border-white/[0.18] hover:bg-[#111316]">
+      <article className="group flex h-20 min-w-0 items-center rounded-xl border border-white/10 bg-zinc-900 transition hover:border-brand-400/40">
         <button
           type="button"
           onClick={onPlay}
@@ -163,17 +163,17 @@ export const MusicMixCard: React.FC<{
   return (
     <article className="group min-w-0">
       <div
-        className={`relative overflow-hidden bg-gradient-to-br ${gradients[mix.accent] || gradients.violet} shadow-xl shadow-black/25 ${
+        className={`cd-mix-art relative overflow-hidden bg-gradient-to-br ${gradients[mix.accent] || gradients.violet} shadow-xl shadow-black/25 ${
           landscape
             ? compact
               ? 'aspect-[2.35/1] rounded-[11px]'
-              : 'aspect-[2.25/1] rounded-[12px]'
-            : 'aspect-square rounded-[24px]'
+              : 'aspect-[1.85/1] rounded-[14px]'
+            : 'aspect-square rounded-[14px]'
         }`}
       >
-        <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 opacity-75 mix-blend-luminosity transition duration-700 group-hover:scale-105 group-hover:opacity-90">
+        <div className={`absolute inset-0 grid ${mix.artworkUrls.length === 1 ? 'grid-cols-1 grid-rows-1' : 'grid-cols-2 grid-rows-2'} opacity-75 transition duration-700 group-hover:scale-105 group-hover:opacity-90`}>
           {mix.artworkUrls.slice(0, 4).map((url, index) => (
-            <img key={`${url}-${index}`} src={url} alt="" className="h-full w-full object-cover" />
+            <img key={`${url}-${index}`} src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
           ))}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/15 to-transparent" />
@@ -207,7 +207,7 @@ export const MusicMixCard: React.FC<{
           </p>
           {!compact && (
             <p
-              className={`${landscape ? 'mt-1.5 text-[10px]' : 'mt-2 text-xs'} line-clamp-1 font-medium text-white/60`}
+              className={`${landscape ? 'mt-1.5' : 'mt-2'} text-xs line-clamp-1 font-medium text-white/75`}
             >
               {subtitle}
             </p>

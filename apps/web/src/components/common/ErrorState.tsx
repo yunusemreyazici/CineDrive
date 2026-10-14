@@ -26,7 +26,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   return (
     <div
       role="alert"
-      className="flex flex-col items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-12 text-center"
+      className="cd-feedback flex flex-col items-center justify-center text-center"
     >
       <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-400">
         <AlertTriangle className="h-10 w-10" />

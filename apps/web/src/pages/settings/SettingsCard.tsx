@@ -46,7 +46,7 @@ export const SettingsCard: React.FC<SettingsCardProps> = ({
     // content-visibility keeps the long settings tab cheap to paint; the
     // intrinsic size stops the scrollbar from jumping as sections realise.
     style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 280px' }}
-    className="scroll-mt-24 border-t border-zinc-800/60 py-8 first:border-t-0 first:pt-1"
+    className="cd-settings-card scroll-mt-24"
   >
     <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="flex min-w-0 items-start gap-2.5">
@@ -74,7 +74,7 @@ export const SettingsCard: React.FC<SettingsCardProps> = ({
 );
 
 export const SETTINGS_INPUT_CLASSES =
-  'w-full rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
+  'cd-field w-full px-3 py-2 text-sm placeholder-zinc-600 transition-colors focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/40';
 
 export const SETTINGS_LABEL_CLASSES = 'block text-[13px] font-medium text-zinc-300';
 

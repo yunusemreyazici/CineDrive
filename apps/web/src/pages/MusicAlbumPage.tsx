@@ -43,7 +43,7 @@ export const MusicAlbumPage: React.FC = () => {
         onClose={() => setPlaylistOpen(false)}
       />
       <header
-        className="relative isolate -mx-4 -mt-4 overflow-hidden px-5 pb-10 pt-16 sm:-mx-6 sm:px-8 lg:-mx-8 lg:px-12"
+        className="cd-music-detail relative isolate overflow-hidden"
         style={{
           backgroundImage: `radial-gradient(circle at 20% 20%, rgb(${palette.primary} / .72), transparent 43%), radial-gradient(circle at 82% 72%, rgb(${palette.secondary} / .32), transparent 48%), linear-gradient(to bottom, rgb(${palette.primary} / .22), #08090b 92%)`,
         }}
@@ -57,7 +57,7 @@ export const MusicAlbumPage: React.FC = () => {
         )}
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-black/10 via-black/25 to-[#08090b]" />
         <div className="mx-auto flex max-w-7xl flex-col items-center gap-8 sm:flex-row sm:items-end">
-          <div className="aspect-square w-[min(72vw,330px)] shrink-0 overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-[0_35px_100px_rgba(0,0,0,.62)]">
+          <div className="aspect-square w-full max-w-[280px] sm:w-[35%] shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-xl">
             {album.artworkUrl ? (
               <img src={album.artworkUrl} alt="" className="h-full w-full object-cover" />
             ) : (
@@ -70,7 +70,7 @@ export const MusicAlbumPage: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/50">
               {releaseType}
             </p>
-            <h1 className="mt-3 text-balance font-display text-4xl font-black tracking-tight sm:text-5xl lg:text-7xl">
+            <h1 className="mt-3 break-words text-balance font-display text-3xl font-medium tracking-tight sm:text-4xl xl:text-5xl">
               {album.title}
             </h1>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm text-white/55 sm:justify-start">
@@ -124,17 +124,17 @@ export const MusicAlbumPage: React.FC = () => {
                 </span>
               ))}
             </div>
-            <div className="mt-7 flex items-center justify-center gap-3 sm:justify-start">
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
               <button
                 onClick={() => player.playTracks(album.tracks)}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-bold text-black shadow-xl transition hover:scale-[1.03]"
+                className="cd-primary whitespace-nowrap"
               >
                 <Play className="h-5 w-5 fill-current" />
                 {t.music.playAll}
               </button>
               <button
                 onClick={() => player.playShuffledTracks(album.tracks)}
-                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/10"
+                className="cd-pill-link whitespace-nowrap"
               >
                 <Shuffle className="h-5 w-5" />
                 {t.music.shufflePlay}

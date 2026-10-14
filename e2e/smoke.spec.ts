@@ -324,8 +324,14 @@ test.describe('CineDrive smoke', () => {
     expect((await playlistResponse).status()).toBeLessThan(400);
     // The accessible link name also includes the track count.
     await expect(page.getByRole('link', { name: playlistName }).first()).toBeVisible();
+    // Creation navigates to a lazy-loaded detail route. Wait for the actual
+    // destination before reload, rather than aborting its module fetch when
+    // the independently refreshed sidebar link appears first (WebKit).
+    await expect(page.getByRole('heading', { name: playlistName, exact: true })).toBeVisible();
 
     await page.reload();
+    await expect(page.getByRole('heading', { name: playlistName, exact: true })).toBeVisible();
+    await expect(page.getByText(tr.errors.boundaryTitle, { exact: true })).toHaveCount(0);
     await expect(page.getByText('Smoke Test Song').first()).toBeVisible();
     // Restored state remains paused to comply with browser autoplay policy.
     await expect(page.getByRole('button', { name: tr.music.play }).first()).toBeVisible();

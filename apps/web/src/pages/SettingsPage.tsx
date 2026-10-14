@@ -72,7 +72,7 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div>
-      <header className="mb-5 flex flex-col gap-4 border-b border-zinc-800/70 pb-5 sm:flex-row sm:items-center sm:justify-between">
+      <header className="cd-page-heading mb-7 sm:justify-between">
         <div>
           <h2 className="font-display text-2xl font-extrabold tracking-tight text-white">
             {t.settings.title}
@@ -118,10 +118,10 @@ export const SettingsPage: React.FC = () => {
         </div>
       </header>
 
-      <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/25 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:overflow-visible">
+      <div className="cd-settings-layout">
         <nav
           aria-label={t.settings.sectionsLabel}
-          className="scrollbar-none flex gap-4 overflow-x-auto border-b border-zinc-800/80 bg-zinc-950/60 p-2 lg:sticky lg:top-24 lg:block lg:min-h-[calc(100vh-10rem)] lg:self-start lg:border-b-0 lg:border-r lg:p-3"
+          className="cd-settings-nav scrollbar-none flex gap-4 overflow-x-auto p-3 lg:sticky lg:top-24 lg:block lg:self-start"
         >
           {SETTINGS_GROUPS.map((group) => (
             <div key={group.id} className="shrink-0 lg:mb-4 lg:shrink">
@@ -158,7 +158,7 @@ export const SettingsPage: React.FC = () => {
           ))}
         </nav>
 
-        <div className="min-w-0 p-4 md:px-7 md:py-5">
+        <div className="min-w-0">
           <Suspense fallback={<SettingsToolFallback />}>{PANE_CONTENT[activePane]}</Suspense>
         </div>
       </div>

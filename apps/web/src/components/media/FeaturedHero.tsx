@@ -173,7 +173,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
   const backdropUrl = getHeroArtworkUrl(media);
 
   return (
-    <section className="relative flex h-[420px] w-full items-center overflow-hidden bg-[#070809] md:h-[460px]">
+    <section className="cd-hero relative flex w-full items-center overflow-hidden">
       {backdropUrl ? (
         <img
           src={backdropUrl}
@@ -198,23 +198,22 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         onPlayingChange={setTrailerPlaying}
       />
 
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070809] via-transparent to-black/10" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#070809] via-[#070809]/75 to-transparent md:via-[#070809]/50" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-l from-[#070809]/45 via-transparent to-transparent" />
+      <div className="cd-hero-shade pointer-events-none absolute inset-0" />
 
-      <div className="relative z-10 w-full max-w-[500px] px-5 md:px-8 lg:px-10">
-        <h1 className="font-display text-4xl font-extrabold tracking-[-0.035em] text-white drop-shadow-md md:text-5xl">
+      <div className="cd-hero-copy relative z-10 w-full">
+        <p className="cd-eyebrow mb-5">{t.design.featured}</p>
+        <h2 className="font-display text-4xl font-extrabold tracking-[-0.035em] text-white drop-shadow-md md:text-5xl">
           {formatMediaTitle(media.title)}
-        </h1>
+        </h2>
 
         <div className="mt-3 flex items-center gap-2.5 text-xs font-medium text-zinc-300">
           {media.year && <span>{media.year}</span>}
           {media.year && <span className="h-1 w-1 rounded-full bg-brand-500" />}
-          <span>{media.type === 'movie' ? 'Film' : 'Dizi'}</span>
+          <span>{media.type === 'movie' ? t.common.movie : t.common.series}</span>
           {'duration' in media && typeof media.duration === 'number' && (
             <>
               <span className="h-1 w-1 rounded-full bg-zinc-600" />
-              <span>{Math.max(1, Math.round(media.duration / 60))} dk</span>
+              <span>{t.common.minutes(Math.max(1, Math.round(media.duration / 60)))}</span>
             </>
           )}
         </div>
@@ -226,10 +225,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={() => navigate(`/watch/${media.id}`)}
-            className="flex items-center gap-2 rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-950/30 transition hover:bg-brand-500 active:scale-[0.98]"
-          >
+          <button onClick={() => navigate(`/watch/${media.id}`)} className="cd-primary">
             <Play className="h-4 w-4 fill-current" />
             {media.progress && media.progress.percentage > 0
               ? t.mediaDetail.resume
@@ -242,7 +238,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
               className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
             >
               <Video className="h-4 w-4 text-brand-400" />
-              Fragman
+              {t.mediaDetail.watchTrailer}
             </button>
           )}
 
@@ -251,7 +247,7 @@ export const FeaturedHero: React.FC<FeaturedHeroProps> = ({ media }) => {
             className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/35 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-md transition hover:bg-white/10"
           >
             <Info className="h-4 w-4" />
-            Detaylar
+            {t.randomPicker.details}
           </button>
 
           <button

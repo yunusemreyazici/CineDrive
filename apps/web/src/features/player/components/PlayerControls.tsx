@@ -126,7 +126,7 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({
   };
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-black via-black/75 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-8 sm:space-y-3 sm:p-6">
+    <div className="cd-video-controls absolute inset-x-0 bottom-0 z-30 space-y-2 bg-gradient-to-t from-black via-black/85 to-transparent px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-10 sm:space-y-4 sm:p-8">
       {/* Subtitle & Speed Menus */}
       {subtitleMenuOpen && (
         <SubtitleMenu

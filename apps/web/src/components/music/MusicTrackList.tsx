@@ -67,12 +67,12 @@ export const MusicTrackList: React.FC<Props> = ({
       <div
         className={
           homeLayout
-            ? 'border-y border-white/[0.08] bg-transparent'
-            : 'overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0e0f11]'
+            ? 'cd-track-list'
+            : 'cd-track-list overflow-hidden'
         }
       >
         {homeLayout && (
-          <div className="hidden grid-cols-[44px_minmax(160px,1.2fr)_minmax(130px,.7fr)_minmax(130px,.7fr)_58px_76px] gap-4 border-b border-white/[0.06] px-2 py-2 text-[8px] font-bold uppercase tracking-[0.2em] text-zinc-600 md:grid">
+          <div className="cd-track-header gap-4 border-b border-white/[0.06] px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
             <span className="col-span-2">{t.music.track}</span>
             <span>{t.music.artist}</span>
             <span>{t.music.album}</span>
@@ -97,7 +97,7 @@ export const MusicTrackList: React.FC<Props> = ({
                 if (source && playlistItemId && source !== playlistItemId)
                   onMoveItem?.(source, playlistItemId);
               }}
-              className={`group grid items-center border-b border-white/[0.05] last:border-0 ${
+              className={`cd-track-row ${homeLayout ? 'cd-track-row-home' : ''} group grid items-center border-b border-white/[0.05] last:border-0 ${
                 homeLayout
                   ? 'grid-cols-[44px_minmax(0,1fr)_auto] gap-3 px-2 py-2 md:grid-cols-[44px_minmax(160px,1.2fr)_minmax(130px,.7fr)_minmax(130px,.7fr)_58px_76px] md:gap-4'
                   : 'grid-cols-[auto_44px_minmax(0,1fr)_auto] gap-3 px-3 py-2.5 md:grid-cols-[auto_44px_minmax(0,1fr)_minmax(120px,.6fr)_60px_auto]'
@@ -155,7 +155,7 @@ export const MusicTrackList: React.FC<Props> = ({
                   ))}
               </div>
               {homeLayout && (
-                <div className="hidden min-w-0 md:block">
+                <div className="cd-track-secondary min-w-0">
                   {track.primaryArtist && (
                     <Link
                       to={`/music/artists/${track.primaryArtist.id}`}
@@ -166,7 +166,7 @@ export const MusicTrackList: React.FC<Props> = ({
                   )}
                 </div>
               )}
-              <div className="hidden min-w-0 md:block">
+              <div className="cd-track-secondary min-w-0">
                 {showPlayCount ? (
                   <span className="text-xs tabular-nums text-zinc-500">
                     {t.music.playCount(track.playCount || 0)}
@@ -182,7 +182,7 @@ export const MusicTrackList: React.FC<Props> = ({
                   )
                 )}
               </div>
-              <span className="hidden text-xs tabular-nums text-zinc-600 md:block">
+              <span className="cd-track-secondary text-xs tabular-nums text-zinc-500">
                 {formatDuration(track.duration)}
               </span>
               <div className="flex items-center gap-1">

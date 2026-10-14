@@ -202,7 +202,7 @@ export const MusicReplayPage: React.FC = () => {
 
   return (
     <div className="space-y-7 pb-32">
-      <header className="border-b border-white/[0.07] pb-6">
+      <header className="cd-music-hero p-6 md:p-8">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brand-300">

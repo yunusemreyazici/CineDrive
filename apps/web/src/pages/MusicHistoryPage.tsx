@@ -4,6 +4,7 @@ import { PlaylistDestinationModal } from '../components/music/PlaylistDestinatio
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { useMusicHistoryQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
+import { MusicCollectionState } from '../components/music/MusicCollectionState';
 
 export const MusicHistoryPage: React.FC = () => {
   const query = useMusicHistoryQuery();
@@ -19,7 +20,7 @@ export const MusicHistoryPage: React.FC = () => {
         isOpen={playlistOpen}
         onClose={() => setPlaylistOpen(false)}
       />
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="cd-page-heading justify-between">
         <h1 className="font-display text-3xl font-extrabold">{t.music.history}</h1>
         {unique.length > 0 && (
           <button
@@ -32,7 +33,14 @@ export const MusicHistoryPage: React.FC = () => {
           </button>
         )}
       </header>
-      <MusicTrackList tracks={unique} />
+      <MusicCollectionState
+        loading={query.isLoading}
+        error={query.error}
+        empty={!unique.length}
+        onRetry={() => void query.refetch()}
+      >
+        <MusicTrackList tracks={unique} />
+      </MusicCollectionState>
     </div>
   );
 };

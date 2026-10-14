@@ -22,36 +22,36 @@ export const AppLayout: React.FC = () => {
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
   const location = useLocation();
   const isMusicRoute = location.pathname === '/music' || location.pathname.startsWith('/music/');
-  const appSidebarOffset = sidebarCollapsed ? 72 : 220;
+  const compactSidebar = sidebarCollapsed || isMusicRoute;
+  const appSidebarOffset = compactSidebar ? 80 : 240;
 
   return (
     <MusicPlayerProvider>
       <div
-        className="min-h-screen bg-[#070809] font-sans text-zinc-100 selection:bg-brand-500 selection:text-white"
+        className="cd-shell font-sans text-zinc-100 selection:bg-brand-500 selection:text-white"
         style={
           {
             '--app-sidebar-offset': `${appSidebarOffset}px`,
           } as React.CSSProperties
         }
       >
-        <Sidebar />
+        <a className="cd-skip-link" href="#main-content" tabIndex={0}>
+          {t.design.skipToContent}
+        </a>
+        <Sidebar compact={compactSidebar} />
         <div
           className={`min-w-0 transition-[margin] duration-300 ${
-            sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[220px]'
+            compactSidebar ? 'lg:ml-[80px]' : 'lg:ml-[240px]'
           }`}
         >
           {isMusicRoute && <MusicSidebar />}
           <div
             className={
-              isMusicRoute ? 'min-w-0 transition-[margin] duration-300 lg:ml-[272px]' : 'min-w-0'
+              isMusicRoute ? 'min-w-0 transition-[margin] duration-300 lg:ml-[240px]' : 'min-w-0'
             }
           >
             {!isMusicRoute && <Navbar />}
-            <main
-              className={`mx-auto w-full max-w-[1600px] py-4 pb-28 md:pb-28 ${
-                isMusicRoute ? 'px-4 md:px-[18px] md:py-4' : 'px-4 md:px-6 md:py-5'
-              }`}
-            >
+            <main id="main-content" tabIndex={-1} className="cd-main mx-auto w-full min-w-0">
               <Suspense fallback={<PageFallback />}>
                 <Outlet />
               </Suspense>

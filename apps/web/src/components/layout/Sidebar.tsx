@@ -17,8 +17,9 @@ const navItems = [
   { to: '/settings', label: t.nav.settings, icon: Settings },
 ];
 
-export const Sidebar: React.FC = () => {
-  const { sidebarOpen, sidebarCollapsed, setSidebarOpen } = useUiStore();
+export const Sidebar: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const { sidebarOpen, sidebarCollapsed: savedCollapsed, setSidebarOpen } = useUiStore();
+  const sidebarCollapsed = compact ?? savedCollapsed;
   const asideRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [isDesktop, setIsDesktop] = useState(
@@ -64,14 +65,14 @@ export const Sidebar: React.FC = () => {
         aria-label={t.nav.mainNavigation}
         aria-hidden={!sidebarOpen && !isDesktop}
         inert={!sidebarOpen && !isDesktop ? true : undefined}
-        className={`fixed left-0 top-0 z-[70] flex h-screen w-[220px] flex-col border-r border-white/[0.06] bg-[#090a0c]/98 p-3 transition-[width,transform] duration-300 ease-in-out lg:z-50 lg:bg-[#090a0c] ${
-          sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-[220px]'
+        className={`cd-sidebar fixed left-0 top-0 z-[70] flex h-dvh w-[240px] flex-col border-r p-4 transition-[width,transform] duration-300 ease-in-out lg:z-50 ${
+          sidebarCollapsed ? 'lg:w-[80px]' : 'lg:w-[240px]'
         } ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
-        <div className="min-h-0 flex-1">
-          <div className="mb-5 flex h-12 items-center justify-between px-2">
-            <Link to="/" className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-brand-500/25 bg-brand-500/10 text-brand-400">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-28">
+          <div className="mb-10 flex h-12 items-center justify-between">
+            <Link to="/" aria-label="CineDrive" className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-zinc-950">
                 <Film className="h-[18px] w-[18px]" />
               </div>
               <span
@@ -91,19 +92,14 @@ export const Sidebar: React.FC = () => {
           </div>
 
           {/* Nav Items */}
-          <nav className="space-y-1">
+          <p className={`cd-eyebrow mb-4 px-3 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>{t.design.collection}</p>
+          <nav aria-label={t.nav.mainNavigation}>
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 onClick={() => setSidebarOpen(false)}
-                className={({ isActive }) =>
-                  `flex h-11 items-center gap-3 rounded-lg border px-3 text-sm font-medium transition-all ${
-                    isActive
-                      ? 'border-brand-500/25 bg-brand-500/10 text-brand-400'
-                      : 'border-transparent text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-100'
-                  }`
-                }
+                className={`cd-nav-link ${item.to === '/favorites' || item.to === '/settings' ? 'cd-nav-divider' : ''}`}
                 title={sidebarCollapsed ? item.label : undefined}
               >
                 <item.icon className="h-5 w-5 shrink-0" />

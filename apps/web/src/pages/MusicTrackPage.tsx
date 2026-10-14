@@ -33,7 +33,7 @@ const MusicTrackContent: React.FC<{ trackId: string }> = ({ trackId }) => {
 
   return (
     <>
-      <main className="relative isolate -mx-4 -mt-4 min-h-[calc(100vh-5rem)] overflow-hidden px-4 pb-36 pt-12 sm:-mx-6 sm:px-8 sm:pt-20 lg:-mx-8 lg:px-12">
+      <section className="cd-music-detail relative isolate overflow-hidden">
         <div
           className="pointer-events-none absolute inset-0 -z-20"
           style={{
@@ -106,7 +106,7 @@ const MusicTrackContent: React.FC<{ trackId: string }> = ({ trackId }) => {
             </div>
           </div>
         </div>
-      </main>
+      </section>
 
       {showsInfo && (
         <MusicTrackInfoPanel

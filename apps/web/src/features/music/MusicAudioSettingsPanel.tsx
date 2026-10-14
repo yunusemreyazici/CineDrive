@@ -45,7 +45,7 @@ export const MusicAudioSettingsPanel: React.FC<Props> = ({ onClose }) => {
       role="dialog"
       aria-modal="true"
       aria-label={t.music.audioSettings}
-      className="fixed inset-x-3 bottom-3 top-3 z-[100] ml-auto flex w-[min(480px,calc(100vw-24px))] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#090b0e]/95 text-white shadow-[0_30px_100px_rgba(0,0,0,.75)] backdrop-blur-2xl sm:inset-y-5 sm:right-5"
+      className="cd-dialog fixed inset-x-3 bottom-3 top-3 z-[100] ml-auto flex w-[min(480px,calc(100vw-24px))] flex-col overflow-hidden border text-white sm:inset-y-5 sm:right-5"
     >
       <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div className="flex items-center gap-3">

@@ -7,7 +7,7 @@ export const NotFoundPage: React.FC = () => {
   const location = useLocation();
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center rounded-2xl border border-zinc-800/50 bg-zinc-900/30 p-12 text-center">
+    <div className="cd-feedback flex min-h-[60vh] flex-col items-center justify-center text-center">
       <div className="mb-4 rounded-2xl border border-zinc-700/30 bg-zinc-800/40 p-4 text-zinc-400">
         <Compass className="h-10 w-10" />
       </div>

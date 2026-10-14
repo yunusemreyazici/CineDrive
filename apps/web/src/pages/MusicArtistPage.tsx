@@ -59,7 +59,7 @@ export const MusicArtistPage: React.FC = () => {
         onClose={() => setPlaylistOpen(false)}
       />
       <header
-        className="relative isolate -mx-4 -mt-4 flex min-h-[360px] items-end overflow-hidden px-4 pb-8 pt-16 sm:-mx-6 sm:min-h-[430px] sm:px-8 sm:pb-12 sm:pt-20 lg:-mx-8 lg:px-12"
+        className="cd-music-detail relative isolate flex min-h-[320px] items-end overflow-hidden"
         style={{
           backgroundImage: `radial-gradient(circle at 24% 28%, rgb(${palette.primary} / .68), transparent 45%), radial-gradient(circle at 78% 75%, rgb(${palette.secondary} / .3), transparent 48%), linear-gradient(to bottom, rgb(${palette.primary} / .15), #08090b 94%)`,
         }}
@@ -84,7 +84,7 @@ export const MusicArtistPage: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-[0.22em] text-white/50">
               {t.music.artist}
             </p>
-            <h1 className="mt-2 max-w-full break-words text-balance font-display text-4xl font-black tracking-tight sm:text-6xl lg:text-8xl">
+            <h1 className="mt-2 max-w-full break-words text-balance font-display text-4xl font-medium tracking-tight xl:text-6xl">
               {artist.name}
             </h1>
             <p className="mt-4 text-sm text-white/50">
