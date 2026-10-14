@@ -646,7 +646,9 @@ export function useDeleteMediaItemMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media'] });
       queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
-      queryClient.invalidateQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
       queryClient.invalidateQueries({ queryKey: ['favorites'] });
     },
   });
@@ -669,7 +671,9 @@ export function useBatchDeleteMediaMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media'] });
       queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
-      queryClient.invalidateQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
       queryClient.invalidateQueries({ queryKey: ['favorites'] });
     },
   });
@@ -703,6 +707,7 @@ export function useAutoDownloadSubtitleMutation() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['mediaDetail', variables.mediaId] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
     },
   });
 }
@@ -809,6 +814,7 @@ export function useResetProgressMutation() {
       queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
       queryClient.invalidateQueries({ queryKey: ['mediaDetail', mediaItemId] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
       queryClient.invalidateQueries({ queryKey: ['media'] });
     },
   });
@@ -849,6 +855,7 @@ export function useDeleteHistoryMutation() {
       queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
       queryClient.invalidateQueries({ queryKey: ['media'] });
       queryClient.invalidateQueries({ queryKey: ['mediaDetail'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
     },
   });
 }
@@ -860,12 +867,20 @@ export function useClearWatchHistoryMutation() {
       await apiClient.delete('/history');
     },
     onSuccess: async () => {
-      queryClient.setQueryData(['watchHistory'], []);
+      // InfiniteQuery expects pages/pageParams, not a flat array. Cancel old
+      // reads before clearing so a response started before deletion cannot
+      // restore history or collapse the page with an incompatible cache shape.
+      await queryClient.cancelQueries({ queryKey: ['watchHistory'] });
+      queryClient.setQueryData(['watchHistory'], {
+        pages: [{ history: [], pagination: { page: 1, totalPages: 0, total: 0 } }],
+        pageParams: [1],
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['watchHistory'] }),
         queryClient.invalidateQueries({ queryKey: ['continueWatching'] }),
         queryClient.invalidateQueries({ queryKey: ['media'] }),
         queryClient.invalidateQueries({ queryKey: ['mediaDetail'] }),
+        queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] }),
       ]);
     },
   });
@@ -886,6 +901,7 @@ export function useUpdateProgressMutation(options?: { invalidateOnSuccess?: bool
       if (!invalidateOnSuccess) return;
       queryClient.invalidateQueries({ queryKey: ['continueWatching'] });
       queryClient.invalidateQueries({ queryKey: ['watchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['seasonEpisodes'] });
     },
   });
 }
