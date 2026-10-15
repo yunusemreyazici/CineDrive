@@ -1,4 +1,6 @@
 import type { PrismaClient } from '@cinedrive/prisma';
+import { defaultMusicPersonalization, type MusicPersonalizationDto } from '@cinedrive/shared';
+import { personalizationSignals } from './music-personalization.service.js';
 import type {
   MusicArtistDto,
   MusicDiscoveryDto,
@@ -329,9 +331,10 @@ export class MusicDiscoveryService {
   public async getDiscovery(
     userId: string,
     requestedGenerationId?: string,
+    personalization: MusicPersonalizationDto = defaultMusicPersonalization(),
   ): Promise<MusicDiscoveryDto> {
     const generationId = requestedGenerationId || `daily-${dateKey()}`;
-    const cacheKey = `${userId}:${generationId}`;
+    const cacheKey = `${userId}:${generationId}:${personalization.revision}`;
     const now = Date.now();
     for (const [key, entry] of this.discoveryCache) {
       if (entry.expiresAt <= now) this.discoveryCache.delete(key);
@@ -341,7 +344,7 @@ export class MusicDiscoveryService {
     const inflight = this.discoveryInflight.get(cacheKey);
     if (inflight) return inflight;
 
-    const task = this.computeDiscovery(userId, generationId);
+    const task = this.computeDiscovery(userId, generationId, personalization);
     this.discoveryInflight.set(cacheKey, task);
     try {
       const value = await task;
@@ -355,7 +358,11 @@ export class MusicDiscoveryService {
     }
   }
 
-  private async computeDiscovery(userId: string, generationId: string): Promise<MusicDiscoveryDto> {
+  private async computeDiscovery(
+    userId: string,
+    generationId: string,
+    personalization: MusicPersonalizationDto,
+  ): Promise<MusicDiscoveryDto> {
     const [candidates, history, playbackState] = await Promise.all([
       loadDiscoveryCandidates(this.prisma, userId),
       this.prisma.musicHistory.findMany({
@@ -455,11 +462,15 @@ export class MusicDiscoveryService {
         Math.log1p(daysSincePlayed) * 4 +
         Math.log1p(daysInLibrary) * 1.5 -
         Math.log1p(candidate.playCount) * 5 -
-        (recency === undefined ? 0 : Math.max(18, 58 - recency * 0.45)) +
+        (recency === undefined
+          ? 0
+          : Math.max(18, 58 - recency * 0.45) * personalization.preferences.recentPlayPenalty * 2) +
         (candidate.isFavorite ? 3 : 0)
       );
     };
 
+    const personalSignals = personalizationSignals(candidates, personalization);
+    const preferences = personalization.preferences;
     const selectionContext = createDiscoverySelectionContext();
     const select = (
       pool: DiscoveryCandidate[],
@@ -468,24 +479,34 @@ export class MusicDiscoveryService {
       relevance: (candidate: DiscoveryCandidate) => number = preferenceScore,
     ) =>
       selectDiscoveryCandidates(
-        pool.map((candidate) => ({
+        pool.filter(personalSignals.allowed).map((candidate) => ({
           value: candidate,
           id: candidate.id,
           artistKey: candidateArtistKey(candidate),
           albumKey: candidateAlbumKey(candidate),
           relevance:
             relevance(candidate) -
-            (recentIndex.has(candidate.id) ? 42 : 0) -
+            (recentIndex.has(candidate.id) ? 84 * preferences.recentPlayPenalty : 0) +
+            personalSignals.boost(candidate) -
             Math.log1p(candidate.playCount) * 1.5,
-          exploration: explorationScore(candidate),
+          exploration: explorationScore(candidate) + personalSignals.boost(candidate),
         })),
         `${generationId}:${seed}`,
         Math.min(limit, pool.length),
         selectionContext,
+        {
+          relevanceRatio:
+            preferences.exploration === 0.5 ? 0.65 : 0.95 - preferences.exploration * 0.6,
+          artistLimit: Math.round(6 - preferences.artistDiversity * 4),
+          globalArtistLimit: Math.round(18 - preferences.artistDiversity * 12),
+        },
       );
 
     const unheard = candidates.filter((candidate) => !listenedIds.has(candidate.id));
-    const dailyPool = unheard.length >= Math.min(12, candidates.length) ? unheard : candidates;
+    const dailyPool =
+      preferences.exploration >= 0.5 && unheard.length >= Math.min(12, candidates.length)
+        ? unheard
+        : candidates;
     const dailyPlan: MixPlan = {
       id: `daily-${dateKey()}`,
       type: 'daily',

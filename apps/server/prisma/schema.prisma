@@ -27,6 +27,7 @@ model User {
   // OpenSubtitles client authenticates with the API key alone. Removed rather
   // than encrypted — an unused credential is best not held at all.
   preferredLanguages          String                       @default("tr,en")
+  musicPersonalization        String                       @default("{}")
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
   disabledAt                  DateTime?
