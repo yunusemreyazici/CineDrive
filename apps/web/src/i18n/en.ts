@@ -8,6 +8,22 @@ import type { Translations } from './tr';
  * label discovered at runtime.
  */
 export const en: Translations = {
+  catalogueLayout: {
+    title: 'Catalogue layout',
+    posterSize: 'Poster size',
+    small: 'Small',
+    medium: 'Medium',
+    large: 'Large',
+    hint: 'Remembered for your account in this browser.',
+    notSaved: 'Could not save this preference; it only applies to this page.',
+  },
+  recentBrowse: {
+    title: 'Recently browsed',
+    hint: 'Last 12 detail pages · Private to your account in this browser. Watch history is unchanged.',
+    clear: 'Clear browsing list',
+    clearFailed: 'Could not clear the browsing list. Check browser storage permissions.',
+    remove: (title: string) => `${title}: remove from browsing list`,
+  },
   design: {
     skipToContent: 'Skip to content',
     collection: 'Your personal collection',
@@ -113,6 +129,25 @@ export const en: Translations = {
     loadFailed: 'Could not load the home page',
   },
 
+  shortcuts: {
+    views: 'Saved views',
+    saveView: 'Save view',
+    saved: 'View saved',
+    viewName: 'View name',
+    nameExample: 'e.g. Top-rated classics',
+    localHint: 'Stored in this browser for your account.',
+    removeView: (name: string) => `Remove ${name} view`,
+    limit: 'You can save up to 20 views.',
+    storageFailed: 'Could not save in this browser. Check storage permissions and try again.',
+    copyLink: 'Copy link',
+    linkCopied: 'Filter link copied',
+    copyFailed: 'Could not copy the link. You can copy it from the address bar.',
+    quickNavigation: 'Quick navigation',
+    recentSearches: 'Recent searches',
+    clearSearches: 'Clear recent searches',
+    searchAgain: (query: string) => `Search again for ${query}`,
+  },
+
   library: {
     title: 'Media library',
     subtitle: 'Every movie and series in your Google Drive archive',
@@ -149,6 +184,14 @@ export const en: Translations = {
   },
 
   music: {
+    sleepTimer: 'Sleep timer',
+    sleepTimerUntil: (time: string) => `Pause at ${time}`,
+    sleepTimerHint: 'Music pauses here when the timer ends. Your queue and position are kept.',
+    sleepTimerSessionHint: 'Reloading the page or switching accounts turns the timer off.',
+    cancelSleepTimer: 'Turn off timer',
+    sleepTimerFinished: 'Sleep timer ended. Music paused.',
+    copyMusicLink: 'Copy link',
+    musicLinkCopied: 'Music link copied',
     title: 'Music',
     homeSubtitle: 'All your music. In one place.',
     newArrivals: 'New arrivals',
@@ -221,6 +264,14 @@ export const en: Translations = {
     liked: 'Liked tracks',
     history: 'Listening history',
     queue: 'Queue',
+    queueSearch: 'Search songs, artists or albums',
+    queueMatches: (shown: number, total: number) => `${shown} of ${total} tracks`,
+    queueNoMatches: 'No matching tracks in this queue.',
+    queueCurrent: 'Current track',
+    queueUpNext: 'Up next',
+    queueRemove: (title: string) => `Remove ${title} from queue`,
+    queueRemoved: (title: string) => `Removed: ${title}`,
+    queueUndo: 'Undo',
     newPlaylist: 'New playlist name',
     createPlaylist: 'Create a new playlist',
     sortPlaylists: 'Reverse playlist order',

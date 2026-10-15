@@ -6,6 +6,22 @@
  * the sentence actually needs.
  */
 export const tr = {
+  catalogueLayout: {
+    title: 'Kütüphane görünümü',
+    posterSize: 'Poster boyutu',
+    small: 'Küçük',
+    medium: 'Orta',
+    large: 'Büyük',
+    hint: 'Bu tarayıcıda hesabın için hatırlanır.',
+    notSaved: 'Tercih kaydedilemedi; yalnızca bu sayfada uygulanıyor.',
+  },
+  recentBrowse: {
+    title: 'Son gezdiğin içerikler',
+    hint: 'Son 12 detay sayfası · Bu tarayıcıda, hesabına özel. İzleme geçmişini değiştirmez.',
+    clear: 'Gezinme listesini temizle',
+    clearFailed: 'Gezinme listesi temizlenemedi. Tarayıcı depolama izinlerini kontrol et.',
+    remove: (title: string) => `${title}: gezinme listesinden kaldır`,
+  },
   design: {
     skipToContent: 'İçeriğe geç',
     collection: 'Kişisel koleksiyonun',
@@ -111,6 +127,25 @@ export const tr = {
     loadFailed: 'Ana Sayfa Yüklenemedi',
   },
 
+  shortcuts: {
+    views: 'Kayıtlı görünümler',
+    saveView: 'Görünümü kaydet',
+    saved: 'Görünüm kaydedildi',
+    viewName: 'Görünüm adı',
+    nameExample: 'Örn. Yüksek puanlı klasikler',
+    localHint: 'Bu tarayıcıda, hesabına özel saklanır.',
+    removeView: (name: string) => `${name} görünümünü kaldır`,
+    limit: 'En fazla 20 görünüm kaydedebilirsin.',
+    storageFailed: 'Tarayıcıya kaydedilemedi. Depolama iznini kontrol edip tekrar dene.',
+    copyLink: 'Bağlantıyı kopyala',
+    linkCopied: 'Filtre bağlantısı kopyalandı',
+    copyFailed: 'Bağlantı kopyalanamadı. Adres çubuğundaki bağlantıyı kopyalayabilirsin.',
+    quickNavigation: 'Hızlı geçiş',
+    recentSearches: 'Son aramalar',
+    clearSearches: 'Son aramaları temizle',
+    searchAgain: (query: string) => `${query} aramasını tekrarla`,
+  },
+
   library: {
     title: 'Medya Kütüphanesi',
     subtitle: 'Google Drive arşivinizdeki tüm dizi ve filmler',
@@ -147,6 +182,15 @@ export const tr = {
   },
 
   music: {
+    sleepTimer: 'Uyku zamanlayıcısı',
+    sleepTimerUntil: (time: string) => `${time} saatinde duraklat`,
+    sleepTimerHint:
+      'Seçtiğin süre dolduğunda müzik burada duraklatılır. Kuyruğun ve kaldığın yer korunur.',
+    sleepTimerSessionHint: 'Sayfayı yenilediğinde veya hesabı değiştirdiğinde zamanlayıcı kapanır.',
+    cancelSleepTimer: 'Zamanlayıcıyı kapat',
+    sleepTimerFinished: 'Uyku zamanlayıcısı doldu. Müzik duraklatıldı.',
+    copyMusicLink: 'Bağlantıyı kopyala',
+    musicLinkCopied: 'Müzik bağlantısı kopyalandı',
     title: 'Müzik',
     homeSubtitle: 'Tüm müziklerin. Tek bir yerde.',
     newArrivals: 'Yeni Gelenler',
@@ -218,6 +262,14 @@ export const tr = {
     liked: 'Beğenilen Parçalar',
     history: 'Dinleme Geçmişi',
     queue: 'Kuyruk',
+    queueSearch: 'Şarkı, sanatçı veya albüm ara',
+    queueMatches: (shown: number, total: number) => `${total} parçadan ${shown} tanesi`,
+    queueNoMatches: 'Kuyrukta eşleşen parça bulunamadı.',
+    queueCurrent: 'Seçili parça',
+    queueUpNext: 'Sıradaki',
+    queueRemove: (title: string) => `${title} parçasını kuyruktan kaldır`,
+    queueRemoved: (title: string) => `Kaldırıldı: ${title}`,
+    queueUndo: 'Geri al',
     newPlaylist: 'Yeni çalma listesi adı',
     createPlaylist: 'Yeni çalma listesi oluştur',
     sortPlaylists: 'Çalma listelerini ters sırala',

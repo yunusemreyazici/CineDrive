@@ -8,6 +8,7 @@ import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
 import { useMusicAlbumQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
+import { CopyMusicLinkButton } from '../components/music/CopyMusicLinkButton';
 
 const formatLongDuration = (seconds: number) => {
   const hours = Math.floor(seconds / 3600);
@@ -159,6 +160,7 @@ export const MusicAlbumPage: React.FC = () => {
                   <ExternalLink className="h-5 w-5" />
                 </a>
               )}
+              <CopyMusicLinkButton kind="albums" id={album.id} />
             </div>
           </div>
         </div>

@@ -8,6 +8,7 @@ import { formatAudioQuality } from '../features/music/musicAudio';
 import { useArtworkPalette } from '../features/music/useArtworkPalette';
 import { useMusicTrackQuery } from '../hooks/useMusicApi';
 import { t } from '../i18n';
+import { CopyMusicLinkButton } from '../components/music/CopyMusicLinkButton';
 
 const MusicTrackContent: React.FC<{ trackId: string }> = ({ trackId }) => {
   const query = useMusicTrackQuery(trackId);
@@ -103,6 +104,7 @@ const MusicTrackContent: React.FC<{ trackId: string }> = ({ trackId }) => {
                 <Info className="h-5 w-5" aria-hidden="true" />
                 {t.music.trackInfo}
               </button>
+              <CopyMusicLinkButton kind="tracks" id={track.id} />
             </div>
           </div>
         </div>

@@ -1,4 +1,18 @@
 /* Explicit component roles, never selectors coupled to utility class strings. */
+.cd-catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--poster-size)), 1fr));
+  gap: 20px 14px;
+}
+.cd-catalogue-small {
+  --poster-size: 140px;
+}
+.cd-catalogue-medium {
+  --poster-size: 180px;
+}
+.cd-catalogue-large {
+  --poster-size: 240px;
+}
 .cd-shell {
   min-height: 100dvh;
   background: var(--media-background);
