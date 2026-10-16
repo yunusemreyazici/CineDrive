@@ -21,7 +21,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: tr.music.playTrack('Smoke Test Song') }).click();
     await page.getByRole('button', { name: tr.music.openNowPlaying }).click();
     const nowPlaying = page.getByRole('dialog', { name: tr.music.nowPlaying, exact: true });
-    // Keep the four-second fixture playing via the actual repeat control, so
+    // Keep the fixture playing via the actual repeat control, so
     // expiry must stop active audio instead of an already-ended clip.
     const repeat = nowPlaying.getByRole('button', { name: tr.music.repeat, exact: true });
     for (
