@@ -92,6 +92,7 @@ export const musicPersonalizationRoutes: FastifyPluginAsync = async (app) => {
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id));
       // Downloaded-only lists must intersect the full matching ID set on-device before limiting.
       return {
+        evaluatedRule: rule,
         trackIds: matches.map((track) => track.id),
         matchedCount: matches.length,
         limit: rule.limit,

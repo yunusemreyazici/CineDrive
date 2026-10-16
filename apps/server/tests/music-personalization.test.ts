@@ -266,4 +266,18 @@ describe('music personalization HTTP', () => {
       expect(JSON.stringify(after.json()[key])).not.toContain(trackId);
     }
   });
+  it('returns the exact evaluated rule so another device cannot cache results under stale criteria', async () => {
+    const original = rule();
+    const saved = await put({ ...defaultMusicPersonalization(), smartLists: [original] });
+    expect(saved.statusCode).toBe(200);
+    expect((await get(`/smart/${original.id}`)).json().evaluatedRule).toEqual(original);
+    const updated = { ...original, language: 'en' as const, limit: 20 };
+    expect(
+      (await put({ ...musicPersonalizationSchema.parse(saved.json()), smartLists: [updated] }))
+        .statusCode,
+    ).toBe(200);
+    const result = await get(`/smart/${original.id}`);
+    expect(result.json().evaluatedRule).toEqual(updated);
+    expect(result.json().trackIds).not.toContain(trackId);
+  });
 });
