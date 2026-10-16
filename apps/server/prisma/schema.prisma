@@ -44,6 +44,8 @@ model User {
   musicFavorites              MusicFavorite[]
   musicHistory                MusicHistory[]
   musicPlaylists              MusicPlaylist[]
+  musicPlaylistMemberships    MusicPlaylistMembership[]
+  musicStudio                MusicStudio?
   musicPlaybackStates         MusicPlaybackState[]
   musicPlaybackCommands       MusicPlaybackCommand[]
   musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
@@ -718,8 +720,27 @@ model MusicPlaylist {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
   items       MusicPlaylistItem[]
+  memberships MusicPlaylistMembership[]
 
   @@index([userId, updatedAt])
+}
+
+model MusicPlaylistMembership {
+  playlistId String
+  userId String
+  role String @default("editor")
+  accepted Boolean @default(false)
+  playlist MusicPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([playlistId, userId])
+  @@index([userId, accepted])
+}
+
+model MusicStudio {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revision Int @default(0)
+  content String @default("{}")
 }
 
 model MusicPlaylistItem {

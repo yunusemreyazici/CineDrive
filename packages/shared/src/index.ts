@@ -8,6 +8,7 @@ export * from './schemas/library.schema';
 export * from './schemas/playback.schema';
 export * from './schemas/music.schema';
 export * from './schemas/music-personalization.schema';
+export * from './schemas/music-studio.schema';
 export * from './types';
 export * from './constants';
 export * from './utils/html-text';

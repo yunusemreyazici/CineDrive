@@ -79,6 +79,7 @@ describe('Music AI editorial planning', () => {
     };
     const pool = Array.from({ length: 20 }, (_, index) => candidate(index));
     const prisma = {
+      musicStudio: { findUnique: vi.fn().mockResolvedValue(null) },
       musicHistory: { findMany: history },
       musicTrack: {
         findMany: async (args: { include?: unknown }) =>

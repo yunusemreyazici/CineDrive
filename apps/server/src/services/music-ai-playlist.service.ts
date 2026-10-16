@@ -12,6 +12,7 @@ import {
 import { buildMusicCatalogueSummary, MusicAiIntentPlanner } from './music-ai-intent.js';
 import type { MusicAiProvider } from './music-ai-provider.js';
 import { MusicAiProviderError } from './music-ai-provider.js';
+import { readStudio, selectRecordingVersions, StudioError } from './music-studio.service.js';
 import {
   isHardLanguageEvidenceAccepted,
   persistedTrackLanguageEvidence,
@@ -435,6 +436,10 @@ export const describeHardIntentConstraints = (
 };
 
 export class MusicAiPlaylistService {
+  private readonly refinements = new Map<
+    string,
+    { userId: string; expiresAt: number; result: MusicAiPlaylistResult }
+  >();
   private readonly planner: MusicAiIntentPlanner | null;
   private readonly intentCache = new Map<string, { expiresAt: number; intent: PlaylistIntent }>();
   private readonly intentInflight = new Map<string, Promise<PlaylistIntent>>();
@@ -507,7 +512,12 @@ export class MusicAiPlaylistService {
         track: { select: { duration: true } },
       },
     });
-    const selected = selectAiPlaylistCandidates(candidates, history, intent, generationId);
+    const studio = await readStudio(this.prisma, userId);
+    const eligible = selectRecordingVersions(
+      candidates.filter((c) => matchesCandidateHardIntent(c, intent)),
+      studio,
+    );
+    const selected = selectAiPlaylistCandidates(eligible, history, intent, generationId);
     const matchedCount = candidates.filter((candidate) =>
       matchesCandidateHardIntent(candidate, intent),
     ).length;
@@ -540,7 +550,7 @@ export class MusicAiPlaylistService {
       candidateCount: matchedCount,
       trackCount: tracks.length,
     };
-    return {
+    const result = {
       intent,
       mix,
       generatedAt: new Date().toISOString(),
@@ -548,5 +558,109 @@ export class MusicAiPlaylistService {
       matchedCount,
       constraints: describeHardIntentConstraints(intent, locale),
     };
+    this.remember(userId, result);
+    return result;
+  }
+
+  private remember(userId: string, result: MusicAiPlaylistResult) {
+    for (const [key, entry] of this.refinements)
+      if (entry.expiresAt <= Date.now()) this.refinements.delete(key);
+    while (this.refinements.size >= 100)
+      this.refinements.delete(this.refinements.keys().next().value!);
+    this.refinements.set(`${userId}:${result.mix.id}`, {
+      userId,
+      result,
+      expiresAt: Date.now() + 30 * 60_000,
+    });
+  }
+
+  public async refine(
+    userId: string,
+    mixId: string,
+    keepIds: string[],
+    generationId: string,
+  ): Promise<MusicAiPlaylistResult> {
+    const saved = this.refinements.get(`${userId}:${mixId}`);
+    if (!saved || saved.expiresAt <= Date.now())
+      throw new StudioError(410, 'Mix expired. Generate a new mix.');
+    const original = saved.result;
+    const oldIds = new Set(original.mix.tracks.map((t) => t.id));
+    if (new Set(keepIds).size !== keepIds.length || keepIds.some((id) => !oldIds.has(id)))
+      throw new StudioError(400, 'Invalid retained tracks.');
+    const [candidates, studio, history] = await Promise.all([
+      loadDiscoveryCandidates(this.prisma, userId),
+      readStudio(this.prisma, userId),
+      this.prisma.musicHistory.findMany({
+        where: { userId },
+        orderBy: { playedAt: 'desc' },
+        take: HISTORY_LIMIT,
+        select: {
+          trackId: true,
+          playedAt: true,
+          listenedSeconds: true,
+          track: { select: { duration: true } },
+        },
+      }),
+    ]);
+    const hardPool = candidates.filter((c) => matchesCandidateHardIntent(c, original.intent));
+    const kept = hardPool.filter((c) => keepIds.includes(c.id));
+    if (kept.length !== keepIds.length)
+      throw new StudioError(409, 'Retained tracks are no longer available or eligible.');
+    const familyExcluded = new Set(
+      studio.families
+        .filter((f) => f.trackIds.some((id) => keepIds.includes(id)))
+        .flatMap((f) => f.trackIds),
+    );
+    const pool = selectRecordingVersions(
+      hardPool.filter((c) => !oldIds.has(c.id) && !familyExcluded.has(c.id)),
+      studio,
+    );
+    const context: DiscoverySelectionContext = {
+      usedTrackIds: new Set(keepIds),
+      artistCounts: new Map(),
+    };
+    for (const track of kept) {
+      const key = track.artistId || `unknown:${track.id}`;
+      context.artistCounts.set(key, (context.artistCounts.get(key) ?? 0) + 1);
+    }
+    const selected = selectAiPlaylistCandidates(
+      pool,
+      history,
+      { ...original.intent, targetCount: Math.max(0, original.mix.tracks.length - kept.length) },
+      generationId,
+      context,
+    );
+    const ids = [...keepIds, ...selected.map((c) => c.id)];
+    const hydrated = await findMusicTracksByIdsWithRelations(
+      this.prisma,
+      userId,
+      ids,
+      readableMusicTrackFilter(userId),
+    );
+    const byId = new Map(hydrated.map(formatMusicTrack).map((t) => [t.id, t]));
+    const replacements = selected.flatMap((c) => {
+      const track = byId.get(c.id);
+      return track ? [track] : [];
+    });
+    const tracks = original.mix.tracks.flatMap((t) => {
+      const replacement = keepIds.includes(t.id) ? byId.get(t.id) : replacements.shift();
+      return replacement ? [replacement] : [];
+    });
+    const result: MusicAiPlaylistResult = {
+      ...original,
+      generatedAt: new Date().toISOString(),
+      matchedCount: hardPool.length,
+      mix: {
+        ...original.mix,
+        id: `ai-refined-${generationId}`,
+        tracks,
+        trackCount: tracks.length,
+        artworkUrls: [
+          ...new Set(tracks.map((t) => t.artworkUrl).filter((url): url is string => !!url)),
+        ].slice(0, 4),
+      },
+    };
+    this.remember(userId, result);
+    return result;
   }
 }

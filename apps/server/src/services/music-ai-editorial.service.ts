@@ -7,8 +7,10 @@ import {
   type MusicEditorialSlot,
   type PlaylistIntent,
   type PlaylistIntentProviderOutput,
+  type MusicStudioDto,
 } from '@cinedrive/shared';
 import { readableMusicTrackFilter } from '../utils/library-access.js';
+import { readStudio, selectRecordingVersions, emptyStudio } from './music-studio.service.js';
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../utils/music-format.js';
 import { loadDiscoveryCandidates, type DiscoveryCandidate } from './music-discovery-candidates.js';
 import { normalizeGenre } from './music-discovery.service.js';
@@ -21,6 +23,7 @@ import type {
 } from './music-ai-provider.js';
 import {
   selectAiPlaylistCandidates,
+  matchesCandidateHardIntent,
   type AiPlaylistHistoryEntry,
 } from './music-ai-playlist.service.js';
 
@@ -268,12 +271,16 @@ export const selectEditorialCandidates = (
   history: AiPlaylistHistoryEntry[],
   plans: NormalizedEditorialPlan[],
   editionId: string,
+  studio: MusicStudioDto = emptyStudio(),
 ) => {
   const context = createDiscoverySelectionContext();
   return plans.map((plan) => ({
     ...plan,
     candidates: selectAiPlaylistCandidates(
-      candidates,
+      selectRecordingVersions(
+        candidates.filter((candidate) => matchesCandidateHardIntent(candidate, plan.intent)),
+        studio,
+      ),
       history,
       plan.intent,
       `${editionId}:${plan.slot}`,
@@ -307,6 +314,7 @@ export class MusicAiEditorialService {
       if (entry.expiresAt <= now.getTime()) this.cache.delete(key);
     }
     const candidates = await loadDiscoveryCandidates(this.prisma, userId);
+    const studio = await readStudio(this.prisma, userId);
     // Catalogue/access changes invalidate an edition; listening and favorite
     // signals do not regenerate today's plans on every visit.
     const catalogueRevision = createHash('sha256');
@@ -334,7 +342,7 @@ export class MusicAiEditorialService {
       );
     }
     const editionDate = now.toISOString().slice(0, 10);
-    const key = `${userId}:${locale}:${editionDate}:${catalogueRevision.digest('base64url')}`;
+    const key = `${userId}:${locale}:${editionDate}:${catalogueRevision.digest('base64url')}:${studio.revision}`;
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > now.getTime()) {
       const hydrated = await findMusicTracksByIdsWithRelations(
@@ -366,7 +374,7 @@ export class MusicAiEditorialService {
     }
     let pending = this.inflight.get(key);
     if (!pending) {
-      pending = this.planEdition(userId, locale, editionDate, now, candidates);
+      pending = this.planEdition(userId, locale, editionDate, now, candidates, studio);
       this.inflight.set(key, pending);
     }
     try {
@@ -387,6 +395,7 @@ export class MusicAiEditorialService {
     editionDate: string,
     now: Date,
     candidates: DiscoveryCandidate[],
+    studio: MusicStudioDto,
   ) {
     const history = await this.prisma.musicHistory.findMany({
       where: { userId },
@@ -410,6 +419,7 @@ export class MusicAiEditorialService {
       history,
       summary,
       profile,
+      studio,
     );
   }
 
@@ -422,6 +432,7 @@ export class MusicAiEditorialService {
     history: AiPlaylistHistoryEntry[],
     catalogue: MusicCatalogueSummary,
     profile: MusicEditorialListenerProfile,
+    studio: MusicStudioDto,
   ): Promise<MusicEditorialEditionDto> {
     const fallback = buildLocalEditorialPlans(locale, catalogue, profile);
     let plans = fallback;
@@ -442,7 +453,7 @@ export class MusicAiEditorialService {
     }
 
     const editionId = `editorial-${editionDate}`;
-    const selections = selectEditorialCandidates(candidates, history, plans, editionId);
+    const selections = selectEditorialCandidates(candidates, history, plans, editionId, studio);
     const selectedIds = selections.flatMap((selection) =>
       selection.candidates.map((candidate) => candidate.id),
     );

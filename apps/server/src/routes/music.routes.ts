@@ -5,6 +5,9 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@cinedrive/prisma';
 import type { MusicSearchDto } from '@cinedrive/shared';
 import { musicPersonalizationRoutes } from './music-personalization.routes.js';
+import { musicStudioRoutes } from './music-studio.routes.js';
+import { StudioError } from '../services/music-studio.service.js';
+import { refineMusicMixSchema } from '@cinedrive/shared';
 import { readMusicPersonalization } from '../services/music-personalization.service.js';
 import {
   addMusicPlaylistItemSchema,
@@ -478,6 +481,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   await fastify.register(musicPersonalizationRoutes, { prefix: '/personalization' });
+  await fastify.register(musicStudioRoutes, { prefix: '/studio' });
 
   fastify.get('/overview', async (request) => {
     const userId = request.user!.id;
@@ -822,6 +826,32 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
   });
+
+  fastify.post(
+    '/discovery/ai/refine',
+    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = refineMusicMixSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .code(400)
+          .send({ error: { code: 'VALIDATION_ERROR', message: 'Invalid refinement.' } });
+      try {
+        return await aiPlaylistService.refine(
+          request.user!.id,
+          parsed.data.mixId,
+          parsed.data.keepIds,
+          parsed.data.generationId,
+        );
+      } catch (error) {
+        if (error instanceof StudioError)
+          return reply
+            .code(error.statusCode)
+            .send({ error: { code: 'REFINEMENT_ERROR', message: error.message } });
+        throw error;
+      }
+    },
+  );
 
   fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
     const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);
