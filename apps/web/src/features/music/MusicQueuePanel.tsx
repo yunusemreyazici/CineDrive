@@ -3,8 +3,7 @@ import { ListPlus, Search, X } from 'lucide-react';
 import { useMusicPlayer } from './MusicPlayerProvider';
 import { t } from '../../i18n';
 
-const searchKey = (text: string) =>
-  text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/ı/g, 'i');
+import { musicTrackMatcher } from './musicSearch';
 
 export function MusicQueuePanel({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
   const player = useMusicPlayer();
@@ -17,13 +16,8 @@ export function MusicQueuePanel({ onClose, onSave }: { onClose: () => void; onSa
     return () => document.removeEventListener('keydown', dismiss);
   }, [onClose]);
   const visible = useMemo(() => {
-    const words = searchKey(search).trim().split(/\s+/).filter(Boolean);
-    return player.queue.filter(({ track }) => {
-      const text = searchKey(
-        [track.title, track.primaryArtist?.name, track.album?.title].filter(Boolean).join(' '),
-      );
-      return words.every((word) => text.includes(word));
-    });
+    const matches = musicTrackMatcher(search);
+    return player.queue.filter(({ track }) => matches(track));
   }, [player.queue, search]);
   const currentIndex = player.queue.findIndex((entry) => entry.id === player.currentQueueItemId);
   const nextId =
