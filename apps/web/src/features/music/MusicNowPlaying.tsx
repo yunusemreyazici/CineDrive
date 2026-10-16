@@ -21,6 +21,8 @@ import { t } from '../../i18n';
 import { audioQualityTier, formatAudioQuality } from './musicAudio';
 import { useMusicPlayer } from './MusicPlayerProvider';
 import { useArtworkPalette } from './useArtworkPalette';
+import { MusicSleepTimerButton } from './MusicSleepTimerButton';
+import { CopyMusicLinkButton } from '../../components/music/CopyMusicLinkButton';
 
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00';
@@ -263,6 +265,10 @@ export const MusicNowPlaying: React.FC<Props> = ({
                 onChange={(event) => player.setVolume(Number(event.target.value))}
                 className="music-range hidden w-28 sm:block"
               />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <MusicSleepTimerButton />
+              <CopyMusicLinkButton kind="tracks" id={track.id} />
             </div>
           </div>
         </div>

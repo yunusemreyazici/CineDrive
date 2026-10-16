@@ -8,6 +8,7 @@ import { t } from '../i18n';
 import { MusicPlayerProvider } from '../features/music/MusicPlayerProvider';
 import { MusicPlayerBar } from '../features/music/MusicPlayerBar';
 import { MusicSidebar } from '../components/music/MusicSidebar';
+import { GlobalSearch } from '../components/search/GlobalSearch';
 
 // Routes are code-split, so keep the shell mounted and swap only the content
 // area while the next page chunk downloads.
@@ -59,6 +60,7 @@ export const AppLayout: React.FC = () => {
           </div>
         </div>
         <MusicPlayerBar />
+        <GlobalSearch />
       </div>
     </MusicPlayerProvider>
   );

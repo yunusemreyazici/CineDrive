@@ -24,7 +24,10 @@ import {
 /** Resume requires >15s watched and >30s remaining; keep real media/DB durations aligned. */
 const CLIP_SECONDS = 90;
 const CLIP_NAME = 'Smoke Test Movie (2024).mp4';
-const AUDIO_SECONDS = 4;
+// A real clip longer than the 30s test budget: queue/search assertions must not
+// race a natural ended event while a slow CI runner locates the pause control.
+// Keep file, Drive metadata and MusicTrack duration aligned below.
+const AUDIO_SECONDS = 90;
 const AUDIO_NAME = '01 - Smoke Test Song.m4a';
 
 /**

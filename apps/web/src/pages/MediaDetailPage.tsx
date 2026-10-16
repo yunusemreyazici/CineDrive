@@ -35,6 +35,7 @@ import { extractYoutubeId } from '../utils/youtube';
 import type { EpisodeType } from '../types/media';
 import { getHeroArtworkUrl, getPosterUrl } from '../utils/mediaImages';
 import { t } from '../i18n';
+import { RememberBrowsedMedia } from '../hooks/useRecentlyBrowsed';
 
 /** Everything that is not "play this" shares one quiet treatment. */
 const SECONDARY_ACTION_CLASSES =
@@ -142,6 +143,7 @@ export const MediaDetailPage: React.FC = () => {
 
   return (
     <div className="space-y-10">
+      <RememberBrowsedMedia key={media.id} media={media} />
       {/* Top Hero Banner */}
       <div className="cd-detail-hero relative w-full p-6 md:p-12 flex flex-col md:flex-row gap-8 items-start md:items-center min-h-[440px]">
         {/* Backdrop & Gradients */}

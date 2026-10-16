@@ -9,15 +9,19 @@ import {
   ListPlus,
   Pencil,
   Play,
+  Search,
   Shuffle,
   Trash2,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from '../components/common/Modal';
+import { ErrorState } from '../components/common/ErrorState';
+import { EmptyState } from '../components/common/EmptyState';
 import { MusicTrackList } from '../components/music/MusicTrackList';
 import { PlaylistDestinationModal } from '../components/music/PlaylistDestinationModal';
 import { PlaylistTrackPickerModal } from '../components/music/PlaylistTrackPickerModal';
 import { useMusicPlayer } from '../features/music/MusicPlayerProvider';
+import { musicTrackMatcher } from '../features/music/musicSearch';
 import {
   useDeleteMusicPlaylistMutation,
   useCreateMusicPlaylistFromTracksMutation,
@@ -40,6 +44,10 @@ const formatDuration = (seconds: number) => {
 
 export const MusicPlaylistPage: React.FC = () => {
   const { playlistId } = useParams();
+  return <MusicPlaylistDetail key={playlistId} playlistId={playlistId} />;
+};
+
+const MusicPlaylistDetail: React.FC<{ playlistId?: string }> = ({ playlistId }) => {
   const navigate = useNavigate();
   const query = useMusicPlaylistQuery(playlistId);
   const remove = useRemovePlaylistTrackMutation();
@@ -56,6 +64,8 @@ export const MusicPlaylistPage: React.FC = () => {
   const [addToAnotherOpen, setAddToAnotherOpen] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
+  const [search, setSearch] = useState('');
+  const hasSearch = search.trim().length > 0;
 
   const remoteItems = query.data?.items || EMPTY_PLAYLIST_ITEMS;
   const orderedItems = useMemo(() => {
@@ -65,6 +75,11 @@ export const MusicPlaylistPage: React.FC = () => {
       : remoteItems;
   }, [itemOrder, remoteItems]);
   const tracks = useMemo(() => orderedItems.map((item) => item.track), [orderedItems]);
+  const visibleItems = useMemo(() => {
+    const matches = musicTrackMatcher(search);
+    return orderedItems.filter((item) => matches(item.track));
+  }, [orderedItems, search]);
+  const visibleTracks = useMemo(() => visibleItems.map((item) => item.track), [visibleItems]);
   const artworkUrls = useMemo(
     () =>
       [
@@ -77,9 +92,18 @@ export const MusicPlaylistPage: React.FC = () => {
     [tracks],
   );
 
-  if (!query.data) return <div className="h-64 animate-pulse rounded-2xl bg-zinc-900" />;
+  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
+  if (!query.data)
+    return (
+      <div
+        role="status"
+        aria-label={t.common.loading}
+        className="h-64 animate-pulse rounded-2xl bg-zinc-900"
+      />
+    );
 
   const move = (sourceId: string, targetId: string) => {
+    if (hasSearch || reorder.isPending) return;
     const next = [...orderedItems];
     const source = next.findIndex((item) => item.id === sourceId);
     const target = next.findIndex((item) => item.id === targetId);
@@ -293,20 +317,70 @@ export const MusicPlaylistPage: React.FC = () => {
 
       {orderedItems.length > 0 ? (
         <section className="space-y-3">
-          <p className="flex items-center gap-2 px-2 text-xs text-white/35">
-            <GripVertical className="h-4 w-4" />
-            {t.music.reorderPlaylistHint}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 focus-within:border-brand-300 sm:flex-1">
+              <Search className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden="true" />
+              <input
+                type="search"
+                value={search}
+                maxLength={200}
+                onChange={(event) => setSearch(event.target.value)}
+                aria-label={t.music.playlistSearch}
+                placeholder={t.music.playlistSearch}
+                className="min-w-0 w-full bg-transparent text-sm outline-none"
+              />
+            </label>
+            {hasSearch && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/10"
+                >
+                  {t.music.playlistClearSearch}
+                </button>
+                <button
+                  type="button"
+                  disabled={!visibleTracks.length}
+                  onClick={() => player.playTracks(visibleTracks)}
+                  className="inline-flex items-center gap-2 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-black disabled:opacity-40"
+                >
+                  <Play className="h-4 w-4" />
+                  {t.music.playlistPlayMatches(visibleTracks.length)}
+                </button>
+              </>
+            )}
+          </div>
+          <p role="status" className="px-2 text-xs text-zinc-400">
+            {t.music.playlistMatches(visibleItems.length, orderedItems.length)}
           </p>
-          <MusicTrackList
-            tracks={tracks}
-            playlistItems={orderedItems}
-            draggable
-            onMoveItem={move}
-            onRemoveItem={(itemId) =>
-              playlistId &&
-              remove.mutate({ playlistId, itemId }, { onError: (error) => toast.fromError(error) })
-            }
-          />
+          <p className="flex items-center gap-2 px-2 text-xs text-white/35">
+            {!hasSearch && <GripVertical className="h-4 w-4" />}
+            {hasSearch ? t.music.playlistSearchHint : t.music.reorderPlaylistHint}
+          </p>
+          {visibleItems.length ? (
+            <MusicTrackList
+              tracks={visibleTracks}
+              playlistItems={visibleItems}
+              draggable={!hasSearch && !reorder.isPending}
+              onMoveItem={hasSearch ? undefined : move}
+              onRemoveItem={(itemId) =>
+                playlistId &&
+                remove.mutate(
+                  { playlistId, itemId },
+                  { onError: (error) => toast.fromError(error) },
+                )
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Search}
+              title={t.music.playlistNoMatches}
+              description={t.music.playlistNoMatchesHint}
+              actionLabel={t.music.playlistClearSearch}
+              onAction={() => setSearch('')}
+            />
+          )}
         </section>
       ) : (
         <section className="flex min-h-52 flex-col items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[.02] px-6 text-center">

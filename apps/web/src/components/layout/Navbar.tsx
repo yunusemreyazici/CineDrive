@@ -4,8 +4,7 @@ import { Menu, Search, User, LogOut, Settings, Dices } from 'lucide-react';
 import { useUiStore } from '../../stores/useUiStore';
 import { useSessionQuery, useLogoutMutation } from '../../hooks/useApi';
 import { RandomPickerModal } from '../media/RandomPickerModal';
-import { SearchDialog } from '../search/SearchDialog';
-import { intlLocale, t } from '../../i18n';
+import { t } from '../../i18n';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -13,22 +12,11 @@ export const Navbar: React.FC = () => {
   const { data: session } = useSessionQuery();
   const logoutMutation = useLogoutMutation();
 
-  const [searchOpen, setSearchOpen] = useState(false);
+  const setSearchOpen = useUiStore((state) => state.setSearchOpen);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showRandomModal, setShowRandomModal] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const userMenuButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase(intlLocale) === 'k') {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
-  }, []);
 
   // The menu used to stay open until its trigger was clicked again — clicking
   // elsewhere or pressing Escape left it hanging over the page.
@@ -86,6 +74,7 @@ export const Navbar: React.FC = () => {
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
+        aria-label={t.nav.openSearch}
         className="hidden h-11 w-full max-w-lg items-center gap-3 rounded-full border border-white/10 bg-zinc-900 px-5 text-xs text-zinc-400 transition-colors hover:border-white/25 hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 sm:flex"
       >
         <Search className="h-4 w-4 shrink-0" />
@@ -168,8 +157,6 @@ export const Navbar: React.FC = () => {
           )}
         </div>
       </div>
-
-      {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
 
       <RandomPickerModal
         isOpen={showRandomModal}

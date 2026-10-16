@@ -11,6 +11,9 @@ import type { MusicTrackDto } from '@cinedrive/shared';
 import { ApiRequestError, apiClient } from '../../api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSessionQuery } from '../../hooks/useApi';
+import { useMusicSleepTimer, type SleepTimerMinutes } from './useMusicSleepTimer';
+import { toast } from '../../stores/useToastStore';
+import { t } from '../../i18n';
 import { MusicListeningSession, type MusicListeningEvent } from './musicListeningHistory';
 import {
   fetchMusicPlaybackState,
@@ -56,7 +59,12 @@ interface MusicPlayerContextValue {
   addToQueue: (track: MusicTrackDto) => void;
   playNext: (track: MusicTrackDto) => void;
   removeFromQueue: (id: string) => void;
+  removedQueueTitle: string | null;
+  undoQueueRemoval: () => void;
   togglePlay: () => void;
+  pause: () => void;
+  sleepTimerEndsAt: number | null;
+  setSleepTimer: (minutes: SleepTimerMinutes | null) => void;
   next: () => void;
   previous: () => void;
   seek: (seconds: number) => void;
@@ -143,9 +151,17 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const queueGenerationRef = useRef(0);
   const radioExtensionInFlightRef = useRef<Promise<MusicQueueEntry | null> | null>(null);
   const pendingPlayRef = useRef(false);
+  const playbackIntentGenerationRef = useRef(0);
+  const explicitlyPausedRef = useRef(false);
   const restoredPositionRef = useRef(0);
   const transitionTimerRef = useRef<number | null>(null);
   const [queue, setQueue] = useState<MusicQueueEntry[]>([]);
+  const [queueRemoval, setQueueRemoval] = useState<{
+    before: MusicQueueEntry[];
+    after: MusicQueueEntry[];
+    title: string;
+    owner: string | null;
+  } | null>(null);
   const [currentQueueItemId, setCurrentQueueItemId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -185,6 +201,11 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const currentEntry = queue.find((item) => item.id === currentQueueItemId) || null;
   const currentTrack = currentEntry?.track || null;
   const currentTrackId = currentTrack?.id || null;
+
+  // Any subsequent queue edit invalidates undo, so restoring cannot discard new entries.
+  if (queueRemoval && (queue !== queueRemoval.after || historyOwner !== queueRemoval.owner)) {
+    setQueueRemoval(null);
+  }
 
   useEffect(() => {
     queueRef.current = queue;
@@ -590,6 +611,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
 
   const switchToPrepared = useCallback(
     (entry: MusicQueueEntry, fadeSeconds = 0) => {
+      explicitlyPausedRef.current = false;
       const oldSlot = activeSlotRef.current;
       const newSlot = oldSlot === 0 ? 1 : 0;
       const oldAudio = audioRefs.current[oldSlot];
@@ -636,6 +658,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
 
   const selectEntry = useCallback(
     (entry: MusicQueueEntry, autoPlay = true) => {
+      explicitlyPausedRef.current = !autoPlay;
       clearTransition();
       const oldSlot = activeSlotRef.current;
       const oldAudio = audioRefs.current[oldSlot];
@@ -778,27 +801,63 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
     );
   }, []);
 
+  const undoQueueRemoval = useCallback(() => {
+    if (!queueRemoval || queueRemoval.owner !== historyOwnerRef.current) return;
+    setQueue((items) => (items === queueRemoval.after ? queueRemoval.before : items));
+    setQueueRemoval(null);
+    // Deliberately do not select an entry, seek, or resume audio.
+  }, [queueRemoval]);
+
+  const pause = useCallback(() => {
+    explicitlyPausedRef.current = true;
+    playbackIntentGenerationRef.current += 1;
+    pendingPlayRef.current = false;
+    clearTransition();
+    audioRefs.current.forEach((audio, slot) => {
+      if (audio) sampleHistory(slot as 0 | 1, audio);
+      audio?.pause();
+    });
+    setIsPlaying(false);
+    void syncRef.current();
+  }, [clearTransition, sampleHistory]);
   const removeFromQueue = useCallback(
     (id: string) => {
-      setQueue((items) => removeMusicQueueEntry(items, id));
-      if (id === currentQueueItemIdRef.current) next();
+      const before = queueRef.current;
+      const removed = before.find((item) => item.id === id);
+      if (!removed) return;
+      const after = removeMusicQueueEntry(before, id);
+      setQueueRemoval({ before, after, title: removed.track.title, owner: historyOwner });
+      // Use a functional update to preserve any edits queued earlier in this same event.
+      setQueue((items) => (items === before ? after : removeMusicQueueEntry(items, id)));
+      if (id === currentQueueItemIdRef.current) {
+        const successor = getNextEntry();
+        if (successor && successor.id !== id) next();
+        else pause(); // Also cancel pending autoplay when the last entry has not loaded yet.
+      }
     },
-    [next],
+    [next, pause, getNextEntry, historyOwner],
   );
+  const expireSleepTimer = useCallback(() => {
+    pause();
+    toast.info(t.music.sleepTimerFinished);
+  }, [pause]);
+  const sleepTimer = useMusicSleepTimer(historyOwner, expireSleepTimer);
+  const { checkExpiry: checkSleepTimerExpiry } = sleepTimer;
 
   const togglePlay = useCallback(() => {
     const audio = audioRefs.current[activeSlotRef.current];
     if (!audio) return;
     ensureAudioGraph();
     if (audio.paused) {
+      explicitlyPausedRef.current = false;
       pendingPlayRef.current = true;
       void audio.play().catch((error: unknown) => {
         console.error('[MusicPlayer] Playback resume failed', error);
         if (transcode) pendingPlayRef.current = false;
         setIsPlaying(false);
       });
-    } else audio.pause();
-  }, [ensureAudioGraph, transcode]);
+    } else pause();
+  }, [ensureAudioGraph, transcode, pause]);
 
   const seek = useCallback(
     (seconds: number) => {
@@ -886,6 +945,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   const handleTimeUpdate = useCallback(
     (slot: 0 | 1, audio: HTMLAudioElement) => {
       if (slot !== activeSlotRef.current) return;
+      if (checkSleepTimerExpiry()) return;
+      if (explicitlyPausedRef.current) return;
       const seconds = logicalMusicPosition(audio.currentTime, transcode, transcodeStart);
       setPosition(seconds);
       const entry = entryForSlot(slot);
@@ -908,12 +969,15 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       transcode,
       transcodeStart,
       transitioning,
+      checkSleepTimerExpiry,
     ],
   );
 
   const handleEnded = useCallback(
     async (slot: 0 | 1) => {
       if (slot !== activeSlotRef.current) return;
+      if (checkSleepTimerExpiry()) return;
+      if (explicitlyPausedRef.current) return;
       const audio = audioRefs.current[slot];
       const entry = entryForSlot(slot);
       if (audio && entry) {
@@ -938,7 +1002,10 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
         return;
       }
       if (continuousPlayEnabled) {
+        const intentGeneration = playbackIntentGenerationRef.current;
         const generated = await extendQueueWithRadio();
+        if (intentGeneration !== playbackIntentGenerationRef.current || checkSleepTimerExpiry())
+          return;
         if (generated) {
           selectEntry(generated);
           return;
@@ -960,6 +1027,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       switchToPrepared,
       transcode,
       transcodeStart,
+      checkSleepTimerExpiry,
     ],
   );
 
@@ -985,7 +1053,15 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       addToQueue,
       playNext,
       removeFromQueue,
+      removedQueueTitle:
+        queueRemoval?.after === queue && queueRemoval.owner === historyOwner
+          ? queueRemoval.title
+          : null,
+      undoQueueRemoval,
       togglePlay,
+      pause,
+      sleepTimerEndsAt: sleepTimer.endsAt,
+      setSleepTimer: sleepTimer.setSleepTimer,
       next,
       previous,
       seek,
@@ -1015,6 +1091,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       previous,
       queue,
       removeFromQueue,
+      queueRemoval,
+      historyOwner,
+      undoQueueRemoval,
       repeatMode,
       seek,
       selectEntry,
@@ -1023,6 +1102,9 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setVolume,
       shuffleEnabled,
       togglePlay,
+      pause,
+      sleepTimer.endsAt,
+      sleepTimer.setSleepTimer,
       toggleContinuousPlay,
       toggleShuffle,
       updateAudioSettings,
@@ -1040,6 +1122,8 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       preload="auto"
       onPlay={() => {
         if (slot === activeSlotRef.current) {
+          if (checkSleepTimerExpiry()) return;
+          explicitlyPausedRef.current = false;
           pendingPlayRef.current = false;
           setIsPlaying(true);
         }

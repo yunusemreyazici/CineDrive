@@ -4,6 +4,8 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@cinedrive/prisma';
 import type { MusicSearchDto } from '@cinedrive/shared';
+import { musicPersonalizationRoutes } from './music-personalization.routes.js';
+import { readMusicPersonalization } from '../services/music-personalization.service.js';
 import {
   addMusicPlaylistItemSchema,
   addMusicPlaylistItemsSchema,
@@ -475,6 +477,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.authenticate(request, reply);
   });
 
+  await fastify.register(musicPersonalizationRoutes, { prefix: '/personalization' });
+
   fastify.get('/overview', async (request) => {
     const userId = request.user!.id;
     const trackWhere = ownedTrackWhere(userId);
@@ -720,7 +724,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             requestId: request.id,
           },
         });
-      const discovery = await discoveryService.getDiscovery(request.user!.id, generationId);
+      const personalization = await readMusicPersonalization(fastify.prisma, request.user!.id);
+      const discovery = await discoveryService.getDiscovery(
+        request.user!.id,
+        generationId,
+        personalization.value,
+      );
       const nativeClient = typeof request.headers['x-cinemusic-version'] === 'string';
       const presentMix = (mix: (typeof discovery.mixes)[number]) => {
         if (!nativeClient) return mix;

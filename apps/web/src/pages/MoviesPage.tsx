@@ -1,46 +1,27 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { Film } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
 import { FilterPanel } from '../components/media/FilterPanel';
-import { DEFAULT_FILTERS, type FilterState } from '../components/media/filterState';
+import { SavedBrowseViews } from '../components/media/SavedBrowseViews';
+import { useMediaBrowseState } from '../hooks/useMediaBrowseState';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
 import { useMediaListQuery } from '../hooks/useApi';
 import { t } from '../i18n';
 import { MediaPagination } from '../components/common/MediaPagination';
+import { useCatalogueLayout } from '../hooks/useCatalogueLayout';
+import { CatalogueLayoutControls } from '../components/media/CatalogueLayoutControls';
 
 export const MoviesPage: React.FC = () => {
-  const [filterState, setFilterState] = useState<FilterState>(DEFAULT_FILTERS);
-  const [page, setPage] = useState(1);
-
-  const queryInput = useMemo(() => {
-    let yearFrom: number | undefined;
-    let yearTo: number | undefined;
-
-    if (filterState.yearRange === '2020s') yearFrom = 2020;
-    else if (filterState.yearRange === '2010s') {
-      yearFrom = 2010;
-      yearTo = 2019;
-    } else if (filterState.yearRange === '2000s') {
-      yearFrom = 2000;
-      yearTo = 2009;
-    } else if (filterState.yearRange === 'classics') {
-      yearTo = 1999;
-    }
-
-    return {
-      type: 'movie' as const,
-      genre: filterState.genre,
-      minRating: filterState.minRating,
-      yearFrom,
-      yearTo,
-      sortBy: filterState.sortBy,
-      sortOrder: filterState.sortOrder,
-      page,
-      limit: 18,
-    };
-  }, [filterState, page]);
+  const layout = useCatalogueLayout();
+  const {
+    filters: filterState,
+    setFilters: setFilterState,
+    page,
+    setPage,
+    queryInput,
+  } = useMediaBrowseState('movie');
 
   const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
 
@@ -48,7 +29,7 @@ export const MoviesPage: React.FC = () => {
     if (!data || page <= Math.max(1, data.pagination.totalPages)) return;
     const timer = window.setTimeout(() => setPage(Math.max(1, data.pagination.totalPages)), 0);
     return () => window.clearTimeout(timer);
-  }, [data, page]);
+  }, [data, page, setPage]);
 
   return (
     <div className="space-y-8">
@@ -66,16 +47,12 @@ export const MoviesPage: React.FC = () => {
         <p className="w-full text-sm text-zinc-400">{t.movies.subtitle}</p>
       </div>
 
-      <FilterPanel
-        filters={filterState}
-        onChange={(nextFilters) => {
-          setFilterState(nextFilters);
-          setPage(1);
-        }}
-      />
+      <CatalogueLayoutControls layout={layout} />
+      <SavedBrowseViews />
+      <FilterPanel filters={filterState} onChange={setFilterState} />
 
       {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className={layout.gridClassName}>
           {Array.from({ length: 12 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -89,9 +66,9 @@ export const MoviesPage: React.FC = () => {
           description={t.movies.notFoundDescription}
         />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className={layout.mode === 'grid' ? layout.gridClassName : 'space-y-3'}>
           {data.media.map((media) => (
-            <MediaCard key={media.id} media={media} />
+            <MediaCard key={media.id} media={media} layout={layout.mode} />
           ))}
         </div>
       )}

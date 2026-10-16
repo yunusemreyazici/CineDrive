@@ -1,43 +1,48 @@
-import React, { useState, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { LayoutGrid, List, Search, ChevronLeft, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Search, ChevronLeft, ChevronRight, SlidersHorizontal, X } from 'lucide-react';
 import { MediaCard } from '../components/media/MediaCard';
 import { FilterPanel } from '../components/media/FilterPanel';
-import {
-  DEFAULT_FILTERS,
-  activeFilters,
-  type FilterState,
-} from '../components/media/filterState';
+import { activeFilters } from '../components/media/filterState';
 import { SkeletonCard } from '../components/common/SkeletonCard';
 import { EmptyState } from '../components/common/EmptyState';
 import { ErrorState } from '../components/common/ErrorState';
-import { useUiStore } from '../stores/useUiStore';
+import { useCatalogueLayout } from '../hooks/useCatalogueLayout';
+import { CatalogueLayoutControls } from '../components/media/CatalogueLayoutControls';
 import { useMediaListQuery } from '../hooks/useApi';
 import { useSyncedState } from '../hooks/useSyncedState';
 import { t } from '../i18n';
+import { useMediaBrowseState } from '../hooks/useMediaBrowseState';
+import { SavedBrowseViews } from '../components/media/SavedBrowseViews';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
 export const LibraryPage: React.FC = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { viewMode, setViewMode } = useUiStore();
+  const browse = useMediaBrowseState();
+  const {
+    setParams: setSearchParams,
+    filters: filterState,
+    setFilters: setFilterState,
+    queryInput,
+  } = browse;
+  const layout = useCatalogueLayout();
+  const viewMode = layout.mode;
 
-  const typeParam = searchParams.get('type') as 'movie' | 'series' | null;
-  const searchParam = searchParams.get('search') || '';
-  const genreParam = searchParams.get('genre') || undefined;
-  const pageParam = parseInt(searchParams.get('page') || '1', 10);
+  const typeParam = browse.type;
+  const searchParam = browse.search;
+  const pageParam = browse.page;
 
   // The input stays responsive on every keystroke while the URL — and with it
   // the media query — only follows once typing settles.
   const [searchDraft, setSearchDraft] = useSyncedState(searchParam);
 
   React.useEffect(() => {
-    if (searchDraft === searchParam) return;
+    const normalizedDraft = searchDraft.trim().slice(0, 200);
+    if (normalizedDraft === searchParam) return;
 
     const timer = window.setTimeout(() => {
       setSearchParams(
         (prev) => {
-          if (searchDraft) prev.set('search', searchDraft);
+          if (normalizedDraft) prev.set('search', normalizedDraft);
           else prev.delete('search');
           prev.set('page', '1');
           return prev;
@@ -49,49 +54,7 @@ export const LibraryPage: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [searchDraft, searchParam, setSearchParams]);
 
-  const [filterState, setFilterState] = useState<FilterState>({
-    ...DEFAULT_FILTERS,
-    genre: genreParam,
-  });
   const [showFilters, setShowFilters] = useState(false);
-
-  // The genre can arrive from a link (?genre=Dram) or from the filter panel, so
-  // the URL value is folded into the filter state during render rather than in
-  // an effect that would render the stale genre once first.
-  const [lastGenreParam, setLastGenreParam] = useState(genreParam);
-  if (genreParam !== lastGenreParam) {
-    setLastGenreParam(genreParam);
-    setFilterState((current) => ({ ...current, genre: genreParam }));
-  }
-
-  const queryInput = useMemo(() => {
-    let yearFrom: number | undefined;
-    let yearTo: number | undefined;
-
-    if (filterState.yearRange === '2020s') yearFrom = 2020;
-    else if (filterState.yearRange === '2010s') {
-      yearFrom = 2010;
-      yearTo = 2019;
-    } else if (filterState.yearRange === '2000s') {
-      yearFrom = 2000;
-      yearTo = 2009;
-    } else if (filterState.yearRange === 'classics') {
-      yearTo = 1999;
-    }
-
-    return {
-      type: typeParam || undefined,
-      search: searchParam || undefined,
-      genre: filterState.genre,
-      minRating: filterState.minRating,
-      yearFrom,
-      yearTo,
-      sortBy: filterState.sortBy,
-      sortOrder: filterState.sortOrder,
-      page: pageParam,
-      limit: 18,
-    };
-  }, [typeParam, searchParam, filterState, pageParam]);
 
   const { data, isLoading, isError, error, refetch } = useMediaListQuery(queryInput);
 
@@ -137,6 +100,7 @@ export const LibraryPage: React.FC = () => {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
           <input
             type="text"
+            maxLength={200}
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}
             aria-label={t.library.searchLabel}
@@ -168,31 +132,6 @@ export const LibraryPage: React.FC = () => {
           })}
         </div>
 
-        <div className="flex rounded-lg border border-zinc-800 p-0.5">
-          <button
-            type="button"
-            onClick={() => setViewMode('grid')}
-            aria-label={t.library.gridView}
-            aria-pressed={viewMode === 'grid'}
-            className={`rounded-md p-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-              viewMode === 'grid' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'
-            }`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('list')}
-            aria-label={t.library.listView}
-            aria-pressed={viewMode === 'list'}
-            className={`rounded-md p-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 ${
-              viewMode === 'list' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-500 hover:text-zinc-200'
-            }`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-        </div>
-
         <button
           type="button"
           onClick={() => setShowFilters((open) => !open)}
@@ -214,6 +153,8 @@ export const LibraryPage: React.FC = () => {
         </button>
       </div>
 
+      <CatalogueLayoutControls layout={layout} />
+      <SavedBrowseViews />
       {showFilters && <FilterPanel filters={filterState} onChange={setFilterState} />}
 
       {/* Collapsed filters must still be visible as state, not just as a count. */}
@@ -237,7 +178,7 @@ export const LibraryPage: React.FC = () => {
 
       {/* Media Grid / List */}
       {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className={layout.gridClassName}>
           {Array.from({ length: 12 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -249,16 +190,10 @@ export const LibraryPage: React.FC = () => {
           title={t.library.notFoundTitle}
           description={t.library.notFoundDescription}
           actionLabel={t.library.clearFilters}
-          onAction={() => setSearchParams(new URLSearchParams())}
+          onAction={browse.clear}
         />
       ) : (
-        <div
-          className={
-            viewMode === 'grid'
-              ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'
-              : 'space-y-3'
-          }
-        >
+        <div className={viewMode === 'grid' ? layout.gridClassName : 'space-y-3'}>
           {data.media.map((media) => (
             <MediaCard key={media.id} media={media} layout={viewMode} />
           ))}
@@ -276,7 +211,8 @@ export const LibraryPage: React.FC = () => {
             <ChevronLeft className="w-5 h-5" />
           </button>
           <span className="text-sm text-zinc-400 font-medium font-display">
-            {t.library.page} <span className="text-white font-bold">{pageParam}</span> / {data.pagination.totalPages}
+            {t.library.page} <span className="text-white font-bold">{pageParam}</span> /{' '}
+            {data.pagination.totalPages}
           </span>
           <button
             onClick={() => handlePageChange(pageParam + 1)}

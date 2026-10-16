@@ -13,6 +13,7 @@ import { useMediaListQuery, useContinueWatchingQuery } from '../hooks/useApi';
 import { useMusicOverviewQuery } from '../hooks/useMusicApi';
 import { MusicCollectionCard } from '../components/music/MusicCollectionCard';
 import { SetupEntry } from './setup/SetupEntry';
+import { RecentlyBrowsed } from '../components/media/RecentlyBrowsed';
 
 const LAST_FEATURED_MEDIA_KEY = 'cinedrive-last-featured-media-v1';
 
@@ -207,6 +208,7 @@ export const HomePage: React.FC = () => {
         </section>
       )}
 
+      <RecentlyBrowsed />
       <HomeSection title={t.home.recentlyAdded} href="/library" items={allMedia} layout="grid" />
       <HomeSection title={t.common.movies} href="/movies" items={movies} />
       <HomeSection title={t.common.seriesPlural} href="/series" items={series} />

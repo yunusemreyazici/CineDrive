@@ -94,9 +94,12 @@ test('mobile drawers, search, theme and keyboard navigation remain usable', asyn
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'neon');
   await page.getByRole('button', { name: tr.nav.openSearch }).click();
-  const search = page.getByRole('combobox', { name: tr.search.dialogLabel });
+  const searchDialog = page.getByRole('dialog', { name: tr.search.dialogLabel });
+  const search = searchDialog.getByRole('combobox', { name: tr.search.dialogLabel });
   await search.fill('Smoke');
-  await expect(page.getByRole('option').first()).toBeVisible();
+  // Settings also contains native <option> elements. Only an actual search
+  // result in this overlay establishes that the lookup completed.
+  await expect(searchDialog.getByRole('option', { name: /Smoke Test Movie/ })).toBeVisible();
   await search.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 960 });

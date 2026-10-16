@@ -7,6 +7,9 @@ import { useMediaListQuery } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { getPosterUrl } from '../../utils/mediaImages';
 import { t } from '../../i18n';
+import { useBrowserShortcuts } from '../../hooks/useBrowserShortcuts';
+import { rememberSearch } from '../../utils/browserShortcuts';
+import { toast } from '../../stores/useToastStore';
 
 /**
  * The search overlay ⌘K always claimed to open.
@@ -32,7 +35,9 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
   const navigate = useNavigate();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const { data: shortcuts, update: updateShortcuts } = useBrowserShortcuts();
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -63,7 +68,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     setActiveIndex(0);
   }
 
-  const results = useMemo(() => {
+  const searchResults = useMemo(() => {
     if (!trimmedQuery) return [];
     return [
       ...(data?.media || []).map((media) => ({
@@ -111,6 +116,35 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     ].slice(0, 14);
   }, [data, musicQuery.data, trimmedQuery]);
 
+  const isEmpty = query.trim().length === 0;
+  const results = isEmpty
+    ? [
+        { id: 'nav-library', title: t.nav.library, path: '/library' },
+        { id: 'nav-movies', title: t.nav.movies, path: '/movies' },
+        { id: 'nav-series', title: t.nav.series, path: '/series' },
+        { id: 'nav-mixes', title: t.music.mixesRadio, path: '/music/mixes' },
+        { id: 'nav-favorites', title: t.nav.favorites, path: '/favorites' },
+        ...shortcuts.views.slice(0, 4).map((view) => ({
+          id: `view-${view.id}`,
+          title: view.name,
+          path: `${view.path}${view.query ? `?${view.query}` : ''}`,
+        })),
+      ].map((item) => ({
+        ...item,
+        subtitle: t.shortcuts.quickNavigation,
+        image: null,
+        kind: 'navigation' as const,
+      }))
+    : query.trim() === trimmedQuery
+      ? searchResults
+      : [];
+  const selectedIndex = Math.min(activeIndex, Math.max(0, results.length - 1));
+  useEffect(() => {
+    document
+      .getElementById(`${listId}-option-${selectedIndex}`)
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedIndex, listId, results.length]);
+
   // Keystrokes stay instant while the query only reaches the API once typing
   // settles — the same rule the library search follows.
   useEffect(() => {
@@ -131,24 +165,46 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     };
   }, []);
 
+  useEffect(() => {
+    const handleDialogKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const nodes = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>('input, button:not(:disabled)') || [],
+      );
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleDialogKey);
+    return () => document.removeEventListener('keydown', handleDialogKey);
+  }, [onClose]);
+
   const openResult = (index: number) => {
     const result = results[index];
     if (!result) return;
+    if (!isEmpty) updateShortcuts((current) => rememberSearch(current, trimmedQuery));
     onClose();
     navigate(result.path);
   };
 
   const openLibrarySearch = () => {
+    updateShortcuts((current) => rememberSearch(current, trimmedQuery));
     onClose();
     navigate(`/library?search=${encodeURIComponent(trimmedQuery)}`);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onClose();
-      return;
-    }
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       setActiveIndex((index) => (results.length === 0 ? 0 : (index + 1) % results.length));
@@ -164,8 +220,13 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       // Enter on an empty selection still gets the user somewhere useful.
-      if (results.length > 0) openResult(activeIndex);
-      else if (trimmedQuery) openLibrarySearch();
+      if (results.length > 0) openResult(selectedIndex);
+      else if (query.trim()) {
+        const term = query.trim().slice(0, 200);
+        updateShortcuts((current) => rememberSearch(current, term));
+        onClose();
+        navigate(`/library?search=${encodeURIComponent(term)}`);
+      }
     }
   };
 
@@ -175,30 +236,37 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
         type="button"
         aria-label={t.common.close}
         onClick={onClose}
+        tabIndex={-1}
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
       />
 
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t.search.dialogLabel}
-        className="cd-dialog relative w-full max-w-2xl overflow-hidden border"
+        className="cd-dialog relative w-full max-w-2xl overflow-y-auto border"
+        style={{ maxHeight: 'calc(90dvh - 32px)' }}
       >
         <div className="flex items-center gap-3 border-b border-zinc-800 px-4">
           <Search className="h-4 w-4 shrink-0 text-zinc-500" />
           <input
             ref={inputRef}
             type="text"
+            maxLength={200}
             role="combobox"
             aria-expanded={results.length > 0}
             aria-controls={listId}
             aria-activedescendant={
-              results.length > 0 ? `${listId}-option-${activeIndex}` : undefined
+              results.length > 0 ? `${listId}-option-${selectedIndex}` : undefined
             }
             aria-autocomplete="list"
             aria-label={t.search.dialogLabel}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveIndex(0);
+            }}
             onKeyDown={handleKeyDown}
             placeholder={t.search.placeholder}
             className="h-16 min-w-0 flex-1 bg-transparent text-base text-zinc-100 placeholder-zinc-500 focus:outline-none"
@@ -208,11 +276,48 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
           )}
         </div>
 
-        {trimmedQuery.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[13px] text-zinc-500">{t.search.hint}</p>
-        ) : results.length === 0 ? (
+        {isEmpty && (
+          <div className="px-4 pt-4">
+            {shortcuts.searches.length > 0 && (
+              <section className="mb-4" aria-label={t.shortcuts.recentSearches}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-xs text-zinc-400">{t.shortcuts.recentSearches}</h3>
+                  <button
+                    type="button"
+                    className="text-xs text-zinc-400 hover:text-white"
+                    onClick={() => {
+                      if (!updateShortcuts((current) => ({ ...current, searches: [] })))
+                        toast.error(t.shortcuts.storageFailed);
+                    }}
+                  >
+                    {t.shortcuts.clearSearches}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {shortcuts.searches.map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      className="max-w-full truncate rounded-full border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:border-brand-400"
+                      aria-label={t.shortcuts.searchAgain(term)}
+                      onClick={() => {
+                        setQuery(term);
+                        setDebouncedQuery(term);
+                        setActiveIndex(0);
+                      }}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <h3 className="mb-2 text-xs text-zinc-400">{t.shortcuts.quickNavigation}</h3>
+          </div>
+        )}
+        {results.length === 0 ? (
           <p className="px-4 py-6 text-center text-[13px] text-zinc-500">
-            {isFetching || musicQuery.isFetching
+            {isFetching || musicQuery.isFetching || query.trim() !== trimmedQuery
               ? t.search.searching
               : t.search.noResults(trimmedQuery)}
           </p>
@@ -224,7 +329,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
             className="max-h-80 overflow-y-auto p-1.5"
           >
             {results.map((result, index) => {
-              const isActive = index === activeIndex;
+              const isActive = index === selectedIndex;
 
               return (
                 <li key={result.id} role="none">
@@ -239,7 +344,9 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
                       isActive ? 'bg-zinc-800/80' : ''
                     }`}
                   >
-                    <span className="h-14 w-10 shrink-0 overflow-hidden rounded bg-zinc-900">
+                    <span
+                      className={`${result.kind === 'navigation' ? 'h-8 w-8' : 'h-14 w-10'} shrink-0 overflow-hidden rounded bg-zinc-900`}
+                    >
                       {result.image ? (
                         <img
                           src={result.image}
@@ -249,7 +356,9 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
                         />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center text-zinc-600">
-                          {result.kind === 'movie' ? (
+                          {result.kind === 'navigation' ? (
+                            <ArrowRight className="h-4 w-4" />
+                          ) : result.kind === 'movie' ? (
                             <Film className="h-4 w-4" />
                           ) : result.kind === 'series' ? (
                             <Tv className="h-4 w-4" />
@@ -268,7 +377,11 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
                       <span className="block truncate text-[13px] font-medium text-zinc-100">
                         {result.title}
                       </span>
-                      <span className="mt-0.5 block text-xs text-zinc-500">{result.subtitle}</span>
+                      {result.kind !== 'navigation' && (
+                        <span className="mt-0.5 block text-xs text-zinc-500">
+                          {result.subtitle}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>
@@ -278,7 +391,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({ onClose }) => {
         )}
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-4 py-2.5">
-          {trimmedQuery && results.length > 0 ? (
+          {!isEmpty && trimmedQuery && results.length > 0 ? (
             <button
               type="button"
               onClick={openLibrarySearch}
