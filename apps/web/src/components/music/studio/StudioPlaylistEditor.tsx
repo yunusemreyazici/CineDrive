@@ -2,8 +2,11 @@ import { useState } from 'react';
 import type { StudioPlaylistSummaryDto, StudioWorkshopDto } from '@cinedrive/shared';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../api/client';
-import { useStudioDetail, useStudioHistory } from '../../../hooks/useMusicStudio';
-import { useMusicTracksQuery } from '../../../hooks/useMusicApi';
+import {
+  useStudioDetail,
+  useStudioHistory,
+  useStudioTrackSearch,
+} from '../../../hooks/useMusicStudio';
 import { useMusicPlayer } from '../../../features/music/MusicPlayerProvider';
 import { ErrorState } from '../../common/ErrorState';
 import { t, intlLocale } from '../../../i18n';
@@ -54,7 +57,7 @@ function Editor({
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'editor' | 'listener'>('editor');
   const [search, setSearch] = useState('');
-  const results = useMusicTracksQuery({ q: search, pageSize: 20 });
+  const results = useStudioTrackSearch(owner, search);
   const items = data.playlist.items ?? [];
   const path = `/music/studio/playlists/${encodeURIComponent(data.playlist.id)}`;
   const target = useQuery({
@@ -224,6 +227,15 @@ function Editor({
               />
             </label>
             {results.isError && <ErrorState error={results.error} />}
+            {search.trim().length >= 2 && results.isPending && (
+              <p role="status">{t.studio.loading}</p>
+            )}
+            {search.trim().length >= 2 && results.isSuccess && !results.data.tracks.length && (
+              <p role="status">{t.studio.noSearchMatches}</p>
+            )}
+            {results.data && results.data.pagination.total > 20 && (
+              <p className="text-sm text-zinc-400">{t.studio.refineSearch}</p>
+            )}
             {search.trim().length >= 2 &&
               results.data?.tracks.map((track) => (
                 <div key={track.id} className="flex justify-between gap-3">

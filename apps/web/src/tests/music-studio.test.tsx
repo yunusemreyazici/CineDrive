@@ -74,6 +74,71 @@ describe('Music Studio', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
+  it.each(['workshop', 'profile'])(
+    'uses bounded real search parameters in %s and hides unrelated results',
+    async (surface) => {
+      const original = vi.mocked(apiClient.get).getMockImplementation()!;
+      vi.mocked(apiClient.get).mockImplementation(async (path, config) => {
+        if (path === '/music/tracks')
+          return {
+            data: {
+              tracks:
+                config?.params?.search === 'Smoke'
+                  ? [{ ...track, title: 'Search-only result' }]
+                  : [],
+              pagination: { total: 1, page: 1, limit: 20, totalPages: 1 },
+            },
+          } as never;
+        return original(path, config);
+      });
+      renderWithProviders(
+        surface === 'workshop' ? (
+          <StudioPlaylistEditor owner="user-1" id="list" lists={[]} />
+        ) : (
+          <StudioProfile owner="user-1" />
+        ),
+      );
+      const input = await screen.findByLabelText(t.studio.search);
+      expect(
+        vi.mocked(apiClient.get).mock.calls.filter(([path]) => path === '/music/tracks'),
+      ).toHaveLength(0);
+      fireEvent.change(input, { target: { value: 'S' } });
+      fireEvent.change(input, { target: { value: 'Sm' } });
+      fireEvent.change(input, { target: { value: ' Smoke ' } });
+      await screen.findByText('Search-only result', { exact: false });
+      const calls = vi
+        .mocked(apiClient.get)
+        .mock.calls.filter(([path]) => path === '/music/tracks');
+      expect(calls).toHaveLength(1);
+      expect(calls[0]![1]).toMatchObject({
+        params: { search: 'Smoke', limit: 20, page: 1 },
+        signal: expect.any(AbortSignal),
+      });
+      fireEvent.change(input, { target: { value: 'No matches' } });
+      expect(screen.queryByText('Search-only result', { exact: false })).not.toBeInTheDocument();
+      await screen.findByText(t.studio.noSearchMatches);
+    },
+  );
+  it('cancels lookup requests when the term changes or the editor unmounts', async () => {
+    const original = vi.mocked(apiClient.get).getMockImplementation()!;
+    const signals: AbortSignal[] = [];
+    vi.mocked(apiClient.get).mockImplementation(async (path, config) => {
+      if (path === '/music/tracks') {
+        signals.push(config!.signal!);
+        return new Promise(() => {}) as never;
+      }
+      return original(path, config);
+    });
+    const view = renderWithProviders(<StudioPlaylistEditor owner="user-1" id="list" lists={[]} />);
+    const input = await screen.findByLabelText(t.studio.search);
+    fireEvent.change(input, { target: { value: 'Smoke' } });
+    await waitFor(() => expect(signals).toHaveLength(1));
+    fireEvent.change(input, { target: { value: 'Other' } });
+    expect(signals[0]!.aborted).toBe(true);
+    await waitFor(() => expect(signals).toHaveLength(2));
+    view.unmount();
+    expect(signals[1]!.aborted).toBe(true);
+  });
 
   it('creates only on explicit submit and keeps an operation ID for a network retry', async () => {
     const queryClient = createTestQueryClient();

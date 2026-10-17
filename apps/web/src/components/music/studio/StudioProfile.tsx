@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { MusicStudioDto, MusicTrackDto, StudioTrackLabelDto } from '@cinedrive/shared';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../api/client';
-import { useMusicTracksQuery } from '../../../hooks/useMusicApi';
-import { useStudioProfile } from '../../../hooks/useMusicStudio';
+import { useStudioProfile, useStudioTrackSearch } from '../../../hooks/useMusicStudio';
 import { useMusicPlayer } from '../../../features/music/MusicPlayerProvider';
 import { ErrorState } from '../../common/ErrorState';
 import { StudioPanel, StudioButton, studioInput, useStudioAction } from './StudioControls';
@@ -36,7 +35,7 @@ function ProfileEditor({ owner, profile }: { owner: string; profile: MusicStudio
       restoreController.current?.abort();
     };
   }, []);
-  const results = useMusicTracksQuery({ q: search, pageSize: 20 });
+  const results = useStudioTrackSearch(owner, search);
   const linked = new Set(profile.families.flatMap((f) => f.trackIds));
   const save = (value: MusicStudioDto) =>
     void action.run({ path: '/music/studio/profile', method: 'put', body: value });
@@ -124,6 +123,15 @@ function ProfileEditor({ owner, profile }: { owner: string; profile: MusicStudio
             />
           </label>
           {results.isError && <ErrorState error={results.error} />}
+          {search.trim().length >= 2 && results.isPending && (
+            <p role="status">{t.studio.loading}</p>
+          )}
+          {search.trim().length >= 2 && results.isSuccess && !results.data.tracks.length && (
+            <p role="status">{t.studio.noSearchMatches}</p>
+          )}
+          {results.data && results.data.pagination.total > 20 && (
+            <p className="text-sm text-zinc-400">{t.studio.refineSearch}</p>
+          )}
           {search.length >= 2 &&
             results.data?.tracks
               .filter((track) => !linked.has(track.id) && !chosen.some((c) => c.id === track.id))

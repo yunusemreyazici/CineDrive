@@ -33,7 +33,7 @@ All paths below start with `/api/music/studio`, require authentication and retur
 - Restore is explicit full-content restoration with optimistic concurrency, not an automatic merge. Cross-playlist moves cannot be undone one-sided; their two history records remain inspectable. Copy records are inspectable but not restorable via this control.
 - No unsupported pause/resume controls or fabricated ETA. Scheduler observation is process-local and resets on server restart; enrichment queue states remain in the existing persistent fields. Failure counts and next retry times are shown, but raw provider/scan errors are deliberately not exposed because they can contain server paths or secrets.
 - Safe retry state is held in the current view. After navigation/reload or the 24-hour retry window, inspect current data before starting a fresh operation. No mutation is automatically retried.
-- No production database, external lyrics/AI provider, commit, push or deployment was used.
+- No production database or external lyrics/AI provider was used. The initial expansion was subsequently committed as `d1326d9`; no push or deployment was performed.
 
 ## Verification
 
@@ -53,3 +53,12 @@ git diff --check
 The targeted server run passed 65 tests (Studio, AI selection and enrichment worker); targeted web passed 15 (Studio and playback history/checkpoints). Four browser flows passed on Chromium/WebKit at 1440px/390px; screenshots were inspected. Browser fixtures and unit/integration providers are isolated from production. The migration suite checks historical upgrade paths and schema drift; an additional Studio-specific fixture checks preservation of memberships, occurrence IDs, timestamps and profile revision/content.
 
 Full workspace suite: shared **30**, web **256**, server **535** tests passed. The additional Studio upgrade-preservation test then passed in the **8-test** migration suite. After final notification coalescing/cursor changes, Studio server **19** and web/playback **15** tests passed again. Workspace typecheck, changed-file ESLint (zero warnings), production build/bundle-size check, documentation-link check and `git diff --check` passed. Logs are under `/private/tmp/cinedrive-studio-*` and are not repository artifacts.
+
+## Follow-up: real collaboration and bounded search
+
+- The workshop and recording-family search previously sent `q/pageSize`, while the track endpoint accepts `search/limit`. Both now use a shared account-scoped lookup with the correct parameters, a 20-result limit, a two-character minimum, 250 ms debounce and request cancellation. Old-query results disappear when the search changes. Localized loading, empty-result and refinement hints are included.
+- Three regression cases cover both search consumers, request parameters, no initial request, rapid input changes, empty results, and cancellation on query change/unmount.
+- Two isolated browser contexts use separate fixture accounts and explicitly shared fixture-library access. Chromium and WebKit verify invitation acceptance, edits propagating in both directions, actor history, selection reset after a new version, and removal of mounted content after membership revocation. The tests trigger focus/reconnect catch-up; they do not simulate an actual network outage or prove the ten-second timer cadence. No production accounts are used.
+- The four existing desktop/mobile browser flows also assert that an unmatched search does not show the first catalogue tracks. All **6 browser tests passed** (35.2 seconds), including the two collaboration flows.
+- Follow-up verification: `pnpm typecheck`; `pnpm --filter @cinedrive/web test` (**259 tests / 42 files**); targeted Studio tests (**10 tests**); changed-file ESLint with zero warnings; `pnpm --filter @cinedrive/web build`; `pnpm bundle:check`. All passed. The WebKit revocation screenshot was inspected.
+- This follow-up changes web code and isolated E2E fixtures only. No additional migration, server API or CineMusic changes. It remains separate from `d1326d9` and has not been pushed or deployed.

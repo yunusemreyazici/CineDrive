@@ -9,6 +9,8 @@ import type { Translations } from './tr';
  */
 export const en: Translations = {
   studio: {
+    noSearchMatches: 'No matching tracks.',
+    refineSearch: 'Showing the first 20 matches. Refine your search to find another track.',
     retryExpired:
       'The safe retry window has expired. Refresh and verify the existing result before starting a new operation.',
     coverage: (total: number, matched: number, versions: number) =>

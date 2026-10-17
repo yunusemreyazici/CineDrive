@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   StudioChangesDto,
@@ -9,8 +9,30 @@ import type {
   MusicStudioDto,
 } from '@cinedrive/shared';
 import { apiClient } from '../api/client';
+import type { MusicTracksPageResponse } from './useMusicApi';
 
 export const studioKey = (owner: string) => ['music-studio', owner] as const;
+/** Account-scoped, bounded lookup shared by workshop and recording-family editors. */
+export function useStudioTrackSearch(owner: string, input: string) {
+  const search = input.trim();
+  const [settled, setSettled] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  return useQuery({
+    queryKey: [...studioKey(owner), 'search', search],
+    enabled: search.length >= 2 && search === settled,
+    queryFn: async ({ signal }) =>
+      (
+        await apiClient.get<MusicTracksPageResponse>('/music/tracks', {
+          signal,
+          params: { search, limit: 20, page: 1 },
+        })
+      ).data,
+    staleTime: 30_000,
+  });
+}
 export function useStudioDirectory(owner: string) {
   return useInfiniteQuery({
     queryKey: [...studioKey(owner), 'directory'],

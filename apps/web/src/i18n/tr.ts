@@ -7,6 +7,8 @@
  */
 export const tr = {
   studio: {
+    noSearchMatches: 'Eşleşen parça bulunamadı.',
+    refineSearch: 'İlk 20 eşleşme gösteriliyor. Başka bir parçayı bulmak için aramanı daralt.',
     retryExpired:
       'Güvenli tekrar süresi doldu. Yeni işlem başlatmadan önce yenileyip mevcut sonucu kontrol et.',
     coverage: (total: number, matched: number, versions: number) =>

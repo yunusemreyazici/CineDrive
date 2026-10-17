@@ -9,6 +9,8 @@ import { removeE2EDatabase } from './cleanup.js';
 import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
+  E2E_COLLABORATOR_EMAIL,
+  E2E_COLLABORATOR_PASSWORD,
   E2E_DATABASE_URL,
   E2E_HLS_MOVIE_ID,
   E2E_HLS_FILE_ID,
@@ -186,6 +188,20 @@ export const seedE2EDatabase = async () => {
         rootFolderId: '',
         localFolderPath: e2eMediaRoot,
       },
+    });
+
+    const collaborator = await prisma.user.create({
+      data: {
+        email: E2E_COLLABORATOR_EMAIL,
+        name: 'Studio Collaborator',
+        passwordHash: await argon2.hash(E2E_COLLABORATOR_PASSWORD),
+        role: 'user',
+      },
+    });
+    // Playlist membership alone must not grant track access. Explicitly share
+    // only this fixture library, independently of each test's playlist invite.
+    await prisma.libraryMembership.create({
+      data: { libraryId: library.id, userId: collaborator.id, role: 'listener' },
     });
 
     const driveFile = await prisma.driveFile.create({
