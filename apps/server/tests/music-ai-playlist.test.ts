@@ -16,6 +16,7 @@ import {
 import {
   type AiPlaylistHistoryEntry,
   describeHardIntentConstraints,
+  describeAiPlaylistCoverage,
   explainCandidateIntent,
   selectAiPlaylistCandidates,
 } from '../src/services/music-ai-playlist.service';
@@ -411,6 +412,44 @@ const historyFor = (candidates: DiscoveryCandidate[]): AiPlaylistHistoryEntry[] 
 describe('local AI playlist selection', () => {
   const candidates = Array.from({ length: 1_000 }, (_, index) => candidate(index));
   const history = historyFor(candidates);
+  it('explains missing hard evidence using aggregates without relaxing the selection', () => {
+    const intent = normalizePlaylistIntent(
+      rawIntent({
+        genres: [{ name: 'pop', weight: 1, mode: 'hard' }],
+        language: { languages: ['tr'], excludedLanguages: [], mode: 'hard', weight: 1 },
+        year: { min: 2000, max: 2009, mode: 'hard', weight: 1 },
+      }),
+      catalogue,
+    );
+    const pool = [
+      {
+        ...candidate(0),
+        year: 2005,
+        languageCode: 'tr',
+        languageSource: 'lyrics_detected',
+        languageConfidence: 0.99,
+      },
+      { ...candidate(1), year: null, albumYear: null, genres: [], albumGenres: [] },
+    ];
+    expect(describeAiPlaylistCoverage(pool, intent, 1, 1)).toEqual({
+      catalogueCount: 2,
+      hardMatchedCount: 1,
+      versionEligibleCount: 1,
+      missingLanguageEvidence: 1,
+      missingYear: 1,
+      missingGenres: 1,
+    });
+    expect(selectAiPlaylistCandidates(pool, [], intent, 'coverage').map((c) => c.id)).toEqual([
+      'track-0',
+    ]);
+    const soft = {
+      ...intent,
+      genres: [],
+      year: { ...intent.year, mode: 'soft' as const },
+      language: { ...intent.language, mode: 'soft' as const },
+    };
+    expect(describeAiPlaylistCoverage(pool, soft, 2, 2).missingLanguageEvidence).toBe(0);
+  });
 
   it('meaningfully promotes unheard and low-play-count tracks', () => {
     const intent = normalizePlaylistIntent(

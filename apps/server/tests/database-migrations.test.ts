@@ -108,6 +108,84 @@ afterEach(async () => {
 });
 
 describe('production database migrations', () => {
+  it('adds the Studio journal without rewriting existing collaborative playlists or profiles', async () => {
+    const { databaseUrl } = await createHistoricalDatabase(
+      '20261016000000_music_studio',
+      'seed-music',
+    );
+    const before = createPrismaClient(databaseUrl);
+    // Select only columns present at the historical checkpoint. The current
+    // generated client also knows additive collaboration columns not deployed yet.
+    const preserved = {
+      id: true,
+      userId: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+      items: {
+        select: { id: true, playlistId: true, trackId: true, position: true, createdAt: true },
+      },
+      memberships: true,
+    } as const;
+    let snapshot: unknown;
+    try {
+      await before.user.create({
+        data: {
+          id: 'studio-guest',
+          email: 'studio-guest@example.test',
+          name: 'Guest',
+          passwordHash: 'fixture',
+        },
+      });
+      await before.musicPlaylist.create({
+        select: { id: true },
+        data: {
+          id: 'studio-existing',
+          userId: 'music-user',
+          name: 'Existing',
+          items: { create: { id: 'studio-occurrence', trackId: 'music-track', position: 0 } },
+          memberships: { create: { userId: 'studio-guest', role: 'editor', accepted: true } },
+        },
+      });
+      await before.musicStudio.create({
+        data: { userId: 'music-user', revision: 7, content: '{"families":[],"sessions":[]}' },
+      });
+      snapshot = {
+        playlist: await before.musicPlaylist.findUnique({
+          where: { id: 'studio-existing' },
+          select: preserved,
+        }),
+        studio: await before.musicStudio.findUnique({ where: { userId: 'music-user' } }),
+      };
+    } finally {
+      await before.$disconnect();
+    }
+    deployCurrentMigrations(databaseUrl);
+    const after = createPrismaClient(databaseUrl);
+    try {
+      expect({
+        playlist: await after.musicPlaylist.findUnique({
+          where: { id: 'studio-existing' },
+          select: preserved,
+        }),
+        studio: await after.musicStudio.findUnique({ where: { userId: 'music-user' } }),
+      }).toEqual(snapshot);
+      expect(await after.musicPlaylistRevision.count()).toBe(0);
+      expect(await after.musicStudioOperation.count()).toBe(0);
+      expect(await after.musicStudioChange.count()).toBe(0);
+      const additive = await after.musicPlaylist.findUniqueOrThrow({
+        where: { id: 'studio-existing' },
+        include: { items: true },
+      });
+      expect(additive.invitationHash).toBeNull();
+      expect(additive.invitationExpiresAt).toBeNull();
+      expect(additive.items[0]!.addedById).toBeNull();
+    } finally {
+      await after.$disconnect();
+    }
+    verifyNoSchemaDrift(databaseUrl);
+  }, 30_000);
   it('upgrades existing synchronized lyrics through migrate deploy and backfills search without rewriting them', async () => {
     const { databasePath, databaseUrl } = await createHistoricalDatabase(
       '20260809040000_music_discovery_lyrics_tools',

@@ -11,6 +11,11 @@ const ListenInvitationPage = React.lazy(() =>
     default: module.ListenInvitationPage,
   })),
 );
+const PlaylistInvitationPage = React.lazy(() =>
+  import('../pages/PlaylistInvitationPage').then((module) => ({
+    default: module.PlaylistInvitationPage,
+  })),
+);
 const HomePage = React.lazy(() =>
   import('../pages/HomePage').then((module) => ({ default: module.HomePage })),
 );
@@ -28,6 +33,9 @@ const SeriesPage = React.lazy(() =>
 );
 const MusicPage = React.lazy(() =>
   import('../pages/MusicPage').then((module) => ({ default: module.MusicPage })),
+);
+const MusicStudioPage = React.lazy(() =>
+  import('../pages/MusicStudioPage').then((module) => ({ default: module.MusicStudioPage })),
 );
 const MusicMixesPage = React.lazy(() =>
   import('../pages/MusicMixesPage').then((module) => ({ default: module.MusicMixesPage })),
@@ -109,6 +117,14 @@ export const AppRoutes: React.FC = () => {
   return (
     <Routes>
       <Route
+        path="/music/playlist-invite"
+        element={
+          <Suspense fallback={<FullScreenFallback />}>
+            <PlaylistInvitationPage />
+          </Suspense>
+        }
+      />
+      <Route
         path="/music/listen/:code"
         element={
           <Suspense fallback={<FullScreenFallback />}>
@@ -143,6 +159,7 @@ export const AppRoutes: React.FC = () => {
           <Route path="/music/history" element={<MusicHistoryPage />} />
           <Route path="/music/playlists/:playlistId" element={<MusicPlaylistPage />} />
           <Route path="/music/maintenance" element={<MusicMaintenancePage />} />
+          <Route path="/music/studio" element={<MusicStudioPage />} />
           <Route path="/music/replay" element={<MusicReplayPage />} />
           <Route path="/media/:mediaId" element={<MediaDetailPage />} />
           <Route path="/person/:personName" element={<PersonPage />} />

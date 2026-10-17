@@ -41,6 +41,7 @@ const discoveryItems: MusicNavItem[] = [
 ];
 
 const personalItems: MusicNavItem[] = [
+  { to: '/music/studio', label: t.studio.title, icon: ListMusic },
   { to: '/music/liked', label: t.music.liked, icon: Heart },
   { to: '/music/history', label: t.music.history, icon: History },
   { to: '/music/replay', label: t.music.replay, icon: BarChart3 },

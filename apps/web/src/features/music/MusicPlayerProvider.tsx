@@ -53,7 +53,7 @@ interface MusicPlayerContextValue {
   repeatMode: 'off' | 'all' | 'one';
   continuousPlayEnabled: boolean;
   audioSettings: MusicAudioSettings;
-  playTracks: (tracks: MusicTrackDto[], startIndex?: number) => void;
+  playTracks: (tracks: MusicTrackDto[], startIndex?: number, position?: number) => void;
   playShuffledTracks: (tracks: MusicTrackDto[]) => void;
   playQueueItem: (id: string) => void;
   addToQueue: (track: MusicTrackDto) => void;
@@ -751,7 +751,7 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
   }, [repeatMode, selectEntry, transcode, transcodeStart]);
 
   const playTracks = useCallback(
-    (tracks: MusicTrackDto[], startIndex = 0) => {
+    (tracks: MusicTrackDto[], startIndex = 0, position = 0) => {
       queueGenerationRef.current += 1;
       radioExtensionInFlightRef.current = null;
       const entries = tracks.map((track, index) => ({
@@ -765,7 +765,15 @@ export const MusicPlayerProvider: React.FC<React.PropsWithChildren> = ({ childre
       setQueue(entries);
       setShuffleEnabled(false);
       const first = entries[Math.max(0, Math.min(startIndex, entries.length - 1))];
-      if (first) selectEntry(first);
+      if (first) {
+        selectEntry(first);
+        const start = Number.isFinite(position)
+          ? Math.max(0, Math.min(position, Math.max(0, (first.track.duration ?? 86400) - 0.1)))
+          : 0;
+        restoredPositionRef.current = start;
+        setPosition(start);
+        if (requiresMusicTranscode(first.track)) setTranscodeStart(start);
+      }
     },
     [selectEntry],
   );

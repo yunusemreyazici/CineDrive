@@ -16,6 +16,9 @@ export const E2E_BASE_URL = `http://127.0.0.1:${E2E_WEB_PORT}`;
 export const E2E_ADMIN_EMAIL = 'e2e@cinedrive.test';
 /** Only ever valid against the throwaway database created below. */
 export const E2E_ADMIN_PASSWORD = 'e2e-smoke-test-password';
+/** Second account exists only in the disposable collaboration fixture. */
+export const E2E_COLLABORATOR_EMAIL = 'collaborator@cinedrive.test';
+export const E2E_COLLABORATOR_PASSWORD = 'e2e-collaborator-test-password';
 
 export const serverRoot = path.join(repoRoot, 'apps/server');
 export const e2eDatabasePath = path.join(serverRoot, 'prisma/data/e2e.db');

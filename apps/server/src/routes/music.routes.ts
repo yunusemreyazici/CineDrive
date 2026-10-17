@@ -5,7 +5,16 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Prisma } from '@cinedrive/prisma';
 import type { MusicSearchDto } from '@cinedrive/shared';
 import { musicPersonalizationRoutes } from './music-personalization.routes.js';
+import { musicStudioRoutes } from './music-studio.routes.js';
+import { StudioError } from '../services/music-studio.service.js';
+import { notifyStudioChange } from '../services/music-studio-journal.service.js';
+import { refineMusicMixSchema } from '@cinedrive/shared';
 import { readMusicPersonalization } from '../services/music-personalization.service.js';
+import { playlistAccess } from '../services/music-studio.service.js';
+import {
+  playlistSummaryInclude,
+  playlistSummary,
+} from '../services/music-playlist-presentation.service.js';
 import {
   addMusicPlaylistItemSchema,
   addMusicPlaylistItemsSchema,
@@ -478,6 +487,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   await fastify.register(musicPersonalizationRoutes, { prefix: '/personalization' });
+  await fastify.register(musicStudioRoutes, {
+    prefix: '/studio',
+    languageStats: (userId) => languageEnrichmentService.stats(userId),
+    workers: () => ({
+      lyrics: missingLyricsWorker.observation.snapshot(),
+      index: lyricsBackfill.observation.snapshot(),
+    }),
+  });
 
   fastify.get('/overview', async (request) => {
     const userId = request.user!.id;
@@ -514,13 +531,8 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         take: 12,
       }),
       fastify.prisma.musicPlaylist.findMany({
-        where: { userId },
-        include: {
-          items: {
-            include: { track: { select: { duration: true } } },
-            orderBy: { position: 'asc' },
-          },
-        },
+        where: playlistAccess(userId),
+        include: playlistSummaryInclude(userId),
         orderBy: { updatedAt: 'desc' },
         take: 12,
       }),
@@ -536,15 +548,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       recentTracks: tracks.map(formatMusicTrack),
       recentAlbums: albums.map(albumDto),
       artists: artists.map(formatMusicArtist),
-      playlists: playlists.map((playlist) => ({
-        id: playlist.id,
-        name: playlist.name,
-        description: playlist.description,
-        itemCount: playlist.items.length,
-        duration: playlist.items.reduce((total, item) => total + (item.track.duration || 0), 0),
-        updatedAt: playlist.updatedAt.toISOString(),
-        trackIds: playlist.items.map((item) => item.trackId),
-      })),
+      playlists: playlists.map((playlist) => playlistSummary(playlist, userId)),
       recentHistory: recentHistory.map((entry) => ({
         id: entry.id,
         playedAt: entry.playedAt.toISOString(),
@@ -583,8 +587,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       ...(isV2 && cursor ? { updatedAt: { gt: cursor, lte: nextCursor } } : {}),
     };
     const playlistWhere: Prisma.MusicPlaylistWhereInput = {
-      userId,
-      ...(isV2 && cursor ? { updatedAt: { gt: cursor, lte: nextCursor } } : {}),
+      AND: [
+        playlistAccess(userId),
+        ...(isV2 && cursor
+          ? [
+              {
+                OR: [
+                  { updatedAt: { gt: cursor, lte: nextCursor } },
+                  { memberships: { some: { userId, accepted: true } } },
+                ],
+              },
+            ]
+          : []),
+      ],
     };
     const historyWhere: Prisma.MusicHistoryWhereInput = {
       userId,
@@ -643,15 +658,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.musicPlaylist.findMany({
         where: playlistWhere,
-        include: {
-          items: {
-            include: { track: { select: { duration: true } } },
-            orderBy: { position: 'asc' },
-          },
-        },
+        include: playlistSummaryInclude(userId),
         orderBy: { updatedAt: 'desc' },
       }),
-      fastify.prisma.musicPlaylist.findMany({ where: { userId }, select: { id: true } }),
+      fastify.prisma.musicPlaylist.findMany({
+        where: playlistAccess(userId),
+        select: { id: true },
+      }),
       fastify.prisma.musicFavorite.findMany({
         where: { userId, track: trackWhere },
         select: { trackId: true },
@@ -688,15 +701,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       albumIds: albumIds.map((album) => album.id),
       artists: artists.map(formatMusicArtist),
       artistIds: artistIds.map((artist) => artist.id),
-      playlists: playlists.map((playlist) => ({
-        id: playlist.id,
-        name: playlist.name,
-        description: playlist.description,
-        itemCount: playlist.items.length,
-        duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
-        updatedAt: playlist.updatedAt.toISOString(),
-        trackIds: playlist.items.map((item) => item.trackId),
-      })),
+      playlists: playlists.map((playlist) => playlistSummary(playlist, userId)),
       playlistIds: playlistIds.map((playlist) => playlist.id),
       favoriteTrackIds: favoriteTrackIds.map((favorite) => favorite.trackId),
       // playedAt is event time, not ingestion time: an offline listen can be
@@ -822,6 +827,32 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
   });
+
+  fastify.post(
+    '/discovery/ai/refine',
+    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const parsed = refineMusicMixSchema.safeParse(request.body);
+      if (!parsed.success)
+        return reply
+          .code(400)
+          .send({ error: { code: 'VALIDATION_ERROR', message: 'Invalid refinement.' } });
+      try {
+        return await aiPlaylistService.refine(
+          request.user!.id,
+          parsed.data.mixId,
+          parsed.data.keepIds,
+          parsed.data.generationId,
+        );
+      } catch (error) {
+        if (error instanceof StudioError)
+          return reply
+            .code(error.statusCode)
+            .send({ error: { code: 'REFINEMENT_ERROR', message: error.message } });
+        throw error;
+      }
+    },
+  );
 
   fastify.get<{ Params: { trackId: string } }>('/radio/track/:trackId', async (request, reply) => {
     const mix = await discoveryService.getTrackRadio(request.user!.id, request.params.trackId);
@@ -2067,25 +2098,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.get('/playlists', async (request) => {
     const playlists = await fastify.prisma.musicPlaylist.findMany({
-      where: { userId: request.user!.id },
-      include: {
-        items: {
-          include: { track: { select: { duration: true } } },
-          orderBy: { position: 'asc' },
-        },
-      },
+      where: playlistAccess(request.user!.id),
+      include: playlistSummaryInclude(request.user!.id),
       orderBy: { updatedAt: 'desc' },
     });
     return {
-      playlists: playlists.map((playlist) => ({
-        id: playlist.id,
-        name: playlist.name,
-        description: playlist.description,
-        itemCount: playlist.items.length,
-        duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
-        updatedAt: playlist.updatedAt.toISOString(),
-        trackIds: playlist.items.map((item) => item.trackId),
-      })),
+      playlists: playlists.map((playlist) => playlistSummary(playlist, request.user!.id)),
     };
   });
   fastify.post('/playlists', async (request, reply) => {
@@ -2099,8 +2117,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     return reply.status(201).send({
-      playlist: await fastify.prisma.musicPlaylist.create({
-        data: { userId: request.user!.id, ...parsed.data },
+      playlist: await fastify.prisma.$transaction(async (tx) => {
+        const playlist = await tx.musicPlaylist.create({
+          data: { userId: request.user!.id, ...parsed.data },
+        });
+        await notifyStudioChange(tx, playlist.id, 'create');
+        return playlist;
       }),
     });
   });
@@ -2128,21 +2150,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const playlist = await fastify.prisma.musicPlaylist.create({
-      data: {
-        userId,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        items: {
-          create: trackIds.map((trackId, position) => ({ trackId, position })),
+    const playlist = await fastify.prisma.$transaction(async (tx) => {
+      const playlist = await tx.musicPlaylist.create({
+        data: {
+          userId,
+          name: parsed.data.name,
+          description: parsed.data.description,
+          items: {
+            create: trackIds.map((trackId, position) => ({ trackId, position, addedById: userId })),
+          },
         },
-      },
-      include: {
-        items: {
-          include: { track: { select: { duration: true } } },
-          orderBy: { position: 'asc' },
+        include: {
+          items: {
+            include: { track: { select: { duration: true } } },
+            orderBy: { position: 'asc' },
+          },
         },
-      },
+      });
+      await notifyStudioChange(tx, playlist.id, 'create');
+      return playlist;
     });
     return reply.status(201).send({
       playlist: {
@@ -2180,15 +2206,23 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const durationByTrackId = new Map(ownedTracks.map((track) => [track.id, track.duration || 0]));
-    const playlist = await fastify.prisma.musicPlaylist.create({
-      data: {
-        userId,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        items: {
-          create: parsed.data.trackIds.map((trackId, position) => ({ trackId, position })),
+    const playlist = await fastify.prisma.$transaction(async (tx) => {
+      const playlist = await tx.musicPlaylist.create({
+        data: {
+          userId,
+          name: parsed.data.name,
+          description: parsed.data.description,
+          items: {
+            create: parsed.data.trackIds.map((trackId, position) => ({
+              trackId,
+              position,
+              addedById: userId,
+            })),
+          },
         },
-      },
+      });
+      await notifyStudioChange(tx, playlist.id, 'create');
+      return playlist;
     });
     return reply.status(201).send({
       playlist: {
@@ -2207,10 +2241,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string } }>('/playlists/:id', async (request, reply) => {
     const userId = request.user!.id;
     const playlist = await fastify.prisma.musicPlaylist.findFirst({
-      where: { id: request.params.id, userId },
+      where: { id: request.params.id, ...playlistAccess(userId) },
       include: {
+        ...playlistSummaryInclude(userId),
         items: {
-          include: { track: { include: musicTrackInclude(userId) } },
+          where: playlistSummaryInclude(userId).items.where,
+          include: {
+            track: { include: musicTrackInclude(userId) },
+            addedBy: { select: { id: true, name: true } },
+          },
           orderBy: { position: 'asc' },
         },
       },
@@ -2225,16 +2264,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
       });
     return {
       playlist: {
-        id: playlist.id,
-        name: playlist.name,
-        description: playlist.description,
-        itemCount: playlist.items.length,
-        duration: playlist.items.reduce((sum, item) => sum + (item.track.duration || 0), 0),
-        updatedAt: playlist.updatedAt.toISOString(),
+        ...playlistSummary(playlist, userId),
         items: playlist.items.map((item) => ({
           id: item.id,
           position: item.position,
           track: formatMusicTrack(item.track),
+          addedBy: item.addedBy,
         })),
       },
     };
@@ -2249,9 +2284,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const result = await fastify.prisma.musicPlaylist.updateMany({
-      where: { id: request.params.id, userId: request.user!.id },
-      data: parsed.data,
+    const result = await fastify.prisma.$transaction(async (tx) => {
+      const result = await tx.musicPlaylist.updateMany({
+        where: { id: request.params.id, userId: request.user!.id },
+        data: parsed.data,
+      });
+      if (result.count) await notifyStudioChange(tx, request.params.id, 'metadata');
+      return result;
     });
     if (!result.count)
       return reply.status(404).send({
@@ -2264,8 +2303,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { updated: true };
   });
   fastify.delete<{ Params: { id: string } }>('/playlists/:id', async (request, reply) => {
-    const result = await fastify.prisma.musicPlaylist.deleteMany({
-      where: { id: request.params.id, userId: request.user!.id },
+    const result = await fastify.prisma.$transaction(async (tx) => {
+      const owned = await tx.musicPlaylist.findFirst({
+        where: { id: request.params.id, userId: request.user!.id },
+        select: { id: true },
+      });
+      if (owned) await notifyStudioChange(tx, owned.id, 'delete');
+      return tx.musicPlaylist.deleteMany({
+        where: { id: request.params.id, userId: request.user!.id },
+      });
     });
     if (!result.count)
       return reply.status(404).send({
@@ -2305,12 +2351,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             playlistId: playlist.id,
             trackId: track.id,
             position: (aggregate._max.position ?? -1) + 1,
+            addedById: userId,
           },
         });
         await tx.musicPlaylist.update({
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
         return created;
       });
     } catch (error) {
@@ -2360,12 +2408,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             playlistId: playlist.id,
             trackId,
             position: firstPosition + index,
+            addedById: userId,
           })),
         });
         await tx.musicPlaylist.update({
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'MUSIC_RESOURCE_NOT_FOUND') {
@@ -2416,6 +2466,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             where: { id: playlist.id },
             data: { updatedAt: new Date() },
           });
+          await notifyStudioChange(tx, playlist.id, 'edit');
         });
       } catch (error) {
         if (error instanceof Error && error.message === 'PLAYLIST_NOT_FOUND') {
@@ -2466,6 +2517,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'INVALID_PLAYLIST_ORDER') {

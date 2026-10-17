@@ -9,6 +9,8 @@ import { removeE2EDatabase } from './cleanup.js';
 import {
   E2E_ADMIN_EMAIL,
   E2E_ADMIN_PASSWORD,
+  E2E_COLLABORATOR_EMAIL,
+  E2E_COLLABORATOR_PASSWORD,
   E2E_DATABASE_URL,
   E2E_HLS_MOVIE_ID,
   E2E_HLS_FILE_ID,
@@ -123,13 +125,30 @@ const renderAudio = (target: string, coverTarget: string) => {
       'date=2026',
       '-metadata',
       'genre=Soundtrack',
-      '-shortest',
+      // An attached picture is a single-frame stream. With -shortest, Linux
+      // FFmpeg can terminate the audio after its first AAC packet.
+      '-t',
+      String(AUDIO_SECONDS),
       target,
     ],
     { stdio: 'pipe', encoding: 'utf8' },
   );
   if (audio.status !== 0 || !fs.existsSync(target)) {
     throw new Error(`ffmpeg could not render the fixture audio:\n${audio.stderr}`);
+  }
+  // Check the decoded duration, not the database metadata or output exit code:
+  // a truncated but valid AAC file otherwise makes playback assertions flaky.
+  const decoded = spawnSync(
+    ffmpegPath,
+    ['-v', 'error', '-i', target, '-map', '0:a:0', '-progress', 'pipe:1', '-f', 'null', '-'],
+    { stdio: 'pipe', encoding: 'utf8' },
+  );
+  const times = [...decoded.stdout.matchAll(/^out_time_us=(\d+)$/gm)];
+  const seconds = Number(times.at(-1)?.[1]) / 1_000_000;
+  if (decoded.status !== 0 || !Number.isFinite(seconds) || Math.abs(seconds - AUDIO_SECONDS) > 1) {
+    throw new Error(
+      `Fixture audio duration mismatch: expected ${AUDIO_SECONDS}s, decoded ${seconds}s.`,
+    );
   }
 };
 
@@ -186,6 +205,20 @@ export const seedE2EDatabase = async () => {
         rootFolderId: '',
         localFolderPath: e2eMediaRoot,
       },
+    });
+
+    const collaborator = await prisma.user.create({
+      data: {
+        email: E2E_COLLABORATOR_EMAIL,
+        name: 'Studio Collaborator',
+        passwordHash: await argon2.hash(E2E_COLLABORATOR_PASSWORD),
+        role: 'user',
+      },
+    });
+    // Playlist membership alone must not grant track access. Explicitly share
+    // only this fixture library, independently of each test's playlist invite.
+    await prisma.libraryMembership.create({
+      data: { libraryId: library.id, userId: collaborator.id, role: 'listener' },
     });
 
     const driveFile = await prisma.driveFile.create({

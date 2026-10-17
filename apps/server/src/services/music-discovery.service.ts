@@ -14,6 +14,8 @@ import {
   parseGenres,
 } from '../utils/music-format.js';
 import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
+import { readStudio, selectRecordingVersions } from './music-studio.service.js';
+import type { MusicStudioDto } from '@cinedrive/shared';
 import {
   buildLibraryDepthPlanDefinitions,
   type DiscoveryHistorySignal,
@@ -334,7 +336,8 @@ export class MusicDiscoveryService {
     personalization: MusicPersonalizationDto = defaultMusicPersonalization(),
   ): Promise<MusicDiscoveryDto> {
     const generationId = requestedGenerationId || `daily-${dateKey()}`;
-    const cacheKey = `${userId}:${generationId}:${personalization.revision}`;
+    const studio = await readStudio(this.prisma, userId);
+    const cacheKey = `${userId}:${generationId}:${personalization.revision}:${studio.revision}`;
     const now = Date.now();
     for (const [key, entry] of this.discoveryCache) {
       if (entry.expiresAt <= now) this.discoveryCache.delete(key);
@@ -344,7 +347,29 @@ export class MusicDiscoveryService {
     const inflight = this.discoveryInflight.get(cacheKey);
     if (inflight) return inflight;
 
-    const task = this.computeDiscovery(userId, generationId, personalization);
+    const task = this.computeDiscovery(userId, generationId, personalization, studio).then(
+      (result) => {
+        const deduplicate = (mix: MusicMixDto) => {
+          const tracks = selectRecordingVersions(mix.tracks, studio);
+          return {
+            ...mix,
+            tracks,
+            trackCount: tracks.length,
+            artworkUrls: [
+              ...new Set(tracks.map((t) => t.artworkUrl).filter((url): url is string => !!url)),
+            ].slice(0, 4),
+          };
+        };
+        return {
+          ...result,
+          mixes: result.mixes.map(deduplicate),
+          moodCollections: result.moodCollections.map(deduplicate),
+          genreCollections: result.genreCollections.map(deduplicate),
+          decadeCollections: result.decadeCollections.map(deduplicate),
+          libraryDepthCollections: result.libraryDepthCollections?.map(deduplicate),
+        };
+      },
+    );
     this.discoveryInflight.set(cacheKey, task);
     try {
       const value = await task;
@@ -362,6 +387,7 @@ export class MusicDiscoveryService {
     userId: string,
     generationId: string,
     personalization: MusicPersonalizationDto,
+    studio: MusicStudioDto,
   ): Promise<MusicDiscoveryDto> {
     const [candidates, history, playbackState] = await Promise.all([
       loadDiscoveryCandidates(this.prisma, userId),
@@ -479,7 +505,7 @@ export class MusicDiscoveryService {
       relevance: (candidate: DiscoveryCandidate) => number = preferenceScore,
     ) =>
       selectDiscoveryCandidates(
-        pool.filter(personalSignals.allowed).map((candidate) => ({
+        selectRecordingVersions(pool.filter(personalSignals.allowed), studio).map((candidate) => ({
           value: candidate,
           id: candidate.id,
           artistKey: candidateArtistKey(candidate),

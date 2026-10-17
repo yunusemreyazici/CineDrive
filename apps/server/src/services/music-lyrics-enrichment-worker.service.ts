@@ -1,7 +1,9 @@
+import { BackgroundJobObservation } from './background-job-observation.js';
 /** Periodic bounded maintenance, independent of HTTP requests and language.
  * Delay startup, never overlap runs, and drain started provider work on shutdown.
  */
 export class MusicLyricsEnrichmentWorker {
+  readonly observation = new BackgroundJobObservation();
   private timer?: ReturnType<typeof setTimeout>;
   private active?: Promise<void>;
   private controller?: AbortController;
@@ -22,20 +24,24 @@ export class MusicLyricsEnrichmentWorker {
   }
 
   private schedule(delay: number) {
+    this.observation.scheduled(delay);
     this.timer = setTimeout(() => {
       this.timer = undefined;
       if (this.stopped) return;
+      this.observation.begin();
       const controller = new AbortController();
       this.controller = controller;
       this.active = Promise.resolve()
         .then(() => this.run(controller.signal))
         .then(
           () => {
+            this.observation.complete();
             this.retryMs = 30_000;
             if (!this.stopped) this.schedule(this.intervalMs);
           },
           () => {
             if (!this.stopped) {
+              this.observation.fail();
               this.onError();
               this.schedule(this.retryMs);
               this.retryMs = Math.min(this.retryMs * 2, 300_000);
@@ -56,5 +62,6 @@ export class MusicLyricsEnrichmentWorker {
     this.timer = undefined;
     this.controller?.abort();
     await this.active;
+    this.observation.stop();
   }
 }

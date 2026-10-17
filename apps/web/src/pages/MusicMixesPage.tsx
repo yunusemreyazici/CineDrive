@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import type { MusicMixDto } from '@cinedrive/shared';
 import {
   Disc3,
@@ -325,6 +326,28 @@ export const MusicMixesPage: React.FC = () => {
                     ))}
                   </div>
                 )}
+                {aiPlaylist.data.coverage &&
+                  aiPlaylist.data.mix.tracks.length < aiPlaylist.data.requestedCount && (
+                    <div className="mt-3 space-y-2 text-xs text-white/60">
+                      <p>
+                        {t.studio.coverage(
+                          aiPlaylist.data.coverage.catalogueCount,
+                          aiPlaylist.data.coverage.hardMatchedCount,
+                          aiPlaylist.data.coverage.versionEligibleCount,
+                        )}
+                      </p>
+                      <p>
+                        {t.studio.coverageMissing(
+                          aiPlaylist.data.coverage.missingLanguageEvidence,
+                          aiPlaylist.data.coverage.missingYear,
+                          aiPlaylist.data.coverage.missingGenres,
+                        )}
+                      </p>
+                      <Link className="text-brand-300 underline" to="/music/studio">
+                        {t.studio.health}
+                      </Link>
+                    </div>
+                  )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
