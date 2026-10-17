@@ -44,6 +44,7 @@ model User {
   musicFavorites              MusicFavorite[]
   musicHistory                MusicHistory[]
   musicPlaylists              MusicPlaylist[]
+  playlistContributions      MusicPlaylistItem[] @relation("PlaylistContributor")
   musicPlaylistMemberships    MusicPlaylistMembership[]
   musicStudio                MusicStudio?
   musicStudioOperations       MusicStudioOperation[]
@@ -724,6 +725,8 @@ model MusicPlaylist {
   items       MusicPlaylistItem[]
   memberships MusicPlaylistMembership[]
   revisions   MusicPlaylistRevision[]
+  invitationHash String? @unique
+  invitationExpiresAt DateTime?
 
   @@index([userId, updatedAt])
 }
@@ -789,6 +792,8 @@ model MusicPlaylistItem {
   track      MusicTrack    @relation(fields: [trackId], references: [id], onDelete: Cascade)
   position   Int
   createdAt  DateTime      @default(now())
+  addedById  String?
+  addedBy    User? @relation("PlaylistContributor", fields: [addedById], references: [id], onDelete: SetNull)
 
   @@unique([playlistId, position])
   @@index([trackId])

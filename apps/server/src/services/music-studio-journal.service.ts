@@ -74,6 +74,8 @@ export async function notifyStudioChange(
     select: { userId: true, memberships: { select: { userId: true } } },
   });
   if (!playlist) return;
+  if (kind === 'membership')
+    await tx.musicPlaylist.update({ where: { id: playlistId }, data: { updatedAt: new Date() } });
   const users = [
     ...new Set([playlist.userId, ...playlist.memberships.map((m) => m.userId), ...extraUsers]),
   ];
@@ -100,6 +102,13 @@ export async function recordStudioRevision(
 ) {
   const oldIds = new Set(before.map((i) => `${i.id}:${i.trackId}`));
   const newIds = new Set(after.map((i) => `${i.id}:${i.trackId}`));
+  const additions = after.filter((i) => !oldIds.has(`${i.id}:${i.trackId}`)).map((i) => i.id);
+  for (let offset = 0; offset < additions.length; offset += 400) {
+    await tx.musicPlaylistItem.updateMany({
+      where: { playlistId, id: { in: additions.slice(offset, offset + 400) } },
+      data: { addedById: userId },
+    });
+  }
   await tx.musicPlaylistRevision.create({
     data: {
       playlistId,

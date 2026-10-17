@@ -11,6 +11,11 @@ const ListenInvitationPage = React.lazy(() =>
     default: module.ListenInvitationPage,
   })),
 );
+const PlaylistInvitationPage = React.lazy(() =>
+  import('../pages/PlaylistInvitationPage').then((module) => ({
+    default: module.PlaylistInvitationPage,
+  })),
+);
 const HomePage = React.lazy(() =>
   import('../pages/HomePage').then((module) => ({ default: module.HomePage })),
 );
@@ -111,6 +116,14 @@ const FullScreenFallback: React.FC = () => (
 export const AppRoutes: React.FC = () => {
   return (
     <Routes>
+      <Route
+        path="/music/playlist-invite"
+        element={
+          <Suspense fallback={<FullScreenFallback />}>
+            <PlaylistInvitationPage />
+          </Suspense>
+        }
+      />
       <Route
         path="/music/listen/:code"
         element={

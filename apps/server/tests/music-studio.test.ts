@@ -143,6 +143,124 @@ describe('music studio authenticated collaboration', () => {
     await app.close();
   });
   const path = () => `/playlists/${playlistId}`;
+  it('previews and accepts revocable links without granting private track access', async () => {
+    const anonymous = await app.inject({
+      method: 'POST',
+      url: `/api/music/studio${path()}/invitation-link`,
+    });
+    expect(anonymous.statusCode).toBe(401);
+    expect((await call(path() + '/invitation-link', guest, 'POST')).statusCode).toBe(404);
+    const created = await call(path() + '/invitation-link', owner, 'POST');
+    expect(created.statusCode).toBe(200);
+    const { token } = created.json();
+    const stored = await app.prisma.musicPlaylist.findUniqueOrThrow({ where: { id: playlistId } });
+    expect(stored.invitationHash).not.toBe(token);
+    expect(stored.invitationHash).toHaveLength(64);
+    const preview = (await call('/invitations/preview', guest, 'POST', { token })).json();
+    expect(preview).toMatchObject({ name: 'Shared', itemCount: 3, joined: false });
+    expect(JSON.stringify(preview)).not.toContain(tracks[0]);
+    expect((await call('/invitations/accept', guest, 'POST', { token })).statusCode).toBe(200);
+    expect((await call('/invitations/accept', guest, 'POST', { token })).statusCode).toBe(200);
+    expect(await app.prisma.musicPlaylistMembership.count({ where: { playlistId } })).toBe(1);
+    const read = (url: string) => app.inject({ url, cookies: { session_id: guest.cookie } });
+    const directory = (await read('/api/music/playlists')).json().playlists;
+    expect(directory).toHaveLength(1);
+    expect(directory[0]).toMatchObject({
+      itemCount: 0,
+      trackIds: [],
+      collaboration: { role: 'editor', unavailableCount: 3 },
+    });
+    const detail = (await read(`/api/music/playlists/${playlistId}`)).json().playlist;
+    expect(detail.items).toEqual([]);
+    expect((await call(path(), guest)).json().canEdit).toBe(false);
+    expect(await app.prisma.libraryMembership.count({ where: { userId: guest.id } })).toBe(0);
+    await app.prisma.libraryMembership.create({
+      data: { libraryId, userId: guest.id, role: 'listener' },
+    });
+    expect((await read(`/api/music/playlists/${playlistId}`)).json().playlist.items).toHaveLength(
+      3,
+    );
+    const cursor = new Date(Date.now() + 1000).toISOString();
+    expect(
+      (await read(`/api/music/sync?version=2&cursor=${encodeURIComponent(cursor)}`)).json()
+        .playlistIds,
+    ).toContain(playlistId);
+    await call(path() + `/members/${guest.id}`, owner, 'DELETE');
+    expect((await read(`/api/music/playlists/${playlistId}`)).statusCode).toBe(404);
+    expect((await read('/api/music/playlists')).json().playlists).toEqual([]);
+    expect((await call('/invitations/accept', guest, 'POST', { token })).statusCode).toBe(404);
+  });
+  it('rotates, expires and revokes links and never upgrades an existing listener', async () => {
+    const first = (await call(path() + '/invitation-link', owner, 'POST')).json().token;
+    const second = (await call(path() + '/invitation-link', owner, 'POST')).json().token;
+    expect((await call('/invitations/preview', guest, 'POST', { token: first })).statusCode).toBe(
+      404,
+    );
+    await call(path() + '/invite', owner, 'POST', { email: guest.email, role: 'listener' });
+    await call('/invitations/accept', guest, 'POST', { token: second });
+    expect((await call(path(), guest)).json().role).toBe('listener');
+    expect((await call(path() + '/invitation-link', guest, 'POST')).statusCode).toBe(403);
+    expect((await call(path() + '/invitation-link', guest, 'DELETE')).statusCode).toBe(403);
+    await app.prisma.musicPlaylist.update({
+      where: { id: playlistId },
+      data: { invitationExpiresAt: new Date(0) },
+    });
+    expect(
+      (await call('/invitations/accept', stranger, 'POST', { token: second })).statusCode,
+    ).toBe(404);
+    const third = (await call(path() + '/invitation-link', owner, 'POST')).json().token;
+    await call(path() + '/invitation-link', owner, 'DELETE');
+    expect((await call('/invitations/preview', guest, 'POST', { token: third })).statusCode).toBe(
+      404,
+    );
+    expect(
+      (await call('/invitations/accept', guest, 'POST', { token: 'invalid' })).statusCode,
+    ).toBe(400);
+  });
+  it('shows accepted participants and persists the real contributor across reorders', async () => {
+    await app.prisma.libraryMembership.create({
+      data: { libraryId, userId: guest.id, role: 'listener' },
+    });
+    await call(path() + '/invite', owner, 'POST', { email: guest.email, role: 'editor' });
+    expect(
+      (
+        await app.inject({ url: '/api/music/playlists', cookies: { session_id: guest.cookie } })
+      ).json().playlists,
+    ).toEqual([]);
+    await call(path() + '/accept', guest, 'POST');
+    const before = (await call(path(), guest)).json();
+    expect(before.participants).toHaveLength(2);
+    expect(before.members).toEqual([]); // Preserve the legacy owner-only management field.
+    const added = { id: randomUUID(), trackId: tracks[2]! };
+    const items = [
+      ...before.playlist.items.map((i: { id: string; track: { id: string } }) => ({
+        id: i.id,
+        trackId: i.track.id,
+      })),
+      added,
+    ];
+    const result = await call(path() + '/items', guest, 'PUT', { version: before.version, items });
+    expect(result.statusCode).toBe(200);
+    await call(path() + '/items', owner, 'PUT', {
+      version: result.json().version,
+      items: [...items].reverse(),
+    });
+    const detail = (
+      await app.inject({
+        url: `/api/music/playlists/${playlistId}`,
+        cookies: { session_id: guest.cookie },
+      })
+    ).json().playlist;
+    expect(detail.items[0].addedBy).toMatchObject({ id: guest.id });
+    expect(detail.items[1].addedBy).toBeNull(); // Never fabricate historical attribution.
+    expect(detail.collaboration).toMatchObject({
+      isCollaborative: true,
+      memberCount: 2,
+      role: 'editor',
+    });
+    const stale = await call(path() + '/items', guest, 'PUT', { version: before.version, items });
+    expect(stale.statusCode).toBe(409);
+  });
   it('does not emit notifications for a forged self-leave request', async () => {
     const before = await app.prisma.musicStudioChange.count();
     expect((await call(path() + `/members/${stranger.id}`, stranger, 'DELETE')).statusCode).toBe(

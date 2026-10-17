@@ -3,6 +3,12 @@ import {
   transferWorkshopItems,
   invitePlaylistMember,
 } from '../services/music-playlist-workshop.service.js';
+import {
+  createPlaylistLink,
+  previewPlaylistLink,
+  acceptPlaylistLink,
+  revokePlaylistLink,
+} from '../services/music-playlist-invitation.service.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
@@ -58,6 +64,37 @@ export const musicStudioRoutes: FastifyPluginAsync<{
     throw error;
   });
   app.get('/profile', async (req) => readStudio(app.prisma, req.user!.id));
+  app.post<{ Params: { id: string } }>(
+    '/playlists/:id/invitation-link',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => createPlaylistLink(app.prisma, req.user!.id, req.params.id),
+  );
+  app.delete<{ Params: { id: string } }>('/playlists/:id/invitation-link', async (req) => {
+    await revokePlaylistLink(app.prisma, req.user!.id, req.params.id);
+    return { ok: true };
+  });
+  app.post(
+    '/invitations/preview',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { token } = z
+        .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+        .strict()
+        .parse(req.body);
+      return previewPlaylistLink(app.prisma, req.user!.id, token);
+    },
+  );
+  app.post(
+    '/invitations/accept',
+    { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { token } = z
+        .object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+        .strict()
+        .parse(req.body);
+      return acceptPlaylistLink(app.prisma, req.user!.id, token);
+    },
+  );
   app.get<{ Params: { id: string } }>('/families/:id/tracks', async (req) => {
     const profile = await readStudio(app.prisma, req.user!.id);
     const family = profile.families.find((f) => f.id === req.params.id);
@@ -213,6 +250,22 @@ export const musicStudioRoutes: FastifyPluginAsync<{
               accepted: m.accepted,
             }))
           : [],
+      participants: [
+        ...(
+          await app.prisma.user.findMany({
+            where: { id: playlist.userId },
+            select: { id: true, name: true },
+          })
+        ).map((u) => ({ userId: u.id, name: u.name, role: 'owner', accepted: true })),
+        ...playlist.memberships
+          .filter((m) => m.accepted)
+          .map((m) => ({
+            userId: m.userId,
+            name: m.user.name,
+            role: m.role,
+            accepted: m.accepted,
+          })),
+      ],
     };
   });
   app.put<{ Params: { id: string } }>(
@@ -263,6 +316,12 @@ export const musicStudioRoutes: FastifyPluginAsync<{
           where: { playlistId: req.params.id, userId: req.params.userId },
         });
         if (!removed.count) throw new StudioError(404, 'Membership not found.');
+        // A removed member cannot rejoin with a previously issued bearer link.
+        if (req.params.userId !== req.user!.id)
+          await tx.musicPlaylist.update({
+            where: { id: req.params.id },
+            data: { invitationHash: null, invitationExpiresAt: null },
+          });
         await notifyStudioChange(tx, req.params.id, 'membership', [req.params.userId]);
       });
       return { ok: true };

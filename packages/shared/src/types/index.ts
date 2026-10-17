@@ -401,7 +401,20 @@ export interface MusicPlaylistDto {
   duration: number;
   updatedAt: string;
   trackIds?: string[];
-  items?: Array<{ id: string; position: number; track: MusicTrackDto }>;
+  items?: Array<{
+    id: string;
+    position: number;
+    track: MusicTrackDto;
+    addedBy?: { id: string; name: string } | null;
+  }>;
+  collaboration?: {
+    version?: string;
+    role: 'owner' | 'editor' | 'listener';
+    ownerName: string;
+    memberCount: number;
+    isCollaborative: boolean;
+    unavailableCount: number;
+  };
 }
 
 export interface MusicPlaybackStateDto {

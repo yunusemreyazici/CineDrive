@@ -46,6 +46,11 @@ export function selectRecordingVersions<T extends { id: string }>(
 export const playlistAccess = (userId: string): Prisma.MusicPlaylistWhereInput => ({
   OR: [{ userId }, { memberships: { some: { userId, accepted: true } } }],
 });
+export function playlistContentVersion(updatedAt: Date, items: { id: string; trackId: string }[]) {
+  return createHash('sha256')
+    .update(JSON.stringify([updatedAt.toISOString(), items.map((i) => [i.id, i.trackId])]))
+    .digest('hex');
+}
 export async function lockPlaylist(tx: Prisma.TransactionClient, id: string) {
   await tx.$executeRaw`UPDATE "MusicPlaylist" SET "id" = "id" WHERE "id" = ${id}`;
 }
@@ -66,14 +71,7 @@ export async function readWorkshop(db: Prisma.TransactionClient, userId: string,
       : playlist.memberships.find((m) => m.userId === userId && m.accepted)?.role === 'editor'
         ? 'editor'
         : 'listener';
-  const version = createHash('sha256')
-    .update(
-      JSON.stringify([
-        playlist.updatedAt.toISOString(),
-        playlist.items.map((i) => [i.id, i.trackId]),
-      ]),
-    )
-    .digest('hex');
+  const version = playlistContentVersion(playlist.updatedAt, playlist.items);
   return { playlist, role, version };
 }
 export async function requireEditable(

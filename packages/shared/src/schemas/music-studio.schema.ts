@@ -130,6 +130,19 @@ export interface StudioWorkshopDto {
   unavailableCount: number;
   playlist: MusicPlaylistDto;
   members: Array<{ userId: string; name: string; role: string; accepted: boolean }>;
+  participants?: Array<{ userId: string; name: string; role: string; accepted: boolean }>;
+}
+export interface PlaylistInvitationPreviewDto {
+  playlistId: string;
+  name: string;
+  ownerName: string;
+  itemCount: number;
+  expiresAt: string;
+  joined: boolean;
+}
+export interface PlaylistInvitationLinkDto {
+  token: string;
+  expiresAt: string;
 }
 export interface StudioTrackLabelDto {
   id: string;

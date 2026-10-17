@@ -114,6 +114,20 @@ describe('production database migrations', () => {
       'seed-music',
     );
     const before = createPrismaClient(databaseUrl);
+    // Select only columns present at the historical checkpoint. The current
+    // generated client also knows additive collaboration columns not deployed yet.
+    const preserved = {
+      id: true,
+      userId: true,
+      name: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+      items: {
+        select: { id: true, playlistId: true, trackId: true, position: true, createdAt: true },
+      },
+      memberships: true,
+    } as const;
     let snapshot: unknown;
     try {
       await before.user.create({
@@ -125,6 +139,7 @@ describe('production database migrations', () => {
         },
       });
       await before.musicPlaylist.create({
+        select: { id: true },
         data: {
           id: 'studio-existing',
           userId: 'music-user',
@@ -139,7 +154,7 @@ describe('production database migrations', () => {
       snapshot = {
         playlist: await before.musicPlaylist.findUnique({
           where: { id: 'studio-existing' },
-          include: { items: true, memberships: true },
+          select: preserved,
         }),
         studio: await before.musicStudio.findUnique({ where: { userId: 'music-user' } }),
       };
@@ -152,13 +167,20 @@ describe('production database migrations', () => {
       expect({
         playlist: await after.musicPlaylist.findUnique({
           where: { id: 'studio-existing' },
-          include: { items: true, memberships: true },
+          select: preserved,
         }),
         studio: await after.musicStudio.findUnique({ where: { userId: 'music-user' } }),
       }).toEqual(snapshot);
       expect(await after.musicPlaylistRevision.count()).toBe(0);
       expect(await after.musicStudioOperation.count()).toBe(0);
       expect(await after.musicStudioChange.count()).toBe(0);
+      const additive = await after.musicPlaylist.findUniqueOrThrow({
+        where: { id: 'studio-existing' },
+        include: { items: true },
+      });
+      expect(additive.invitationHash).toBeNull();
+      expect(additive.invitationExpiresAt).toBeNull();
+      expect(additive.items[0]!.addedById).toBeNull();
     } finally {
       await after.$disconnect();
     }

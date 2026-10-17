@@ -6,6 +6,7 @@
           "XA6P6K5LVT.yuem.cinedrive.CineMusic"
         ],
         "components": [
+          { "/": "/music/playlist-invite", "comment": "Open collaborative playlist invitations in CineMusic" },
           {
             "/": "/music/tracks/*",
             "comment": "Open shared tracks in CineMusic"
