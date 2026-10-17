@@ -35,6 +35,9 @@ for (const width of [1440, 390]) {
     await expect(page.getByText(tr.studio.selected(1), { exact: true })).toBeVisible();
     await page.getByRole('button', { name: tr.studio.remove, exact: true }).click();
     await expect(page.getByRole('checkbox', { name: /Smoke Test Song/ })).toHaveCount(1);
+    // Detail and journal are independent requests: wait for the removal
+    // revision before expanding the first row, which may still be an addition.
+    await expect(page.getByText(tr.studio.addedRemoved(0, 1), { exact: false })).toBeVisible();
     await page.getByRole('button', { name: tr.studio.details, exact: true }).first().click();
     await expect(page.getByText(/− Smoke Test Song/)).toBeVisible();
     page.once('dialog', (dialog) => dialog.accept());

@@ -125,13 +125,30 @@ const renderAudio = (target: string, coverTarget: string) => {
       'date=2026',
       '-metadata',
       'genre=Soundtrack',
-      '-shortest',
+      // An attached picture is a single-frame stream. With -shortest, Linux
+      // FFmpeg can terminate the audio after its first AAC packet.
+      '-t',
+      String(AUDIO_SECONDS),
       target,
     ],
     { stdio: 'pipe', encoding: 'utf8' },
   );
   if (audio.status !== 0 || !fs.existsSync(target)) {
     throw new Error(`ffmpeg could not render the fixture audio:\n${audio.stderr}`);
+  }
+  // Check the decoded duration, not the database metadata or output exit code:
+  // a truncated but valid AAC file otherwise makes playback assertions flaky.
+  const decoded = spawnSync(
+    ffmpegPath,
+    ['-v', 'error', '-i', target, '-map', '0:a:0', '-progress', 'pipe:1', '-f', 'null', '-'],
+    { stdio: 'pipe', encoding: 'utf8' },
+  );
+  const times = [...decoded.stdout.matchAll(/^out_time_us=(\d+)$/gm)];
+  const seconds = Number(times.at(-1)?.[1]) / 1_000_000;
+  if (decoded.status !== 0 || !Number.isFinite(seconds) || Math.abs(seconds - AUDIO_SECONDS) > 1) {
+    throw new Error(
+      `Fixture audio duration mismatch: expected ${AUDIO_SECONDS}s, decoded ${seconds}s.`,
+    );
   }
 };
 
