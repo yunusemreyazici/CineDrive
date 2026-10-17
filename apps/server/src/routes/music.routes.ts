@@ -7,6 +7,7 @@ import type { MusicSearchDto } from '@cinedrive/shared';
 import { musicPersonalizationRoutes } from './music-personalization.routes.js';
 import { musicStudioRoutes } from './music-studio.routes.js';
 import { StudioError } from '../services/music-studio.service.js';
+import { notifyStudioChange } from '../services/music-studio-journal.service.js';
 import { refineMusicMixSchema } from '@cinedrive/shared';
 import { readMusicPersonalization } from '../services/music-personalization.service.js';
 import {
@@ -481,7 +482,14 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   await fastify.register(musicPersonalizationRoutes, { prefix: '/personalization' });
-  await fastify.register(musicStudioRoutes, { prefix: '/studio' });
+  await fastify.register(musicStudioRoutes, {
+    prefix: '/studio',
+    languageStats: (userId) => languageEnrichmentService.stats(userId),
+    workers: () => ({
+      lyrics: missingLyricsWorker.observation.snapshot(),
+      index: lyricsBackfill.observation.snapshot(),
+    }),
+  });
 
   fastify.get('/overview', async (request) => {
     const userId = request.user!.id;
@@ -2129,8 +2137,12 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     return reply.status(201).send({
-      playlist: await fastify.prisma.musicPlaylist.create({
-        data: { userId: request.user!.id, ...parsed.data },
+      playlist: await fastify.prisma.$transaction(async (tx) => {
+        const playlist = await tx.musicPlaylist.create({
+          data: { userId: request.user!.id, ...parsed.data },
+        });
+        await notifyStudioChange(tx, playlist.id, 'create');
+        return playlist;
       }),
     });
   });
@@ -2158,21 +2170,25 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const playlist = await fastify.prisma.musicPlaylist.create({
-      data: {
-        userId,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        items: {
-          create: trackIds.map((trackId, position) => ({ trackId, position })),
+    const playlist = await fastify.prisma.$transaction(async (tx) => {
+      const playlist = await tx.musicPlaylist.create({
+        data: {
+          userId,
+          name: parsed.data.name,
+          description: parsed.data.description,
+          items: {
+            create: trackIds.map((trackId, position) => ({ trackId, position })),
+          },
         },
-      },
-      include: {
-        items: {
-          include: { track: { select: { duration: true } } },
-          orderBy: { position: 'asc' },
+        include: {
+          items: {
+            include: { track: { select: { duration: true } } },
+            orderBy: { position: 'asc' },
+          },
         },
-      },
+      });
+      await notifyStudioChange(tx, playlist.id, 'create');
+      return playlist;
     });
     return reply.status(201).send({
       playlist: {
@@ -2210,15 +2226,19 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
     const durationByTrackId = new Map(ownedTracks.map((track) => [track.id, track.duration || 0]));
-    const playlist = await fastify.prisma.musicPlaylist.create({
-      data: {
-        userId,
-        name: parsed.data.name,
-        description: parsed.data.description,
-        items: {
-          create: parsed.data.trackIds.map((trackId, position) => ({ trackId, position })),
+    const playlist = await fastify.prisma.$transaction(async (tx) => {
+      const playlist = await tx.musicPlaylist.create({
+        data: {
+          userId,
+          name: parsed.data.name,
+          description: parsed.data.description,
+          items: {
+            create: parsed.data.trackIds.map((trackId, position) => ({ trackId, position })),
+          },
         },
-      },
+      });
+      await notifyStudioChange(tx, playlist.id, 'create');
+      return playlist;
     });
     return reply.status(201).send({
       playlist: {
@@ -2279,9 +2299,13 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           requestId: request.id,
         },
       });
-    const result = await fastify.prisma.musicPlaylist.updateMany({
-      where: { id: request.params.id, userId: request.user!.id },
-      data: parsed.data,
+    const result = await fastify.prisma.$transaction(async (tx) => {
+      const result = await tx.musicPlaylist.updateMany({
+        where: { id: request.params.id, userId: request.user!.id },
+        data: parsed.data,
+      });
+      if (result.count) await notifyStudioChange(tx, request.params.id, 'metadata');
+      return result;
     });
     if (!result.count)
       return reply.status(404).send({
@@ -2294,8 +2318,15 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
     return { updated: true };
   });
   fastify.delete<{ Params: { id: string } }>('/playlists/:id', async (request, reply) => {
-    const result = await fastify.prisma.musicPlaylist.deleteMany({
-      where: { id: request.params.id, userId: request.user!.id },
+    const result = await fastify.prisma.$transaction(async (tx) => {
+      const owned = await tx.musicPlaylist.findFirst({
+        where: { id: request.params.id, userId: request.user!.id },
+        select: { id: true },
+      });
+      if (owned) await notifyStudioChange(tx, owned.id, 'delete');
+      return tx.musicPlaylist.deleteMany({
+        where: { id: request.params.id, userId: request.user!.id },
+      });
     });
     if (!result.count)
       return reply.status(404).send({
@@ -2341,6 +2372,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
         return created;
       });
     } catch (error) {
@@ -2396,6 +2428,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'MUSIC_RESOURCE_NOT_FOUND') {
@@ -2446,6 +2479,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
             where: { id: playlist.id },
             data: { updatedAt: new Date() },
           });
+          await notifyStudioChange(tx, playlist.id, 'edit');
         });
       } catch (error) {
         if (error instanceof Error && error.message === 'PLAYLIST_NOT_FOUND') {
@@ -2496,6 +2530,7 @@ export const musicRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: playlist.id },
           data: { updatedAt: new Date() },
         });
+        await notifyStudioChange(tx, playlist.id, 'edit');
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'INVALID_PLAYLIST_ORDER') {

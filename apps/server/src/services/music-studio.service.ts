@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Prisma, PrismaClient } from '@cinedrive/prisma';
+import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import { musicStudioSchema, type MusicStudioDto } from '@cinedrive/shared';
 import { readableMusicTrackFilter } from '../utils/library-access.js';
 
@@ -109,13 +109,39 @@ export async function replacePlaylistItems(
   playlistId: string,
   items: { id: string; trackId: string }[],
 ) {
-  // The caller holds the write lock and validates version + permissions. IDs survive undo.
-  await tx.musicPlaylistItem.deleteMany({ where: { playlistId } });
-  for (let offset = 0; offset < items.length; offset += 200) {
+  // Keep unchanged rows (and their createdAt) intact. Park only changed rows in
+  // distinct negative slots before reordering, preserving the unique position constraint.
+  const previous = await tx.musicPlaylistItem.findMany({
+    where: { playlistId },
+    select: { id: true, trackId: true, position: true },
+  });
+  const before = new Map(previous.map((item) => [item.id, item]));
+  const next = new Set(items.map((item) => item.id));
+  const removed = previous.filter((item) => !next.has(item.id)).map((item) => item.id);
+  for (let offset = 0; offset < removed.length; offset += 400)
+    await tx.musicPlaylistItem.deleteMany({
+      where: { playlistId, id: { in: removed.slice(offset, offset + 400) } },
+    });
+  const positioned = items.map((item, position) => ({ ...item, position }));
+  const changed = positioned.filter((item) => {
+    const old = before.get(item.id);
+    return old && (old.position !== item.position || old.trackId !== item.trackId);
+  });
+  for (let offset = 0; offset < changed.length; offset += 200) {
+    const ids = changed.slice(offset, offset + 200).map((item) => item.id);
+    await tx.$executeRaw(
+      Prisma.sql`UPDATE "MusicPlaylistItem" SET "position" = -"position" - 1 WHERE "playlistId" = ${playlistId} AND "id" IN (${Prisma.join(ids)})`,
+    );
+  }
+  for (const item of changed)
+    await tx.musicPlaylistItem.update({
+      where: { id: item.id },
+      data: { position: item.position, trackId: item.trackId },
+    });
+  const added = positioned.filter((item) => !before.has(item.id));
+  for (let offset = 0; offset < added.length; offset += 200) {
     await tx.musicPlaylistItem.createMany({
-      data: items
-        .slice(offset, offset + 200)
-        .map((item, index) => ({ ...item, playlistId, position: offset + index })),
+      data: added.slice(offset, offset + 200).map((item) => ({ ...item, playlistId })),
     });
   }
   await tx.musicPlaylist.update({ where: { id: playlistId }, data: { updatedAt: new Date() } });

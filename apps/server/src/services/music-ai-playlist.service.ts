@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@cinedrive/prisma';
-import type { MusicMixDto, MusicTrackDto, PlaylistIntent } from '@cinedrive/shared';
+import type {
+  MusicMixDto,
+  MusicTrackDto,
+  PlaylistIntent,
+  MusicAiPlaylistCoverageDto,
+} from '@cinedrive/shared';
 import { readableMusicTrackFilter } from '../utils/library-access.js';
 import { findMusicTracksByIdsWithRelations, formatMusicTrack } from '../utils/music-format.js';
 import { type DiscoveryCandidate, loadDiscoveryCandidates } from './music-discovery-candidates.js';
@@ -37,6 +42,7 @@ export interface MusicAiPlaylistResult {
   requestedCount: number;
   matchedCount: number;
   constraints: string[];
+  coverage?: MusicAiPlaylistCoverageDto;
 }
 
 const normalizeArtist = (value: string) =>
@@ -258,6 +264,32 @@ export const explainCandidateIntent = (
 
 export const matchesCandidateHardIntent = (candidate: DiscoveryCandidate, intent: PlaylistIntent) =>
   explainCandidateIntent(candidate, intent).hardConstraintPassed;
+
+export function describeAiPlaylistCoverage(
+  candidates: DiscoveryCandidate[],
+  intent: PlaylistIntent,
+  hardMatchedCount: number,
+  versionEligibleCount: number,
+): MusicAiPlaylistCoverageDto {
+  const hardLanguage = intent.language.mode === 'hard' && intent.language.languages.length > 0;
+  const hardYear =
+    intent.year.mode === 'hard' && (intent.year.min !== null || intent.year.max !== null);
+  const hardGenres = intent.genres.some((genre) => genre.mode === 'hard');
+  return {
+    catalogueCount: candidates.length,
+    hardMatchedCount,
+    versionEligibleCount,
+    missingLanguageEvidence: hardLanguage
+      ? candidates.filter(
+          (c) => evaluateCandidateLanguage(c, intent.language.languages).status === 'unknown',
+        ).length
+      : 0,
+    missingYear: hardYear ? candidates.filter((c) => !c.year && !c.albumYear).length : 0,
+    missingGenres: hardGenres
+      ? candidates.filter((c) => !normalizedCandidateGenres(c).size).length
+      : 0,
+  };
+}
 
 const preferenceScore = (candidate: DiscoveryCandidate, intent: PlaylistIntent) => {
   const genres = normalizedCandidateGenres(candidate);
@@ -513,14 +545,10 @@ export class MusicAiPlaylistService {
       },
     });
     const studio = await readStudio(this.prisma, userId);
-    const eligible = selectRecordingVersions(
-      candidates.filter((c) => matchesCandidateHardIntent(c, intent)),
-      studio,
-    );
+    const hardPool = candidates.filter((c) => matchesCandidateHardIntent(c, intent));
+    const eligible = selectRecordingVersions(hardPool, studio);
     const selected = selectAiPlaylistCandidates(eligible, history, intent, generationId);
-    const matchedCount = candidates.filter((candidate) =>
-      matchesCandidateHardIntent(candidate, intent),
-    ).length;
+    const matchedCount = hardPool.length;
     const hydrated = await findMusicTracksByIdsWithRelations(
       this.prisma,
       userId,
@@ -557,6 +585,7 @@ export class MusicAiPlaylistService {
       requestedCount: intent.targetCount,
       matchedCount,
       constraints: describeHardIntentConstraints(intent, locale),
+      coverage: describeAiPlaylistCoverage(candidates, intent, matchedCount, eligible.length),
     };
     this.remember(userId, result);
     return result;
@@ -650,6 +679,12 @@ export class MusicAiPlaylistService {
       ...original,
       generatedAt: new Date().toISOString(),
       matchedCount: hardPool.length,
+      coverage: describeAiPlaylistCoverage(
+        candidates,
+        original.intent,
+        hardPool.length,
+        selectRecordingVersions(hardPool, studio).length,
+      ),
       mix: {
         ...original.mix,
         id: `ai-refined-${generationId}`,

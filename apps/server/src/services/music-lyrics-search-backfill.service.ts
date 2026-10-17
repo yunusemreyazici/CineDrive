@@ -1,3 +1,4 @@
+import { BackgroundJobObservation } from './background-job-observation.js';
 const INITIAL_RETRY_MS = 30_000;
 const MAX_RETRY_MS = 5 * 60_000;
 
@@ -5,6 +6,7 @@ const MAX_RETRY_MS = 5 * 60_000;
  * hook: schedule after listen, and drain its current batch before DB shutdown.
  */
 export class MusicLyricsSearchBackfillService {
+  readonly observation = new BackgroundJobObservation();
   private timer?: ReturnType<typeof setTimeout>;
   private active?: Promise<void>;
   private controller?: AbortController;
@@ -25,15 +27,18 @@ export class MusicLyricsSearchBackfillService {
   }
 
   private schedule(delay: number) {
+    this.observation.scheduled(delay);
     this.timer = setTimeout(() => {
       this.timer = undefined;
       if (this.stopped) return;
+      this.observation.begin();
       const controller = new AbortController();
       this.controller = controller;
       const work = Promise.resolve().then(() => this.run(controller.signal));
       this.active = work;
       void work.then(
         () => {
+          this.observation.complete();
           this.active = undefined;
           this.controller = undefined;
           if (!this.stopped) this.onComplete();
@@ -42,6 +47,7 @@ export class MusicLyricsSearchBackfillService {
           this.active = undefined;
           this.controller = undefined;
           if (this.stopped) return;
+          this.observation.fail();
           this.onError();
           this.schedule(this.retryDelay);
           this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_MS);
@@ -57,5 +63,6 @@ export class MusicLyricsSearchBackfillService {
     this.timer = undefined;
     this.controller?.abort();
     await this.active?.catch(() => {});
+    this.observation.stop();
   }
 }

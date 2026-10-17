@@ -77,6 +77,7 @@ export interface MusicAiPlaylistResponse {
   requestedCount: number;
   matchedCount: number;
   constraints: string[];
+  coverage?: import('@cinedrive/shared').MusicAiPlaylistCoverageDto;
 }
 
 export const useMusicAiPlaylistMutation = () =>

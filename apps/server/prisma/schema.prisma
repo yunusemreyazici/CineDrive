@@ -46,6 +46,8 @@ model User {
   musicPlaylists              MusicPlaylist[]
   musicPlaylistMemberships    MusicPlaylistMembership[]
   musicStudio                MusicStudio?
+  musicStudioOperations       MusicStudioOperation[]
+  musicStudioChanges          MusicStudioChange[]
   musicPlaybackStates         MusicPlaybackState[]
   musicPlaybackCommands       MusicPlaybackCommand[]
   musicMaintenanceSuggestions MusicMaintenanceSuggestion[]
@@ -721,6 +723,7 @@ model MusicPlaylist {
   updatedAt   DateTime            @updatedAt
   items       MusicPlaylistItem[]
   memberships MusicPlaylistMembership[]
+  revisions   MusicPlaylistRevision[]
 
   @@index([userId, updatedAt])
 }
@@ -741,6 +744,41 @@ model MusicStudio {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   revision Int @default(0)
   content String @default("{}")
+}
+
+model MusicStudioOperation {
+  userId String
+  operationId String
+  fingerprint String
+  result String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, operationId])
+  @@index([userId, createdAt])
+}
+
+model MusicPlaylistRevision {
+  id Int @id @default(autoincrement())
+  playlistId String
+  actorId String
+  kind String
+  beforeItems String
+  afterItems String
+  addedCount Int
+  removedCount Int
+  createdAt DateTime @default(now())
+  playlist MusicPlaylist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  @@index([playlistId, id])
+}
+
+model MusicStudioChange {
+  id Int @id @default(autoincrement())
+  userId String
+  playlistId String
+  kind String
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, id])
 }
 
 model MusicPlaylistItem {

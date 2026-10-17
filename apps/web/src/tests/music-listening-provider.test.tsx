@@ -43,6 +43,7 @@ const Harness = () => {
   return (
     <>
       <button onClick={() => player.playTracks([track])}>Start</button>
+      <button onClick={() => player.playTracks([track, track], 1, 42)}>Restore session</button>
       <button onClick={() => player.seek(239)}>Seek</button>
       <button onClick={() => player.setSleepTimer(15)}>Sleep</button>
       <button onClick={player.pause}>Pause explicitly</button>
@@ -107,6 +108,19 @@ describe('provider meaningful history integration', () => {
     audio.currentTime = 240;
     clock = 2;
     fireEvent.ended(audio);
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+  it('seeks to a restored checkpoint after metadata without counting skipped time as listening', async () => {
+    const { container } = await setup();
+    for (const element of container.querySelectorAll('audio'))
+      Object.defineProperty(element, 'duration', { configurable: true, value: 240 });
+    fireEvent.click(screen.getByText('Restore session'));
+    const audio = [...container.querySelectorAll('audio')].find((element) =>
+      element.getAttribute('src'),
+    )!;
+    fireEvent.loadedMetadata(audio);
+    expect(audio.currentTime).toBe(42);
+    fireEvent.click(screen.getByText('Pause explicitly'));
     expect(apiClient.post).not.toHaveBeenCalled();
   });
   it('pauses both slots on timer expiry and keeps the selected track and position', async () => {

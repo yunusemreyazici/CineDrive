@@ -143,6 +143,214 @@ describe('music studio authenticated collaboration', () => {
     await app.close();
   });
   const path = () => `/playlists/${playlistId}`;
+  it('does not emit notifications for a forged self-leave request', async () => {
+    const before = await app.prisma.musicStudioChange.count();
+    expect((await call(path() + `/members/${stranger.id}`, stranger, 'DELETE')).statusCode).toBe(
+      404,
+    );
+    expect(await app.prisma.musicStudioChange.count()).toBe(before);
+  });
+  it('exposes only accessible history track labels and refuses restoring removed files', async () => {
+    const initial = (await call(path())).json();
+    await call(path() + '/items', owner, 'PUT', { version: initial.version, items: [] });
+    const history = (await call(path() + '/history')).json();
+    const detailsPath = `${path()}/history/${history.entries[0].id}/items`;
+    expect((await call(detailsPath)).json().items[0]).toMatchObject({
+      kind: 'removed',
+      track: { title: 'Track 0' },
+    });
+    expect((await call(detailsPath, stranger)).statusCode).toBe(404);
+    await invite('listener');
+    const redacted = (await call(detailsPath, guest)).json();
+    expect(redacted.items.every((i: { track: unknown }) => i.track === null)).toBe(true);
+    expect(JSON.stringify(redacted)).not.toContain(tracks[0]);
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: tracks[0] } },
+      data: { status: 'deleted' },
+    });
+    const version = (await call(path())).json().version;
+    expect(
+      (
+        await call(`${path()}/history/${history.entries[0].id}/restore`, owner, 'POST', {
+          operationId: randomUUID(),
+          version,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(await app.prisma.musicPlaylistItem.count({ where: { playlistId } })).toBe(0);
+  });
+  it('loads only owned family labels and redacts unavailable recordings', async () => {
+    const id = randomUUID();
+    await call('/profile', owner, 'PUT', {
+      revision: 0,
+      families: [
+        { id, name: 'Versions', trackIds: tracks.slice(0, 2), preferredTrackId: tracks[0] },
+      ],
+      sessions: [],
+    });
+    expect((await call(`/families/${id}/tracks`)).json().tracks).toHaveLength(2);
+    expect((await call(`/families/${id}/tracks`, stranger)).statusCode).toBe(404);
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: tracks[0] } },
+      data: { status: 'deleted' },
+    });
+    expect((await call(`/families/${id}/tracks`)).json().tracks).toHaveLength(1);
+  });
+  it('returns owner-scoped quality and jobs without lyrics or filesystem paths', async () => {
+    const health = await call('/health');
+    expect(health.statusCode).toBe(200);
+    expect(health.json().quality).toMatchObject({
+      total: 15,
+      unknownLanguage: 0,
+      missingYear: 0,
+      lyricsMissing: 15,
+    });
+    expect(health.json().workers).toBeNull();
+    expect(health.body).not.toContain('/tmp');
+    expect((await call('/health', stranger)).json().quality.total).toBe(0);
+    await app.prisma.musicLyrics.createMany({
+      data: [null, '', 'fixture searchable lyrics'].map((searchText, index) => ({
+        trackId: tracks[index]!,
+        content: 'fixture',
+        sourceName: 'fixture',
+        searchText,
+      })),
+    });
+    expect((await call('/health')).json().quality).toMatchObject({
+      lyricsAvailable: 3,
+      lyricsIndexed: 1,
+      indexPending: 1,
+      lyricsMissing: 12,
+    });
+  });
+  it('hydrates a saved session in occurrence order and rejects unavailable tracks', async () => {
+    const id = randomUUID();
+    await call('/profile', owner, 'PUT', {
+      revision: 0,
+      families: [],
+      sessions: [
+        {
+          id,
+          name: 'Night',
+          trackIds: [tracks[0], tracks[0], tracks[1]],
+          index: 1,
+          position: 42,
+          savedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    const response = await call(`/sessions/${id}/tracks`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().tracks.map((t: { id: string }) => t.id)).toEqual([
+      tracks[0],
+      tracks[0],
+      tracks[1],
+    ]);
+    expect(response.json()).toMatchObject({ index: 1, position: 42 });
+    expect((await call(`/sessions/${id}/tracks`, stranger)).statusCode).toBe(404);
+    await app.prisma.driveFile.updateMany({
+      where: { musicTrack: { id: tracks[0] } },
+      data: { status: 'deleted' },
+    });
+    expect((await call(`/sessions/${id}/tracks`)).statusCode).toBe(409);
+  });
+  it('creates once per operation, rejects changed payload and isolates operation IDs by account', async () => {
+    const input = { operationId: randomUUID(), name: 'Once' };
+    const responses = await Promise.all([
+      call('/playlists', owner, 'POST', input),
+      call('/playlists', owner, 'POST', input),
+    ]);
+    expect(responses.map((r) => r.statusCode)).toEqual([200, 200]);
+    expect(responses[0]!.json()).toEqual(responses[1]!.json());
+    expect(
+      await app.prisma.musicPlaylist.count({ where: { userId: owner.id, name: 'Once' } }),
+    ).toBe(1);
+    expect((await call('/playlists', owner, 'POST', { ...input, name: 'Other' })).statusCode).toBe(
+      409,
+    );
+    expect((await call('/playlists', guest, 'POST', input)).json().playlist.id).not.toBe(
+      responses[0]!.json().playlist.id,
+    );
+  });
+  it('replays acknowledged edits without extra history, preserves row timestamps and restores safely', async () => {
+    const initial = (await call(path())).json();
+    const before = await app.prisma.musicPlaylistItem.findMany({
+      where: { playlistId },
+      orderBy: { position: 'asc' },
+    });
+    const input = {
+      operationId: randomUUID(),
+      version: initial.version,
+      items: before
+        .slice(1)
+        .reverse()
+        .map(({ id, trackId }) => ({ id, trackId })),
+    };
+    const first = await call(path() + '/items', owner, 'PUT', input);
+    expect(first.statusCode).toBe(200);
+    expect((await call(path() + '/items', owner, 'PUT', input)).json()).toEqual(first.json());
+    const after = await app.prisma.musicPlaylistItem.findMany({
+      where: { playlistId },
+      orderBy: { position: 'asc' },
+    });
+    expect(after.map((i) => i.id)).toEqual(input.items.map((i) => i.id));
+    expect(after[0]!.createdAt).toEqual(before[2]!.createdAt);
+    const history = (await call(path() + '/history')).json();
+    expect(history.entries).toHaveLength(1);
+    expect(history.entries[0]).toMatchObject({ removed: 1, added: 0, canRestore: true });
+    expect((await call(path() + '/history', stranger)).statusCode).toBe(404);
+    const restorePath = `${path()}/history/${history.entries[0].id}/restore`;
+    expect(
+      (
+        await call(restorePath, owner, 'POST', {
+          operationId: randomUUID(),
+          version: initial.version,
+        })
+      ).statusCode,
+    ).toBe(409);
+    const restored = await call(restorePath, owner, 'POST', {
+      operationId: randomUUID(),
+      version: first.json().version,
+    });
+    expect(restored.statusCode).toBe(200);
+    expect((await call(path())).json().playlist.items.map((i: { id: string }) => i.id)).toEqual(
+      before.map((i) => i.id),
+    );
+    expect((await call(path() + '/history')).json().entries).toHaveLength(2);
+  });
+  it('paginates directories without duplicates and validates cursors', async () => {
+    for (let i = 0; i < 4; i++)
+      await call('/playlists', owner, 'POST', { operationId: randomUUID(), name: `Page ${i}` });
+    const first = (await call('/playlists?limit=2')).json();
+    const second = (await call(`/playlists?limit=2&cursor=${first.nextCursor}`)).json();
+    expect(first.playlists).toHaveLength(2);
+    expect(second.playlists).toHaveLength(2);
+    expect(
+      new Set([...first.playlists, ...second.playlists].map((p: { id: string }) => p.id)).size,
+    ).toBe(4);
+    expect((await call('/playlists?cursor=garbage')).statusCode).toBe(400);
+    expect((await call('/playlists?limit=9999')).statusCode).toBe(400);
+  });
+  it('replays changes after reconnect and emits revocation without leaking other user events', async () => {
+    await shareLibrary();
+    await invite();
+    const cursor = (await call('/changes', guest)).json().cursor;
+    const initial = (await call(path(), guest)).json();
+    const input = { operationId: randomUUID(), version: initial.version, items: [] };
+    expect((await call(path() + '/items', guest, 'PUT', input)).statusCode).toBe(200);
+    const changes = (await call(`/changes?cursor=${cursor}`, guest)).json();
+    expect(changes.changes).toContainEqual(expect.objectContaining({ playlistId, kind: 'edit' }));
+    expect((await call('/changes?cursor=0', stranger)).json().changes).toEqual([]);
+    await call(path() + `/members/${guest.id}`, owner, 'DELETE');
+    expect((await call(`/changes?cursor=${changes.cursor}`, guest)).json().changes).toContainEqual(
+      expect.objectContaining({ kind: 'membership' }),
+    );
+    expect((await call(path() + '/items', guest, 'PUT', input)).statusCode).toBe(404);
+    expect((await call('/changes?cursor=999999999', guest)).json().resetRequired).toBe(true);
+    // Zero is a valid baseline for accounts with no earlier events; it must also
+    // resnapshot if the retained event window no longer covers that baseline.
+    expect((await call('/changes?cursor=0', guest)).json().resetRequired).toBe(true);
+  });
   const shareLibrary = () =>
     app.prisma.libraryMembership.create({
       data: { libraryId, userId: guest.id, role: 'listener' },
@@ -233,6 +441,7 @@ describe('music studio authenticated collaboration', () => {
     const source = (await call(path())).json();
     const targetState = (await call(`/playlists/${target.id}`)).json();
     const body = {
+      operationId: randomUUID(),
       version: source.version,
       targetId: target.id,
       targetVersion: targetState.version,
@@ -245,6 +454,12 @@ describe('music studio authenticated collaboration', () => {
     ).toBe(409);
     expect(await app.prisma.musicPlaylistItem.count({ where: { playlistId } })).toBe(3);
     expect((await call(path() + '/transfer', owner, 'POST', body)).statusCode).toBe(200);
+    expect((await call(path() + '/transfer', owner, 'POST', body)).statusCode).toBe(200);
+    expect(
+      await app.prisma.musicPlaylistRevision.count({
+        where: { playlistId: { in: [playlistId, target.id] } },
+      }),
+    ).toBe(2);
     expect(await app.prisma.musicPlaylistItem.count({ where: { playlistId } })).toBe(2);
     const moved = await app.prisma.musicPlaylistItem.findMany({ where: { playlistId: target.id } });
     expect(moved.map((i) => i.trackId)).toEqual([tracks[0]]);

@@ -39,10 +39,20 @@ describe('periodic missing lyrics lifecycle', () => {
     const worker = new MusicLyricsEnrichmentWorker(run, 300_000);
     worker.start();
     worker.start();
+    expect(worker.observation.snapshot()).toMatchObject({
+      status: 'queued',
+      startedAt: null,
+      estimatedRemainingSeconds: null,
+    });
     await vi.advanceTimersByTimeAsync(29_999);
     expect(run).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(worker.observation.snapshot()).toMatchObject({
+      status: 'running',
+      startedAt: expect.any(String),
+      nextRunAt: null,
+    });
     await vi.advanceTimersByTimeAsync(900_000);
     expect(run).toHaveBeenCalledTimes(1);
     let stopped = false;
@@ -54,6 +64,7 @@ describe('periodic missing lyrics lifecycle', () => {
     expect(stopped).toBe(false);
     finish();
     await stop;
+    expect(worker.observation.snapshot()).toMatchObject({ status: 'stopped', nextRunAt: null });
     worker.start();
     await vi.advanceTimersByTimeAsync(900_000);
     expect(run).toHaveBeenCalledTimes(1);
@@ -67,6 +78,12 @@ describe('periodic missing lyrics lifecycle', () => {
     const worker = new MusicLyricsEnrichmentWorker(run, 300_000, error);
     worker.start();
     await vi.advanceTimersByTimeAsync(30_000);
+    expect(worker.observation.snapshot()).toMatchObject({
+      status: 'retryWaiting',
+      failures: 1,
+      completedAt: expect.any(String),
+      nextRunAt: expect.any(String),
+    });
     for (const delay of [30_000, 60_000, 120_000, 240_000, 300_000, 300_000]) {
       const calls = run.mock.calls.length;
       await vi.advanceTimersByTimeAsync(delay - 1);
