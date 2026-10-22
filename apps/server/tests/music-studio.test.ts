@@ -160,6 +160,13 @@ describe('music studio authenticated collaboration', () => {
     expect(result.headers['cache-control']).toBe('private, no-store');
     const recommendations = result.json();
     expect(recommendations.tracks).toHaveLength(8);
+    expect(Object.keys(recommendations.reasons).sort()).toEqual(
+      recommendations.tracks.map((t: { id: string }) => t.id).sort(),
+    );
+    expect(Object.values(recommendations.reasons).flat()).toContainEqual({
+      kind: 'genre',
+      value: 'pop',
+    });
     expect(
       recommendations.tracks.every((t: { id: string }) => !tracks.slice(0, 2).includes(t.id)),
     ).toBe(true);
@@ -167,6 +174,7 @@ describe('music studio authenticated collaboration', () => {
     await invite();
     // Accepted playlist membership alone must not expose another user's catalogue.
     expect((await call(endpoint, guest, 'POST', payload)).json().tracks).toEqual([]);
+    expect((await call(endpoint, guest, 'POST', payload)).json().reasons).toEqual({});
     await shareLibrary();
     const guestRecommendations = (await call(endpoint, guest, 'POST', payload)).json();
     expect(guestRecommendations.tracks).toHaveLength(8);

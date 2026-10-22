@@ -141,8 +141,34 @@ export async function playlistRecommendations(
   if (current.version !== snapshot.version)
     throw new StudioError(409, 'Playlist changed. Reload recommendations.');
   const byId = new Map(rows.map((t) => [t.id, formatMusicTrack(t)]));
+  const memberIds = new Set(snapshot.playlist.items.map((i) => i.trackId));
+  const anchors = candidates.filter((t) => memberIds.has(t.id));
   return {
     version: snapshot.version,
     tracks: selected.flatMap((t) => (byId.has(t.id) ? [byId.get(t.id)!] : [])),
+    reasons: Object.fromEntries(
+      selected.filter((t) => byId.has(t.id)).map((t) => [t.id, recommendationReasons(t, anchors)]),
+    ),
   };
+}
+
+export function recommendationReasons(
+  track: DiscoveryCandidate,
+  anchors: DiscoveryCandidate[],
+): NonNullable<PlaylistRecommendationsDto['reasons']>[string] {
+  const reasons: NonNullable<PlaylistRecommendationsDto['reasons']>[string] = [];
+  const genres = new Set(
+    anchors.flatMap((t) => [...t.genres, ...t.albumGenres].map(normalizeGenre)),
+  );
+  const genre = [...track.genres, ...track.albumGenres]
+    .map(normalizeGenre)
+    .find((g) => g && genres.has(g));
+  if (genre) reasons.push({ kind: 'genre', value: genre });
+  if (track.artistId && track.artistName && anchors.some((t) => t.artistId === track.artistId))
+    reasons.push({ kind: 'artist', value: track.artistName });
+  const year = track.year ?? track.albumYear;
+  const years = anchors.map((t) => t.year ?? t.albumYear).filter((y): y is number => y !== null);
+  if (year && years.length && Math.abs(year - years.reduce((a, b) => a + b, 0) / years.length) <= 5)
+    reasons.push({ kind: 'era', value: String(year) });
+  return reasons;
 }

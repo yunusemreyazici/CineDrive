@@ -10,6 +10,7 @@ export const playlistRecommendationsSchema = z
 export interface PlaylistRecommendationsDto {
   version: string;
   tracks: MusicTrackDto[];
+  reasons?: Record<string, Array<{ kind: 'genre' | 'artist' | 'era'; value: string }>>;
 }
 
 const id = z.string().min(1).max(200);

@@ -3,6 +3,7 @@ import { playlistRecommendationsSchema } from '@cinedrive/shared';
 import {
   recommendPlaylistCandidates,
   recordingKey,
+  recommendationReasons,
 } from '../src/services/music-playlist-recommendations.service.js';
 import { emptyStudio } from '../src/services/music-studio.service.js';
 import type { DiscoveryCandidate } from '../src/services/music-discovery-candidates.js';
@@ -32,6 +33,37 @@ const candidate = (id: string, values: Partial<DiscoveryCandidate> = {}): Discov
   ...values,
 });
 describe('local playlist recommendations', () => {
+  it('explains only confirmed metadata affinities without AI', () => {
+    const anchor = candidate('seed');
+    expect(
+      recommendationReasons(
+        candidate('same', { artistId: anchor.artistId, artistName: anchor.artistName }),
+        [anchor],
+      ),
+    ).toEqual([
+      { kind: 'genre', value: 'rock' },
+      { kind: 'artist', value: anchor.artistName },
+      { kind: 'era', value: '2005' },
+    ]);
+    expect(
+      recommendationReasons(candidate('other', { genres: ['jazz'], year: 1980 }), [anchor]),
+    ).toEqual([]);
+    expect(
+      recommendationReasons(
+        candidate('missing', { genres: [], albumGenres: [], year: null, albumYear: null }),
+        [],
+      ),
+    ).toEqual([]);
+    expect(
+      recommendationReasons(
+        candidate('album', { genres: [], albumGenres: [' ROCK '], year: null, albumYear: 2007 }),
+        [anchor],
+      ),
+    ).toEqual([
+      { kind: 'genre', value: 'rock' },
+      { kind: 'era', value: '2007' },
+    ]);
+  });
   it('prefers matching genres/artists without padding with unrelated favorites', () => {
     const pool = [
       candidate('seed'),
