@@ -6,6 +6,7 @@ export const DISCOVERY_CANDIDATE_PAGE_SIZE = 400;
 
 export interface DiscoveryCandidate {
   id: string;
+  musicbrainzRecordingId?: string | null;
   title: string;
   discNumber: number;
   trackNumber: number;
@@ -37,18 +38,23 @@ export interface DiscoveryCandidate {
 export const loadDiscoveryCandidates = async (
   prisma: PrismaClient,
   userId: string,
+  alsoReadableBy?: string,
 ): Promise<DiscoveryCandidate[]> => {
   const candidates: DiscoveryCandidate[] = [];
   let cursor: string | undefined;
 
   while (true) {
     const rows = await prisma.musicTrack.findMany({
-      where: readableMusicTrackFilter(userId),
+      where:
+        alsoReadableBy && alsoReadableBy !== userId
+          ? { AND: [readableMusicTrackFilter(userId), readableMusicTrackFilter(alsoReadableBy)] }
+          : readableMusicTrackFilter(userId),
       orderBy: { id: 'asc' },
       take: DISCOVERY_CANDIDATE_PAGE_SIZE,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       select: {
         id: true,
+        musicbrainzRecordingId: true,
         title: true,
         discNumber: true,
         trackNumber: true,
@@ -74,6 +80,7 @@ export const loadDiscoveryCandidates = async (
     for (const row of rows) {
       candidates.push({
         id: row.id,
+        musicbrainzRecordingId: row.musicbrainzRecordingId,
         title: row.title,
         discNumber: row.discNumber,
         trackNumber: row.trackNumber,

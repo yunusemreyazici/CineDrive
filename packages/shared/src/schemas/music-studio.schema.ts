@@ -1,5 +1,16 @@
 import { z } from 'zod';
-import type { MusicPlaylistDto } from '../types/index.js';
+import type { MusicPlaylistDto, MusicTrackDto } from '../types/index.js';
+
+export const playlistRecommendationsSchema = z
+  .object({
+    generationId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
+    excludeIds: z.array(z.string().min(1).max(200)).max(100).default([]),
+  })
+  .strict();
+export interface PlaylistRecommendationsDto {
+  version: string;
+  tracks: MusicTrackDto[];
+}
 
 const id = z.string().min(1).max(200);
 const unique = (values: string[]) => new Set(values).size === values.length;
