@@ -270,7 +270,7 @@ export class MusicBrainzService {
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     this.lastRequestAt = Date.now();
     const headers = {
-      'User-Agent': 'CineDrive/1.2.0 (https://github.com/yunusemreyazici/CineDrive)',
+      'User-Agent': 'CineDrive/1.3.0 (https://github.com/yunusemreyazici/CineDrive)',
       Accept: 'application/json',
     };
     let response = await fetch(url, { headers });
@@ -465,7 +465,7 @@ export class MusicBrainzService {
     const linkedWikidataId = wikidataUrl?.match(/\/(?:wiki|entity)\/(Q\d+)(?:$|[?#/])/)?.[1];
 
     const headers = {
-      'User-Agent': 'CineDrive/1.2.0 (https://github.com/yunusemreyazici/CineDrive)',
+      'User-Agent': 'CineDrive/1.3.0 (https://github.com/yunusemreyazici/CineDrive)',
       Accept: 'application/json',
     };
     const wikidataId = linkedWikidataId || (await this.findWikidataId(musicbrainzId, headers));
@@ -539,7 +539,7 @@ export class MusicBrainzService {
       : `${DEEZER_API}/search/artist?q=${encodeURIComponent(artistName)}&limit=10`;
     const response = await this.fetchWithRetry(apiUrl, {
       headers: {
-        'User-Agent': 'CineDrive/1.2.0 (https://github.com/yunusemreyazici/CineDrive)',
+        'User-Agent': 'CineDrive/1.3.0 (https://github.com/yunusemreyazici/CineDrive)',
         Accept: 'application/json',
       },
     });
@@ -580,7 +580,7 @@ export class MusicBrainzService {
       return null;
     const imageResponse = await this.fetchWithRetry(parsedImageUrl, {
       headers: {
-        'User-Agent': 'CineDrive/1.2.0 (https://github.com/yunusemreyazici/CineDrive)',
+        'User-Agent': 'CineDrive/1.3.0 (https://github.com/yunusemreyazici/CineDrive)',
         Accept: 'image/*',
       },
     });

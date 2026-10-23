@@ -10,13 +10,13 @@ Git tags. The root, server, web, and shared package versions move together.
 - `PATCH` fixes defects without intentionally changing the public API or stored-data contract.
 - `MINOR` adds backward-compatible behavior.
 - `MAJOR` may include incompatible API, configuration, or migration changes.
-- Prereleases use valid SemVer suffixes such as `1.2.0-rc.1`.
+- Prereleases use valid SemVer suffixes such as `1.3.0-rc.1`.
 - Published tags must never be moved or reused. If a release is wrong, publish a new version.
 
 Every release must have a matching `CHANGELOG.md` section. Keep upcoming work under
 `[Unreleased]`, then move it to the new version and date when preparing the release.
 
-The current preparation target is `1.2.0`, shared by all four packages. A preparation
+The current preparation target is `1.3.0`, shared by all four packages. A preparation
 PR, changelog date, or successful dry run is not a published release. Check the
 [GitHub Releases page](https://github.com/yunusemreyazici/CineDrive/releases) for
 availability; the example image references must not be assumed to exist.
@@ -46,7 +46,7 @@ availability; the example image references must not be assumed to exist.
 4. Preview the exact curated notes without creating a tag or publishing anything:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.2.0 --notes
+   node scripts/validate-release.mjs --tag v1.3.0 --notes
    ```
 
    Validation requires matching package versions, one exact version heading, a
@@ -68,9 +68,9 @@ availability; the example image references must not be assumed to exist.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # must equal the approved, tested release commit
-   pnpm release:check -- --tag v1.2.0
-   git tag -s v1.2.0 -m "CineDrive v1.2.0"
-   git push origin v1.2.0
+   pnpm release:check -- --tag v1.3.0
+   git tag -s v1.3.0 -m "CineDrive v1.3.0"
+   git push origin v1.3.0
    ```
 
 Pushing a valid tag is the only event that can publish. Manual workflow dispatches
@@ -156,6 +156,15 @@ The standard `.env` continues to hold runtime configuration and secrets;
 `release.env` contains only image references and is ignored by Git.
 
 ## Upgrade and rollback
+
+### 1.2.0 to 1.3.0 checklist
+
+- Create and verify an off-host database backup; preserve runtime configuration, `TOKEN_ENCRYPTION_KEY` and both current image digests. New migrations cover catalogue/search indexes, scan recovery, playback ordering, lyrics search, personalization and playlist collaboration/history. Do not reset the database or rerun first-library setup.
+- Update server and web together using the two digest manifests from the same verified release. The container entrypoint runs `prisma migrate deploy` before startup; the normal VPS updater also applies migrations. Large histories/catalogues may need time for migration/index work. Check readiness and logs before directing traffic.
+- Verify sign-in, an existing video and music library, playback/resume, lyrics search, Replay and Music Studio. For shared lists, test with separate accounts that have explicit library access; playlist invites never grant that access. Use a compatible CineMusic build for the new native workflows.
+- Periodic missing-lyrics enrichment defaults to five-minute passes of at most 25 tracks. It reuses LRCLIB rate limits/retry cooldowns and sends song metadata for lookups. Set `MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES=0` to opt out; cached lyrics/search remain usable. No AI key is required. See [Music Studio and discovery](MUSIC.md).
+- Keep AI settings and existing keys unchanged unless you want to enable optional planning. Normal Discovery and local recommendations do not depend on an AI provider. Missing language/year evidence is not permission to relax hard playlist constraints.
+- If rollback is required, stop the stack and restore the verified pre-upgrade snapshot before starting the previous images. Do not run 1.2.0 against the migrated database. A published release proves artifact publication, not a live production upgrade or rollback drill.
 
 ### 1.1.0 to 1.2.0 checklist
 

@@ -69,7 +69,7 @@ Uygulama ve veritabanı kendi sunucunuzda çalışır. Google Drive isteğe bağ
 
 </details>
 
-Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir.
+Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir. Bazı görünümler 1.3 tasarım yenilemesinden öncedir.
 
 ## Özellikler
 
@@ -86,18 +86,22 @@ Ekran görüntüleri Türkçe arayüzü gösterir; İngilizce de kullanılabilir
 
 - **Etiket tabanlı kütüphane** — Drive veya yerel ses dosyalarından sanatçı, albüm, disk, parça, tür, yayın yılı, katkıda bulunanlar ve gömülü görselleri indeksler.
 - **Keşif** — günlük ve kütüphaneye özel mix'ler, sanatçı/parça radyosu, ruh hâli ve dönem koleksiyonları, kesintisiz oynatma ve kaydedilebilir çalma listeleri.
+- **AI playlist planları** — ne dinlemek istediğinizi anlatın; isteğe bağlı sunucu taraflı sağlayıcı yalnızca intent üretir, parçaları yerel katalog filtreleri ve seeded seçim motoru seçer. Açık dil, tür ve yıl koşulları korunur.
+- **Music Studio** — ortak playlist rolleri ve davetler, toplu düzenleme, değişiklik geçmişi, açık onayla geri yükleme, kayıt sürümleri ve kaydedilmiş dinleme oturumları. Playlist paylaşımı medya kütüphanesine erişim vermez. [Studio ve keşif rehberi](docs/MUSIC.tr.md).
+- **Yerel öneriler** — metadata tabanlı nedenleri gösterilen ilişkili parçalar, kayıt tekrarlarını eleme ve deterministik yenileme; öneriler yalnızca açık seçiminizle eklenir.
 - **Replay** — dönem ve yıla göre dinleme istatistikleri, en çok dinlenen sanatçı/albüm/parçalar ve geçmiş dinleme özetleri.
 - **Kişisel oynatma** — beğeniler, geçmiş, düzenlenebilir çalma listeleri, karıştırma/tekrarlama ve hesapta eşzamanlanan kuyruk ile oynatma konumu.
 - **CineMusic Connect** — uyumlu iOS ve Mac Catalyst istemcileri arasında isteğe bağlı cihaz keşfi ve canlı uzaktan kumanda; oynat/duraklat, ileri sarma, ses, karıştırma/tekrar, kuyruktan seçim, kuyruk kopyalama ve onaylı aktarım desteği sunar. Kullanıcı açıkça aktarım başlatmadıkça her cihaz bağımsız çalmayı sürdürür.
 - **Birlikte Dinle** — aynı sunucudaki uyumlu CineMusic istemcileri için isteğe bağlı iki kişilik ortak dinleme: davet kodu, ortak kuyruk, oturum sahibinin oynatma kontrolü, bağımsız ses seviyesi ve eşzamanlı başlangıç. İki hesabın da kütüphane erişimi olmalı. [Protokol ve kurulum notları](docs/listen-together.md).
 - **Şarkı sözleri** — yan dosya `.lrc` içe aktarma, LRCLIB araması, senkronize veya düz sözler, zaman hizalama, revizyonlar, elle çeviri ve isteğe bağlı LibreTranslate entegrasyonu.
+- **Şarkı sözüyle arama** — yerelde indekslenmiş orijinal sözlerde ve parça metadata'sında arama; sınırlı arka plan zenginleştirmesi ve bakım istatistikleri eksik kapsamı görünür kılar.
 - **Ses ayarları** — ReplayGain ses yüksekliği normalizasyonu, boşluksuz oynatma, crossfade ve hazır ayarlı beş bant ekolayzır.
 - **Kütüphane bakımı** — metadata önerileri, toplu düzenleme, mükerrerleri arşivleme, ReplayGain analizi, Chromaprint/AcoustID eşleştirmesi ve otomatik sanatçı görseli bulma.
 - **İstemci eşzamanlama API'si** — mobil/çevrimdışı istemciler için ETag destekli kütüphane eşzamanlama, toplu dinleme geçmişi, indirme manifesti ve kimlik doğrulamalı parça indirme.
 
 ### Platform
 
-- Türkçe ve İngilizce arayüz, yedi renk teması, sinema modu ve masaüstü/mobil uyumlu gezinti.
+- Yenilenen masaüstü/mobil uyumlu gezinti, Türkçe ve İngilizce arayüz, yedi renk teması, sinema modu, kaydedilmiş katalog görünümleri ve son gezilenler.
 - Kullanıcıya göre ayrılmış kütüphaneler, favoriler, geçmiş, çalma listeleri ve API anahtarları; şifrelenmiş Google yenileme belirteçleri.
 - Otomatik Google erişim belirteci yenileme ve geçici Drive hataları için sınırlı yeniden deneme.
 - Yalnızca yöneticilere açık CPU, bellek, disk I/O, ağ, sıcaklık ve yedi günlük bant genişliği takibi; codec, FFmpeg işi, tarama ve veritabanı bakım ekranları.
@@ -143,6 +147,8 @@ Nginx 80 numaralı portu dinler. Belirlediğiniz yönetici hesabıyla giriş yap
 
 Bu hızlı başlangıç kaynak koddan derler. Yerel derleme gerektirmeyen tekrarlanabilir dağıtım için [release Compose override'ını ve doğrulanmış image digest'lerini](docs/RELEASING.tr.md) kullanın.
 
+1.2.0'dan mı güncelliyorsunuz? 1.3.0 veritabanı migration'ları ekler. Önce yedek alın, iki image'ı birlikte güncelleyin ve [güncelleme kontrol listesini](docs/RELEASING.tr.md#120dan-130a-geçiş-kontrol-listesi) izleyin. Periyodik eksik söz araması `MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES=0` ile kapatılabilir; [müzik rehberine](docs/MUSIC.tr.md) bakın.
+
 ### Başlamadan önce
 
 - **Runtime:** kaynak kurulumları pnpm 11 ile Node.js 22 serisinde 22.13+ veya Node.js 24 destekler. Docker için host'ta Node gerekmez.
@@ -161,6 +167,7 @@ Bütün kurulum ve işletim ayrıntılarını tek sayfada okumak yerine ihtiyac�
 | [Yapılandırma](docs/CONFIGURATION.tr.md) | Ortam değişkenleri, API anahtarları, kaynak sınırları ve çoklu kullanıcı                |
 | [Google Drive](docs/GOOGLE_DRIVE.tr.md)  | OAuth istemcisi, salt okunur kapsamlar, callback URL'leri ve sorun giderme              |
 | [Oynatma](docs/PLAYBACK.tr.md)           | Video modları, altyazılar, müzik, HLS toparlanması ve tarayıcı kapsamı                  |
+| [Music Studio ve keşif](docs/MUSIC.tr.md) | Ortak listeler, yerel öneriler, AI intent ve söz kapsamı |
 | [Operasyon](docs/OPERATIONS.tr.md)       | HTTPS, sağlık kontrolleri, loglar, güncelleme, yedekleme, geri yükleme ve sorun giderme |
 | [Geliştirme](docs/DEVELOPMENT.tr.md)     | Mimari, komutlar, testler, CI ve katkı akışı                                            |
 | [Sürümleme](docs/RELEASING.tr.md)        | SemVer, GHCR image'ları, imzalar, SBOM ve release geri dönüşü                           |
