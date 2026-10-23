@@ -10,13 +10,13 @@ etiketlerinden yayınlar. Kök, sunucu, web ve ortak paket sürümleri birlikte 
 - `PATCH`, public API veya saklanan veri sözleşmesini bilerek değiştirmeyen hata düzeltmeleridir.
 - `MINOR`, geriye uyumlu yeni davranışlar ekler.
 - `MAJOR`, uyumsuz API, yapılandırma veya migration değişiklikleri içerebilir.
-- Ön sürümler `1.2.0-rc.1` gibi geçerli SemVer ekleri kullanır.
+- Ön sürümler `1.3.0-rc.1` gibi geçerli SemVer ekleri kullanır.
 - Yayınlanan etiketler taşınmaz ve yeniden kullanılmaz. Hatalı sürüm yeni bir sürümle düzeltilir.
 
 Her sürümün `CHANGELOG.md` içinde eşleşen bir bölümü olmalıdır. Gelecek değişiklikleri
 `[Unreleased]` altında tutun; sürüm hazırlanırken yeni sürüme ve tarihe taşıyın.
 
-Güncel hazırlık hedefi, dört pakette de ortak olan `1.2.0` sürümüdür. Hazırlık PR'ı, changelog
+Güncel hazırlık hedefi, dört pakette de ortak olan `1.3.0` sürümüdür. Hazırlık PR'ı, changelog
 tarihi veya başarılı dry-run, sürümün yayımlandığı anlamına gelmez. Kullanılabilirliği
 [GitHub Releases sayfasından](https://github.com/yunusemreyazici/CineDrive/releases)
 kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
@@ -46,7 +46,7 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
 4. Tag oluşturmadan veya yayın yapmadan sürüme ait notları önizleyin:
 
    ```bash
-   node scripts/validate-release.mjs --tag v1.2.0 --notes
+   node scripts/validate-release.mjs --tag v1.3.0 --notes
    ```
 
    Kontrol; eşleşen paket sürümleri, tek ve tam eşleşen sürüm başlığı, geçerli takvim
@@ -68,9 +68,9 @@ kontrol edin; örnek image referanslarının mevcut olduğunu varsaymayın.
    git switch main
    git pull --ff-only
    git rev-parse HEAD  # onaylanan ve test edilen release commit'i ile eşleşmeli
-   pnpm release:check -- --tag v1.2.0
-   git tag -s v1.2.0 -m "CineDrive v1.2.0"
-   git push origin v1.2.0
+   pnpm release:check -- --tag v1.3.0
+   git tag -s v1.3.0 -m "CineDrive v1.3.0"
+   git push origin v1.3.0
    ```
 
 Yalnızca geçerli bir tag push'u yayın yapabilir. Manuel workflow çalıştırmaları
@@ -158,6 +158,15 @@ Standart `.env` çalışma zamanı yapılandırmasını ve gizlileri tutmaya dev
 `release.env` yalnızca image referanslarını içerir ve Git tarafından yok sayılır.
 
 ## Güncelleme ve geri dönüş
+
+### 1.2.0'dan 1.3.0'a geçiş kontrol listesi
+
+- Host dışında doğrulanmış veritabanı yedeği alın; çalışma yapılandırmasını, `TOKEN_ENCRYPTION_KEY` değerini ve iki eski image digest'ini saklayın. Yeni migration'lar katalog/arama indekslerini, tarama toparlanmasını, oynatma sıralamasını, söz aramasını, kişiselleştirmeyi ve ortak playlist/geçmişini kapsar. Veritabanını sıfırlamayın veya ilk kütüphane kurulumunu tekrarlamayın.
+- Sunucu ve web'i aynı doğrulanmış release'in iki digest manifestiyle birlikte güncelleyin. Container entrypoint başlangıçtan önce `prisma migrate deploy` çalıştırır; normal VPS güncelleyicisi de migration uygular. Büyük geçmiş/kataloglarda migration ve indeksleme zaman alabilir. Trafiği açmadan readiness ve logları kontrol edin.
+- Oturum açma, mevcut video ve müzik kütüphanesi, oynatma/devam, söz araması, Replay ve Music Studio'yu doğrulayın. Ortak listeleri açık kütüphane izni olan iki ayrı hesapla deneyin; playlist daveti kütüphane erişimi vermez. Yeni native akışlar için uyumlu CineMusic build'i kullanın.
+- Periyodik eksik söz zenginleştirmesi varsayılan olarak beş dakikada bir, en fazla 25 parça işler. LRCLIB istek/retry bekleme sınırlarını kullanır ve arama için parça metadata'sı gönderir. Kapatmak için `MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES=0` ayarlayın; mevcut sözler/arama kullanılabilir kalır. AI anahtarı gerekmez. [Music Studio ve keşif rehberine](MUSIC.tr.md) bakın.
+- İsteğe bağlı planlamayı açmak istemiyorsanız mevcut AI ayarları ve anahtarlarını koruyun. Normal Keşif ve yerel öneriler AI sağlayıcısına bağlı değildir. Eksik dil/yıl kanıtı, HARD playlist koşulunu gevşetme izni değildir.
+- Geri dönüş gerekirse stack'i durdurun, önceki image'ları başlatmadan önce doğrulanmış güncelleme öncesi yedeği geri yükleyin. Migration uygulanmış veritabanıyla 1.2.0 çalıştırmayın. Release yayını, canlı production güncellemesi veya geri dönüş provası yapıldığını kanıtlamaz.
 
 ### 1.1.0'dan 1.2.0'a geçiş kontrol listesi
 

@@ -10,6 +10,45 @@ after its matching GitHub Release and verified container artifacts exist.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
+### Added
+
+- Add Music Studio on the web: collaborative playlists, invitations and roles, multiselect editing, duplicate selection, copy/move, change history and explicit version-checked restoration.
+- Add revocable seven-day playlist invitation links, contributor attribution and accepted shared playlists in normal library/sync responses. Playlist sharing never grants access to private media libraries.
+- Add local playlist recommendations with genre/artist/era explanations, recording-family deduplication and seeded refreshes; suggestions are added only on explicit user action.
+- Add recording families, preferred versions and saved listening checkpoints, plus discovery preferences, feedback and smart-playlist rules for compatible clients.
+- Add two-person Listen Together sessions, invitation links, shared queues and authenticated device-scoped recovery for compatible CineMusic clients.
+- Add indexed lyrics search and rate-limited background LRCLIB enrichment, with persistent language evidence, queue statistics and bounded maintenance pilots.
+- Add web catalogue layout controls, saved browse views, recent browsing, playback shortcuts, queue filtering/undo and a sleep timer.
+
+### Changed
+
+- Redesign the responsive web interface and navigation; expose Music Studio quality and background-job observations alongside existing maintenance tools.
+- Enforce explicit language/genre/year constraints throughout AI playlist selection and show local metadata coverage for small results. AI plans intent only; track selection remains local.
+- Refresh affected Studio resources through a bounded user-scoped change feed; preserve unchanged playlist occurrence IDs and timestamps, and prevent duplicate Studio writes after response loss.
+- Bound artwork/metadata caches and use lightweight catalogue reads and batched hydration for large-library workflows.
+
+### Fixed
+
+- Harden Connect command ownership, queue editing, seek/handoff, permission revocation and retries while preserving independent device playback.
+- Correct Replay timezone handling, listening-state ordering, startup/session recovery, web login redirects and lyric timing/revision handling.
+- Recover interrupted/rescanned libraries and repair episode loading, search, history clearing and subtitle-cache access without discarding existing user data.
+- Correct Studio track search parameters and cancel stale lookups; validate real browser-test audio duration across Linux and macOS.
+
+### Security
+
+- Strengthen library isolation across catalogue, streaming, subtitles, downloads, lyrics and shared playlists; keep invitation tokens hashed at rest and access-checked metadata out of unauthorized responses.
+- Update runtime dependencies and image-processing binaries and retain signed, provenance-attested AMD64/ARM64 release images with SBOMs.
+
+### Upgrade notes
+
+- Back up the database, runtime configuration and `TOKEN_ENCRYPTION_KEY`, and record both old image digests before upgrading from 1.2.0. This release includes migrations for catalogue/search indexes, scan recovery, playback ordering, lyrics search, personalization and collaborative playlists/history. Normal container startup and the VPS updater apply migrations; do not reset the database or rerun setup.
+- Update server and web together using verified image digests from this release. Check readiness, sign-in, an existing video/music library, playback, lyrics search and Music Studio after migration. Rollback requires the pre-upgrade database snapshot as well as the previous images.
+- `MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES` defaults to 5: a bounded background pass looks up at most 25 missing original lyrics per run with shared rate/retry limits. Set it to `0` to disable periodic lookups. Existing cached lyrics remain available; LRCLIB lookups send song metadata to that provider.
+- AI remains optional and server-side. No AI key is needed for ordinary Discovery, local recommendations, lyrics indexing or Studio. A compatible CineMusic update is needed for the new native collaboration/Together controls; server sharing does not grant library permission.
+- See the bilingual 1.2.0 → 1.3.0 checklist in `docs/RELEASING.md` and `docs/RELEASING.tr.md`. Publishing artifacts does not itself deploy or verify a production installation.
+
 ## [1.2.0] - 2026-09-14
 
 ### Added
@@ -103,7 +142,8 @@ after its matching GitHub Release and verified container artifacts exist.
 - Historical video/music database upgrade tests, schema-drift checks, repeatable migrations, and restore/re-upgrade drills using isolated test databases.
 - Release metadata and curated-note regression tests; pull-request multi-architecture builds do not publish artifacts to GHCR.
 
-[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/yunusemreyazici/CineDrive/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/yunusemreyazici/CineDrive/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/yunusemreyazici/CineDrive/releases/tag/v1.0.0

@@ -69,7 +69,7 @@ Run the application and database on your own server. Google Drive is an optional
 
 </details>
 
-Screenshots show the Turkish interface; English is also available.
+Screenshots show the Turkish interface; English is also available. Some layouts predate the 1.3 redesign.
 
 ## Features
 
@@ -86,18 +86,22 @@ Screenshots show the Turkish interface; English is also available.
 
 - **Tag-based library** — indexes artists, albums, discs, tracks, genres, release years, credits, and embedded artwork from Drive or local audio files.
 - **Discovery** — daily and library-aware mixes, artist/track radio, mood and decade collections, continuous play, and reusable playlists.
+- **AI playlist plans** — describe what you want to hear; the optional server-side provider returns an intent, while local catalogue filtering and seeded selection choose the tracks. Explicit language, genre and year constraints stay enforced.
+- **Music Studio** — collaborative playlist roles and invitations, bulk editing, change history, explicit restore, recording versions and saved listening sessions. Sharing a playlist does not grant access to its media library. [Studio and discovery guide](docs/MUSIC.md).
+- **Local recommendations** — related playlist tracks with metadata-based reasons, recording deduplication and deterministic refreshes; add suggestions explicitly.
 - **Replay** — listening statistics by period and year, top artists/albums/tracks, and historical listening summaries.
 - **Personal playback** — favourites, history, editable playlists, shuffle/repeat, and an account-synchronised queue and playback position.
 - **CineMusic Connect** — opt-in device discovery and a live remote controller for compatible iOS and Mac Catalyst clients, including play/pause, seek, volume, shuffle/repeat, queue selection, queue copying, and confirmed handoff. Each device remains independent unless the listener explicitly transfers playback.
 - **Listen Together** — optional two-person listening rooms for compatible CineMusic clients on the same server: invitation codes, a shared queue, host-controlled transport, independent device volume and synchronized starts. Both accounts need library access. See [protocol and deployment notes](docs/listen-together.md).
 - **Lyrics** — sidecar `.lrc` import, LRCLIB lookup, synchronised or plain lyrics, timing alignment, revisions, manual translations, and optional LibreTranslate integration.
+- **Search by lyrics** — search locally indexed original lyrics alongside track metadata; bounded background enrichment and maintenance statistics make missing coverage visible.
 - **Audio controls** — ReplayGain loudness normalisation, gapless playback, crossfade, and a five-band equaliser with presets.
 - **Library care** — metadata suggestions, bulk editing, duplicate archiving, ReplayGain analysis, Chromaprint/AcoustID matching, and automatic artist artwork discovery.
 - **Client sync API** — ETag-aware library sync, batched listening history, download manifests, and authenticated track downloads for mobile/offline clients.
 
 ### Platform
 
-- Turkish and English interface languages, seven colour themes, cinema mode, and responsive desktop/mobile navigation.
+- Redesigned responsive desktop/mobile navigation, Turkish and English interface languages, seven colour themes, cinema mode, saved catalogue views and recent browsing.
 - User-scoped libraries, favourites, history, playlists, API keys, and encrypted Google refresh tokens.
 - Automatic Google access-token refresh and bounded retries for transient Drive failures.
 - Admin-only CPU, memory, disk I/O, network, temperature and seven-day bandwidth monitoring alongside codec, FFmpeg job, scan, and database maintenance screens.
@@ -143,6 +147,8 @@ Nginx listens on port 80. Sign in with your configured administrator account, th
 
 This quick start builds from source. For reproducible deployments without a local build, use the [release Compose override and verified image digests](docs/RELEASING.md).
 
+Upgrading from 1.2.0? Version 1.3.0 adds database migrations. Back up first, update both images together, and follow the [upgrade checklist](docs/RELEASING.md#120-to-130-checklist). Periodic missing-lyrics lookups can be disabled with `MUSIC_LYRICS_ENRICHMENT_INTERVAL_MINUTES=0`; see the [music guide](docs/MUSIC.md).
+
 ### Before you begin
 
 - **Runtime:** source installations support Node.js 22.13+ on the 22 line, or Node.js 24, with pnpm 11. Docker does not require Node on the host.
@@ -161,6 +167,7 @@ Choose a guide rather than scrolling through every installation and operating de
 | [Configuration](docs/CONFIGURATION.md) | Environment variables, API keys, resource limits, and multi-user mode       |
 | [Google Drive](docs/GOOGLE_DRIVE.md)   | OAuth client, read-only scopes, callback URLs, and troubleshooting          |
 | [Playback](docs/PLAYBACK.md)           | Video modes, subtitles, music playback, HLS recovery, and browser coverage  |
+| [Music Studio and discovery](docs/MUSIC.md) | Shared playlists, local recommendations, AI intent and lyrics coverage |
 | [Operations](docs/OPERATIONS.md)       | HTTPS, health checks, logs, upgrades, backups, restore, and troubleshooting |
 | [Development](docs/DEVELOPMENT.md)     | Architecture, commands, tests, CI, and contribution workflow                |
 | [Releasing](docs/RELEASING.md)         | SemVer, GHCR images, signatures, SBOMs, and release rollback                |
