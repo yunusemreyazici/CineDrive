@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.js';
 import { emptyStudio, selectRecordingVersions } from '../src/services/music-studio.service.js';
 import { musicStudioSchema, type PlaylistIntentProviderOutput } from '@cinedrive/shared';
 import { MusicAiPlaylistService } from '../src/services/music-ai-playlist.service.js';
+import { loadDiscoveryCandidates } from '../src/services/music-discovery-candidates.js';
 
 describe('recording families', () => {
   it('never inserts an ineligible preferred track and rejects overlapping families', () => {
@@ -143,6 +144,120 @@ describe('music studio authenticated collaboration', () => {
     await app.close();
   });
   const path = () => `/playlists/${playlistId}`;
+  it('offers authorized local recommendations with versioned additions and attribution', async () => {
+    const endpoint = path() + '/recommendations';
+    const payload = { generationId: 'pilot' };
+    expect(
+      (await app.inject({ method: 'POST', url: `/api/music/studio${endpoint}`, payload }))
+        .statusCode,
+    ).toBe(401);
+    expect((await call(endpoint, stranger, 'POST', payload)).statusCode).toBe(404);
+    expect((await call(endpoint, owner, 'POST', { ...payload, limit: 10000 })).statusCode).toBe(
+      400,
+    );
+    const result = await call(endpoint, owner, 'POST', payload);
+    expect(result.statusCode).toBe(200);
+    expect(result.headers['cache-control']).toBe('private, no-store');
+    const recommendations = result.json();
+    expect(recommendations.tracks).toHaveLength(8);
+    expect(Object.keys(recommendations.reasons).sort()).toEqual(
+      recommendations.tracks.map((t: { id: string }) => t.id).sort(),
+    );
+    expect(Object.values(recommendations.reasons).flat()).toContainEqual({
+      kind: 'genre',
+      value: 'pop',
+    });
+    expect(
+      recommendations.tracks.every((t: { id: string }) => !tracks.slice(0, 2).includes(t.id)),
+    ).toBe(true);
+    expect((await call(endpoint, owner, 'POST', payload)).json()).toEqual(recommendations);
+    await invite();
+    // Accepted playlist membership alone must not expose another user's catalogue.
+    expect((await call(endpoint, guest, 'POST', payload)).json().tracks).toEqual([]);
+    expect((await call(endpoint, guest, 'POST', payload)).json().reasons).toEqual({});
+    await shareLibrary();
+    const guestRecommendations = (await call(endpoint, guest, 'POST', payload)).json();
+    expect(guestRecommendations.tracks).toHaveLength(8);
+    const privateLibrary = await app.prisma.library.create({
+      data: {
+        userId: guest.id,
+        name: 'Private',
+        storageType: 'local',
+        rootFolderId: '',
+        localFolderPath: '/tmp',
+      },
+    });
+    const privateFile = await app.prisma.driveFile.create({
+      data: {
+        libraryId: privateLibrary.id,
+        name: 'private.mp3',
+        storageType: 'local',
+        localFilePath: '/tmp/private.mp3',
+        mimeType: 'audio/mpeg',
+        size: 100n,
+        status: 'active',
+      },
+    });
+    const privateTrack = await app.prisma.musicTrack.create({
+      data: {
+        libraryId: privateLibrary.id,
+        driveFileId: privateFile.id,
+        title: 'Private',
+        normalizedTitle: 'private',
+        genres: '["pop"]',
+        year: 2005,
+      },
+    });
+    expect(
+      (await loadDiscoveryCandidates(app.prisma, guest.id)).some((t) => t.id === privateTrack.id),
+    ).toBe(true);
+    expect(
+      (await loadDiscoveryCandidates(app.prisma, guest.id, owner.id)).some(
+        (t) => t.id === privateTrack.id,
+      ),
+    ).toBe(false);
+    expect(
+      (await call(endpoint, guest, 'POST', payload))
+        .json()
+        .tracks.every((t: { id: string }) => tracks.includes(t.id)),
+    ).toBe(true);
+    const snapshot = (await call(path(), guest)).json();
+    const addition = { id: randomUUID(), trackId: guestRecommendations.tracks[0].id };
+    const items = [
+      ...snapshot.playlist.items.map((i: { id: string; track: { id: string } }) => ({
+        id: i.id,
+        trackId: i.track.id,
+      })),
+      addition,
+    ];
+    const edit = { operationId: randomUUID(), version: guestRecommendations.version, items };
+    expect((await call(path() + '/items', guest, 'PUT', edit)).statusCode).toBe(200);
+    expect(
+      (await app.prisma.musicPlaylistItem.findUniqueOrThrow({ where: { id: addition.id } }))
+        .addedById,
+    ).toBe(guest.id);
+    expect(
+      (await call(path() + '/items', guest, 'PUT', { ...edit, operationId: randomUUID() }))
+        .statusCode,
+    ).toBe(409);
+    const history = (await call(path() + '/history', owner)).json();
+    expect(history.entries[0]).toMatchObject({ actorName: 'Studio Test', kind: 'edit', added: 1 });
+    await app.prisma.musicPlaylistMembership.updateMany({
+      where: { playlistId, userId: guest.id },
+      data: { role: 'listener' },
+    });
+    const listener = (await call(endpoint, guest, 'POST', payload)).json();
+    expect(listener.tracks).toHaveLength(8);
+    expect(
+      (
+        await call(path() + '/items', guest, 'PUT', {
+          ...edit,
+          operationId: randomUUID(),
+          version: listener.version,
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
   it('previews and accepts revocable links without granting private track access', async () => {
     const anonymous = await app.inject({
       method: 'POST',

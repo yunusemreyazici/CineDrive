@@ -11,6 +11,8 @@ import {
 } from '../services/music-playlist-invitation.service.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { playlistRecommendationsSchema } from '@cinedrive/shared';
+import { playlistRecommendations } from '../services/music-playlist-recommendations.service.js';
 import {
   musicStudioSchema,
   playlistWorkshopSchema,
@@ -64,6 +66,20 @@ export const musicStudioRoutes: FastifyPluginAsync<{
     throw error;
   });
   app.get('/profile', async (req) => readStudio(app.prisma, req.user!.id));
+  app.post<{ Params: { id: string } }>(
+    '/playlists/:id/recommendations',
+    { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } },
+    async (req) => {
+      const value = playlistRecommendationsSchema.parse(req.body);
+      return playlistRecommendations(
+        app.prisma,
+        req.user!.id,
+        req.params.id,
+        value.generationId,
+        value.excludeIds,
+      );
+    },
+  );
   app.post<{ Params: { id: string } }>(
     '/playlists/:id/invitation-link',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
